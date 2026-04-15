@@ -6,7 +6,7 @@
   "scripts": {
     "test": "bun test",
     "typecheck": "tsc --noEmit",
-    "migrate": "bunx --bun drizzle-kit migrate",
+    "migrate": "bun run src/migrate.ts",
     "generate": "bunx --bun drizzle-kit generate",
     "seed": "bun run src/seed.ts"
   },

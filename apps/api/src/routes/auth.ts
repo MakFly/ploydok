@@ -24,6 +24,7 @@ import * as BackupCodes from "../auth/backup-codes";
 import * as Sessions from "../auth/sessions";
 import { setChallenge, consumeChallenge } from "../auth/challenges";
 import { requireAuth, type AuthUser } from "../auth/middleware";
+import { sendMail, renderWelcomeEmail } from "../mailer";
 // AuthenticatorTransportFuture is re-exported from @simplewebauthn/server internals
 // We use a simple string type alias to avoid the missing @simplewebauthn/types package
 type AuthenticatorTransportFuture =
@@ -51,7 +52,6 @@ function setCookies(
     "Set-Cookie",
     buildCookieStr(ACCESS_COOKIE, accessToken, ACCESS_MAX_AGE, isSecure),
   );
-  // Refresh cookie value: sessionId:rawToken
   const refreshValue = `${sessionId}:${refreshToken}`;
   headers.append(
     "Set-Cookie",
@@ -111,10 +111,10 @@ export function createAuthRouter(db: Db): Hono {
   const auth = new Hono();
 
   // -------------------------------------------------------------------------
-  // GET /auth/register/options
-  // First boot: create user from query params. Otherwise: requireAuth.
+  // POST /auth/register/options
+  // First boot: create user from JSON body. Otherwise: requireAuth.
   // -------------------------------------------------------------------------
-  auth.get("/auth/register/options", async (c) => {
+  auth.post("/auth/register/options", async (c) => {
     const userCount = await db.select({ id: users.id }).from(users).limit(1);
     const isFirstBoot = userCount.length === 0;
 
@@ -122,9 +122,13 @@ export function createAuthRouter(db: Db): Hono {
     let userEmail: string;
     let userDisplayName: string;
 
+    const body = await c.req
+      .json<{ email?: string; display_name?: string }>()
+      .catch(() => ({}) as { email?: string; display_name?: string });
+
     if (isFirstBoot) {
-      const email = c.req.query("email");
-      const display_name = c.req.query("display_name");
+      const email = body.email;
+      const display_name = body.display_name;
       if (!email || !display_name) {
         return c.json(
           {
@@ -303,6 +307,16 @@ export function createAuthRouter(db: Db): Hono {
     });
 
     const meta = await getUserMeta(db, body.userId);
+
+    // Welcome email sur la première passkey (meta.has_passkey_plus === false + on vient d'insérer).
+    const totalPasskeys = await db
+      .select({ id: passkeys.id })
+      .from(passkeys)
+      .where(eq(passkeys.user_id, body.userId));
+    if (totalPasskeys.length === 1) {
+      const mail = renderWelcomeEmail(user.display_name);
+      void sendMail({ to: user.email, ...mail });
+    }
 
     const response = c.newResponse(
       JSON.stringify({

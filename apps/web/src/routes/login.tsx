@@ -1,6 +1,6 @@
 // SPDX-License-Identifier: AGPL-3.0-only
 import * as React from "react";
-import { createFileRoute, useRouter } from "@tanstack/react-router";
+import { createFileRoute, useRouter, Link } from "@tanstack/react-router";
 import { PasskeyButton } from "../components/auth/PasskeyButton";
 
 export const Route = createFileRoute("/login")({
@@ -124,6 +124,12 @@ function LoginPage(): React.JSX.Element {
           )}
         </div>
 
+        <p className="text-center text-xs text-muted-foreground">
+          Pas encore de compte ?{" "}
+          <Link to="/register" className="underline">
+            Créer un compte
+          </Link>
+        </p>
         <p className="text-center text-xs text-muted-foreground">
           Ploydok is AGPL-3.0 licensed self-hosted software.
         </p>
