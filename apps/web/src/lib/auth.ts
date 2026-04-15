@@ -17,6 +17,13 @@ export function useMe(): UseQueryResult<Me, ApiError> {
   return useQuery<Me, ApiError>({
     queryKey: ["me"],
     queryFn: () => apiFetch<Me>("/me"),
+    // Dédup : une seule fetch partagée entre tous les composants, refetch
+    // après 1 min d'inactivité seulement.
+    staleTime: 60_000,
+    gcTime: 5 * 60_000,
+    refetchOnMount: false,
+    refetchOnWindowFocus: false,
+    refetchOnReconnect: false,
     retry: (failureCount, error) => {
       if (error instanceof ApiError && error.status === 401) return false;
       return failureCount < 2;

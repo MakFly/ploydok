@@ -1,6 +1,6 @@
 // SPDX-License-Identifier: AGPL-3.0-only
 import * as React from "react";
-import { HeadContent, Scripts, createRootRoute } from "@tanstack/react-router";
+import { HeadContent, Link, Scripts, createRootRoute } from "@tanstack/react-router";
 import { QueryClient, QueryClientProvider } from "@tanstack/react-query";
 
 import appCss from "@workspace/ui/globals.css?url";
@@ -24,7 +24,18 @@ export const Route = createRootRoute({
     links: [{ rel: "stylesheet", href: appCss }],
   }),
   shellComponent: RootDocument,
+  notFoundComponent: NotFound,
 });
+
+function NotFound(): React.JSX.Element {
+  return (
+    <div className="flex min-h-screen flex-col items-center justify-center gap-4 p-8 text-center">
+      <h1 className="text-3xl font-semibold">404 — page introuvable</h1>
+      <p className="text-muted-foreground">La page demandée n'existe pas.</p>
+      <Link to="/" className="underline">Retour à l'accueil</Link>
+    </div>
+  );
+}
 
 function RootDocument({ children }: { children: React.ReactNode }): React.JSX.Element {
   return (

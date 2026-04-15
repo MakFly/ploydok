@@ -33,7 +33,7 @@
     "vite": "^7.3.2"
   },
   "scripts": {
-    "dev": "vite dev --port 3000",
+    "dev": "vite dev --port 5173",
     "build": "vite build",
     "preview": "vite preview",
     "lint": "eslint",
