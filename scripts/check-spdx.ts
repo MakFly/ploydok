@@ -24,6 +24,7 @@ const IGNORE = [
   "**/target/**",
   "**/*.gen.ts",
   "**/routeTree.gen.ts",
+  "**/src/gen/**",
 ];
 
 const EXPECTED = "// SPDX-License-Identifier: AGPL-3.0-only";

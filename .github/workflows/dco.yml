@@ -21,7 +21,9 @@ jobs:
             exit 0
           fi
           BASE=$(git merge-base HEAD origin/${{ github.base_ref }})
-          COMMITS=$(git log "$BASE..HEAD" --format="%H %s")
+          # --no-merges : skip les merge commits synthétiques créés par GitHub
+          # pour l'évaluation du PR (refs/pull/N/merge).
+          COMMITS=$(git log --no-merges "$BASE..HEAD" --format="%H %s")
           FAILED=0
 
           while IFS= read -r line; do
