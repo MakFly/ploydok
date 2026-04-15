@@ -2,7 +2,7 @@
 import * as React from "react";
 import { createFileRoute } from "@tanstack/react-router";
 import { Button } from "@workspace/ui/components/button";
-import { useSessions, useRevokeSession, useRevokeOthers } from "../../lib/sessions";
+import { useRevokeOthers, useRevokeSession, useSessions } from "../../lib/sessions";
 
 export const Route = createFileRoute("/settings/security/sessions")({
   component: SessionsPage,

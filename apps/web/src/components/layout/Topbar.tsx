@@ -2,7 +2,7 @@
 import * as React from "react";
 import { useRouter } from "@tanstack/react-router";
 import { Button } from "@workspace/ui/components/button";
-import { useMe, useLogout } from "../../lib/auth";
+import { useLogout, useMe } from "../../lib/auth";
 import { ThemeToggle } from "../theme/ThemeToggle";
 
 export function Topbar(): React.JSX.Element {

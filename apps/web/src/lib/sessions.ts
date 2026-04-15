@@ -1,14 +1,15 @@
 // SPDX-License-Identifier: AGPL-3.0-only
 import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
-import { apiFetch, ApiError } from "./api";
+import { apiFetch } from "./api";
+import type { ApiError } from "./api";
 import type { SessionInfo } from "@ploydok/shared";
 
 interface SessionsResponse {
-  sessions: SessionInfo[];
+  sessions: Array<SessionInfo>;
 }
 
 export function useSessions() {
-  return useQuery<SessionInfo[], ApiError>({
+  return useQuery<Array<SessionInfo>, ApiError>({
     queryKey: ["sessions"],
     queryFn: async () => {
       const data = await apiFetch<SessionsResponse>("/auth/sessions");

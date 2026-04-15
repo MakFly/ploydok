@@ -1,6 +1,6 @@
 // SPDX-License-Identifier: AGPL-3.0-only
 import * as React from "react";
-import { createFileRoute, Link, Outlet, redirect } from "@tanstack/react-router";
+import { Link, Outlet, createFileRoute, redirect } from "@tanstack/react-router";
 import { AppShell } from "../../components/layout/AppShell";
 import { apiFetch } from "../../lib/api";
 import type { Me } from "@ploydok/shared";

@@ -4,7 +4,7 @@
  * We test the component behavior in isolation using direct DOM manipulation
  * and React's test renderer to avoid happy-dom resolution issues in monorepo.
  */
-import { describe, it, expect, beforeEach } from "bun:test";
+import { beforeEach, describe, expect, it } from "bun:test";
 
 // ---------------------------------------------------------------------------
 // Topbar state machine (extracted from Topbar.tsx for unit testing)
@@ -41,7 +41,7 @@ function getUserDisplayText(me: Me | null): string | null {
   return me ? me.display_name : null;
 }
 
-function getDropdownItems(me: Me | null, menuOpen: boolean): string[] {
+function getDropdownItems(me: Me | null, menuOpen: boolean): Array<string> {
   if (!me || !menuOpen) return [];
   return [me.email, "Sign out"];
 }

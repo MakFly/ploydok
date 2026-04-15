@@ -4,7 +4,7 @@
  * We test the query function logic directly (without DOM) to avoid
  * environment issues with happy-dom + bun monorepo resolution.
  */
-import { describe, it, expect } from "bun:test";
+import { describe, expect, it } from "bun:test";
 
 // ---------------------------------------------------------------------------
 // Inline ApiError (mirrors lib/auth.ts)

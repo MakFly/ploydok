@@ -1,11 +1,12 @@
 // SPDX-License-Identifier: AGPL-3.0-only
 import {
-  useQuery,
+  
   useMutation,
-  useQueryClient,
-  type UseQueryResult,
+  useQuery,
+  useQueryClient
 } from "@tanstack/react-query";
-import { apiFetch, ApiError } from "./api";
+import { ApiError, apiFetch } from "./api";
+import type {UseQueryResult} from "@tanstack/react-query";
 import type { Me } from "@ploydok/shared";
 
 // ---------------------------------------------------------------------------

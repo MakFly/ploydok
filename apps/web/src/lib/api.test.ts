@@ -1,11 +1,11 @@
 // SPDX-License-Identifier: AGPL-3.0-only
-import { describe, it, expect, beforeEach } from "bun:test";
+import { beforeEach, describe, expect, it } from "bun:test";
 
 // We test the api module logic in isolation using a mock fetch
 const API_BASE = "http://localhost:4000";
 
 // Mock fetch globally
-let capturedRequests: { url: string; init?: RequestInit }[] = [];
+let capturedRequests: Array<{ url: string; init?: RequestInit }> = [];
 let mockResponses: Map<string, { status: number; body: unknown }> = new Map();
 
 function setupFetchMock(): void {

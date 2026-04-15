@@ -1,11 +1,12 @@
 // SPDX-License-Identifier: AGPL-3.0-only
 import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
 import { startRegistration } from "@simplewebauthn/browser";
-import { apiFetch, ApiError } from "./api";
+import { apiFetch } from "./api";
+import type { ApiError } from "./api";
 import type { PasskeyInfo } from "@ploydok/shared";
 
 interface PasskeysResponse {
-  passkeys: PasskeyInfo[];
+  passkeys: Array<PasskeyInfo>;
 }
 
 interface AddPasskeyRegOptions {
@@ -15,7 +16,7 @@ interface AddPasskeyRegOptions {
 }
 
 export function usePasskeys() {
-  return useQuery<PasskeyInfo[], ApiError>({
+  return useQuery<Array<PasskeyInfo>, ApiError>({
     queryKey: ["passkeys"],
     queryFn: async () => {
       const data = await apiFetch<PasskeysResponse>("/auth/passkeys");
