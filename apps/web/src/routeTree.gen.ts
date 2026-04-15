@@ -10,6 +10,11 @@
 
 import { Route as rootRouteImport } from "./routes/__root"
 import { Route as IndexRouteImport } from "./routes/index"
+import { Route as LoginRouteImport } from "./routes/login"
+import { Route as DashboardRouteImport } from "./routes/dashboard"
+import { Route as SecurityRouteImport } from "./routes/settings/security"
+import { Route as SecuritySessionsRouteImport } from "./routes/settings/security.sessions"
+import { Route as SecurityPasskeysRouteImport } from "./routes/settings/security.passkeys"
 
 const IndexRoute = IndexRouteImport.update({
   id: "/",
@@ -17,26 +22,93 @@ const IndexRoute = IndexRouteImport.update({
   getParentRoute: () => rootRouteImport,
 } as any)
 
+const LoginRoute = LoginRouteImport.update({
+  id: "/login",
+  path: "/login",
+  getParentRoute: () => rootRouteImport,
+} as any)
+
+const DashboardRoute = DashboardRouteImport.update({
+  id: "/dashboard",
+  path: "/dashboard",
+  getParentRoute: () => rootRouteImport,
+} as any)
+
+const SecurityRoute = SecurityRouteImport.update({
+  id: "/settings/security",
+  path: "/settings/security",
+  getParentRoute: () => rootRouteImport,
+} as any)
+
+const SecuritySessionsRoute = SecuritySessionsRouteImport.update({
+  id: "/settings/security/sessions",
+  path: "/sessions",
+  getParentRoute: () => SecurityRoute,
+} as any)
+
+const SecurityPasskeysRoute = SecurityPasskeysRouteImport.update({
+  id: "/settings/security/passkeys",
+  path: "/passkeys",
+  getParentRoute: () => SecurityRoute,
+} as any)
+
 export interface FileRoutesByFullPath {
   "/": typeof IndexRoute
+  "/login": typeof LoginRoute
+  "/dashboard": typeof DashboardRoute
+  "/settings/security": typeof SecurityRoute
+  "/settings/security/sessions": typeof SecuritySessionsRoute
+  "/settings/security/passkeys": typeof SecurityPasskeysRoute
 }
 export interface FileRoutesByTo {
   "/": typeof IndexRoute
+  "/login": typeof LoginRoute
+  "/dashboard": typeof DashboardRoute
+  "/settings/security": typeof SecurityRoute
+  "/settings/security/sessions": typeof SecuritySessionsRoute
+  "/settings/security/passkeys": typeof SecurityPasskeysRoute
 }
 export interface FileRoutesById {
   __root__: typeof rootRouteImport
   "/": typeof IndexRoute
+  "/login": typeof LoginRoute
+  "/dashboard": typeof DashboardRoute
+  "/settings/security": typeof SecurityRoute
+  "/settings/security/sessions": typeof SecuritySessionsRoute
+  "/settings/security/passkeys": typeof SecurityPasskeysRoute
 }
 export interface FileRouteTypes {
   fileRoutesByFullPath: FileRoutesByFullPath
-  fullPaths: "/"
+  fullPaths:
+    | "/"
+    | "/login"
+    | "/dashboard"
+    | "/settings/security"
+    | "/settings/security/sessions"
+    | "/settings/security/passkeys"
   fileRoutesByTo: FileRoutesByTo
-  to: "/"
-  id: "__root__" | "/"
+  to:
+    | "/"
+    | "/login"
+    | "/dashboard"
+    | "/settings/security"
+    | "/settings/security/sessions"
+    | "/settings/security/passkeys"
+  id:
+    | "__root__"
+    | "/"
+    | "/login"
+    | "/dashboard"
+    | "/settings/security"
+    | "/settings/security/sessions"
+    | "/settings/security/passkeys"
   fileRoutesById: FileRoutesById
 }
 export interface RootRouteChildren {
   IndexRoute: typeof IndexRoute
+  LoginRoute: typeof LoginRoute
+  DashboardRoute: typeof DashboardRoute
+  SecurityRoute: typeof SecurityRoute
 }
 
 declare module "@tanstack/react-router" {
@@ -48,12 +120,58 @@ declare module "@tanstack/react-router" {
       preLoaderRoute: typeof IndexRouteImport
       parentRoute: typeof rootRouteImport
     }
+    "/login": {
+      id: "/login"
+      path: "/login"
+      fullPath: "/login"
+      preLoaderRoute: typeof LoginRouteImport
+      parentRoute: typeof rootRouteImport
+    }
+    "/dashboard": {
+      id: "/dashboard"
+      path: "/dashboard"
+      fullPath: "/dashboard"
+      preLoaderRoute: typeof DashboardRouteImport
+      parentRoute: typeof rootRouteImport
+    }
+    "/settings/security": {
+      id: "/settings/security"
+      path: "/settings/security"
+      fullPath: "/settings/security"
+      preLoaderRoute: typeof SecurityRouteImport
+      parentRoute: typeof rootRouteImport
+    }
+    "/settings/security/sessions": {
+      id: "/settings/security/sessions"
+      path: "/sessions"
+      fullPath: "/settings/security/sessions"
+      preLoaderRoute: typeof SecuritySessionsRouteImport
+      parentRoute: typeof SecurityRouteImport
+    }
+    "/settings/security/passkeys": {
+      id: "/settings/security/passkeys"
+      path: "/passkeys"
+      fullPath: "/settings/security/passkeys"
+      preLoaderRoute: typeof SecurityPasskeysRouteImport
+      parentRoute: typeof SecurityRouteImport
+    }
   }
 }
 
+const SecurityRouteChildren = {
+  SecuritySessionsRoute: SecuritySessionsRoute,
+  SecurityPasskeysRoute: SecurityPasskeysRoute,
+}
+
+const SecurityRouteWithChildren = SecurityRoute._addFileChildren(SecurityRouteChildren)
+
 const rootRouteChildren: RootRouteChildren = {
   IndexRoute: IndexRoute,
+  LoginRoute: LoginRoute,
+  DashboardRoute: DashboardRoute,
+  SecurityRoute: SecurityRouteWithChildren,
 }
+
 export const routeTree = rootRouteImport
   ._addFileChildren(rootRouteChildren)
   ._addFileTypes<FileRouteTypes>()

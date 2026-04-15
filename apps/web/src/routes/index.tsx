@@ -1,20 +1,19 @@
 // SPDX-License-Identifier: AGPL-3.0-only
-import { createFileRoute } from "@tanstack/react-router"
-import { Button } from "@workspace/ui/components/button"
+import { createFileRoute, redirect } from "@tanstack/react-router";
+import { apiFetch } from "../lib/api";
+import type { Me } from "@ploydok/shared";
 
-export const Route = createFileRoute("/")({ component: App })
-
-function App() {
-  return (
-    <div className="flex min-h-svh p-6">
-      <div className="flex max-w-md min-w-0 flex-col gap-4 text-sm leading-loose">
-        <div>
-          <h1 className="font-medium">Project ready!</h1>
-          <p>You may now add components and start building.</p>
-          <p>We&apos;ve already added the button component for you.</p>
-          <Button className="mt-2">Button</Button>
-        </div>
-      </div>
-    </div>
-  )
-}
+export const Route = createFileRoute("/")({
+  beforeLoad: async () => {
+    try {
+      await apiFetch<Me>("/me");
+      throw redirect({ to: "/dashboard" });
+    } catch (err) {
+      // If it's a redirect, re-throw it
+      if (err && typeof err === "object" && "href" in err) throw err;
+      // Otherwise redirect to login
+      throw redirect({ to: "/login" });
+    }
+  },
+  component: () => null,
+});
