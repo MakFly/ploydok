@@ -1,0 +1,45 @@
+name: DCO
+
+on:
+  pull_request:
+
+jobs:
+  dco:
+    name: DCO Sign-off Check
+    runs-on: ubuntu-latest
+
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+        with:
+          fetch-depth: 0
+
+      - name: Check DCO sign-off
+        run: |
+          BASE=$(git merge-base HEAD origin/${{ github.base_ref }})
+          COMMITS=$(git log "$BASE..HEAD" --format="%H %s")
+          FAILED=0
+
+          while IFS= read -r line; do
+            HASH=$(echo "$line" | awk '{print $1}')
+            MSG=$(git log -1 --format="%B" "$HASH")
+
+            if ! echo "$MSG" | grep -qE '^Signed-off-by: .+ <.+>$'; then
+              echo "::error::Commit $HASH is missing a valid 'Signed-off-by:' trailer."
+              echo "  Commit message:"
+              echo "$MSG" | sed 's/^/    /'
+              FAILED=1
+            fi
+          done <<< "$COMMITS"
+
+          if [ "$FAILED" -eq 1 ]; then
+            echo ""
+            echo "All commits must include a DCO sign-off trailer:"
+            echo "  Signed-off-by: Your Name <your@email.com>"
+            echo ""
+            echo "To fix existing commits, run:"
+            echo "  git rebase --signoff HEAD~<N>"
+            exit 1
+          fi
+
+          echo "All commits have a valid DCO sign-off."
