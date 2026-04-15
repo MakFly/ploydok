@@ -7,9 +7,13 @@
     "dev": "turbo dev",
     "lint": "turbo lint",
     "format": "turbo format",
-    "typecheck": "turbo typecheck"
+    "typecheck": "turbo typecheck",
+    "test": "turbo test",
+    "db:migrate": "bun run --cwd packages/db drizzle-kit migrate",
+    "db:generate": "bun run --cwd packages/db drizzle-kit generate"
   },
   "devDependencies": {
+    "@types/bun": "latest",
     "prettier": "^3.8.1",
     "prettier-plugin-tailwindcss": "^0.7.2",
     "turbo": "^2.8.17",
