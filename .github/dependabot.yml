@@ -1,21 +1,13 @@
 version: 2
-updates:
-  - package-ecosystem: "npm"
-    directory: "/"
-    schedule:
-      interval: "weekly"
-    open-pull-requests-limit: 5
-    labels: ["dependencies"]
-    allow:
-      - dependency-type: "production"
-      - dependency-type: "development"
-    groups:
-      security-patches:
-        applies-to: security-updates
-        patterns: ["*"]
 
+# Note: dependabot does not support Bun's lockfile format (bun.lock) as of 2026.
+# Opening npm PRs without updating the lockfile breaks `bun install --frozen-lockfile`.
+# We disable the npm ecosystem here and rely on manual `bun update` for deps.
+# Re-enable once https://github.com/dependabot/dependabot-core/issues/6528 lands.
+updates:
   - package-ecosystem: "github-actions"
     directory: "/"
     schedule:
       interval: "weekly"
     labels: ["ci"]
+    open-pull-requests-limit: 5

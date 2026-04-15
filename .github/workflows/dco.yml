@@ -16,6 +16,10 @@ jobs:
 
       - name: Check DCO sign-off
         run: |
+          if [ "${{ github.actor }}" = "dependabot[bot]" ]; then
+            echo "Skipping DCO check for dependabot automated PRs."
+            exit 0
+          fi
           BASE=$(git merge-base HEAD origin/${{ github.base_ref }})
           COMMITS=$(git log "$BASE..HEAD" --format="%H %s")
           FAILED=0

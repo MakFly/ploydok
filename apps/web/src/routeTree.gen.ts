@@ -8,177 +8,179 @@
 // You should NOT make any changes in this file as it will be overwritten.
 // Additionally, you should also exclude this file from your linter and/or formatter to prevent it from being checked or modified.
 
-import { Route as rootRouteImport } from "./routes/__root"
-import { Route as IndexRouteImport } from "./routes/index"
-import { Route as LoginRouteImport } from "./routes/login"
-import { Route as DashboardRouteImport } from "./routes/dashboard"
-import { Route as SecurityRouteImport } from "./routes/settings/security"
-import { Route as SecuritySessionsRouteImport } from "./routes/settings/security.sessions"
-import { Route as SecurityPasskeysRouteImport } from "./routes/settings/security.passkeys"
-
-const IndexRoute = IndexRouteImport.update({
-  id: "/",
-  path: "/",
-  getParentRoute: () => rootRouteImport,
-} as any)
+import { Route as rootRouteImport } from './routes/__root'
+import { Route as LoginRouteImport } from './routes/login'
+import { Route as DashboardRouteImport } from './routes/dashboard'
+import { Route as IndexRouteImport } from './routes/index'
+import { Route as SettingsSecurityRouteImport } from './routes/settings/security'
+import { Route as SettingsSecuritySessionsRouteImport } from './routes/settings/security.sessions'
+import { Route as SettingsSecurityPasskeysRouteImport } from './routes/settings/security.passkeys'
 
 const LoginRoute = LoginRouteImport.update({
-  id: "/login",
-  path: "/login",
+  id: '/login',
+  path: '/login',
   getParentRoute: () => rootRouteImport,
 } as any)
-
 const DashboardRoute = DashboardRouteImport.update({
-  id: "/dashboard",
-  path: "/dashboard",
+  id: '/dashboard',
+  path: '/dashboard',
   getParentRoute: () => rootRouteImport,
 } as any)
-
-const SecurityRoute = SecurityRouteImport.update({
-  id: "/settings/security",
-  path: "/settings/security",
+const IndexRoute = IndexRouteImport.update({
+  id: '/',
+  path: '/',
   getParentRoute: () => rootRouteImport,
 } as any)
-
-const SecuritySessionsRoute = SecuritySessionsRouteImport.update({
-  id: "/settings/security/sessions",
-  path: "/sessions",
-  getParentRoute: () => SecurityRoute,
+const SettingsSecurityRoute = SettingsSecurityRouteImport.update({
+  id: '/settings/security',
+  path: '/settings/security',
+  getParentRoute: () => rootRouteImport,
 } as any)
-
-const SecurityPasskeysRoute = SecurityPasskeysRouteImport.update({
-  id: "/settings/security/passkeys",
-  path: "/passkeys",
-  getParentRoute: () => SecurityRoute,
-} as any)
+const SettingsSecuritySessionsRoute =
+  SettingsSecuritySessionsRouteImport.update({
+    id: '/sessions',
+    path: '/sessions',
+    getParentRoute: () => SettingsSecurityRoute,
+  } as any)
+const SettingsSecurityPasskeysRoute =
+  SettingsSecurityPasskeysRouteImport.update({
+    id: '/passkeys',
+    path: '/passkeys',
+    getParentRoute: () => SettingsSecurityRoute,
+  } as any)
 
 export interface FileRoutesByFullPath {
-  "/": typeof IndexRoute
-  "/login": typeof LoginRoute
-  "/dashboard": typeof DashboardRoute
-  "/settings/security": typeof SecurityRoute
-  "/settings/security/sessions": typeof SecuritySessionsRoute
-  "/settings/security/passkeys": typeof SecurityPasskeysRoute
+  '/': typeof IndexRoute
+  '/dashboard': typeof DashboardRoute
+  '/login': typeof LoginRoute
+  '/settings/security': typeof SettingsSecurityRouteWithChildren
+  '/settings/security/passkeys': typeof SettingsSecurityPasskeysRoute
+  '/settings/security/sessions': typeof SettingsSecuritySessionsRoute
 }
 export interface FileRoutesByTo {
-  "/": typeof IndexRoute
-  "/login": typeof LoginRoute
-  "/dashboard": typeof DashboardRoute
-  "/settings/security": typeof SecurityRoute
-  "/settings/security/sessions": typeof SecuritySessionsRoute
-  "/settings/security/passkeys": typeof SecurityPasskeysRoute
+  '/': typeof IndexRoute
+  '/dashboard': typeof DashboardRoute
+  '/login': typeof LoginRoute
+  '/settings/security': typeof SettingsSecurityRouteWithChildren
+  '/settings/security/passkeys': typeof SettingsSecurityPasskeysRoute
+  '/settings/security/sessions': typeof SettingsSecuritySessionsRoute
 }
 export interface FileRoutesById {
   __root__: typeof rootRouteImport
-  "/": typeof IndexRoute
-  "/login": typeof LoginRoute
-  "/dashboard": typeof DashboardRoute
-  "/settings/security": typeof SecurityRoute
-  "/settings/security/sessions": typeof SecuritySessionsRoute
-  "/settings/security/passkeys": typeof SecurityPasskeysRoute
+  '/': typeof IndexRoute
+  '/dashboard': typeof DashboardRoute
+  '/login': typeof LoginRoute
+  '/settings/security': typeof SettingsSecurityRouteWithChildren
+  '/settings/security/passkeys': typeof SettingsSecurityPasskeysRoute
+  '/settings/security/sessions': typeof SettingsSecuritySessionsRoute
 }
 export interface FileRouteTypes {
   fileRoutesByFullPath: FileRoutesByFullPath
   fullPaths:
-    | "/"
-    | "/login"
-    | "/dashboard"
-    | "/settings/security"
-    | "/settings/security/sessions"
-    | "/settings/security/passkeys"
+    | '/'
+    | '/dashboard'
+    | '/login'
+    | '/settings/security'
+    | '/settings/security/passkeys'
+    | '/settings/security/sessions'
   fileRoutesByTo: FileRoutesByTo
   to:
-    | "/"
-    | "/login"
-    | "/dashboard"
-    | "/settings/security"
-    | "/settings/security/sessions"
-    | "/settings/security/passkeys"
+    | '/'
+    | '/dashboard'
+    | '/login'
+    | '/settings/security'
+    | '/settings/security/passkeys'
+    | '/settings/security/sessions'
   id:
-    | "__root__"
-    | "/"
-    | "/login"
-    | "/dashboard"
-    | "/settings/security"
-    | "/settings/security/sessions"
-    | "/settings/security/passkeys"
+    | '__root__'
+    | '/'
+    | '/dashboard'
+    | '/login'
+    | '/settings/security'
+    | '/settings/security/passkeys'
+    | '/settings/security/sessions'
   fileRoutesById: FileRoutesById
 }
 export interface RootRouteChildren {
   IndexRoute: typeof IndexRoute
-  LoginRoute: typeof LoginRoute
   DashboardRoute: typeof DashboardRoute
-  SecurityRoute: typeof SecurityRoute
+  LoginRoute: typeof LoginRoute
+  SettingsSecurityRoute: typeof SettingsSecurityRouteWithChildren
 }
 
-declare module "@tanstack/react-router" {
+declare module '@tanstack/react-router' {
   interface FileRoutesByPath {
-    "/": {
-      id: "/"
-      path: "/"
-      fullPath: "/"
-      preLoaderRoute: typeof IndexRouteImport
-      parentRoute: typeof rootRouteImport
-    }
-    "/login": {
-      id: "/login"
-      path: "/login"
-      fullPath: "/login"
+    '/login': {
+      id: '/login'
+      path: '/login'
+      fullPath: '/login'
       preLoaderRoute: typeof LoginRouteImport
       parentRoute: typeof rootRouteImport
     }
-    "/dashboard": {
-      id: "/dashboard"
-      path: "/dashboard"
-      fullPath: "/dashboard"
+    '/dashboard': {
+      id: '/dashboard'
+      path: '/dashboard'
+      fullPath: '/dashboard'
       preLoaderRoute: typeof DashboardRouteImport
       parentRoute: typeof rootRouteImport
     }
-    "/settings/security": {
-      id: "/settings/security"
-      path: "/settings/security"
-      fullPath: "/settings/security"
-      preLoaderRoute: typeof SecurityRouteImport
+    '/': {
+      id: '/'
+      path: '/'
+      fullPath: '/'
+      preLoaderRoute: typeof IndexRouteImport
       parentRoute: typeof rootRouteImport
     }
-    "/settings/security/sessions": {
-      id: "/settings/security/sessions"
-      path: "/sessions"
-      fullPath: "/settings/security/sessions"
-      preLoaderRoute: typeof SecuritySessionsRouteImport
-      parentRoute: typeof SecurityRouteImport
+    '/settings/security': {
+      id: '/settings/security'
+      path: '/settings/security'
+      fullPath: '/settings/security'
+      preLoaderRoute: typeof SettingsSecurityRouteImport
+      parentRoute: typeof rootRouteImport
     }
-    "/settings/security/passkeys": {
-      id: "/settings/security/passkeys"
-      path: "/passkeys"
-      fullPath: "/settings/security/passkeys"
-      preLoaderRoute: typeof SecurityPasskeysRouteImport
-      parentRoute: typeof SecurityRouteImport
+    '/settings/security/sessions': {
+      id: '/settings/security/sessions'
+      path: '/sessions'
+      fullPath: '/settings/security/sessions'
+      preLoaderRoute: typeof SettingsSecuritySessionsRouteImport
+      parentRoute: typeof SettingsSecurityRoute
+    }
+    '/settings/security/passkeys': {
+      id: '/settings/security/passkeys'
+      path: '/passkeys'
+      fullPath: '/settings/security/passkeys'
+      preLoaderRoute: typeof SettingsSecurityPasskeysRouteImport
+      parentRoute: typeof SettingsSecurityRoute
     }
   }
 }
 
-const SecurityRouteChildren = {
-  SecuritySessionsRoute: SecuritySessionsRoute,
-  SecurityPasskeysRoute: SecurityPasskeysRoute,
+interface SettingsSecurityRouteChildren {
+  SettingsSecurityPasskeysRoute: typeof SettingsSecurityPasskeysRoute
+  SettingsSecuritySessionsRoute: typeof SettingsSecuritySessionsRoute
 }
 
-const SecurityRouteWithChildren = SecurityRoute._addFileChildren(SecurityRouteChildren)
+const SettingsSecurityRouteChildren: SettingsSecurityRouteChildren = {
+  SettingsSecurityPasskeysRoute: SettingsSecurityPasskeysRoute,
+  SettingsSecuritySessionsRoute: SettingsSecuritySessionsRoute,
+}
+
+const SettingsSecurityRouteWithChildren =
+  SettingsSecurityRoute._addFileChildren(SettingsSecurityRouteChildren)
 
 const rootRouteChildren: RootRouteChildren = {
   IndexRoute: IndexRoute,
-  LoginRoute: LoginRoute,
   DashboardRoute: DashboardRoute,
-  SecurityRoute: SecurityRouteWithChildren,
+  LoginRoute: LoginRoute,
+  SettingsSecurityRoute: SettingsSecurityRouteWithChildren,
 }
-
 export const routeTree = rootRouteImport
   ._addFileChildren(rootRouteChildren)
   ._addFileTypes<FileRouteTypes>()
 
-import type { getRouter } from "./router.tsx"
-import type { createStart } from "@tanstack/react-start"
-declare module "@tanstack/react-start" {
+import type { getRouter } from './router.tsx'
+import type { createStart } from '@tanstack/react-start'
+declare module '@tanstack/react-start' {
   interface Register {
     ssr: true
     router: Awaited<ReturnType<typeof getRouter>>
