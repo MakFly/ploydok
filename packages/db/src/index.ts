@@ -1,3 +1,4 @@
 // SPDX-License-Identifier: AGPL-3.0-only
-
-export const schemas = {} as const;
+export * from './schema';
+export { createDb } from './client';
+export type { Db } from './client';
