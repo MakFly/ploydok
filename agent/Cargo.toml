@@ -1,0 +1,3 @@
+[workspace]
+members = ["ploydok-cli"]
+resolver = "2"
