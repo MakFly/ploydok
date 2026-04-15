@@ -1,13 +1,25 @@
 // SPDX-License-Identifier: AGPL-3.0-only
 import { Hono } from "hono";
 import { cors } from "hono/cors";
+import { eq } from "drizzle-orm";
 import { env } from "./env";
+import { createDb } from "@ploydok/db";
+import { users, passkeys } from "@ploydok/db";
+import { createAuthRouter } from "./routes/auth";
+import { requireAuth, type AuthUser } from "./auth/middleware";
+import { countActive } from "./auth/backup-codes";
 
 // ---------------------------------------------------------------------------
 // Helpers
 // ---------------------------------------------------------------------------
 
 const SAFE_METHODS = new Set(["GET", "HEAD", "OPTIONS"]);
+
+// ---------------------------------------------------------------------------
+// DB instance (singleton for the app)
+// ---------------------------------------------------------------------------
+
+const db = createDb(env.DATABASE_URL);
 
 // ---------------------------------------------------------------------------
 // App
@@ -82,20 +94,44 @@ app.get("/auth/csrf", (c) => {
   return c.json({ token });
 });
 
-// Auth stubs
-const NOT_IMPLEMENTED = { error: { code: "NOT_IMPLEMENTED", message: "Not implemented" } };
+// Auth routes (replaces stubs)
+const authRouter = createAuthRouter(db);
+app.route("/", authRouter);
 
-app.get("/auth/register/options", (c) => c.json(NOT_IMPLEMENTED, 501));
-app.post("/auth/register/verify", (c) => c.json(NOT_IMPLEMENTED, 501));
-app.get("/auth/login/options", (c) => c.json(NOT_IMPLEMENTED, 501));
-app.post("/auth/login/verify", (c) => c.json(NOT_IMPLEMENTED, 501));
-app.post("/auth/logout", (c) => c.json(NOT_IMPLEMENTED, 501));
-app.post("/auth/refresh", (c) => c.json(NOT_IMPLEMENTED, 501));
+// /me — requires auth
+app.get("/me", requireAuth(db), async (c) => {
+  // eslint-disable-next-line @typescript-eslint/no-explicit-any
+  const user = (c as any).get("user") as AuthUser;
 
-// /me stub — returns 401 until session middleware is implemented (sprint 1.5)
-app.get("/me", (c) =>
-  c.json({ error: { code: "UNAUTHENTICATED", message: "Authentication required" } }, 401),
-);
+  const passkeyRows = await db
+    .select({ id: passkeys.id })
+    .from(passkeys)
+    .where(eq(passkeys.user_id, user.id));
+
+  const passkeyCount = passkeyRows.length;
+  const backupCount = await countActive(db, user.id);
+
+  const userRows = await db
+    .select()
+    .from(users)
+    .where(eq(users.id, user.id))
+    .limit(1);
+
+  const fullUser = userRows[0];
+  if (!fullUser) {
+    return c.json({ error: { code: "NOT_FOUND", message: "User not found" } }, 404);
+  }
+
+  return c.json({
+    id: fullUser.id,
+    email: fullUser.email,
+    display_name: fullUser.display_name,
+    created_at: fullUser.created_at?.toISOString(),
+    has_passkey_plus: passkeyCount >= 2,
+    has_backup_codes: backupCount >= 1,
+    needs_second_factor: passkeyCount < 2 && backupCount < 1,
+  });
+});
 
 // ---------------------------------------------------------------------------
 // Utility

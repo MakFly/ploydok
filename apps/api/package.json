@@ -10,12 +10,20 @@
     "typecheck": "tsc --noEmit"
   },
   "devDependencies": {
+    "@types/bcryptjs": "^3.0.0",
     "@types/bun": "latest",
     "typescript": "^5.9.3"
   },
   "dependencies": {
+    "@ploydok/db": "workspace:*",
+    "@ploydok/shared": "workspace:*",
+    "@simplewebauthn/server": "^13.3.0",
+    "bcryptjs": "^3.0.3",
+    "drizzle-orm": "^0.45.2",
     "hono": "^4.12.14",
+    "jose": "^6.2.2",
     "keytar": "^7.9.0",
+    "nanoid": "^5.1.9",
     "zod": "^4.3.6"
   }
 }

@@ -23,7 +23,7 @@ describe("CSRF", () => {
     expect(setCookie).toContain("csrf=");
   });
 
-  it("POST with matching csrf cookie + header passes CSRF check (returns 501, not 403)", async () => {
+  it("POST with matching csrf cookie + header passes CSRF check (returns 401 auth required, not 403)", async () => {
     // First get a token
     const csrfRes = await app.request("/auth/csrf");
     const { token } = (await csrfRes.json()) as { token: string };
@@ -36,8 +36,8 @@ describe("CSRF", () => {
       },
     });
 
-    // The route returns 501 NOT_IMPLEMENTED, meaning CSRF check passed
-    expect(res.status).toBe(501);
+    // CSRF check passed — route now requires auth so returns 401 (not 403 CSRF error)
+    expect(res.status).toBe(401);
   });
 
   it("POST with mismatched csrf cookie and header returns 403", async () => {
