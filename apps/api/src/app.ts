@@ -1,13 +1,58 @@
 // SPDX-License-Identifier: AGPL-3.0-only
 import { Hono } from "hono";
+import { HTTPException } from "hono/http-exception";
 import { cors } from "hono/cors";
+import { nanoid } from "nanoid";
 import { eq } from "drizzle-orm";
+import type { Context, Next } from "hono";
 import { env } from "./env";
 import { createDb } from "@ploydok/db";
 import { users, passkeys } from "@ploydok/db";
 import { createAuthRouter } from "./routes/auth";
 import { requireAuth, type AuthUser } from "./auth/middleware";
 import { countActive } from "./auth/backup-codes";
+import { createDebugRouter } from "./debug/index.js";
+import { getSharedAgent, getSharedCaddy } from "./debug/singletons.js";
+import { AgentError, GrpcStatus } from "./agent/index.js";
+import { childLogger } from "./logger";
+
+const httpLog = childLogger("http");
+const errorLog = childLogger("error");
+
+// ---------------------------------------------------------------------------
+// CI-only auth bypass
+//
+// SECURITY: This bypass is ONLY active when ALL of these conditions are met:
+//   1. NODE_ENV is NOT "prod"
+//   2. PLOYDOK_DEBUG_UNAUTHENTICATED=1 is set
+//
+// In production, this code path is unreachable — the guard below ensures it.
+// Used exclusively for integration tests in CI where no real user session
+// is available. Never ship this to a production environment.
+// ---------------------------------------------------------------------------
+
+const CI_AUTH_BYPASS =
+  env.NODE_ENV !== "prod" &&
+  Bun.env["PLOYDOK_DEBUG_UNAUTHENTICATED"] === "1";
+
+/**
+ * Injects a fake AuthUser into the Hono context when CI_AUTH_BYPASS is active.
+ * The fake user id is taken from X-Test-User header (defaults to "ci-test-user").
+ *
+ * This middleware replaces both requireAuth AND the CSRF check for /debug/* routes
+ * during integration testing. It is skipped entirely in production.
+ */
+function ciBypassAuth(c: Context, next: Next) {
+  const userId = c.req.header("x-test-user") ?? "ci-test-user";
+  // eslint-disable-next-line @typescript-eslint/no-explicit-any
+  (c as any).set("user", {
+    id: userId,
+    email: "ci@test.local",
+    display_name: "CI Test User",
+    session_id: "ci-session",
+  } satisfies AuthUser);
+  return next();
+}
 
 // ---------------------------------------------------------------------------
 // Helpers
@@ -25,22 +70,45 @@ const db = createDb(env.DATABASE_URL);
 // App
 // ---------------------------------------------------------------------------
 
-export const app = new Hono();
+type AppVariables = { reqId: string; user?: AuthUser };
+export const app = new Hono<{ Variables: AppVariables }>();
 
-// 1. Logger middleware
+// 1. Logger middleware global — loggue toutes les requêtes, même en cas de throw.
+//    Injecte un req_id pour corréler logs + réponse (header `x-request-id`).
 app.use("*", async (c, next) => {
   const start = Date.now();
-  await next();
-  const dur = Date.now() - start;
-  // Never log Authorization / Cookie / request body — no secrets.
-  console.log(`${c.req.method} ${c.req.path} ${c.res.status} ${dur}ms`);
+  const incoming = c.req.raw.headers.get("x-request-id");
+  const reqId = incoming && incoming.length <= 64 ? incoming : nanoid(12);
+  c.set("reqId", reqId);
+
+  try {
+    await next();
+  } finally {
+    const dur = Date.now() - start;
+    const status = c.res.status;
+    c.res.headers.set("x-request-id", reqId);
+
+    // Skip les preflights CORS et /health pour limiter le bruit.
+    if (c.req.method === "OPTIONS" || c.req.path === "/health") return;
+
+    const msg = `${c.req.method} ${c.req.path} ${status} ${dur}ms`;
+    const meta = { req_id: reqId };
+    if (status >= 500) httpLog.error(meta, msg);
+    else if (status >= 400) httpLog.warn(meta, msg);
+    else httpLog.info(meta, msg);
+  }
 });
 
 // 2. CORS strict
 app.use(
   "*",
   cors({
-    origin: env.WEB_ORIGIN,
+    // Autorise WEB_ORIGIN en CORS standard et les requêtes same-origin / SSR
+    // sans header Origin (TanStack Start server fetch) — jamais de wildcard.
+    origin: (origin) => {
+      if (!origin) return env.WEB_ORIGIN;
+      return origin === env.WEB_ORIGIN ? origin : null;
+    },
     credentials: true,
     allowMethods: ["GET", "POST", "PUT", "DELETE"],
     allowHeaders: ["content-type", "x-csrf-token"],
@@ -48,8 +116,22 @@ app.use(
 );
 
 // 3. CSRF double-submit token (skip safe methods and the csrf-issue route)
+// In CI (PLOYDOK_DEBUG_UNAUTHENTICATED=1, non-prod), CSRF is bypassed for /debug/* routes.
 app.use("*", async (c, next) => {
   if (SAFE_METHODS.has(c.req.method)) {
+    return next();
+  }
+
+  // CI bypass: skip CSRF check for debug routes when auth bypass is active.
+  // SECURITY: CI_AUTH_BYPASS is false in production (NODE_ENV === "prod").
+  if (CI_AUTH_BYPASS && c.req.path.startsWith("/debug/")) {
+    return next();
+  }
+
+  // /auth/refresh est protégé par le cookie refresh HttpOnly (non lisible par JS,
+  // donc inutilisable en CSRF). Pas de double-submit requis ici — évite les
+  // races entre GET /auth/csrf (set cookie) et POST /auth/refresh qui suivent.
+  if (c.req.path === "/auth/refresh") {
     return next();
   }
 
@@ -66,13 +148,35 @@ app.use("*", async (c, next) => {
   return next();
 });
 
-// 4. Global error handler
+// 4. Global error handler — attrape toute exception non capturée.
 app.onError((err, c) => {
-  console.error("[error]", err.stack ?? err.message);
-  const code = (err as { code?: string }).code ?? "INTERNAL_ERROR";
+  const reqId = c.get("reqId") ?? "unknown";
+  // HTTPException de Hono porte son propre status — on le respecte.
+  const status =
+    err instanceof HTTPException ? err.status : 500;
+  const code =
+    (err as { code?: string }).code ??
+    (err instanceof HTTPException ? "HTTP_EXCEPTION" : "INTERNAL_ERROR");
   const message =
-    env.NODE_ENV === "prod" ? "An unexpected error occurred" : err.message;
-  return c.json({ error: { code, message } }, 500);
+    env.NODE_ENV === "prod" && status >= 500
+      ? "An unexpected error occurred"
+      : err.message;
+
+  errorLog.error(
+    { err, req_id: reqId, path: c.req.path, method: c.req.method, status, code },
+    "unhandled error",
+  );
+
+  return c.json({ error: { code, message, req_id: reqId } }, status);
+});
+
+// 5. Not found handler explicite pour consistence.
+app.notFound((c) => {
+  const reqId = c.get("reqId") ?? "unknown";
+  return c.json(
+    { error: { code: "NOT_FOUND", message: "Route introuvable", req_id: reqId } },
+    404,
+  );
 });
 
 // ---------------------------------------------------------------------------
@@ -82,21 +186,37 @@ app.onError((err, c) => {
 // Health
 app.get("/health", (c) => c.json({ ok: true, version: "0.0.1" }));
 
+// Test-only routes pour exercer le middleware logger + error handler.
+// SECURITY: actifs UNIQUEMENT si NODE_ENV=test.
+if (env.NODE_ENV === "test") {
+  app.get("/__test/throw", () => {
+    throw new Error("boom");
+  });
+  app.get("/__test/http-exception", () => {
+    throw new HTTPException(418, { message: "I'm a teapot" });
+  });
+}
+
 // CSRF token issuance — GET so it bypasses the CSRF middleware above
 app.get("/auth/csrf", (c) => {
   const token = crypto.randomUUID();
   // httpOnly: false is intentional for the double-submit pattern —
   // JavaScript must be able to read the cookie to attach it as a header.
-  c.header(
-    "Set-Cookie",
-    `csrf=${token}; Path=/; SameSite=Strict; Secure`,
-  );
+  const secure = env.NODE_ENV === "prod" ? "; Secure" : "";
+  c.header("Set-Cookie", `csrf=${token}; Path=/; SameSite=Lax${secure}`);
   return c.json({ token });
 });
 
 // Auth routes (replaces stubs)
 const authRouter = createAuthRouter(db);
 app.route("/", authRouter);
+
+// Debug routes (spawn-nginx, etc.)
+// In CI (PLOYDOK_DEBUG_UNAUTHENTICATED=1, non-prod), auth is bypassed via a fake user.
+// SECURITY: CI_AUTH_BYPASS is false in production (NODE_ENV === "prod").
+const debugRouter = createDebugRouter();
+app.use("/debug/*", CI_AUTH_BYPASS ? ciBypassAuth : requireAuth(db));
+app.route("/debug", debugRouter);
 
 // /me — requires auth
 app.get("/me", requireAuth(db), async (c) => {

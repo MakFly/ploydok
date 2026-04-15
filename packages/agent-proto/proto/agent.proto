@@ -1,0 +1,240 @@
+// SPDX-License-Identifier: AGPL-3.0-only
+//
+// Source of truth for the ploydok-agent gRPC API.
+// TS generated code: packages/agent-proto/src/gen/
+// Rust generated code: agent/crates/ploydok-proto/src/ (via tonic-build)
+
+syntax = "proto3";
+
+package ploydok.agent.v1;
+
+// ─────────────────────────────────────────────────────────────────────────────
+// Shared structures
+// ─────────────────────────────────────────────────────────────────────────────
+
+// Volume mount binding.
+message VolumeMount {
+  string host_path = 1;
+  string container_path = 2;
+  bool   read_only = 3;
+}
+
+// Port mapping.
+message PortMapping {
+  uint32 container_port = 1;
+  uint32 host_port = 2;
+  // "tcp" or "udp" — defaults to "tcp" if empty
+  string proto = 3;
+}
+
+// CPU / memory limits. Zero values mean "no limit".
+message ResourceLimits {
+  // Fractional CPUs, e.g. 0.5 = 50 % of one core
+  double cpu = 1;
+  // Memory limit in bytes
+  int64  memory_bytes = 2;
+}
+
+// ─────────────────────────────────────────────────────────────────────────────
+// ContainerCreate
+// ─────────────────────────────────────────────────────────────────────────────
+
+message ContainerCreateRequest {
+  // Container name — MUST match the ploydok-* allowlist enforced by the agent.
+  string name = 1;
+
+  // Docker image reference (e.g. "nginx:1.25-alpine").
+  string image = 2;
+
+  // Environment variables. Keys must not start with PLOYDOK_INTERNAL_.
+  map<string, string> env = 3;
+
+  // Labels applied to the container.
+  map<string, string> labels = 4;
+
+  // Docker network to attach the container to (must be pre-created via NetworkCreate).
+  string network = 5;
+
+  // Volume mounts. host_path must be under /var/lib/ploydok/volumes/.
+  repeated VolumeMount volumes = 6;
+
+  // Port mappings.
+  repeated PortMapping ports = 7;
+
+  // Restart policy: "", "no", "always", "unless-stopped", "on-failure".
+  string restart_policy = 8;
+
+  // Resource limits applied to the container.
+  ResourceLimits resource_limits = 9;
+
+  // Override the image entrypoint/command.
+  repeated string command = 10;
+
+  // Run the container process as this user (e.g. "1000:1000").
+  string user = 11;
+}
+
+message ContainerCreateResponse {
+  string container_id = 1;
+}
+
+// ─────────────────────────────────────────────────────────────────────────────
+// ContainerStart / Stop / Remove
+// ─────────────────────────────────────────────────────────────────────────────
+
+message ContainerStartRequest {
+  string container_id = 1;
+}
+
+message ContainerStartResponse {}
+
+message ContainerStopRequest {
+  string container_id = 1;
+  // Seconds to wait before SIGKILL. 0 → use Docker default (10s).
+  uint32 timeout_seconds = 2;
+}
+
+message ContainerStopResponse {}
+
+message ContainerRemoveRequest {
+  string container_id = 1;
+  // Remove the container even if running.
+  bool force = 2;
+  // Remove anonymous volumes attached to the container.
+  bool remove_volumes = 3;
+}
+
+message ContainerRemoveResponse {}
+
+// ─────────────────────────────────────────────────────────────────────────────
+// ContainerLogs (server-side streaming)
+// ─────────────────────────────────────────────────────────────────────────────
+
+message ContainerLogsRequest {
+  string container_id = 1;
+  // Stream new lines (tail -f behaviour).
+  bool follow = 2;
+  // Return logs since this Unix timestamp (0 = no lower bound).
+  int64 since_unix = 3;
+  // Maximum number of lines to return from the tail. 0 = all.
+  uint32 tail = 4;
+}
+
+message LogLine {
+  // "stdout" or "stderr"
+  string stream = 1;
+  string line = 2;
+  // Timestamp from Docker log driver (RFC 3339 with nano precision).
+  string timestamp = 3;
+}
+
+// ─────────────────────────────────────────────────────────────────────────────
+// ContainerStats (server-side streaming)
+// ─────────────────────────────────────────────────────────────────────────────
+
+message ContainerStatsRequest {
+  string container_id = 1;
+  // Stream stats continuously (like `docker stats`). False → single snapshot.
+  bool stream = 2;
+}
+
+message StatsFrame {
+  string container_id = 1;
+  // Unix timestamp (nanoseconds) of the sample.
+  int64 timestamp_ns = 2;
+  // CPU usage, normalised to [0.0, num_cpus].
+  double cpu_percent = 3;
+  // Resident memory in bytes.
+  int64 memory_bytes = 4;
+  // Memory limit in bytes.
+  int64 memory_limit_bytes = 5;
+  // Network bytes received since container start.
+  int64 net_rx_bytes = 6;
+  // Network bytes transmitted since container start.
+  int64 net_tx_bytes = 7;
+}
+
+// ─────────────────────────────────────────────────────────────────────────────
+// ImagePull (server-side streaming)
+// ─────────────────────────────────────────────────────────────────────────────
+
+message ImagePullRequest {
+  // Full image reference including tag (e.g. "nginx:1.25-alpine").
+  string image = 1;
+}
+
+message PullProgress {
+  string status = 1;
+  string layer_id = 2;
+  int64 current = 3;
+  int64 total = 4;
+}
+
+// ─────────────────────────────────────────────────────────────────────────────
+// ImageBuild (server-side streaming)
+// ─────────────────────────────────────────────────────────────────────────────
+
+message ImageBuildRequest {
+  // Tag to apply to the resulting image.
+  string tag = 1;
+  // Dockerfile content (UTF-8).
+  bytes dockerfile = 2;
+  // Build context files: path → content.
+  map<string, bytes> context = 3;
+  // Build-time ARGs.
+  map<string, string> build_args = 4;
+}
+
+message BuildProgress {
+  // Raw JSON stream line from Docker build output.
+  string stream = 1;
+  // Non-empty when the build step emits an error.
+  string error = 2;
+}
+
+// ─────────────────────────────────────────────────────────────────────────────
+// NetworkCreate / Remove
+// ─────────────────────────────────────────────────────────────────────────────
+
+message NetworkCreateRequest {
+  // Network name — must match ploydok-* prefix.
+  string name = 1;
+  // Docker network driver (e.g. "bridge"). Defaults to "bridge" when empty.
+  string driver = 2;
+  // Optional labels.
+  map<string, string> labels = 3;
+}
+
+message NetworkCreateResponse {
+  string network_id = 1;
+}
+
+message NetworkRemoveRequest {
+  string network_id = 1;
+}
+
+message NetworkRemoveResponse {}
+
+// ─────────────────────────────────────────────────────────────────────────────
+// Service definition
+// ─────────────────────────────────────────────────────────────────────────────
+
+service Agent {
+  // Container lifecycle
+  rpc ContainerCreate (ContainerCreateRequest)  returns (ContainerCreateResponse);
+  rpc ContainerStart  (ContainerStartRequest)   returns (ContainerStartResponse);
+  rpc ContainerStop   (ContainerStopRequest)    returns (ContainerStopResponse);
+  rpc ContainerRemove (ContainerRemoveRequest)  returns (ContainerRemoveResponse);
+
+  // Observability (streaming)
+  rpc ContainerLogs   (ContainerLogsRequest)    returns (stream LogLine);
+  rpc ContainerStats  (ContainerStatsRequest)   returns (stream StatsFrame);
+
+  // Image management (streaming progress)
+  rpc ImagePull       (ImagePullRequest)        returns (stream PullProgress);
+  rpc ImageBuild      (ImageBuildRequest)       returns (stream BuildProgress);
+
+  // Networking
+  rpc NetworkCreate   (NetworkCreateRequest)    returns (NetworkCreateResponse);
+  rpc NetworkRemove   (NetworkRemoveRequest)    returns (NetworkRemoveResponse);
+}

@@ -1,0 +1,51 @@
+name: ploydok
+
+networks:
+  ploydok:
+    driver: bridge
+    external: false
+  # ploydok-public is created externally (by the agent or by CI setup) so that
+  # agent-spawned app containers and Caddy can communicate over this shared network.
+  ploydok-public:
+    external: true
+
+services:
+  caddy:
+    image: caddy:2-alpine
+    restart: unless-stopped
+    ports:
+      - "8180:80"
+      - "8543:443"
+      - "127.0.0.1:2020:2019"
+    volumes:
+      - ./caddy/data:/data
+      - ./caddy/config:/config
+      - ./caddy/Caddyfile:/etc/caddy/Caddyfile:ro
+    environment:
+      PLOYDOK_DOMAIN: ${PLOYDOK_DOMAIN:-localhost}
+    healthcheck:
+      test: ["CMD", "wget", "-qO-", "http://localhost:2019/config/"]
+      interval: 10s
+      timeout: 5s
+      retries: 3
+      start_period: 5s
+    networks:
+      - ploydok
+      - ploydok-public
+
+  # TODO (Sprint 2.3): agent service — will be built from agent/ Dockerfile.
+  # Uncomment and configure once the Rust agent binary and Dockerfile are ready.
+  # agent:
+  #   build:
+  #     context: ../agent
+  #     dockerfile: Dockerfile
+  #   restart: unless-stopped
+  #   volumes:
+  #     - /var/run/docker.sock:/var/run/docker.sock:ro
+  #     - /run/ploydok:/run/ploydok
+  #     - /var/lib/ploydok/volumes:/var/lib/ploydok/volumes
+  #   networks:
+  #     - ploydok
+  #   depends_on:
+  #     caddy:
+  #       condition: service_healthy
