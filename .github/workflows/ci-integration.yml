@@ -1,0 +1,163 @@
+name: CI Integration
+
+on:
+  push:
+    branches:
+      - main
+  pull_request:
+  workflow_dispatch:
+
+# Annule les runs précédents sur la même branche pour économiser les minutes CI.
+concurrency:
+  group: ci-integration-${{ github.ref }}
+  cancel-in-progress: true
+
+jobs:
+  integration:
+    name: Integration Tests (DinD)
+    runs-on: ubuntu-latest
+
+    steps:
+      # -----------------------------------------------------------------------
+      # 1. Checkout
+      # -----------------------------------------------------------------------
+      - name: Checkout
+        uses: actions/checkout@v6
+
+      # -----------------------------------------------------------------------
+      # 2. Toolchain setup : Bun + Rust
+      # -----------------------------------------------------------------------
+      - name: Setup Bun
+        uses: oven-sh/setup-bun@v2
+        with:
+          bun-version: latest
+
+      - name: Setup Rust (stable)
+        uses: dtolnay/rust-toolchain@stable
+
+      - name: Cache Cargo
+        uses: Swatinem/rust-cache@v2
+        with:
+          workspaces: agent -> target
+
+      # -----------------------------------------------------------------------
+      # 3. Install system deps (protoc for agent proto generation)
+      # -----------------------------------------------------------------------
+      - name: Install protoc
+        run: sudo apt-get install -y protobuf-compiler
+
+      # -----------------------------------------------------------------------
+      # 4. Install JS dependencies
+      # -----------------------------------------------------------------------
+      - name: Install JS dependencies
+        run: bun install --frozen-lockfile
+
+      # -----------------------------------------------------------------------
+      # 5. Build agent (release)
+      # -----------------------------------------------------------------------
+      - name: Build ploydok-agent (release)
+        run: cargo build --release -p ploydok-agent --manifest-path agent/Cargo.toml
+
+      # -----------------------------------------------------------------------
+      # 6. Pré-pull nginx:alpine pour éviter un timeout dans le test
+      # -----------------------------------------------------------------------
+      - name: Pre-pull nginx:alpine
+        run: docker pull nginx:alpine
+
+      # -----------------------------------------------------------------------
+      # 7. Crée le réseau Docker ploydok-public (avant docker compose up
+      #    car le réseau est déclaré external dans le compose)
+      # -----------------------------------------------------------------------
+      - name: Create ploydok-public Docker network
+        run: docker network create ploydok-public 2>/dev/null || true
+
+      # -----------------------------------------------------------------------
+      # 8. Lance Caddy (avec healthcheck)
+      # -----------------------------------------------------------------------
+      - name: Start Caddy
+        run: docker compose -f infra/docker-compose.yml up -d caddy
+
+      - name: Wait for Caddy admin API
+        run: |
+          for i in $(seq 1 30); do
+            if curl -sf http://127.0.0.1:2020/config/ > /dev/null 2>&1; then
+              echo "Caddy admin API ready"
+              break
+            fi
+            echo "Waiting for Caddy... ($i/30)"
+            sleep 1
+          done
+          curl -sf http://127.0.0.1:2020/config/ || (echo "Caddy admin API not reachable" && exit 1)
+
+      # -----------------------------------------------------------------------
+      # 9. Lance l'agent Rust en mode insecure (CI)
+      # -----------------------------------------------------------------------
+      - name: Start ploydok-agent (insecure mode)
+        run: |
+          PLOYDOK_AGENT_INSECURE=1 \
+          PLOYDOK_AGENT_SOCKET=/tmp/ploydok-agent.sock \
+          ./agent/target/release/ploydok-agent &
+
+          echo "Waiting for agent Unix socket..."
+          for i in $(seq 1 30); do
+            [ -S /tmp/ploydok-agent.sock ] && echo "Agent socket ready" && break
+            echo "  ($i/30) socket not yet present, retrying..."
+            sleep 1
+          done
+
+          [ -S /tmp/ploydok-agent.sock ] || (echo "Agent socket never appeared" && exit 1)
+
+      # -----------------------------------------------------------------------
+      # 10. Lance l'API Hono
+      # -----------------------------------------------------------------------
+      - name: Start API
+        run: |
+          PLOYDOK_AGENT_SOCKET=/tmp/ploydok-agent.sock \
+          PLOYDOK_DOMAIN=localtest.me \
+          CADDY_ADMIN_URL=http://127.0.0.1:2020 \
+          PLOYDOK_DEBUG_UNAUTHENTICATED=1 \
+          NODE_ENV=test \
+          bun run --cwd apps/api start &
+
+          echo "Waiting for API /health..."
+          for i in $(seq 1 30); do
+            if curl -sf http://127.0.0.1:4000/health > /dev/null 2>&1; then
+              echo "API ready"
+              break
+            fi
+            echo "  ($i/30) API not yet ready, retrying..."
+            sleep 1
+          done
+
+          curl -sf http://127.0.0.1:4000/health || (echo "API /health not reachable" && exit 1)
+
+      # -----------------------------------------------------------------------
+      # 11. Exécute le script e2e
+      # -----------------------------------------------------------------------
+      - name: Run e2e tests
+        run: |
+          API_BASE=http://127.0.0.1:4000 \
+          CADDY_ADMIN=http://127.0.0.1:2020 \
+          CADDY_HTTP=http://127.0.0.1:8180 \
+          bash scripts/e2e-spawn-nginx.sh
+
+      # -----------------------------------------------------------------------
+      # 12. Cleanup — toujours exécuté, même en cas d'échec
+      # -----------------------------------------------------------------------
+      - name: Cleanup infrastructure
+        if: always()
+        run: |
+          echo "=== Arrêt Caddy ==="
+          docker compose -f infra/docker-compose.yml down --timeout 10 || true
+
+          echo "=== Suppression réseau ploydok-public ==="
+          docker network rm ploydok-public || true
+
+          echo "=== Containers résiduels ploydok-* ==="
+          docker ps -a --filter "name=ploydok-" --format "{{.Names}}" | xargs -r docker rm -f || true
+
+          echo "=== Kill agent et API ==="
+          pkill -f ploydok-agent || true
+          pkill -f "bun run" || true
+
+          echo "Cleanup terminé"

@@ -4,7 +4,10 @@
   "compilerOptions": {
     "outDir": "dist",
     "rootDir": "src",
-    "types": ["bun"]
+    "types": ["bun"],
+    // ts-proto v2 generates plain imports (no 'import type'), so verbatimModuleSyntax
+    // must be disabled here or the generated file would need rewriting.
+    "verbatimModuleSyntax": false
   },
   "include": ["src/**/*"]
 }

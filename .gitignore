@@ -45,3 +45,7 @@ npm-debug.log*
 target/
 /.claude/scheduled_tasks.lock
 .playwright-mcp/
+
+# Caddy runtime data (created by Docker)
+infra/caddy/data/
+infra/caddy/config/
