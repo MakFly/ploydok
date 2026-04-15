@@ -1,6 +1,6 @@
 // SPDX-License-Identifier: AGPL-3.0-only
 import * as React from "react";
-import { createFileRoute, useRouter, Link } from "@tanstack/react-router";
+import { createFileRoute, Link, useRouter } from "@tanstack/react-router";
 import { startRegistration } from "@simplewebauthn/browser";
 import { apiFetch } from "../lib/api";
 

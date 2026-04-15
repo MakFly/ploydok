@@ -1,6 +1,6 @@
 // SPDX-License-Identifier: AGPL-3.0-only
 import { beforeEach, describe, expect, it } from "bun:test";
-import { apiFetch, ApiError, resetCsrfToken, invalidateGetCache } from "./api";
+import { apiFetch, ApiError, invalidateGetCache, resetCsrfToken } from "./api";
 
 const BASE = "http://localhost:4000";
 
@@ -9,7 +9,7 @@ interface Call {
   init?: RequestInit;
 }
 
-let calls: Call[] = [];
+let calls: Array<Call> = [];
 let queue: Map<string, Array<{ status: number; body: unknown }>>;
 
 function enqueue(url: string, responses: Array<{ status: number; body: unknown }>): void {
