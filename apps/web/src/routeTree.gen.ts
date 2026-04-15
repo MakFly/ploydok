@@ -9,6 +9,7 @@
 // Additionally, you should also exclude this file from your linter and/or formatter to prevent it from being checked or modified.
 
 import { Route as rootRouteImport } from './routes/__root'
+import { Route as RegisterRouteImport } from './routes/register'
 import { Route as LoginRouteImport } from './routes/login'
 import { Route as DashboardRouteImport } from './routes/dashboard'
 import { Route as IndexRouteImport } from './routes/index'
@@ -16,6 +17,11 @@ import { Route as SettingsSecurityRouteImport } from './routes/settings/security
 import { Route as SettingsSecuritySessionsRouteImport } from './routes/settings/security.sessions'
 import { Route as SettingsSecurityPasskeysRouteImport } from './routes/settings/security.passkeys'
 
+const RegisterRoute = RegisterRouteImport.update({
+  id: '/register',
+  path: '/register',
+  getParentRoute: () => rootRouteImport,
+} as any)
 const LoginRoute = LoginRouteImport.update({
   id: '/login',
   path: '/login',
@@ -53,6 +59,7 @@ export interface FileRoutesByFullPath {
   '/': typeof IndexRoute
   '/dashboard': typeof DashboardRoute
   '/login': typeof LoginRoute
+  '/register': typeof RegisterRoute
   '/settings/security': typeof SettingsSecurityRouteWithChildren
   '/settings/security/passkeys': typeof SettingsSecurityPasskeysRoute
   '/settings/security/sessions': typeof SettingsSecuritySessionsRoute
@@ -61,6 +68,7 @@ export interface FileRoutesByTo {
   '/': typeof IndexRoute
   '/dashboard': typeof DashboardRoute
   '/login': typeof LoginRoute
+  '/register': typeof RegisterRoute
   '/settings/security': typeof SettingsSecurityRouteWithChildren
   '/settings/security/passkeys': typeof SettingsSecurityPasskeysRoute
   '/settings/security/sessions': typeof SettingsSecuritySessionsRoute
@@ -70,6 +78,7 @@ export interface FileRoutesById {
   '/': typeof IndexRoute
   '/dashboard': typeof DashboardRoute
   '/login': typeof LoginRoute
+  '/register': typeof RegisterRoute
   '/settings/security': typeof SettingsSecurityRouteWithChildren
   '/settings/security/passkeys': typeof SettingsSecurityPasskeysRoute
   '/settings/security/sessions': typeof SettingsSecuritySessionsRoute
@@ -80,6 +89,7 @@ export interface FileRouteTypes {
     | '/'
     | '/dashboard'
     | '/login'
+    | '/register'
     | '/settings/security'
     | '/settings/security/passkeys'
     | '/settings/security/sessions'
@@ -88,6 +98,7 @@ export interface FileRouteTypes {
     | '/'
     | '/dashboard'
     | '/login'
+    | '/register'
     | '/settings/security'
     | '/settings/security/passkeys'
     | '/settings/security/sessions'
@@ -96,6 +107,7 @@ export interface FileRouteTypes {
     | '/'
     | '/dashboard'
     | '/login'
+    | '/register'
     | '/settings/security'
     | '/settings/security/passkeys'
     | '/settings/security/sessions'
@@ -105,11 +117,19 @@ export interface RootRouteChildren {
   IndexRoute: typeof IndexRoute
   DashboardRoute: typeof DashboardRoute
   LoginRoute: typeof LoginRoute
+  RegisterRoute: typeof RegisterRoute
   SettingsSecurityRoute: typeof SettingsSecurityRouteWithChildren
 }
 
 declare module '@tanstack/react-router' {
   interface FileRoutesByPath {
+    '/register': {
+      id: '/register'
+      path: '/register'
+      fullPath: '/register'
+      preLoaderRoute: typeof RegisterRouteImport
+      parentRoute: typeof rootRouteImport
+    }
     '/login': {
       id: '/login'
       path: '/login'
@@ -172,6 +192,7 @@ const rootRouteChildren: RootRouteChildren = {
   IndexRoute: IndexRoute,
   DashboardRoute: DashboardRoute,
   LoginRoute: LoginRoute,
+  RegisterRoute: RegisterRoute,
   SettingsSecurityRoute: SettingsSecurityRouteWithChildren,
 }
 export const routeTree = rootRouteImport

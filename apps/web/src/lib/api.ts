@@ -44,9 +44,71 @@ export class ApiError extends Error {
   }
 }
 
-export async function apiFetch<T = unknown>(
+// En SSR (Node), `credentials: include` ne fait rien : le runtime n'a pas de
+// cookie store. On forward manuellement le header Cookie de la requête HTTP
+// entrante (via TanStack Start) pour que l'API reçoive les mêmes cookies que
+// le navigateur. Sans ça, beforeLoad fait un fetch anonyme → 401 → redirect
+// login au F5 alors que l'utilisateur est authentifié.
+async function getServerCookieHeader(): Promise<string | undefined> {
+  if (typeof window !== "undefined") return undefined;
+  try {
+    const mod = (await import("@tanstack/react-start/server")) as {
+      getRequestHeader?: (name: string) => string | undefined;
+    };
+    return mod.getRequestHeader?.("cookie");
+  } catch {
+    return undefined;
+  }
+}
+
+async function rawRequest(path: string, init: RequestInit): Promise<Response> {
+  const headers = new Headers(init.headers);
+  const serverCookie = await getServerCookieHeader();
+  if (serverCookie && !headers.has("cookie")) {
+    headers.set("cookie", serverCookie);
+  }
+  return fetch(`${API_BASE}${path}`, { credentials: "include", ...init, headers });
+}
+
+let _refreshPromise: Promise<boolean> | null = null;
+
+async function refreshSession(): Promise<boolean> {
+  if (_refreshPromise) return _refreshPromise;
+  _refreshPromise = (async () => {
+    try {
+      // /auth/refresh est exempté de CSRF côté serveur (protégé par le cookie
+      // refresh HttpOnly). Pas besoin de jongler avec le token CSRF ici.
+      const res = await rawRequest("/auth/refresh", {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+      });
+      return res.ok;
+    } catch {
+      return false;
+    } finally {
+      _refreshPromise = null;
+    }
+  })();
+  return _refreshPromise;
+}
+
+// Cache partagé des GET : aucune re-fetch tant que rien n'a changé.
+// Invalidé automatiquement sur : 401, logout, toute mutation, ou manuellement.
+// Ça tue le "polling" apparent quand plusieurs routes ont un beforeLoad qui
+// appelle le même endpoint (ex: /me dans dashboard, settings, index).
+const getCache = new Map<string, Promise<unknown>>();
+
+export function invalidateGetCache(path?: string): void {
+  if (path) getCache.delete(path);
+  else getCache.clear();
+}
+
+async function apiFetchCore<T>(
   path: string,
-  { method = "GET", body, headers: extraHeaders = {} }: ApiRequestInit = {},
+  method: Method,
+  body: unknown,
+  extraHeaders: Record<string, string>,
+  retried: boolean,
 ): Promise<T> {
   const isMutating = method !== "GET";
   const headers: Record<string, string> = {
@@ -57,18 +119,23 @@ export async function apiFetch<T = unknown>(
   if (isMutating) {
     const token = await getCsrfToken();
     headers["x-csrf-token"] = token;
+    invalidateGetCache();
   }
 
-  const res = await fetch(`${API_BASE}${path}`, {
+  const res = await rawRequest(path, {
     method,
-    credentials: "include",
     headers,
     body: body !== undefined ? JSON.stringify(body) : undefined,
   });
 
-  if (res.status === 204) {
-    return undefined as T;
+  // Auto-refresh sur 401 (hors /auth/* pour éviter les boucles).
+  if (res.status === 401 && !retried && !path.startsWith("/auth/")) {
+    invalidateGetCache();
+    const refreshed = await refreshSession();
+    if (refreshed) return apiFetchCore<T>(path, method, body, extraHeaders, true);
   }
+
+  if (res.status === 204) return undefined as T;
 
   const data: unknown = await res.json();
 
@@ -80,6 +147,24 @@ export async function apiFetch<T = unknown>(
       errData.error?.message ?? "An error occurred",
     );
   }
-
   return data as T;
+}
+
+export async function apiFetch<T = unknown>(
+  path: string,
+  { method = "GET", body, headers: extraHeaders = {} }: ApiRequestInit = {},
+): Promise<T> {
+  // GET : renvoie la même promesse partagée tant qu'elle n'a pas été invalidée.
+  if (method === "GET") {
+    const cached = getCache.get(path);
+    if (cached) return cached as Promise<T>;
+    const promise = apiFetchCore<T>(path, method, body, extraHeaders, false).catch((err) => {
+      // Sur erreur, retire du cache — le prochain appel refera un vrai fetch.
+      getCache.delete(path);
+      throw err;
+    });
+    getCache.set(path, promise);
+    return promise;
+  }
+  return apiFetchCore<T>(path, method, body, extraHeaders, false);
 }

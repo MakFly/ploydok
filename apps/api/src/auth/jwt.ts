@@ -75,12 +75,15 @@ export function buildCookieStr(
   maxAge: number,
   secure: boolean,
 ): string {
+  // SameSite=Lax : envoyé sur same-site (y compris cross-port comme :5173→:4000)
+  // ET sur top-level GET — évite les pièges de Strict sur F5 ou navigations.
+  // En prod, Secure est ajouté via le flag et fait foi.
   const parts = [
     `${name}=${encodeURIComponent(value)}`,
     "Path=/",
     `Max-Age=${maxAge}`,
     "HttpOnly",
-    "SameSite=Strict",
+    "SameSite=Lax",
   ];
   if (secure) parts.push("Secure");
   return parts.join("; ");

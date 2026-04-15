@@ -1,6 +1,5 @@
 // SPDX-License-Identifier: AGPL-3.0-only
 import * as React from "react";
-import { Link } from "@tanstack/react-router";
 import { Button } from "@workspace/ui/components/button";
 import type { Me } from "@ploydok/shared";
 
@@ -68,24 +67,19 @@ export function SecondFactorBanner({ me }: SecondFactorBannerProps): React.JSX.E
       </svg>
 
       <div className="flex-1">
-        <p className="font-medium">Your account needs a second factor</p>
+        <p className="font-medium">Génère tes codes de secours</p>
         <p className="mt-0.5 text-sm opacity-90">
-          Add a second passkey or generate backup codes to secure your account. This is required
-          before performing critical actions.
+          Si tu perds ta passkey, ces codes sont le seul moyen de récupérer ton compte. Télécharge-les
+          et garde-les en lieu sûr.
         </p>
         <div className="mt-3 flex gap-2">
-          <Link to="/settings/security/passkeys">
-            <Button size="sm" variant="outline">
-              Add a passkey
-            </Button>
-          </Link>
           <Button
             size="sm"
             variant="outline"
             onClick={() => void handleGenerateCodes()}
             disabled={downloading || downloaded}
           >
-            {downloaded ? "Codes downloaded ✓" : downloading ? "Generating…" : "Generate backup codes"}
+            {downloaded ? "Codes téléchargés ✓" : downloading ? "Génération…" : "Générer les codes de secours"}
           </Button>
         </div>
       </div>

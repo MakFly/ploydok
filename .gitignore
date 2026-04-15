@@ -44,3 +44,4 @@ npm-debug.log*
 # Rust
 target/
 /.claude/scheduled_tasks.lock
+.playwright-mcp/
