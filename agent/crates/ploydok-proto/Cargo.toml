@@ -1,0 +1,13 @@
+[package]
+name = "ploydok-proto"
+version = "0.1.0"
+edition = "2021"
+description = "Generated gRPC stubs for ploydok-agent (ploydok.agent.v1)"
+license = "AGPL-3.0-only"
+
+[dependencies]
+tonic = { version = "0.13", features = ["transport"] }
+prost = "0.13"
+
+[build-dependencies]
+tonic-build = "0.13"

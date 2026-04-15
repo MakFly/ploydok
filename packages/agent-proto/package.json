@@ -4,14 +4,22 @@
   "type": "module",
   "private": true,
   "scripts": {
+    "gen": "protoc --plugin=./node_modules/.bin/protoc-gen-ts_proto --ts_proto_out=src/gen --ts_proto_opt=outputServices=grpc-js,esModuleInterop=true,useExactTypes=false proto/agent.proto -I proto",
     "test": "bun test",
     "typecheck": "tsc --noEmit"
   },
   "exports": {
     ".": "./src/index.ts"
   },
+  "dependencies": {
+    "@bufbuild/protobuf": "^2.11.0",
+    "@grpc/grpc-js": "^1.12.6",
+    "google-protobuf": "^3.21.4"
+  },
   "devDependencies": {
     "@types/bun": "latest",
+    "@types/google-protobuf": "^3.15.12",
+    "ts-proto": "^2.7.0",
     "typescript": "^5.9.3"
   }
 }
