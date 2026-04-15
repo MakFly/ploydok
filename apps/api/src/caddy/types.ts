@@ -1,3 +1,4 @@
+// SPDX-License-Identifier: AGPL-3.0-only
 // Minimal Caddy admin API types — only what we manipulate
 
 export interface CaddyConfig {

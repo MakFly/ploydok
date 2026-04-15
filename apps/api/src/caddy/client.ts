@@ -1,3 +1,4 @@
+// SPDX-License-Identifier: AGPL-3.0-only
 import type { CaddyConfig, CaddyRoute } from "./types.js";
 
 export class CaddyClient {

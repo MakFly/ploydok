@@ -1,3 +1,4 @@
+// SPDX-License-Identifier: AGPL-3.0-only
 import { afterEach, beforeEach, describe, expect, test } from "bun:test";
 import { CaddyClient } from "./client.js";
 import type { CaddyConfig } from "./types.js";
