@@ -1,10 +1,15 @@
 // SPDX-License-Identifier: AGPL-3.0-only
 
 interface MiniChartProps {
-  /** Values 0–max (e.g. cpu_pct or mem_ratio * 100). */
+  /** Valeurs numériques. L'échelle est auto-scale sauf si `max` est fourni. */
   points: Array<number>
-  /** Scale ceiling. Defaults to 100. */
+  /**
+   * Plafond d'échelle. Si omis → auto-scale sur le max observé × 1.15 (headroom)
+   * avec un plancher à `minScale` pour éviter que ~0 paraisse énorme.
+   */
   max?: number
+  /** Plancher du plafond en mode auto-scale. Default 1. */
+  minScale?: number
   className?: string
   /** Stroke colour (CSS colour string). Defaults to currentColor. */
   stroke?: string
@@ -20,7 +25,8 @@ const MAX_POINTS = 60
  */
 export function MiniChart({
   points,
-  max = 100,
+  max,
+  minScale = 1,
   className,
   stroke = "currentColor",
 }: MiniChartProps) {
@@ -50,7 +56,12 @@ export function MiniChart({
 
   const n = trimmed.length
   const xStep = VIEW_W / (n - 1)
-  const safeMax = max === 0 ? 1 : max
+  // Auto-scale: headroom de 15 % au-dessus du max observé; plancher à minScale.
+  const observedMax = Math.max(...trimmed)
+  const safeMax =
+    max !== undefined && max > 0
+      ? max
+      : Math.max(observedMax * 1.15, minScale)
 
   const polylinePoints = trimmed
     .map((v, i) => {
