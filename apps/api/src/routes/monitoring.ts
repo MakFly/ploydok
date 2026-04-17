@@ -27,10 +27,25 @@ import { resolveAppOwner } from "../queries/app-owner"
 import { createDb } from "@ploydok/db"
 import { env } from "../env"
 import { childLogger } from "../logger"
+import { AgentError } from "../agent/errors"
 import type { AuthUser } from "../auth/middleware"
 import type { Agent } from "../agent/wrapper"
 
 const log = childLogger("monitoring")
+
+// Erreur agent — payload stable pour /overview quand l'agent est injoignable.
+function agentErrorPayload(err: unknown): { code: string; message: string } {
+  if (err instanceof AgentError) {
+    return {
+      code: err.code === 14 ? "AGENT_UNAVAILABLE" : "AGENT_ERROR",
+      message:
+        err.code === 14
+          ? "Agent Ploydok injoignable (démarre-le avec `make dev-agent`)"
+          : err.message,
+    }
+  }
+  return { code: "AGENT_ERROR", message: (err as Error).message ?? "unknown" }
+}
 
 // ---------------------------------------------------------------------------
 // Router
@@ -93,8 +108,19 @@ monitoringRouter.get("/overview", async (c) => {
     )
   }
 
-  const overview = await snapshotFromAgent()
-  return c.json(overview)
+  try {
+    const overview = await snapshotFromAgent()
+    return c.json(overview)
+  } catch (err) {
+    return c.json<MonitoringOverview>(
+      {
+        containers: [],
+        generated_at: Date.now(),
+        error: agentErrorPayload(err),
+      },
+      503,
+    )
+  }
 })
 
 // ---------------------------------------------------------------------------
@@ -182,6 +208,7 @@ monitoringRouter.post("/ping/:id", async (c) => {
 
 let prevById = new Map<string, ContainerStatus>()
 let loopHandle: ReturnType<typeof setInterval> | null = null
+let consecutiveFailures = 0
 
 /**
  * Pure tick function — extracted for testability.
@@ -255,9 +282,22 @@ export function startMonitoringLoop(db: ReturnType<typeof createDb>): void {
   const resolveOwner = (appId: string) => resolveAppOwner(db, appId)
 
   loopHandle = setInterval(() => {
-    monitoringTick(agent, eventBus.publish.bind(eventBus), prevById, resolveOwner).catch((err) => {
-      log.warn({ err }, "monitoring tick error")
-    })
+    monitoringTick(agent, eventBus.publish.bind(eventBus), prevById, resolveOwner)
+      .then(() => {
+        if (consecutiveFailures > 0) {
+          log.info({ afterFailures: consecutiveFailures }, "monitoring tick recovered")
+          consecutiveFailures = 0
+        }
+      })
+      .catch((err) => {
+        consecutiveFailures += 1
+        // Log niveau warn sur les 2 premiers échecs, puis debug pour éviter le spam.
+        if (consecutiveFailures <= 2) {
+          log.warn({ err, consecutiveFailures }, "monitoring tick error")
+        } else {
+          log.debug({ err, consecutiveFailures }, "monitoring tick error (silenced)")
+        }
+      })
   }, 5_000)
 
   log.info("monitoring loop started (interval=5s)")
@@ -268,6 +308,7 @@ export function stopMonitoringLoop(): void {
     clearInterval(loopHandle)
     loopHandle = null
     prevById = new Map()
+    consecutiveFailures = 0
     log.info("monitoring loop stopped")
   }
 }
