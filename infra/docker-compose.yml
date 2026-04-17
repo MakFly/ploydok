@@ -16,6 +16,9 @@ volumes:
 services:
   caddy:
     image: caddy:2-alpine
+    labels:
+      ploydok.kind: infra
+      ploydok.service: caddy
     ports:
       - "8180:80"
       - "8543:443"
@@ -39,6 +42,9 @@ services:
   buildkitd:
     image: moby/buildkit:v0.13.2-rootless
     container_name: ploydok-buildkitd
+    labels:
+      ploydok.kind: infra
+      ploydok.service: buildkitd
     security_opt:
       - seccomp=unconfined
       - apparmor=unconfined
@@ -58,6 +64,9 @@ services:
 
   registry:
     image: registry:2
+    labels:
+      ploydok.kind: infra
+      ploydok.service: registry
     ports:
       - "127.0.0.1:5000:5000"
     environment:
