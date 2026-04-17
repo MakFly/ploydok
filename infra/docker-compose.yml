@@ -9,10 +9,13 @@ networks:
   ploydok-public:
     external: true
 
+volumes:
+  buildkit-cache:
+  registry-data:
+
 services:
   caddy:
     image: caddy:2-alpine
-    restart: unless-stopped
     ports:
       - "8180:80"
       - "8543:443"
@@ -32,6 +35,44 @@ services:
     networks:
       - ploydok
       - ploydok-public
+
+  buildkitd:
+    image: moby/buildkit:v0.13.2-rootless
+    container_name: ploydok-buildkitd
+    security_opt:
+      - seccomp=unconfined
+      - apparmor=unconfined
+    user: "1000:1000"
+    command:
+      - --addr
+      - unix:///run/user/1000/buildkit/buildkitd.sock
+      - --oci-worker-no-process-sandbox
+      - --config
+      - /etc/buildkit/buildkitd.toml
+    volumes:
+      - buildkit-cache:/home/user/.local/share/buildkit
+      - ./buildkit:/etc/buildkit:ro
+    networks:
+      - ploydok
+      - ploydok-public
+
+  registry:
+    image: registry:2
+    ports:
+      - "127.0.0.1:5000:5000"
+    environment:
+      REGISTRY_STORAGE_DELETE_ENABLED: "true"
+    volumes:
+      - registry-data:/var/lib/registry
+      - ./registry/config.yml:/etc/docker/registry/config.yml:ro
+    healthcheck:
+      test: ["CMD", "wget", "-qO-", "http://localhost:5000/v2/"]
+      interval: 10s
+      timeout: 5s
+      retries: 3
+      start_period: 5s
+    networks:
+      - ploydok
 
   # TODO (Sprint 2.3): agent service — will be built from agent/ Dockerfile.
   # Uncomment and configure once the Rust agent binary and Dockerfile are ready.

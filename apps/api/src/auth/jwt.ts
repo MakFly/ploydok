@@ -7,8 +7,12 @@ import { env } from "../env";
 // ---------------------------------------------------------------------------
 
 const ALG = "HS256";
-const ACCESS_TTL = 10 * 60; // 10 minutes in seconds
+export const ACCESS_TTL = 10 * 60; // 10 minutes in seconds
 const ISSUER = "ploydok";
+
+export function getAccessExpiresAt(): number {
+  return Math.floor(Date.now() / 1000) + ACCESS_TTL;
+}
 
 // ---------------------------------------------------------------------------
 // Types

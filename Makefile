@@ -26,8 +26,10 @@ db-migrate:
 
 infra-up:
 	@docker network create ploydok-public 2>/dev/null || true
-	docker compose -f infra/docker-compose.yml up -d caddy
-	@echo "Caddy admin : http://127.0.0.1:2020/config/"
+	docker compose -f infra/docker-compose.yml up -d caddy buildkitd registry
+	@echo "Caddy admin   : http://127.0.0.1:2020/config/"
+	@echo "Registry v2   : http://127.0.0.1:5000/v2/"
+	@echo "BuildKit host : docker-container://ploydok-buildkitd-1"
 
 infra-down:
 	-docker compose -f infra/docker-compose.yml down --timeout 10

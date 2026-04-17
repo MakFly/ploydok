@@ -37,6 +37,7 @@ export interface AuthUser {
 export interface AppVariables {
   user: AuthUser;
   session_id: string;
+  access_exp: number;
 }
 
 // ---------------------------------------------------------------------------
@@ -106,6 +107,8 @@ export function requireAuth(db: Db) {
     (c as any).set("user", authUser);
     // eslint-disable-next-line @typescript-eslint/no-explicit-any
     (c as any).set("session_id", payload.session_id);
+    // eslint-disable-next-line @typescript-eslint/no-explicit-any
+    (c as any).set("access_exp", typeof payload.exp === "number" ? payload.exp : 0);
 
     return next();
   };

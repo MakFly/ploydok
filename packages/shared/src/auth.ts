@@ -40,11 +40,18 @@ export const MeSchema = z.object({
   email: z.string().email(),
   display_name: z.string(),
   created_at: z.string().datetime(),
+  accessExpiresAt: z.number(), // unix seconds, when the current access token expires
   has_passkey_plus: z.boolean(), // >= 2 passkeys
   has_backup_codes: z.boolean(), // >= 1 non-consumed backup code
   needs_second_factor: z.boolean(),
 });
 export type Me = z.infer<typeof MeSchema>;
+
+export const RefreshResponseSchema = z.object({
+  ok: z.literal(true),
+  accessExpiresAt: z.number(),
+});
+export type RefreshResponse = z.infer<typeof RefreshResponseSchema>;
 
 export const SessionInfoSchema = z.object({
   id: z.string(),

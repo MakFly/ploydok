@@ -14,6 +14,30 @@ export const apps = sqliteTable('apps', {
   })
     .notNull()
     .default('created'),
-  created_at: integer('created_at', { mode: 'timestamp' }).notNull(),
-  updated_at: integer('updated_at', { mode: 'timestamp' }).notNull(),
+  // Git source
+  git_provider: text('git_provider', { enum: ['github'] }),
+  repo_full_name: text('repo_full_name'),
+  branch: text('branch'),
+  github_installation_id: text('github_installation_id'),
+  root_dir: text('root_dir'),
+  dockerfile_path: text('dockerfile_path'),
+  // Build overrides
+  install_command: text('install_command'),
+  build_command: text('build_command'),
+  start_command: text('start_command'),
+  watch_paths: text('watch_paths'), // JSON array
+  build_method: text('build_method', { enum: ['docker', 'nixpacks', 'auto'] }),
+  // Runtime
+  container_id: text('container_id'),
+  domain: text('domain'),
+  // Healthcheck (intervals in seconds to match migration)
+  healthcheck_path: text('healthcheck_path'),
+  healthcheck_port: integer('healthcheck_port'),
+  healthcheck_interval_s: integer('healthcheck_interval_s'),
+  healthcheck_timeout_s: integer('healthcheck_timeout_s'),
+  healthcheck_retries: integer('healthcheck_retries'),
+  healthcheck_start_period_s: integer('healthcheck_start_period_s'),
+  // Timestamps
+  created_at: integer('created_at', { mode: 'timestamp' }).notNull().$defaultFn(() => new Date()),
+  updated_at: integer('updated_at', { mode: 'timestamp' }).notNull().$defaultFn(() => new Date()),
 });

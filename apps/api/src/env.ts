@@ -15,6 +15,20 @@ const schema = z.object({
   SMTP_PASS: z.string().optional(),
   SMTP_SECURE: z.coerce.boolean().default(false),
   SMTP_FROM: z.string().default("Ploydok <noreply@ploydok.local>"),
+  GITHUB_APP_CALLBACK_URL: z
+    .string()
+    .url()
+    .optional()
+    .default("http://localhost:4000/github/app/callback"),
+  PLOYDOK_REGISTRY_URL: z.string().default("127.0.0.1:5000"),
+  PLOYDOK_REGISTRY_PUSH_URL: z.string().default("registry:5000"),
+  PLOYDOK_REGISTRY_USER: z.string().optional(),
+  PLOYDOK_REGISTRY_PASS: z.string().optional(),
+  PLOYDOK_BUILD_DIR: z.string().default(() => {
+    const home = process.env.HOME ?? "/tmp";
+    return `${home}/.ploydok-dev/builds`;
+  }),
+  PLOYDOK_BUILDKIT_ADDR: z.string().default("docker-container://ploydok-buildkitd"),
 });
 
 const raw = schema.parse({
@@ -30,6 +44,13 @@ const raw = schema.parse({
   SMTP_PASS: Bun.env["SMTP_PASS"],
   SMTP_SECURE: Bun.env["SMTP_SECURE"],
   SMTP_FROM: Bun.env["SMTP_FROM"],
+  GITHUB_APP_CALLBACK_URL: Bun.env["GITHUB_APP_CALLBACK_URL"],
+  PLOYDOK_REGISTRY_URL: Bun.env["PLOYDOK_REGISTRY_URL"],
+  PLOYDOK_REGISTRY_PUSH_URL: Bun.env["PLOYDOK_REGISTRY_PUSH_URL"],
+  PLOYDOK_REGISTRY_USER: Bun.env["PLOYDOK_REGISTRY_USER"],
+  PLOYDOK_REGISTRY_PASS: Bun.env["PLOYDOK_REGISTRY_PASS"],
+  PLOYDOK_BUILD_DIR: Bun.env["PLOYDOK_BUILD_DIR"],
+  PLOYDOK_BUILDKIT_ADDR: Bun.env["PLOYDOK_BUILDKIT_ADDR"],
 });
 
 const isProd = raw.NODE_ENV === "prod";
@@ -87,4 +108,11 @@ export const env = {
   SMTP_PASS: raw.SMTP_PASS,
   SMTP_SECURE: raw.SMTP_SECURE,
   SMTP_FROM: raw.SMTP_FROM,
+  GITHUB_APP_CALLBACK_URL: raw.GITHUB_APP_CALLBACK_URL,
+  PLOYDOK_REGISTRY_URL: raw.PLOYDOK_REGISTRY_URL,
+  PLOYDOK_REGISTRY_PUSH_URL: raw.PLOYDOK_REGISTRY_PUSH_URL,
+  PLOYDOK_REGISTRY_USER: raw.PLOYDOK_REGISTRY_USER,
+  PLOYDOK_REGISTRY_PASS: raw.PLOYDOK_REGISTRY_PASS,
+  PLOYDOK_BUILD_DIR: raw.PLOYDOK_BUILD_DIR,
+  PLOYDOK_BUILDKIT_ADDR: raw.PLOYDOK_BUILDKIT_ADDR,
 } as const;

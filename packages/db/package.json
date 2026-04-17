@@ -11,7 +11,8 @@
     "seed": "bun run src/seed.ts"
   },
   "exports": {
-    ".": "./src/index.ts"
+    ".": "./src/index.ts",
+    "./queries": "./src/queries/index.ts"
   },
   "devDependencies": {
     "@types/bun": "latest",

@@ -15,6 +15,7 @@ import {
   signAccessToken,
   verifyAccessToken,
   buildCookieStr,
+  getAccessExpiresAt,
   ACCESS_COOKIE,
   REFRESH_COOKIE,
   ACCESS_MAX_AGE,
@@ -469,12 +470,14 @@ export function createAuthRouter(db: Db): Hono {
       email: user.email,
       sessionId,
     });
+    const accessExpiresAt = getAccessExpiresAt();
 
     const meta = await getUserMeta(db, user.id);
 
     const response = c.newResponse(
       JSON.stringify({
         user: { id: user.id, email: user.email, display_name: user.display_name },
+        accessExpiresAt,
         ...meta,
       }),
       200,
@@ -545,9 +548,10 @@ export function createAuthRouter(db: Db): Hono {
       email: user.email,
       sessionId,
     });
+    const accessExpiresAt = getAccessExpiresAt();
 
     const response = c.newResponse(
-      JSON.stringify({ ok: true }),
+      JSON.stringify({ ok: true, accessExpiresAt }),
       200,
       { "Content-Type": "application/json" },
     );
@@ -630,11 +634,13 @@ export function createAuthRouter(db: Db): Hono {
       email: user.email,
       sessionId,
     });
+    const accessExpiresAt = getAccessExpiresAt();
     const meta = await getUserMeta(db, user.id);
 
     const response = c.newResponse(
       JSON.stringify({
         user: { id: user.id, email: user.email, display_name: user.display_name },
+        accessExpiresAt,
         ...meta,
       }),
       200,

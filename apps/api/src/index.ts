@@ -1,9 +1,12 @@
 // SPDX-License-Identifier: AGPL-3.0-only
 import { app } from "./app";
 import { env } from "./env";
+import { wsHandler } from "./routes/ws";
 import { getSharedCaddy, getSharedAgent } from "./debug/singletons.js";
 import { AgentError, GrpcStatus } from "./agent/index.js";
 import { childLogger } from "./logger";
+import { startWorker } from "./worker";
+import { createDb } from "@ploydok/db";
 
 const log = childLogger("boot");
 
@@ -35,8 +38,20 @@ async function bootInfra(): Promise<void> {
 }
 
 if (import.meta.main) {
-  Bun.serve({ port: env.PORT, fetch: app.fetch });
+  // M3.2: pass the BunWebSocket handler so Bun can upgrade WS connections.
+  Bun.serve({ port: env.PORT, fetch: app.fetch, websocket: wsHandler });
   log.info({ port: env.PORT }, `api listening on :${env.PORT}`);
+
+  const workerDb = createDb(env.DATABASE_URL)
+  const worker = startWorker(workerDb)
+  log.info("worker started (polling jobs every 2s)")
+
+  const shutdown = () => {
+    log.info("worker stopping...")
+    worker.stop()
+  }
+  process.on("SIGTERM", shutdown)
+  process.on("SIGINT", shutdown)
 
   // En dev : bootInfra skippé par défaut (évite warn Caddy/agent absents).
   // Activer explicitement via PLOYDOK_BOOT_INFRA=1 (ou via NODE_ENV=prod/test).
