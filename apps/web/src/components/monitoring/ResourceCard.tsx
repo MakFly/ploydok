@@ -137,20 +137,21 @@ export function ResourceCard({
         </div>
       </div>
 
-      {/* Mini charts */}
+      {/* Mini charts — auto-scale sur le max observé pour voir la variation
+          même sur des containers idle (CPU <1%, mem <1% du RAM total). */}
       <div className="grid grid-cols-2 gap-2">
         <ChartBlock label="CPU %" color="text-blue-500">
           <MiniChart
             points={cpuHistory}
-            max={100}
+            minScale={1}
             stroke="#3b82f6"
             className="h-8 w-full"
           />
         </ChartBlock>
-        <ChartBlock label="Mem %" color="text-violet-500">
+        <ChartBlock label="Mem MB" color="text-violet-500">
           <MiniChart
-            points={memHistory.map((v) => v * 100)}
-            max={100}
+            points={memHistory.map((v) => v / 1_048_576)}
+            minScale={4}
             stroke="#8b5cf6"
             className="h-8 w-full"
           />

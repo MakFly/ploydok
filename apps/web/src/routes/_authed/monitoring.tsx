@@ -32,13 +32,15 @@ function MonitoringPage(): React.JSX.Element {
   const [, forceRender] = React.useReducer((n: number) => n + 1, 0)
 
   // Seed / update rings whenever polling data arrives.
+  // `cpu` stocké en % (0–100). `mem` stocké en bytes absolus (ResourceCard
+  // convertit → MB pour l'affichage, MiniChart auto-scale sur le max observé).
   React.useEffect(() => {
     if (!data) return
     for (const snap of data.containers) {
       const prev = ringsRef.current.get(snap.id) ?? { cpu: [], mem: [] }
       ringsRef.current.set(snap.id, {
         cpu: appendRing(prev.cpu, snap.cpu_pct),
-        mem: appendRing(prev.mem, snap.mem_bytes / (snap.mem_limit_bytes || 1)),
+        mem: appendRing(prev.mem, snap.mem_bytes),
       })
     }
   }, [data])
@@ -49,10 +51,7 @@ function MonitoringPage(): React.JSX.Element {
       const prev = ringsRef.current.get(snap.id) ?? { cpu: [], mem: [] }
       ringsRef.current.set(snap.id, {
         cpu: appendRing(prev.cpu, snap.cpu_pct),
-        mem: appendRing(
-          prev.mem,
-          snap.mem_bytes / (snap.mem_limit_bytes || 1),
-        ),
+        mem: appendRing(prev.mem, snap.mem_bytes),
       })
       // Patch the query cache so polling picks up the fresh snapshot.
       queryClient.setQueryData<MonitoringOverview>(
