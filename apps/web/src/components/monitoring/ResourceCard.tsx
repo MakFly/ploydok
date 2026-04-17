@@ -9,7 +9,7 @@ import {
   RiWifiLine,
 } from "@remixicon/react"
 
-import { MiniChart } from "./MiniChart"
+import { ContainerChart } from "./ContainerChart"
 import { StatusDot } from "./StatusDot"
 import type { ContainerSnapshot } from "@ploydok/shared"
 
@@ -137,23 +137,26 @@ export function ResourceCard({
         </div>
       </div>
 
-      {/* Mini charts — auto-scale sur le max observé pour voir la variation
-          même sur des containers idle (CPU <1%, mem <1% du RAM total). */}
+      {/* Sparklines Recharts — interactives avec tooltip au survol. */}
       <div className="grid grid-cols-2 gap-2">
-        <ChartBlock label="CPU %" color="text-blue-500">
-          <MiniChart
+        <ChartBlock label="CPU" color="text-blue-500">
+          <ContainerChart
             points={cpuHistory}
-            minScale={1}
-            stroke="#3b82f6"
-            className="h-8 w-full"
+            dataKey="cpu"
+            label="CPU"
+            color="#3b82f6"
+            formatValue={(v) => `${v.toFixed(2)} %`}
+            className="aspect-[3/1] h-10 w-full"
           />
         </ChartBlock>
-        <ChartBlock label="Mem MB" color="text-violet-500">
-          <MiniChart
+        <ChartBlock label="Memory" color="text-violet-500">
+          <ContainerChart
             points={memHistory.map((v) => v / 1_048_576)}
-            minScale={4}
-            stroke="#8b5cf6"
-            className="h-8 w-full"
+            dataKey="mem"
+            label="Mem"
+            color="#8b5cf6"
+            formatValue={(v) => `${v.toFixed(1)} MB`}
+            className="aspect-[3/1] h-10 w-full"
           />
         </ChartBlock>
       </div>
