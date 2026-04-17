@@ -15,7 +15,6 @@
  */
 
 import { expect, test } from "@playwright/test"
-import type { AuthContext } from "./_harness"
 import {
   API_URL,
   REAL_E2E,
@@ -25,6 +24,7 @@ import {
   pollBuildStatus,
   verifyRootless,
 } from "./_harness"
+import type { AuthContext } from "./_harness"
 
 // ---------------------------------------------------------------------------
 // Gate + suite-level timeout

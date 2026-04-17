@@ -3,12 +3,12 @@ import * as React from "react";
 import { Link, createFileRoute } from "@tanstack/react-router";
 import { Button } from "@workspace/ui/components/button";
 import { RiAddLine, RiArrowRightUpLine, RiGitBranchLine, RiGlobalLine } from "@remixicon/react";
-import type { AppStatus } from "@ploydok/shared";
 import { CreateAppModal } from "../../../components/apps/CreateAppModal";
 import { ShellPage, ShellPanel } from "../../../components/layout/AppShell";
-import type { AppListItem } from "../../../lib/apps";
 import { useApps } from "../../../lib/apps";
 import { useGitHubAppConfig } from "../../../lib/github";
+import type { AppListItem } from "../../../lib/apps";
+import type { AppStatus } from "@ploydok/shared";
 
 export const Route = createFileRoute("/_authed/apps/")({
   component: AppsPage,

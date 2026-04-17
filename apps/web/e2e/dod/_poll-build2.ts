@@ -10,8 +10,8 @@
  * Prefixed `_` so Playwright ignores this file as a spec.
  */
 
-import type { AuthContext, BuildRow } from "./_harness"
 import { API_URL } from "./_harness"
+import type { AuthContext, BuildRow } from "./_harness"
 
 export interface Poll2Opts {
   /** Maximum wait in ms. Default 180_000. */
@@ -44,7 +44,7 @@ export async function pollBuildStatus2(
     })
 
     if (res.ok) {
-      const data = (await res.json()) as { builds: BuildRow[] }
+      const data = (await res.json()) as { builds: Array<BuildRow> }
       const newest = data.builds[0]
 
       if (newest !== undefined && newest.id !== afterBuildId) {

@@ -24,6 +24,10 @@ import type {
   NetworkCreateResponse,
   NetworkRemoveRequest,
   NetworkRemoveResponse,
+  ListContainersRequest,
+  ListContainersResponse,
+  PingContainerRequest,
+  PingContainerResponse,
 } from "@ploydok/agent-proto";
 import { createAgentClient, type AgentClientOptions } from "./client.js";
 import { AgentError, toAgentError } from "./errors.js";
@@ -206,6 +210,24 @@ export class Agent {
     log.debug({ networkId: req.networkId }, "networkRemove");
     return callUnary(
       (r, m, opts, cb) => this.client.networkRemove(r, m, opts, cb),
+      req,
+      timeoutMs,
+    );
+  }
+
+  listContainers(req: ListContainersRequest, timeoutMs?: number): Promise<ListContainersResponse> {
+    log.debug({ kindFilter: req.kindFilter }, "listContainers");
+    return callUnary(
+      (r, m, opts, cb) => this.client.listContainers(r, m, opts, cb),
+      req,
+      timeoutMs,
+    );
+  }
+
+  pingContainer(req: PingContainerRequest, timeoutMs?: number): Promise<PingContainerResponse> {
+    log.debug({ containerId: req.containerId, path: req.path, port: req.port }, "pingContainer");
+    return callUnary(
+      (r, m, opts, cb) => this.client.pingContainer(r, m, opts, cb),
       req,
       timeoutMs,
     );

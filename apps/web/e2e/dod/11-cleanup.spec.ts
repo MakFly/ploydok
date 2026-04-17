@@ -29,7 +29,6 @@ import { existsSync } from "node:fs"
 import { homedir } from "node:os"
 import { join } from "node:path"
 import { expect, test } from "@playwright/test"
-import type { AuthContext, BuildRow } from "./_harness"
 import {
   API_URL,
   REAL_E2E,
@@ -40,6 +39,7 @@ import {
   triggerDeploy,
 } from "./_harness"
 import { pollBuildStatus2 } from "./_poll-build2"
+import type { AuthContext, BuildRow } from "./_harness"
 
 // ---------------------------------------------------------------------------
 // Gate + suite-level timeout (6 builds × ~60 s each + margin)
@@ -127,7 +127,7 @@ test.describe("DoD #10 — workspace + registry cleanup", () => {
         const res = await fetch(`${API_URL}/apps/${appId}`, {
           headers: { cookie: auth.cookie },
         })
-        const data = (await res.json()) as { builds: BuildRow[] }
+        const data = (await res.json()) as { builds: Array<BuildRow> }
         return data.builds[0]
       })()
     )?.id

@@ -14,6 +14,7 @@ import { Route as AuthedRouteImport } from './routes/_authed'
 import { Route as PublicIndexRouteImport } from './routes/_public/index'
 import { Route as PublicRegisterRouteImport } from './routes/_public/register'
 import { Route as PublicLoginRouteImport } from './routes/_public/login'
+import { Route as AuthedMonitoringRouteImport } from './routes/_authed/monitoring'
 import { Route as AuthedGuideRouteImport } from './routes/_authed/guide'
 import { Route as AuthedDashboardRouteImport } from './routes/_authed/dashboard'
 import { Route as AuthedAppsIndexRouteImport } from './routes/_authed/apps/index'
@@ -52,6 +53,11 @@ const PublicLoginRoute = PublicLoginRouteImport.update({
   id: '/login',
   path: '/login',
   getParentRoute: () => PublicRoute,
+} as any)
+const AuthedMonitoringRoute = AuthedMonitoringRouteImport.update({
+  id: '/monitoring',
+  path: '/monitoring',
+  getParentRoute: () => AuthedRoute,
 } as any)
 const AuthedGuideRoute = AuthedGuideRouteImport.update({
   id: '/guide',
@@ -135,6 +141,7 @@ export interface FileRoutesByFullPath {
   '/': typeof PublicIndexRoute
   '/dashboard': typeof AuthedDashboardRoute
   '/guide': typeof AuthedGuideRoute
+  '/monitoring': typeof AuthedMonitoringRoute
   '/login': typeof PublicLoginRoute
   '/register': typeof PublicRegisterRoute
   '/apps/$id': typeof AuthedAppsIdRouteWithChildren
@@ -155,6 +162,7 @@ export interface FileRoutesByTo {
   '/': typeof PublicIndexRoute
   '/dashboard': typeof AuthedDashboardRoute
   '/guide': typeof AuthedGuideRoute
+  '/monitoring': typeof AuthedMonitoringRoute
   '/login': typeof PublicLoginRoute
   '/register': typeof PublicRegisterRoute
   '/settings/github': typeof AuthedSettingsGithubRoute
@@ -176,6 +184,7 @@ export interface FileRoutesById {
   '/_public': typeof PublicRouteWithChildren
   '/_authed/dashboard': typeof AuthedDashboardRoute
   '/_authed/guide': typeof AuthedGuideRoute
+  '/_authed/monitoring': typeof AuthedMonitoringRoute
   '/_public/login': typeof PublicLoginRoute
   '/_public/register': typeof PublicRegisterRoute
   '/_public/': typeof PublicIndexRoute
@@ -199,6 +208,7 @@ export interface FileRouteTypes {
     | '/'
     | '/dashboard'
     | '/guide'
+    | '/monitoring'
     | '/login'
     | '/register'
     | '/apps/$id'
@@ -219,6 +229,7 @@ export interface FileRouteTypes {
     | '/'
     | '/dashboard'
     | '/guide'
+    | '/monitoring'
     | '/login'
     | '/register'
     | '/settings/github'
@@ -239,6 +250,7 @@ export interface FileRouteTypes {
     | '/_public'
     | '/_authed/dashboard'
     | '/_authed/guide'
+    | '/_authed/monitoring'
     | '/_public/login'
     | '/_public/register'
     | '/_public/'
@@ -298,6 +310,13 @@ declare module '@tanstack/react-router' {
       fullPath: '/login'
       preLoaderRoute: typeof PublicLoginRouteImport
       parentRoute: typeof PublicRoute
+    }
+    '/_authed/monitoring': {
+      id: '/_authed/monitoring'
+      path: '/monitoring'
+      fullPath: '/monitoring'
+      preLoaderRoute: typeof AuthedMonitoringRouteImport
+      parentRoute: typeof AuthedRoute
     }
     '/_authed/guide': {
       id: '/_authed/guide'
@@ -450,6 +469,7 @@ const AuthedSettingsSecurityRouteWithChildren =
 interface AuthedRouteChildren {
   AuthedDashboardRoute: typeof AuthedDashboardRoute
   AuthedGuideRoute: typeof AuthedGuideRoute
+  AuthedMonitoringRoute: typeof AuthedMonitoringRoute
   AuthedAppsIdRoute: typeof AuthedAppsIdRouteWithChildren
   AuthedSettingsGithubRoute: typeof AuthedSettingsGithubRoute
   AuthedSettingsSecurityRoute: typeof AuthedSettingsSecurityRouteWithChildren
@@ -459,6 +479,7 @@ interface AuthedRouteChildren {
 const AuthedRouteChildren: AuthedRouteChildren = {
   AuthedDashboardRoute: AuthedDashboardRoute,
   AuthedGuideRoute: AuthedGuideRoute,
+  AuthedMonitoringRoute: AuthedMonitoringRoute,
   AuthedAppsIdRoute: AuthedAppsIdRouteWithChildren,
   AuthedSettingsGithubRoute: AuthedSettingsGithubRoute,
   AuthedSettingsSecurityRoute: AuthedSettingsSecurityRouteWithChildren,
