@@ -1,8 +1,8 @@
 // SPDX-License-Identifier: AGPL-3.0-only
-import { useEffect, useRef } from "react"
 import { useMutation, useQuery } from "@tanstack/react-query"
 
 import { apiFetch } from "./api"
+import { useEventsSubscription } from "./events-provider"
 import type {
   ContainerSnapshot,
   MonitoringEvent,
@@ -71,42 +71,13 @@ export function usePingContainer() {
 }
 
 // ---------------------------------------------------------------------------
-// useMonitoringEvents — dedicated SSE listener for "container.health" events.
-// Opens a second EventSource (simpler than coupling with useNotifications).
+// useMonitoringEvents — s'abonne au stream /events partagé via EventsProvider.
 // ---------------------------------------------------------------------------
 
 export function useMonitoringEvents(
   onChange: (container: ContainerSnapshot) => void,
 ): void {
-  // Stable ref so the effect captures the latest callback without re-subscribing.
-  const cbRef = useRef(onChange)
-  useEffect(() => {
-    cbRef.current = onChange
+  useEventsSubscription<MonitoringEvent>("container.health", (monEv) => {
+    onChange(monEv.container)
   })
-
-  useEffect(() => {
-    // Gate: EventSource is not available in the SSR environment.
-    if (typeof window === "undefined") return
-
-    const es = new EventSource(`${API_BASE}/events`, { withCredentials: true })
-
-    function handleHealth(ev: Event): void {
-      const msgEvent = ev as MessageEvent<string>
-      let parsed: unknown
-      try {
-        parsed = JSON.parse(msgEvent.data)
-      } catch {
-        return
-      }
-      const monEv = parsed as MonitoringEvent
-      cbRef.current(monEv.container)
-    }
-
-    es.addEventListener("container.health", handleHealth)
-
-    return () => {
-      es.removeEventListener("container.health", handleHealth)
-      es.close()
-    }
-  }, [])
 }

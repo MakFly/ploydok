@@ -1,5 +1,6 @@
 // SPDX-License-Identifier: AGPL-3.0-only
-import { useEffect, useReducer, useRef } from "react"
+import { useEffect, useReducer } from "react"
+import { useEventsConnected, useEventsSubscription } from "./events-provider"
 
 // ---------------------------------------------------------------------------
 // Types — duplicated from API contract intentionally.
@@ -80,13 +81,7 @@ export function notificationsReducer(
 }
 
 // ---------------------------------------------------------------------------
-// SSE URL — mirrors API_BASE from api.ts
-// ---------------------------------------------------------------------------
-
-const API_BASE = import.meta.env.VITE_API_URL ?? "http://localhost:4000"
-
-// ---------------------------------------------------------------------------
-// Hook
+// Hook — s'abonne au stream /events partagé via EventsProvider.
 // ---------------------------------------------------------------------------
 
 export function useNotifications(): {
@@ -95,66 +90,20 @@ export function useNotifications(): {
   clear: () => void
 } {
   const [state, dispatch] = useReducer(notificationsReducer, initialState)
-  const esRef = useRef<EventSource | null>(null)
+  const connected = useEventsConnected()
 
+  // Reflect provider connection status into the notifications state.
   useEffect(() => {
-    // Gate: EventSource does not exist server-side (TanStack Start SSR).
-    if (typeof window === "undefined") return
+    dispatch({ type: connected ? "connect" : "disconnect" })
+  }, [connected])
 
-    const es = new EventSource(`${API_BASE}/events`, { withCredentials: true })
-    esRef.current = es
-
-    es.onopen = () => {
-      dispatch({ type: "connect" })
-    }
-
-    es.onerror = () => {
-      // Do not close: native EventSource retry handles reconnection.
-      dispatch({ type: "disconnect" })
-    }
-
-    es.onmessage = (ev: MessageEvent<string>) => {
-      // Generic "message" events (no event: field) — ignored for now.
-      void ev
-    }
-
-    // Typed named events — all NotificationType values plus ping.
-    const knownTypes: Array<NotificationType | "ping"> = [
-      "ping",
-      "build.started",
-      "build.succeeded",
-      "build.failed",
-      "deploy.status_change",
-      "container.health",
-    ]
-
-    function handleNamedEvent(ev: Event): void {
-      const msgEvent = ev as MessageEvent<string>
-      if (msgEvent.type === "ping") return
-
-      let parsed: unknown
-      try {
-        parsed = JSON.parse(msgEvent.data)
-      } catch {
-        return
-      }
-
-      const notification = parsed as NotificationEvent
-      dispatch({ type: "push", payload: notification })
-    }
-
-    for (const eventType of knownTypes) {
-      es.addEventListener(eventType, handleNamedEvent)
-    }
-
-    return () => {
-      for (const eventType of knownTypes) {
-        es.removeEventListener(eventType, handleNamedEvent)
-      }
-      es.close()
-      esRef.current = null
-    }
-  }, [])
+  // Un abonnement par type — appels stables dans le même ordre à chaque render.
+  const push = (payload: NotificationEvent) => dispatch({ type: "push", payload })
+  useEventsSubscription<NotificationEvent>("build.started", push)
+  useEventsSubscription<NotificationEvent>("build.succeeded", push)
+  useEventsSubscription<NotificationEvent>("build.failed", push)
+  useEventsSubscription<NotificationEvent>("deploy.status_change", push)
+  useEventsSubscription<NotificationEvent>("container.health", push)
 
   const markAllRead = () => dispatch({ type: "markAllRead" })
   const clear = () => dispatch({ type: "clear" })
