@@ -1,4 +1,5 @@
 // SPDX-License-Identifier: AGPL-3.0-only
+import fs from "node:fs";
 import path from "node:path";
 import { eq } from "drizzle-orm";
 import { nanoid } from "nanoid";
@@ -25,6 +26,7 @@ import { nixpacksBuild } from "../nixpacks";
 import { diskGuard, gcKeepLast } from "../registry";
 import { workerLog } from "../logger"
 import { eventBus } from "../event-bus";
+import { runBlueGreen } from "../runner";
 
 // ---------------------------------------------------------------------------
 // Types
@@ -34,6 +36,7 @@ import { eventBus } from "../event-bus";
 const DeployPayloadSchema = z.object({
   appId: z.string(),
   commitSha: z.string().nullish(),
+  commitMessage: z.string().nullish(),
 });
 
 // ---------------------------------------------------------------------------
@@ -169,12 +172,21 @@ export async function handleDeploy(
     throw new Error(`App ${app.id} is missing repo_full_name or branch — cannot deploy`);
   }
 
-  // Create build record
+  // Create build record.
+  // build_method is set to the app-level preference resolved to docker/nixpacks;
+  // if the app was created with "auto" or null, we default to "docker" — the
+  // actual method used is detected later and stored via updateBuildStatus.
+  const resolvedBuildMethod =
+    app.build_method === "docker" || app.build_method === "nixpacks"
+      ? (app.build_method as "docker" | "nixpacks")
+      : "docker"
   const buildId = nanoid();
   await insertBuild(db, {
     id: buildId,
     appId: app.id,
+    buildMethod: resolvedBuildMethod,
     ...(payload.commitSha != null && { commitSha: payload.commitSha }),
+    ...(payload.commitMessage != null && { commitMessage: payload.commitMessage }),
   });
   await updateBuildStatus(db, buildId, "running", { startedAt: new Date() });
 
@@ -196,6 +208,16 @@ export async function handleDeploy(
 
   log.info({ buildId }, "deploy started");
 
+  // Create log file stream for this build.
+  const logDir = path.join(env.PLOYDOK_BUILD_DIR, app.id);
+  const logPath = path.join(logDir, `${buildId}.log`);
+  fs.mkdirSync(logDir, { recursive: true });
+  const logStream = fs.createWriteStream(logPath, { flags: "a" });
+
+  // Track final outcome so the finally block can write log_path once.
+  let finalStatus: "succeeded" | "failed" = "succeeded";
+  let finalPatch: { finishedAt: Date; errorMessage?: string; containerId?: string } = { finishedAt: new Date() };
+
   try {
     // 1. Clone
     const { installationId, token } = await resolveInstallationTokenForApp(app);
@@ -204,13 +226,20 @@ export async function handleDeploy(
     const cloneUrl = ghProvider.cloneUrlWithToken(app.repo_full_name, token);
 
     log.info({ buildId, installationId }, "cloning repo");
-    const { workspacePath } = await cloneRepo({
+    const { workspacePath, headSha } = await cloneRepo({
       repoCloneUrl: cloneUrl,
       buildDir: env.PLOYDOK_BUILD_DIR,
       appId: app.id,
       buildId,
       branch: app.branch,
     });
+
+    // When the deploy was triggered without an explicit commit (manual deploy,
+    // initial create), persist the actual HEAD sha so the UI can show it.
+    const resolvedCommitSha = payload.commitSha ?? headSha ?? null;
+    if (resolvedCommitSha && payload.commitSha == null) {
+      await updateBuildStatus(db, buildId, "running", { commitSha: resolvedCommitSha });
+    }
 
     // 2. Detect build method
     const detected = await detectBuildMethod({
@@ -220,6 +249,11 @@ export async function handleDeploy(
       ...(app.dockerfile_path !== null && { dockerfilePath: app.dockerfile_path }),
     });
     log.info({ buildId, method: detected.method }, "build method detected");
+
+    // Persist the resolved build_method when detection overrides our initial guess.
+    if (detected.method !== resolvedBuildMethod) {
+      await updateBuildStatus(db, buildId, "running", { buildMethod: detected.method });
+    }
 
     // Guard: abort early if registry disk is too full (threshold = 80 %).
     await diskGuard(80);
@@ -235,17 +269,18 @@ export async function handleDeploy(
     // Docker registry repo names must match [a-z0-9._/-]+; nanoid() app.id
     // contains uppercase, so we lowercase for the repo component only.
     const stripScheme = (u: string) => u.replace(/^https?:\/\//, "");
-    const commitSha = payload.commitSha ?? buildId;
+    const commitSha = resolvedCommitSha ?? buildId;
     const pushRegistry = stripScheme(env.PLOYDOK_REGISTRY_PUSH_URL);
     const pullRegistry = stripScheme(env.PLOYDOK_REGISTRY_URL);
     const repo = `app-${app.id.toLowerCase()}`;
     const pushRef = `${pushRegistry}/${repo}:${commitSha}`;
     const imageRef = `${pullRegistry}/${repo}:${commitSha}`;
 
-    /** Publish a log line to the pino logger and the LogBus (M3.2). */
+    /** Publish a log line to the pino logger, the LogBus (M3.2), and the log file. */
     function onLog(line: string) {
       log.debug({ buildId }, line);
       logBus.publish(`build:${buildId}`, line);
+      logStream.write(line + "\n");
     }
 
     if (detected.method === "docker") {
@@ -323,50 +358,77 @@ export async function handleDeploy(
       });
     }
 
-    // 4. TODO M3.3: blue-green runner — start container + healthcheck + Caddy swap
+    // 4. Blue-green deploy — spawn container, healthcheck, Caddy swap.
+    // runBlueGreen internally updates apps.container_id + apps.status = 'running'.
+    onLog("[deploy] starting blue-green runner");
+    const { containerId } = await runBlueGreen({
+      appId: app.id,
+      imageRef,
+      env: {},
+      db,
+    });
+    onLog(`[deploy] container live: ${containerId}`);
 
-    // 5. Mark succeeded
-    await updateBuildStatus(db, buildId, "succeeded", { finishedAt: new Date() });
+    // Persist containerId into the build record via finalPatch (written once in finally).
+    finalPatch = { finishedAt: new Date(), containerId };
 
-    // Notify: build succeeded
+    // Notify: container is live.
     if (ownerId) {
       try {
         eventBus.publish(`user:${ownerId}`, {
-          type: "build.succeeded",
+          type: "deploy.status_change",
           appId: app.id,
           buildId,
-          message: "Build réussi",
+          message: "Container live",
+          data: { containerId },
         })
       } catch (pubErr) {
-        log.warn({ pubErr, buildId }, "eventBus publish build.succeeded failed (non-fatal)")
+        log.warn({ pubErr, buildId }, "eventBus publish deploy.status_change (container live) failed (non-fatal)")
       }
     }
+
+    // 5. Mark succeeded (log_path + terminal event written in finally)
+    finalStatus = "succeeded";
 
     log.info({ buildId }, "deploy succeeded");
   } catch (err) {
     const msg = err instanceof Error ? err.message : String(err);
     log.error({ buildId, err }, "deploy failed");
-    await updateBuildStatus(db, buildId, "failed", {
-      finishedAt: new Date(),
-      errorMessage: msg,
-    });
 
-    // Notify: build failed
-    if (ownerId) {
-      try {
-        eventBus.publish(`user:${ownerId}`, {
-          type: "build.failed",
-          appId: app.id,
-          buildId,
-          message: `Build échoué: ${msg.slice(0, 200)}`,
-        })
-      } catch (pubErr) {
-        log.warn({ pubErr, buildId }, "eventBus publish build.failed failed (non-fatal)")
-      }
-    }
+    finalStatus = "failed";
+    finalPatch = { finishedAt: new Date(), errorMessage: msg };
 
     throw err;
   } finally {
+    // Close the log stream and persist log_path in a single updateBuildStatus call.
+    await new Promise<void>((resolve) => logStream.end(resolve));
+    await updateBuildStatus(db, buildId, finalStatus, {
+      ...finalPatch,
+      logPath,
+    });
+
+    // Publish terminal event AFTER the DB commit so any React Query
+    // invalidation triggered by the event fetches the final status.
+    if (ownerId) {
+      const terminal =
+        finalStatus === "succeeded"
+          ? { type: "build.succeeded" as const, message: "Build réussi" }
+          : {
+              type: "build.failed" as const,
+              message: `Build échoué: ${(finalPatch.errorMessage ?? "").slice(0, 200)}`,
+            };
+      try {
+        eventBus.publish(`user:${ownerId}`, {
+          type: terminal.type,
+          appId: app.id,
+          buildId,
+          message: terminal.message,
+        });
+      } catch (pubErr) {
+        log.warn({ pubErr, buildId }, `eventBus publish ${terminal.type} failed (non-fatal)`);
+      }
+    }
+
     // Enqueue async workspace cleanup — do not await, this is fire-and-forget.
     enqueueJob(db, {
       type: "cleanup.build",

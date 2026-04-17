@@ -76,6 +76,39 @@ describe('builds queries', () => {
     expect(build!.commit_sha).toBe('abc123');
   });
 
+  it('inserts a build with commitMessage and retrieves it', async () => {
+    const id = nanoid();
+    const build = await insertBuild(db, {
+      id,
+      appId,
+      buildMethod: 'nixpacks',
+      commitSha: 'def456',
+      commitMessage: 'feat: initial commit',
+    });
+
+    expect(build).not.toBeNull();
+    expect(build!.commit_message).toBe('feat: initial commit');
+  });
+
+  it('insertBuild without buildMethod defaults to null (not "auto")', async () => {
+    const id = nanoid();
+    const build = await insertBuild(db, { id, appId });
+    expect(build!.build_method).toBeNull();
+  });
+
+  it('updateBuildStatus can update buildMethod and commitMessage', async () => {
+    const id = nanoid();
+    await insertBuild(db, { id, appId, buildMethod: 'docker' });
+
+    const updated = await updateBuildStatus(db, id, 'running', {
+      buildMethod: 'nixpacks',
+      commitMessage: 'fix: updated via patch',
+    });
+
+    expect(updated!.build_method).toBe('nixpacks');
+    expect(updated!.commit_message).toBe('fix: updated via patch');
+  });
+
   it('updateBuildStatus → running with startedAt', async () => {
     const id = nanoid();
     await insertBuild(db, { id, appId });

@@ -820,5 +820,69 @@ export function createAuthRouter(db: Db): Hono {
     return c.json({ ok: true });
   });
 
+  // -------------------------------------------------------------------------
+  // POST /auth/dev-login — bypass WebAuthn for Playwright / local e2e.
+  // Guarded HARD by NODE_ENV !== "prod". Bound to loopback via Origin check.
+  // Picks the first user if no email is given. Issues real access+refresh
+  // cookies so the rest of the app behaves identically.
+  // -------------------------------------------------------------------------
+  auth.post("/auth/dev-login", async (c) => {
+    if (env.NODE_ENV === "prod") {
+      return c.json(
+        { error: { code: "NOT_FOUND", message: "Not found" } },
+        404,
+      );
+    }
+    const origin = c.req.header("origin") ?? "";
+    const host = c.req.header("host") ?? "";
+    const loopbackRe = /^(https?:\/\/)?(localhost|127\.0\.0\.1)(:\d+)?$/;
+    if (origin && !loopbackRe.test(origin) && !loopbackRe.test(`http://${host}`)) {
+      return c.json(
+        { error: { code: "FORBIDDEN", message: "dev-login is loopback-only" } },
+        403,
+      );
+    }
+
+    let body: { email?: string } = {};
+    try {
+      body = await c.req.json();
+    } catch {
+      // empty body is fine — we'll pick the first user
+    }
+
+    const rows = body.email
+      ? await db.select().from(users).where(eq(users.email, body.email)).limit(1)
+      : await db.select().from(users).limit(1);
+    const user = rows[0];
+    if (!user) {
+      return c.json(
+        { error: { code: "NOT_FOUND", message: "No user found — seed one first" } },
+        404,
+      );
+    }
+
+    const { userAgent, ip } = getClientInfo(c.req.raw);
+    const { sessionId, refreshToken } = await Sessions.createSession(db, {
+      userId: user.id,
+      userAgent,
+      ip,
+    });
+    const accessToken = await signAccessToken({
+      userId: user.id,
+      email: user.email,
+      sessionId,
+    });
+
+    const response = c.newResponse(
+      JSON.stringify({
+        user: { id: user.id, email: user.email, display_name: user.display_name },
+      }),
+      200,
+      { "Content-Type": "application/json" },
+    );
+    setCookies(response.headers, accessToken, refreshToken, sessionId);
+    return response;
+  });
+
   return auth;
 }

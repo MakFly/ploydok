@@ -1,6 +1,9 @@
 // SPDX-License-Identifier: AGPL-3.0-only
-import * as React from "react";
-import { createFileRoute } from "@tanstack/react-router";
+import * as React from "react"
+import { createFileRoute } from "@tanstack/react-router"
+import { useEnvVars, useUpdateEnvVars } from "../../../../lib/apps-env"
+import { EnvTable } from "../../../../components/apps/EnvTable"
+import type { EnvVarPatch } from "../../../../lib/apps-env"
 
 // ---------------------------------------------------------------------------
 // Route
@@ -8,46 +11,52 @@ import { createFileRoute } from "@tanstack/react-router";
 
 export const Route = createFileRoute("/_authed/apps/$id/env")({
   component: AppEnvTab,
-});
+})
 
 // ---------------------------------------------------------------------------
-// AppEnvTab — placeholder, out of scope for Sprint 3
+// AppEnvTab
 // ---------------------------------------------------------------------------
 
 function AppEnvTab(): React.JSX.Element {
-  return (
-    <div className="flex flex-col items-center justify-center rounded-lg border border-dashed border-border bg-muted/20 py-20 text-center">
-      <div className="rounded-full bg-muted p-4 mb-4">
-        <EnvIcon className="size-8 text-muted-foreground" />
+  const { id: appId } = Route.useParams()
+
+  const { data: serverVars, isLoading, isError } = useEnvVars(appId)
+  const { mutate: updateEnvVars, isPending: isSaving } = useUpdateEnvVars(appId)
+
+  function handleSave(vars: Array<EnvVarPatch>) {
+    updateEnvVars(vars)
+  }
+
+  if (isLoading) {
+    return (
+      <div className="flex items-center justify-center py-16">
+        <div className="size-5 animate-spin rounded-full border-2 border-muted-foreground/30 border-t-foreground" />
       </div>
-      <p className="text-sm font-medium mb-1">Environment variables</p>
-      <p className="text-sm text-muted-foreground">
-        Coming soon — this feature is planned for a future sprint.
+    )
+  }
+
+  if (isError || !serverVars) {
+    return (
+      <div className="flex flex-col items-center justify-center rounded-lg border border-dashed border-destructive/40 bg-destructive/5 py-12 text-center">
+        <p className="text-sm font-medium text-destructive">Failed to load environment variables</p>
+        <p className="mt-1 text-xs text-muted-foreground">
+          Check your connection and try refreshing.
+        </p>
+      </div>
+    )
+  }
+
+  return (
+    <div className="mx-auto w-full max-w-3xl space-y-2 py-6">
+      <EnvTable serverVars={serverVars} isSaving={isSaving} onSave={handleSave} />
+
+      <p className="px-1 text-[11px] text-muted-foreground">
+        Changes apply on the next deployment.{" "}
+        <span className="font-medium text-amber-600 dark:text-amber-400">
+          Secret values are stored in plain text in this MVP
+        </span>{" "}
+        — encrypt-at-rest is planned for a future release.
       </p>
     </div>
-  );
-}
-
-// ---------------------------------------------------------------------------
-// Icon
-// ---------------------------------------------------------------------------
-
-function EnvIcon({ className }: { className?: string }): React.JSX.Element {
-  return (
-    <svg
-      xmlns="http://www.w3.org/2000/svg"
-      viewBox="0 0 24 24"
-      fill="none"
-      stroke="currentColor"
-      strokeWidth="1.5"
-      strokeLinecap="round"
-      strokeLinejoin="round"
-      className={className}
-      aria-hidden="true"
-    >
-      <path d="M4 7V4h16v3" />
-      <path d="M9 20h6" />
-      <path d="M12 4v16" />
-    </svg>
-  );
+  )
 }

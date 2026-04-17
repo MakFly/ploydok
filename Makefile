@@ -19,7 +19,7 @@ dev:
 
 dev-agent:
 	@echo "Starting ploydok-agent (insecure, /tmp/ploydok-agent.sock)..."
-	cd agent && PLOYDOK_AGENT_INSECURE=1 PLOYDOK_AGENT_SOCKET=/tmp/ploydok-agent.sock cargo run --release -p ploydok-agent
+	cd agent && PLOYDOK_AGENT_INSECURE=1 PLOYDOK_AGENT_SOCKET=/tmp/ploydok-agent.sock PLOYDOK_VALIDATOR_CONFIG=$(CURDIR)/agent/config/dev-validator.toml cargo run --release -p ploydok-agent
 
 db-migrate:
 	bun run --cwd packages/db migrate

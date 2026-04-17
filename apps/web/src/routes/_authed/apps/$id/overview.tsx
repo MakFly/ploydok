@@ -1,10 +1,13 @@
 // SPDX-License-Identifier: AGPL-3.0-only
-import * as React from "react";
-import { createFileRoute } from "@tanstack/react-router";
-import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
-import { Button } from "@workspace/ui/components/button";
-import { apiFetch } from "../../../../lib/api";
-import { useApp } from "../../../../lib/apps";
+import * as React from "react"
+import { createFileRoute } from "@tanstack/react-router"
+import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query"
+import { Button } from "@workspace/ui/components/button"
+import { apiFetch } from "../../../../lib/api"
+import { useApp } from "../../../../lib/apps"
+import { AppMonitoringCard } from "../../../../components/apps/AppMonitoringCard"
+import { LastDeploymentCard } from "../../../../components/apps/LastDeploymentCard"
+import { ActivityFeed } from "../../../../components/apps/ActivityFeed"
 
 // ---------------------------------------------------------------------------
 // Route
@@ -12,60 +15,94 @@ import { useApp } from "../../../../lib/apps";
 
 export const Route = createFileRoute("/_authed/apps/$id/overview")({
   component: AppOverviewTab,
-});
+})
 
 // ---------------------------------------------------------------------------
 // AppOverviewTab
 // ---------------------------------------------------------------------------
 
 function AppOverviewTab(): React.JSX.Element {
-  const { id } = Route.useParams();
-  const { data: app, isLoading, error } = useApp(id);
+  const { id } = Route.useParams()
+  const { data: app, isLoading, error } = useApp(id)
 
-  if (isLoading) return <OverviewSkeleton />;
+  if (isLoading) return <OverviewSkeleton />
   if (error || !app) {
     return (
       <p className="text-sm text-destructive" role="alert">
         Failed to load app: {error?.message ?? "Not found"}
       </p>
-    );
+    )
   }
 
   return (
-    <div className="grid gap-4 sm:grid-cols-2 lg:grid-cols-3">
-      <InfoCard label="Status" value={app.status} />
-      <InfoCard label="Branch" value={app.branch ?? "—"} />
-      <InfoCard label="Repository" value={app.repoFullName ?? "—"} />
-      <InfoCard label="Domain" value={app.domain ?? "—"} />
-      <InfoCard
-        label="Current commit"
-        value={
-          app.currentCommitSha
-            ? app.currentCommitSha.slice(0, 7)
-            : "—"
-        }
-        mono
-      />
-      <InfoCard
-        label="Last build"
-        value={app.latestBuildId ?? "No builds yet"}
-        mono={Boolean(app.latestBuildId)}
-      />
-      <InfoCard
-        label="Build method"
-        value={app.buildMethod ?? "auto"}
-      />
-      <InfoCard
-        label="Root dir"
-        value={app.rootDir ?? "/"}
-        mono
-      />
+    <div className="space-y-4">
+      {/* Row 1: Monitoring (2/3) + Last deployment (1/3) */}
+      <div className="grid gap-4 lg:grid-cols-3">
+        <div className="lg:col-span-2">
+          <AppMonitoringCard appId={id} />
+        </div>
+        <div className="lg:col-span-1">
+          <LastDeploymentCard appId={id} />
+        </div>
+      </div>
 
-      {/* [M4.2 registry — BEGIN] */}
-      <RegistryUsageWidget appId={id} />
-      {/* [M4.2 registry — END] */}
+      {/* Row 2: Condensed InfoCards grid */}
+      <div className="grid gap-3 sm:grid-cols-2 lg:grid-cols-4">
+        <InfoCard label="Branch" value={app.branch ?? "—"} />
+        <InfoCard
+          label="Repository"
+          value={app.repoFullName ?? "—"}
+          href={
+            app.repoFullName && app.gitProvider === "github"
+              ? `https://github.com/${app.repoFullName}`
+              : undefined
+          }
+        />
+        <InfoCard label="Domain" value={app.domain ?? "—"} />
+        <InfoCard
+          label="Healthcheck"
+          value={formatHealthcheck(app.healthcheckPath, app.healthcheckPort)}
+        />
+        <InfoCard
+          label="Build method"
+          value={app.buildMethod ?? "auto"}
+        />
+        <InfoCard
+          label="Root dir"
+          value={app.rootDir ?? "/"}
+          mono
+        />
+        <InfoCard
+          label="Current commit"
+          value={(() => {
+            const sha =
+              app.currentCommitSha ??
+              app.builds?.find((b) => b.commitSha)?.commitSha
+            return sha ? sha.slice(0, 7) : "—"
+          })()}
+          mono
+        />
+        {app.healthcheckIntervalS != null && (
+          <InfoCard
+            label="HC interval"
+            value={`${app.healthcheckIntervalS}s`}
+          />
+        )}
+      </div>
+
+      {/* Row 3: Activity feed (2/3) + Registry storage (1/3) */}
+      <div className="grid gap-4 lg:grid-cols-3">
+        <div className="lg:col-span-2">
+          <ActivityFeed appId={id} />
+        </div>
+        <div className="lg:col-span-1">
+          {/* [M4.2 registry — BEGIN] */}
+          <RegistryUsageWidget appId={id} />
+          {/* [M4.2 registry — END] */}
+        </div>
+      </div>
     </div>
-  );
+  )
 }
 
 // ---------------------------------------------------------------------------
@@ -73,27 +110,48 @@ function AppOverviewTab(): React.JSX.Element {
 // ---------------------------------------------------------------------------
 
 interface InfoCardProps {
-  label: string;
-  value: string;
-  mono?: boolean;
+  label: string
+  value: string
+  mono?: boolean
+  href?: string
 }
 
-function InfoCard({ label, value, mono }: InfoCardProps): React.JSX.Element {
+function InfoCard({ label, value, mono, href }: InfoCardProps): React.JSX.Element {
+  const valueClass = [
+    "text-sm truncate",
+    mono ? "font-mono" : "font-medium",
+    href ? "text-primary hover:underline" : "",
+  ].join(" ")
+
   return (
-    <div className="rounded-lg border border-border bg-card p-4 space-y-1">
+    <div className="rounded-lg border border-border bg-card p-3 space-y-1">
       <p className="text-xs font-medium text-muted-foreground uppercase tracking-wide">
         {label}
       </p>
-      <p
-        className={[
-          "text-sm truncate",
-          mono ? "font-mono" : "font-medium",
-        ].join(" ")}
-      >
-        {value}
-      </p>
+      {href ? (
+        <a
+          className={valueClass}
+          href={href}
+          target="_blank"
+          rel="noopener noreferrer"
+        >
+          {value}
+        </a>
+      ) : (
+        <p className={valueClass}>{value}</p>
+      )}
     </div>
-  );
+  )
+}
+
+function formatHealthcheck(
+  path: string | undefined,
+  port: number | null | undefined,
+): string {
+  const normalizedPath = path && path !== "/" ? path : ""
+  if (!normalizedPath && !port) return "—"
+  if (!port) return normalizedPath || "—"
+  return `${normalizedPath}:${port}`
 }
 
 // ---------------------------------------------------------------------------
@@ -102,18 +160,28 @@ function InfoCard({ label, value, mono }: InfoCardProps): React.JSX.Element {
 
 function OverviewSkeleton(): React.JSX.Element {
   return (
-    <div className="grid gap-4 sm:grid-cols-2 lg:grid-cols-3 animate-pulse">
-      {[...Array<null>(8)].map((_, i) => (
-        <div
-          key={i}
-          className="rounded-lg border border-border bg-card p-4 space-y-2"
-        >
-          <div className="h-3 w-20 rounded bg-muted" />
-          <div className="h-4 w-32 rounded bg-muted" />
-        </div>
-      ))}
+    <div className="space-y-4 animate-pulse">
+      {/* Row 1 skeleton */}
+      <div className="grid gap-4 lg:grid-cols-3">
+        <div className="lg:col-span-2 h-48 rounded-[1.4rem] border border-border bg-card" />
+        <div className="lg:col-span-1 h-48 rounded-lg border border-border bg-card" />
+      </div>
+      {/* Row 2 skeleton */}
+      <div className="grid gap-3 sm:grid-cols-2 lg:grid-cols-4">
+        {[...Array<null>(8)].map((_, i) => (
+          <div key={i} className="rounded-lg border border-border bg-card p-3 space-y-2">
+            <div className="h-3 w-16 rounded bg-muted" />
+            <div className="h-4 w-24 rounded bg-muted" />
+          </div>
+        ))}
+      </div>
+      {/* Row 3 skeleton */}
+      <div className="grid gap-4 lg:grid-cols-3">
+        <div className="lg:col-span-2 h-48 rounded-lg border border-border bg-card" />
+        <div className="lg:col-span-1 h-48 rounded-lg border border-border bg-card" />
+      </div>
     </div>
-  );
+  )
 }
 
 // ---------------------------------------------------------------------------
@@ -121,23 +189,23 @@ function OverviewSkeleton(): React.JSX.Element {
 // ---------------------------------------------------------------------------
 
 interface RegistryUsage {
-  tags: number;
-  bytes: number;
-  diskPct: number;
+  tags: number
+  bytes: number
+  diskPct: number
 }
 
 interface GcResult {
-  reposScanned: number;
-  tagsDeleted: number;
-  bytesFreed: number;
+  reposScanned: number
+  tagsDeleted: number
+  bytesFreed: number
 }
 
 function formatBytes(bytes: number): string {
-  if (bytes === 0) return "0 B";
-  const units = ["B", "KB", "MB", "GB", "TB"];
-  const i = Math.min(Math.floor(Math.log2(bytes) / 10), units.length - 1);
-  const value = bytes / Math.pow(1024, i);
-  return `${value.toFixed(i === 0 ? 0 : 1)} ${units[i]}`;
+  if (bytes === 0) return "0 B"
+  const units = ["B", "KB", "MB", "GB", "TB"]
+  const i = Math.min(Math.floor(Math.log2(bytes) / 10), units.length - 1)
+  const value = bytes / Math.pow(1024, i)
+  return `${value.toFixed(i === 0 ? 0 : 1)} ${units[i]}`
 }
 
 function useRegistryUsage(appId: string) {
@@ -146,57 +214,53 @@ function useRegistryUsage(appId: string) {
     queryFn: () => apiFetch<RegistryUsage>(`/apps/${appId}/registry-usage`),
     staleTime: 30_000,
     enabled: Boolean(appId),
-  });
+  })
 }
 
 function useRegistryGc(appId: string) {
-  const qc = useQueryClient();
+  const qc = useQueryClient()
   return useMutation<GcResult, Error, void>({
     mutationFn: () =>
       apiFetch<GcResult>(`/apps/${appId}/registry-gc`, { method: "POST" }),
     onSuccess: () => {
-      void qc.invalidateQueries({ queryKey: ["apps", appId, "registry-usage"] });
+      void qc.invalidateQueries({ queryKey: ["apps", appId, "registry-usage"] })
     },
-  });
+  })
 }
 
 interface RegistryUsageWidgetProps {
-  appId: string;
+  appId: string
 }
 
 function RegistryUsageWidget({ appId }: RegistryUsageWidgetProps): React.JSX.Element {
-  const { data, isLoading, error } = useRegistryUsage(appId);
-  const gc = useRegistryGc(appId);
+  const { data, isLoading, error } = useRegistryUsage(appId)
+  const gc = useRegistryGc(appId)
 
-  // Confirm dialog state
-  const [confirmOpen, setConfirmOpen] = React.useState(false);
-  // Toast-like result message
-  const [toast, setToast] = React.useState<{ ok: boolean; msg: string } | null>(null);
+  const [confirmOpen, setConfirmOpen] = React.useState(false)
+  const [toast, setToast] = React.useState<{ ok: boolean; msg: string } | null>(null)
 
   const handlePrune = async (): Promise<void> => {
-    setConfirmOpen(false);
-    setToast(null);
+    setConfirmOpen(false)
+    setToast(null)
     try {
-      const result = await gc.mutateAsync();
+      const result = await gc.mutateAsync()
       setToast({
         ok: true,
         msg: `Pruned ${result.tagsDeleted} image(s) across ${result.reposScanned} repo(s).`,
-      });
+      })
     } catch (err) {
-      setToast({ ok: false, msg: err instanceof Error ? err.message : "GC failed" });
+      setToast({ ok: false, msg: err instanceof Error ? err.message : "GC failed" })
     }
-  };
+  }
 
-  // Dismiss toast after 5 s
   React.useEffect(() => {
-    if (!toast) return;
-    const t = setTimeout(() => setToast(null), 5_000);
-    return () => clearTimeout(t);
-  }, [toast]);
+    if (!toast) return
+    const t = setTimeout(() => setToast(null), 5_000)
+    return () => clearTimeout(t)
+  }, [toast])
 
   return (
-    <div className="rounded-lg border border-border bg-card p-4 space-y-3 sm:col-span-2 lg:col-span-1">
-      {/* Header */}
+    <div className="rounded-lg border border-border bg-card p-4 space-y-3 h-full">
       <p className="text-xs font-medium text-muted-foreground uppercase tracking-wide">
         Registry storage
       </p>
@@ -208,15 +272,14 @@ function RegistryUsageWidget({ appId }: RegistryUsageWidgetProps): React.JSX.Ele
         </div>
       )}
 
-      {error && !isLoading && (
+      {error && (
         <p className="text-xs text-destructive" role="alert">
           {error.message}
         </p>
       )}
 
-      {data && !isLoading && (
+      {data && (
         <>
-          {/* Stats row */}
           <div className="flex items-baseline gap-3">
             <span className="text-2xl font-semibold tabular-nums">{data.tags}</span>
             <span className="text-xs text-muted-foreground">
@@ -229,13 +292,13 @@ function RegistryUsageWidget({ appId }: RegistryUsageWidgetProps): React.JSX.Ele
             )}
           </div>
 
-          {/* Disk usage progress bar */}
           <div className="space-y-1">
             <div className="flex justify-between text-xs text-muted-foreground">
-              <span>Disk usage</span>
+              <span title="Usage de la partition hôte — la registry partage le disque avec d'autres données">
+                Host disk
+              </span>
               <span>{data.diskPct}%</span>
             </div>
-            {/* Progress bar (inline — no shadcn Progress component available) */}
             <div
               className="h-1.5 w-full rounded-full bg-muted overflow-hidden"
               role="progressbar"
@@ -259,7 +322,6 @@ function RegistryUsageWidget({ appId }: RegistryUsageWidgetProps): React.JSX.Ele
         </>
       )}
 
-      {/* Toast feedback */}
       {toast && (
         <p
           className={[
@@ -274,7 +336,6 @@ function RegistryUsageWidget({ appId }: RegistryUsageWidgetProps): React.JSX.Ele
         </p>
       )}
 
-      {/* Prune button */}
       <Button
         size="sm"
         variant="outline"
@@ -285,7 +346,6 @@ function RegistryUsageWidget({ appId }: RegistryUsageWidgetProps): React.JSX.Ele
         {gc.isPending ? "Pruning…" : "Prune now"}
       </Button>
 
-      {/* Inline confirm dialog (no Dialog component available) */}
       {confirmOpen && (
         <div
           className="fixed inset-0 z-50 flex items-center justify-center bg-black/40"
@@ -294,10 +354,7 @@ function RegistryUsageWidget({ appId }: RegistryUsageWidgetProps): React.JSX.Ele
           aria-labelledby="prune-dialog-title"
         >
           <div className="rounded-lg border border-border bg-popover p-5 shadow-lg w-full max-w-sm space-y-4">
-            <h2
-              id="prune-dialog-title"
-              className="text-sm font-semibold"
-            >
+            <h2 id="prune-dialog-title" className="text-sm font-semibold">
               Prune registry images?
             </h2>
             <p className="text-xs text-muted-foreground">
@@ -324,6 +381,6 @@ function RegistryUsageWidget({ appId }: RegistryUsageWidgetProps): React.JSX.Ele
         </div>
       )}
     </div>
-  );
+  )
 }
 // [M4.2 registry — END]

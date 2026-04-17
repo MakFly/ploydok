@@ -67,6 +67,20 @@ mock.module("../debug/singletons", () => ({
   }),
 }))
 
+// resolveAppOwner: user-1 owns app-123, nobody owns anything else.
+mock.module("../queries/app-owner", () => ({
+  resolveAppOwner: (_db: unknown, appId: string) => {
+    if (appId === "app-123") return Promise.resolve("user-1")
+    return Promise.resolve(null)
+  },
+}))
+
+// createDb is called in handlers — return a dummy object (queries are mocked above).
+mock.module("@ploydok/db", () => ({
+  createDb: () => ({}),
+  // Re-export schema symbols used by other imports in monitoring.ts (none directly).
+}))
+
 // ---------------------------------------------------------------------------
 // Test app builder — injects fake auth middleware
 // ---------------------------------------------------------------------------
@@ -103,8 +117,8 @@ describe("GET /monitoring/overview", () => {
     expect(body.error.code).toBe("UNAUTHENTICATED")
   })
 
-  it("returns MonitoringOverview with containers when authenticated", async () => {
-    const app = buildTestApp(fakeUser())
+  it("returns only app containers owned by the authenticated user — infra excluded", async () => {
+    const app = buildTestApp(fakeUser("user-1"))
     const res = await app.request("/monitoring/overview")
     expect(res.status).toBe(200)
 
@@ -114,13 +128,22 @@ describe("GET /monitoring/overview", () => {
     }
 
     expect(body.containers).toBeArray()
-    expect(body.containers.length).toBe(2)
+    // ctr-1 (app-123, owned by user-1) must appear; ctr-2 (infra, no app_id) must be excluded.
+    expect(body.containers.length).toBe(1)
     expect(body.generated_at).toBeNumber()
 
     const web = body.containers.find((c) => c.id === "ctr-1")
     expect(web).toBeDefined()
     expect(web!.status).toBe("running")
     expect(web!.kind).toBe("app")
+  })
+
+  it("returns empty containers for a user who owns no apps", async () => {
+    const app = buildTestApp(fakeUser("user-other"))
+    const res = await app.request("/monitoring/overview")
+    expect(res.status).toBe(200)
+    const body = await res.json() as { containers: unknown[] }
+    expect(body.containers.length).toBe(0)
   })
 })
 
@@ -129,12 +152,13 @@ describe("GET /monitoring/overview", () => {
 // ---------------------------------------------------------------------------
 
 describe("POST /monitoring/ping/:id", () => {
-  it("returns ping response with valid body when authenticated", async () => {
-    const app = buildTestApp(fakeUser())
-    const res = await app.request("/monitoring/ping/ctr-2", {
+  it("returns ping response for an owned app container", async () => {
+    const app = buildTestApp(fakeUser("user-1"))
+    // ctr-1 has app_id=app-123 owned by user-1
+    const res = await app.request("/monitoring/ping/ctr-1", {
       method: "POST",
       headers: { "content-type": "application/json" },
-      body: JSON.stringify({ path: "/health", port: 80 }),
+      body: JSON.stringify({ path: "/health", port: 3000 }),
     })
 
     expect(res.status).toBe(200)
@@ -142,6 +166,34 @@ describe("POST /monitoring/ping/:id", () => {
     expect(body.ok).toBe(true)
     expect(body.statusCode).toBe(200)
     expect(body.latencyMs).toBe(42)
+  })
+
+  it("returns 403 for an infra container (no app_id)", async () => {
+    const app = buildTestApp(fakeUser("user-1"))
+    // ctr-2 is infra (no app_id)
+    const res = await app.request("/monitoring/ping/ctr-2", {
+      method: "POST",
+      headers: { "content-type": "application/json" },
+      body: JSON.stringify({ path: "/health", port: 3000 }),
+    })
+
+    expect(res.status).toBe(403)
+    const body = await res.json() as { error: { code: string } }
+    expect(body.error.code).toBe("FORBIDDEN")
+  })
+
+  it("returns 403 when user does not own the app container", async () => {
+    const app = buildTestApp(fakeUser("user-other"))
+    // ctr-1 belongs to user-1, not user-other
+    const res = await app.request("/monitoring/ping/ctr-1", {
+      method: "POST",
+      headers: { "content-type": "application/json" },
+      body: JSON.stringify({ path: "/health", port: 3000 }),
+    })
+
+    expect(res.status).toBe(403)
+    const body = await res.json() as { error: { code: string } }
+    expect(body.error.code).toBe("FORBIDDEN")
   })
 
   it("returns 400 when port is missing from body", async () => {
@@ -157,12 +209,51 @@ describe("POST /monitoring/ping/:id", () => {
     expect(body.error.code).toBe("VALIDATION_ERROR")
   })
 
+  it("returns 400 when port is a reserved infra port", async () => {
+    const app = buildTestApp(fakeUser("user-1"))
+    const res = await app.request("/monitoring/ping/ctr-1", {
+      method: "POST",
+      headers: { "content-type": "application/json" },
+      body: JSON.stringify({ path: "/health", port: 5000 }), // registry port
+    })
+
+    expect(res.status).toBe(400)
+    const body = await res.json() as { error: { code: string } }
+    expect(body.error.code).toBe("FORBIDDEN_PORT")
+  })
+
+  it("returns 400 when path does not start with /", async () => {
+    const app = buildTestApp(fakeUser("user-1"))
+    const res = await app.request("/monitoring/ping/ctr-1", {
+      method: "POST",
+      headers: { "content-type": "application/json" },
+      body: JSON.stringify({ path: "health", port: 3000 }), // missing leading /
+    })
+
+    expect(res.status).toBe(400)
+    const body = await res.json() as { error: { code: string } }
+    expect(body.error.code).toBe("VALIDATION_ERROR")
+  })
+
+  it("returns 400 when port is below 1024", async () => {
+    const app = buildTestApp(fakeUser("user-1"))
+    const res = await app.request("/monitoring/ping/ctr-1", {
+      method: "POST",
+      headers: { "content-type": "application/json" },
+      body: JSON.stringify({ path: "/health", port: 80 }),
+    })
+
+    expect(res.status).toBe(400)
+    const body = await res.json() as { error: { code: string } }
+    expect(body.error.code).toBe("VALIDATION_ERROR")
+  })
+
   it("returns 401 without authenticated user", async () => {
     const app = buildTestApp()
     const res = await app.request("/monitoring/ping/ctr-1", {
       method: "POST",
       headers: { "content-type": "application/json" },
-      body: JSON.stringify({ path: "/health", port: 80 }),
+      body: JSON.stringify({ path: "/health", port: 3000 }),
     })
     expect(res.status).toBe(401)
   })
@@ -177,9 +268,12 @@ describe("monitoringTick — diff loop logic", () => {
     mockListContainers.mockClear()
   })
 
-  it("does NOT emit on first tick (no prev state)", async () => {
+  it("emits on first tick when container appears as running (blue-green swap signal)", async () => {
     const prev = new Map<string, ContainerStatus>()
-    const publishSpy = spyOn(eventBus, "publish")
+    const publishedEvents: Parameters<typeof eventBus.publish>[] = []
+    const fakePub = (channel: string, event: Parameters<typeof eventBus.publish>[1]) => {
+      publishedEvents.push([channel, event])
+    }
 
     const fakeAgent = {
       listContainers: () =>
@@ -206,13 +300,54 @@ describe("monitoringTick — diff loop logic", () => {
         }),
     } as unknown as Parameters<typeof monitoringTick>[0]
 
+    await monitoringTick(fakeAgent, fakePub as typeof eventBus.publish, prev, () =>
+      Promise.resolve("user-1"),
+    )
+
+    // First tick with status "running" must emit (catches blue-green new container).
+    expect(publishedEvents.length).toBe(1)
+    const [channel, event] = publishedEvents[0]!
+    expect(channel).toBe("user:user-1")
+    expect(event.type).toBe("container.health")
+    expect(prev.get("ctr-1")).toBe("running")
+  })
+
+  it("does NOT emit on first tick when container appears as non-running status", async () => {
+    const prev = new Map<string, ContainerStatus>()
+    const publishSpy = spyOn(eventBus, "publish")
+
+    const fakeAgent = {
+      listContainers: () =>
+        Promise.resolve({
+          containers: [
+            {
+              id: "ctr-1",
+              name: "ploydok-web",
+              image: "nginx:alpine",
+              status: "starting",
+              uptimeS: 0,
+              cpuPct: 0,
+              memBytes: 1024,
+              memLimitBytes: 2048,
+              restartCount: 0,
+              kind: "app",
+              appId: "app-abc",
+              color: "blue",
+              lastPingMs: 0,
+              lastPingOk: false,
+              lastSeenMs: 0,
+            },
+          ],
+        }),
+    } as unknown as Parameters<typeof monitoringTick>[0]
+
     await monitoringTick(fakeAgent, eventBus.publish.bind(eventBus), prev, () =>
       Promise.resolve("user-1"),
     )
 
-    // First tick populates prevById but emits nothing.
+    // First tick with non-running status must NOT emit.
     expect(publishSpy).not.toHaveBeenCalled()
-    expect(prev.get("ctr-1")).toBe("running")
+    expect(prev.get("ctr-1")).toBe("starting")
 
     publishSpy.mockRestore()
   })
@@ -302,7 +437,7 @@ describe("monitoringTick — diff loop logic", () => {
       Promise.resolve("user-1"),
     )
 
-    // Infra containers must NOT publish events (MVP skip).
+    // Infra containers must NOT publish events.
     expect(publishedEvents.length).toBe(0)
   })
 })

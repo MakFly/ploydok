@@ -1,0 +1,17 @@
+# Validator config — dev local only.
+#
+# Le default du StrictValidator n'autorise que docker.io, ghcr.io et
+# registry.ploydok.io. En dev, le registry v2 tourne sur 127.0.0.1:5000
+# (cf. infra/docker-compose.yml + .claude/rules/infra.md), donc il faut
+# l'ajouter à l'allowlist sinon chaque deploy échoue avec
+# PermissionDenied / règle image_registry_allowlist.
+#
+# Chargé via PLOYDOK_VALIDATOR_CONFIG par `make dev-agent`.
+# NE PAS utiliser en prod : élargit la surface d'attaque.
+
+allowed_registries = [
+  "docker.io",
+  "ghcr.io",
+  "registry.ploydok.io",
+  "127.0.0.1:5000",
+]

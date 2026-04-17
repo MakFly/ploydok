@@ -100,7 +100,7 @@ export async function runRegistryGc(opts: GcOptions): Promise<GcResult> {
   let tagsDeleted = 0;
 
   for (const { id: appId } of appRows) {
-    const repo = `app-${appId}`;
+    const repo = `app-${appId.toLowerCase()}`;
     const tags = await rc.listTags(repo);
     if (tags.length === 0) continue;
 

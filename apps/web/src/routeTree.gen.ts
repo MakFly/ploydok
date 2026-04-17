@@ -29,7 +29,7 @@ import { Route as AuthedAppsIdOverviewRouteImport } from './routes/_authed/apps/
 import { Route as AuthedAppsIdLogsRouteImport } from './routes/_authed/apps/$id/logs'
 import { Route as AuthedAppsIdEnvRouteImport } from './routes/_authed/apps/$id/env'
 import { Route as AuthedAppsIdDomainsRouteImport } from './routes/_authed/apps/$id/domains'
-import { Route as AuthedAppsIdBuildsRouteImport } from './routes/_authed/apps/$id/builds'
+import { Route as AuthedAppsIdDeploymentsRouteImport } from './routes/_authed/apps/$id/deployments'
 
 const PublicRoute = PublicRouteImport.update({
   id: '/_public',
@@ -131,9 +131,9 @@ const AuthedAppsIdDomainsRoute = AuthedAppsIdDomainsRouteImport.update({
   path: '/domains',
   getParentRoute: () => AuthedAppsIdRoute,
 } as any)
-const AuthedAppsIdBuildsRoute = AuthedAppsIdBuildsRouteImport.update({
-  id: '/builds',
-  path: '/builds',
+const AuthedAppsIdDeploymentsRoute = AuthedAppsIdDeploymentsRouteImport.update({
+  id: '/deployments',
+  path: '/deployments',
   getParentRoute: () => AuthedAppsIdRoute,
 } as any)
 
@@ -148,7 +148,7 @@ export interface FileRoutesByFullPath {
   '/settings/github': typeof AuthedSettingsGithubRoute
   '/settings/security': typeof AuthedSettingsSecurityRouteWithChildren
   '/apps/': typeof AuthedAppsIndexRoute
-  '/apps/$id/builds': typeof AuthedAppsIdBuildsRoute
+  '/apps/$id/deployments': typeof AuthedAppsIdDeploymentsRoute
   '/apps/$id/domains': typeof AuthedAppsIdDomainsRoute
   '/apps/$id/env': typeof AuthedAppsIdEnvRoute
   '/apps/$id/logs': typeof AuthedAppsIdLogsRoute
@@ -168,7 +168,7 @@ export interface FileRoutesByTo {
   '/settings/github': typeof AuthedSettingsGithubRoute
   '/settings/security': typeof AuthedSettingsSecurityRouteWithChildren
   '/apps': typeof AuthedAppsIndexRoute
-  '/apps/$id/builds': typeof AuthedAppsIdBuildsRoute
+  '/apps/$id/deployments': typeof AuthedAppsIdDeploymentsRoute
   '/apps/$id/domains': typeof AuthedAppsIdDomainsRoute
   '/apps/$id/env': typeof AuthedAppsIdEnvRoute
   '/apps/$id/logs': typeof AuthedAppsIdLogsRoute
@@ -192,7 +192,7 @@ export interface FileRoutesById {
   '/_authed/settings/github': typeof AuthedSettingsGithubRoute
   '/_authed/settings/security': typeof AuthedSettingsSecurityRouteWithChildren
   '/_authed/apps/': typeof AuthedAppsIndexRoute
-  '/_authed/apps/$id/builds': typeof AuthedAppsIdBuildsRoute
+  '/_authed/apps/$id/deployments': typeof AuthedAppsIdDeploymentsRoute
   '/_authed/apps/$id/domains': typeof AuthedAppsIdDomainsRoute
   '/_authed/apps/$id/env': typeof AuthedAppsIdEnvRoute
   '/_authed/apps/$id/logs': typeof AuthedAppsIdLogsRoute
@@ -215,7 +215,7 @@ export interface FileRouteTypes {
     | '/settings/github'
     | '/settings/security'
     | '/apps/'
-    | '/apps/$id/builds'
+    | '/apps/$id/deployments'
     | '/apps/$id/domains'
     | '/apps/$id/env'
     | '/apps/$id/logs'
@@ -235,7 +235,7 @@ export interface FileRouteTypes {
     | '/settings/github'
     | '/settings/security'
     | '/apps'
-    | '/apps/$id/builds'
+    | '/apps/$id/deployments'
     | '/apps/$id/domains'
     | '/apps/$id/env'
     | '/apps/$id/logs'
@@ -258,7 +258,7 @@ export interface FileRouteTypes {
     | '/_authed/settings/github'
     | '/_authed/settings/security'
     | '/_authed/apps/'
-    | '/_authed/apps/$id/builds'
+    | '/_authed/apps/$id/deployments'
     | '/_authed/apps/$id/domains'
     | '/_authed/apps/$id/env'
     | '/_authed/apps/$id/logs'
@@ -416,18 +416,18 @@ declare module '@tanstack/react-router' {
       preLoaderRoute: typeof AuthedAppsIdDomainsRouteImport
       parentRoute: typeof AuthedAppsIdRoute
     }
-    '/_authed/apps/$id/builds': {
-      id: '/_authed/apps/$id/builds'
-      path: '/builds'
-      fullPath: '/apps/$id/builds'
-      preLoaderRoute: typeof AuthedAppsIdBuildsRouteImport
+    '/_authed/apps/$id/deployments': {
+      id: '/_authed/apps/$id/deployments'
+      path: '/deployments'
+      fullPath: '/apps/$id/deployments'
+      preLoaderRoute: typeof AuthedAppsIdDeploymentsRouteImport
       parentRoute: typeof AuthedAppsIdRoute
     }
   }
 }
 
 interface AuthedAppsIdRouteChildren {
-  AuthedAppsIdBuildsRoute: typeof AuthedAppsIdBuildsRoute
+  AuthedAppsIdDeploymentsRoute: typeof AuthedAppsIdDeploymentsRoute
   AuthedAppsIdDomainsRoute: typeof AuthedAppsIdDomainsRoute
   AuthedAppsIdEnvRoute: typeof AuthedAppsIdEnvRoute
   AuthedAppsIdLogsRoute: typeof AuthedAppsIdLogsRoute
@@ -437,7 +437,7 @@ interface AuthedAppsIdRouteChildren {
 }
 
 const AuthedAppsIdRouteChildren: AuthedAppsIdRouteChildren = {
-  AuthedAppsIdBuildsRoute: AuthedAppsIdBuildsRoute,
+  AuthedAppsIdDeploymentsRoute: AuthedAppsIdDeploymentsRoute,
   AuthedAppsIdDomainsRoute: AuthedAppsIdDomainsRoute,
   AuthedAppsIdEnvRoute: AuthedAppsIdEnvRoute,
   AuthedAppsIdLogsRoute: AuthedAppsIdLogsRoute,

@@ -2,8 +2,9 @@
 import * as React from "react";
 import { createFileRoute } from "@tanstack/react-router";
 import { Button } from "@workspace/ui/components/button";
-import { useApp, useUpdateAppSettings } from "../../../../lib/apps";
+import { useApp } from "../../../../lib/apps";
 import type { AppSettingsPatch } from "../../../../lib/apps";
+import { useUpdateAppSettings } from "../../../../lib/apps-mutations";
 
 // ---------------------------------------------------------------------------
 // Route
@@ -17,8 +18,10 @@ export const Route = createFileRoute("/_authed/apps/$id/settings")({
 // Field list
 // ---------------------------------------------------------------------------
 
+type StringPatchKey = Exclude<keyof AppSettingsPatch, "healthcheckPort">;
+
 interface FieldDef {
-  key: keyof AppSettingsPatch;
+  key: StringPatchKey;
   label: string;
   placeholder: string;
   mono?: boolean;
@@ -90,6 +93,7 @@ function AppSettingsTab(): React.JSX.Element {
         startCommand: app.startCommand,
         buildMethod: app.buildMethod,
         healthcheckPath: app.healthcheckPath,
+        healthcheckPort: app.healthcheckPort,
       });
     }
   }, [app]);
@@ -115,6 +119,7 @@ function AppSettingsTab(): React.JSX.Element {
       startCommand: app.startCommand,
       buildMethod: app.buildMethod,
       healthcheckPath: app.healthcheckPath,
+      healthcheckPort: app.healthcheckPort,
     });
   };
 
@@ -156,6 +161,11 @@ function AppSettingsTab(): React.JSX.Element {
             }
           />
         ))}
+        <HealthcheckPortRow
+          value={formData.healthcheckPort ?? null}
+          editing={editing}
+          onChange={(val) => setFormData((prev) => ({ ...prev, healthcheckPort: val }))}
+        />
       </div>
 
       {formError && (
@@ -182,6 +192,67 @@ function AppSettingsTab(): React.JSX.Element {
             Cancel
           </Button>
         </div>
+      )}
+    </div>
+  );
+}
+
+// ---------------------------------------------------------------------------
+// HealthcheckPortRow
+// ---------------------------------------------------------------------------
+
+interface HealthcheckPortRowProps {
+  value: number | null;
+  editing: boolean;
+  onChange: (val: number | null) => void;
+}
+
+function HealthcheckPortRow({
+  value,
+  editing,
+  onChange,
+}: HealthcheckPortRowProps): React.JSX.Element {
+  const displayValue = value != null ? String(value) : "";
+
+  const handleChange = (raw: string): void => {
+    if (raw.trim() === "") {
+      onChange(null);
+      return;
+    }
+    const parsed = Number.parseInt(raw, 10);
+    if (Number.isFinite(parsed) && parsed >= 1 && parsed <= 65535) {
+      onChange(parsed);
+    }
+  };
+
+  return (
+    <div className="grid grid-cols-[1fr_2fr] gap-4 px-4 py-3 items-center">
+      <label
+        htmlFor="setting-healthcheckPort"
+        className="text-xs font-medium text-muted-foreground"
+      >
+        Healthcheck port
+      </label>
+      {editing ? (
+        <input
+          id="setting-healthcheckPort"
+          type="number"
+          min={1}
+          max={65535}
+          value={displayValue}
+          placeholder="3000"
+          onChange={(e) => handleChange(e.target.value)}
+          className="w-full rounded-md border border-border bg-background px-3 py-1.5 text-sm font-mono outline-none focus:ring-1 focus:ring-primary"
+        />
+      ) : (
+        <p
+          className={[
+            "text-sm font-mono truncate",
+            displayValue ? "" : "text-muted-foreground/60 italic",
+          ].join(" ")}
+        >
+          {displayValue || "3000"}
+        </p>
       )}
     </div>
   );

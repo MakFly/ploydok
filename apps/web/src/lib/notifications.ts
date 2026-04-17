@@ -61,11 +61,14 @@ export function notificationsReducer(
       return { ...state, connected: false }
 
     case "push": {
+      // Dedup by event id — SSE replay on reconnect can re-deliver the same
+      // event, and a future at-least-once bus would too.
+      if (state.items.some((it) => it.id === action.payload.id)) return state
       const items = [action.payload, ...state.items].slice(0, MAX_ITEMS)
       return {
         ...state,
         items,
-        unreadCount: state.connected ? state.unreadCount + 1 : state.unreadCount,
+        unreadCount: state.unreadCount + 1,
       }
     }
 

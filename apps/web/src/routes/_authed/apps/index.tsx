@@ -138,6 +138,7 @@ const STATUS_STYLES: Record<AppStatus, string> = {
   pending: "bg-slate-200 text-slate-700",
   building: "bg-sky-500/12 text-sky-700",
   running: "bg-emerald-500/12 text-emerald-700",
+  restarting: "bg-yellow-500/12 text-yellow-700",
   failed: "bg-destructive/10 text-destructive",
   stopped: "bg-slate-200 text-slate-700",
 };

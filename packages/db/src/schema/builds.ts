@@ -18,6 +18,7 @@ export const builds = sqliteTable(
     image_tag: text('image_tag'),
     container_id: text('container_id'),
     commit_sha: text('commit_sha'),
+    commit_message: text('commit_message'),
     log_path: text('log_path'),
     error_message: text('error_message'),
     started_at: integer('started_at', { mode: 'timestamp_ms' }),

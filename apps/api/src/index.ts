@@ -39,7 +39,15 @@ async function bootInfra(): Promise<void> {
 
 if (import.meta.main) {
   // M3.2: pass the BunWebSocket handler so Bun can upgrade WS connections.
-  Bun.serve({ port: env.PORT, fetch: app.fetch, websocket: wsHandler });
+  // idleTimeout: 0 disables the 10 s default so long-lived SSE streams
+  // (GET /events) don't get chunk-encoded-truncated before their first
+  // heartbeat. Per-request sockets are still closed on client abort.
+  Bun.serve({
+    port: env.PORT,
+    fetch: app.fetch,
+    websocket: wsHandler,
+    idleTimeout: 0,
+  });
   log.info({ port: env.PORT }, `api listening on :${env.PORT}`);
 
   const workerDb = createDb(env.DATABASE_URL)

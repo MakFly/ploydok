@@ -36,7 +36,9 @@ function scrubToken(url: string): string {
  * Throws if git exits with a non-zero code or the process times out.
  * The token in the clone URL is scrubbed from all error messages.
  */
-export async function cloneRepo(opts: CloneOptions): Promise<{ workspacePath: string }> {
+export async function cloneRepo(
+  opts: CloneOptions,
+): Promise<{ workspacePath: string; headSha: string | null }> {
   const dest = path.join(opts.buildDir, opts.appId, opts.buildId);
   await mkdir(dest, { recursive: true });
 
@@ -76,7 +78,24 @@ export async function cloneRepo(opts: CloneOptions): Promise<{ workspacePath: st
     );
   }
 
-  return { workspacePath: dest };
+  const headSha = await resolveHeadSha(dest);
+  return { workspacePath: dest, headSha };
+}
+
+async function resolveHeadSha(workspace: string): Promise<string | null> {
+  try {
+    const proc = Bun.spawn(["git", "-C", workspace, "rev-parse", "HEAD"], {
+      stdout: "pipe",
+      stderr: "pipe",
+    });
+    const exit = await proc.exited;
+    if (exit !== 0) return null;
+    const text = await new Response(proc.stdout).text();
+    const sha = text.trim();
+    return sha.length === 40 ? sha : null;
+  } catch {
+    return null;
+  }
 }
 
 /**

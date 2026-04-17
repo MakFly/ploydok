@@ -61,11 +61,17 @@ export function NotificationBell(): React.JSX.Element {
     state.unreadCount > 9 ? "9+" : state.unreadCount > 0 ? String(state.unreadCount) : null
 
   const handleToggle = (): void => {
-    setOpen((prev) => {
-      if (!prev) markAllRead()
-      return !prev
-    })
+    setOpen((v) => !v)
   }
+
+  // Mark all read when the popover closes (open: true → false).
+  const prevOpenRef = React.useRef(open)
+  React.useEffect(() => {
+    if (prevOpenRef.current && !open) {
+      markAllRead()
+    }
+    prevOpenRef.current = open
+  }, [open, markAllRead])
 
   React.useEffect(() => {
     if (!open) return

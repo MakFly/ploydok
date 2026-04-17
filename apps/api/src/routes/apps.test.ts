@@ -1,9 +1,9 @@
 // SPDX-License-Identifier: AGPL-3.0-only
-import { describe, it, expect, beforeEach } from "bun:test";
+import { describe, it, expect, beforeEach, mock } from "bun:test";
 import { Hono } from "hono";
 import { nanoid } from "nanoid";
 import { createDb } from "@ploydok/db";
-import { users, projects, apps } from "@ploydok/db";
+import { users, projects, apps, builds } from "@ploydok/db";
 import { createAppsRouter } from "./apps";
 import type { AuthUser } from "../auth/middleware";
 
@@ -76,6 +76,7 @@ function makeTestDb() {
       image_tag TEXT,
       container_id TEXT,
       commit_sha TEXT,
+      commit_message TEXT,
       log_path TEXT,
       error_message TEXT,
       started_at INTEGER,
@@ -417,6 +418,30 @@ describe("GET /apps/:id", () => {
     expect(Array.isArray(body.builds)).toBe(true);
   });
 
+  it("normalizes nullable optional config fields to undefined", async () => {
+    const { id: appId } = await createTestApp(db, { userId, projectId, name: "Detail App" });
+
+    const honoApp = buildTestApp(db, fakeUser(userId, `u@t.com`));
+    const res = await honoApp.request(`/apps/${appId}`);
+
+    expect(res.status).toBe(200);
+    const body = await res.json() as {
+      app: {
+        rootDir?: string;
+        dockerfilePath?: string;
+        installCommand?: string;
+        buildCommand?: string;
+        startCommand?: string;
+      };
+    };
+
+    expect(body.app.rootDir).toBeUndefined();
+    expect(body.app.dockerfilePath).toBeUndefined();
+    expect(body.app.installCommand).toBeUndefined();
+    expect(body.app.buildCommand).toBeUndefined();
+    expect(body.app.startCommand).toBeUndefined();
+  });
+
   it("returns 404 for an app belonging to another user", async () => {
     const other = await createTestUser(db);
     const otherProject = await createTestProject(db, other.id);
@@ -544,6 +569,189 @@ describe("DELETE /apps/:id", () => {
 
     const honoApp = buildTestApp(db, fakeUser(userId, `u@t.com`));
     const res = await honoApp.request(`/apps/${otherAppId}`, { method: "DELETE" });
+
+    expect(res.status).toBe(404);
+  });
+});
+
+// ---------------------------------------------------------------------------
+// POST /apps/:id/rollback — with explicit buildId (W2.A)
+// ---------------------------------------------------------------------------
+
+async function createTestBuild(
+  db: TestDb,
+  appId: string,
+  status: "pending" | "running" | "succeeded" | "failed" | "cancelled",
+  opts: { imageTag?: string; commitSha?: string; commitMessage?: string } = {},
+) {
+  const id = nanoid();
+  const now = new Date();
+  const startedAt = new Date(now.getTime() - 60_000);
+  await db.insert(builds).values({
+    id,
+    app_id: appId,
+    status,
+    build_method: "docker",
+    image_tag: opts.imageTag ?? `registry/app:${id}`,
+    container_id: null,
+    commit_sha: opts.commitSha ?? null,
+    commit_message: opts.commitMessage ?? null,
+    log_path: null,
+    error_message: null,
+    started_at: startedAt,
+    finished_at: now,
+    created_at: now,
+  });
+  return { id };
+}
+
+// ---------------------------------------------------------------------------
+// GET /apps/:id/builds — commitMessage exposed in serializeBuild
+// ---------------------------------------------------------------------------
+
+describe("GET /apps/:id/builds", () => {
+  let db: TestDb;
+  let userId: string;
+  let projectId: string;
+
+  beforeEach(async () => {
+    db = makeTestDb();
+    const user = await createTestUser(db);
+    userId = user.id;
+    const project = await createTestProject(db, userId);
+    projectId = project.id;
+  });
+
+  it("exposes commitMessage from build row", async () => {
+    const { id: appId } = await createTestApp(db, { userId, projectId });
+    await createTestBuild(db, appId, "succeeded", {
+      commitSha: "abc1234",
+      commitMessage: "feat: add commit message field",
+    });
+
+    const honoApp = buildTestApp(db, fakeUser(userId, `u@t.com`));
+    const res = await honoApp.request(`/apps/${appId}/builds`);
+
+    expect(res.status).toBe(200);
+    const body = await res.json() as { builds: { commitMessage: string | null }[] };
+    expect(body.builds).toHaveLength(1);
+    expect(body.builds[0]!.commitMessage).toBe("feat: add commit message field");
+  });
+
+  it("exposes commitMessage as null when absent", async () => {
+    const { id: appId } = await createTestApp(db, { userId, projectId });
+    await createTestBuild(db, appId, "succeeded");
+
+    const honoApp = buildTestApp(db, fakeUser(userId, `u@t.com`));
+    const res = await honoApp.request(`/apps/${appId}/builds`);
+
+    expect(res.status).toBe(200);
+    const body = await res.json() as { builds: { commitMessage: string | null }[] };
+    expect(body.builds[0]!.commitMessage).toBeNull();
+  });
+});
+
+describe("POST /apps/:id/rollback", () => {
+  let db: TestDb;
+  let userId: string;
+  let projectId: string;
+
+  // Mock the runner module so lifecycle ops don't try to connect to Docker/agent.
+  // All public exports must be listed here to avoid breaking other test files
+  // that import from this module in the same bun test run.
+  mock.module("../worker/runner.js", () => ({
+    rollbackApp: async () => undefined,
+    restartApp: async () => undefined,
+    stopApp: async () => undefined,
+    runBlueGreen: async () => ({ containerId: "mock-ctr", color: "blue" }),
+    DeployFailedError: class DeployFailedError extends Error {
+      constructor(appId: string, reason: string) {
+        super(`DeployFailedError[${appId}]: ${reason}`);
+        this.name = "DeployFailedError";
+      }
+    },
+  }));
+
+  beforeEach(async () => {
+    db = makeTestDb();
+    const user = await createTestUser(db);
+    userId = user.id;
+    const project = await createTestProject(db, userId);
+    projectId = project.id;
+  });
+
+  it("rollback with explicit succeeded buildId → 200", async () => {
+    const { id: appId } = await createTestApp(db, { userId, projectId });
+    const { id: buildId } = await createTestBuild(db, appId, "succeeded");
+
+    const honoApp = buildTestApp(db, fakeUser(userId, `u@t.com`));
+    const res = await honoApp.request(`/apps/${appId}/rollback`, {
+      method: "POST",
+      headers: { "content-type": "application/json" },
+      body: JSON.stringify({ buildId }),
+    });
+
+    expect(res.status).toBe(200);
+    const body = await res.json() as { ok: boolean };
+    expect(body.ok).toBe(true);
+  });
+
+  it("rollback with explicit failed buildId → 400 INVALID_BUILD_STATUS", async () => {
+    const { id: appId } = await createTestApp(db, { userId, projectId });
+    const { id: failedBuildId } = await createTestBuild(db, appId, "failed");
+
+    const honoApp = buildTestApp(db, fakeUser(userId, `u@t.com`));
+    const res = await honoApp.request(`/apps/${appId}/rollback`, {
+      method: "POST",
+      headers: { "content-type": "application/json" },
+      body: JSON.stringify({ buildId: failedBuildId }),
+    });
+
+    expect(res.status).toBe(400);
+    const body = await res.json() as { error: { code: string } };
+    expect(body.error.code).toBe("INVALID_BUILD_STATUS");
+  });
+
+  it("rollback without buildId (legacy) — calls runner and returns 200", async () => {
+    const { id: appId } = await createTestApp(db, { userId, projectId });
+
+    const honoApp = buildTestApp(db, fakeUser(userId, `u@t.com`));
+    // No body — legacy behaviour
+    const res = await honoApp.request(`/apps/${appId}/rollback`, {
+      method: "POST",
+    });
+
+    // Runner mock succeeds — expect 200
+    expect(res.status).toBe(200);
+    const body = await res.json() as { ok: boolean };
+    expect(body.ok).toBe(true);
+  });
+
+  it("rollback with non-existent buildId → 404", async () => {
+    const { id: appId } = await createTestApp(db, { userId, projectId });
+
+    const honoApp = buildTestApp(db, fakeUser(userId, `u@t.com`));
+    const res = await honoApp.request(`/apps/${appId}/rollback`, {
+      method: "POST",
+      headers: { "content-type": "application/json" },
+      body: JSON.stringify({ buildId: "does-not-exist" }),
+    });
+
+    expect(res.status).toBe(404);
+  });
+
+  it("rollback for another user's app → 404", async () => {
+    const other = await createTestUser(db);
+    const otherProject = await createTestProject(db, other.id);
+    const { id: otherAppId } = await createTestApp(db, {
+      userId: other.id,
+      projectId: otherProject.id,
+    });
+
+    const honoApp = buildTestApp(db, fakeUser(userId, `u@t.com`));
+    const res = await honoApp.request(`/apps/${otherAppId}/rollback`, {
+      method: "POST",
+    });
 
     expect(res.status).toBe(404);
   });

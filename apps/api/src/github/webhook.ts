@@ -19,6 +19,9 @@ export interface PushPayload {
   installation?: {
     id: number;
   };
+  head_commit?: {
+    message: string;
+  } | null;
 }
 
 // ---------------------------------------------------------------------------

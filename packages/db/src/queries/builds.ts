@@ -11,6 +11,7 @@ interface InsertBuildInput {
   appId: string;
   buildMethod?: BuildMethod;
   commitSha?: string;
+  commitMessage?: string;
 }
 
 interface UpdateBuildPatch {
@@ -20,17 +21,21 @@ interface UpdateBuildPatch {
   finishedAt?: Date;
   errorMessage?: string;
   logPath?: string;
+  commitSha?: string;
+  commitMessage?: string;
+  buildMethod?: BuildMethod;
 }
 
 export async function insertBuild(
   db: Db,
-  { id, appId, buildMethod, commitSha }: InsertBuildInput,
+  { id, appId, buildMethod, commitSha, commitMessage }: InsertBuildInput,
 ) {
   await db.insert(builds).values({
     id,
     app_id: appId,
     build_method: buildMethod ?? null,
     commit_sha: commitSha ?? null,
+    commit_message: commitMessage ?? null,
   });
   return getBuildById(db, id);
 }
@@ -51,6 +56,9 @@ export async function updateBuildStatus(
       ...(patch?.finishedAt !== undefined && { finished_at: patch.finishedAt }),
       ...(patch?.errorMessage !== undefined && { error_message: patch.errorMessage }),
       ...(patch?.logPath !== undefined && { log_path: patch.logPath }),
+      ...(patch?.commitSha !== undefined && { commit_sha: patch.commitSha }),
+      ...(patch?.commitMessage !== undefined && { commit_message: patch.commitMessage }),
+      ...(patch?.buildMethod !== undefined && { build_method: patch.buildMethod }),
     })
     .where(eq(builds.id, id));
   return getBuildById(db, id);

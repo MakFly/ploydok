@@ -55,11 +55,11 @@ describe("notificationsReducer", () => {
     expect(next.unreadCount).toBe(1)
   })
 
-  it("push does NOT increment unreadCount when disconnected", () => {
+  it("push increments unreadCount even when disconnected (always-increment policy)", () => {
     const ev = makeEvent("b")
     const next = notificationsReducer(disconnected, { type: "push", payload: ev })
     expect(next.items[0]).toEqual(ev)
-    expect(next.unreadCount).toBe(0)
+    expect(next.unreadCount).toBe(1)
   })
 
   it("push keeps items ordered most-recent first", () => {

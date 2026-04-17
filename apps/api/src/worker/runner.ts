@@ -24,11 +24,14 @@ import type {
   ContainerStartResponse,
   ContainerStopResponse,
   ContainerRemoveResponse,
+  PingContainerResponse,
 } from "@ploydok/agent-proto";
-import { apps, builds } from "@ploydok/db";
+import { apps, builds, env_vars, projects } from "@ploydok/db";
 import type { Db } from "@ploydok/db";
 import { CaddyClient } from "../caddy/client.js";
 import { logBus } from "./log-bus.js";
+import { eventBus } from "./event-bus.js";
+import { workerLog } from "./logger.js";
 
 // ---------------------------------------------------------------------------
 // Constants
@@ -72,6 +75,12 @@ export interface RunBlueGreenOptions {
   caddyBaseUrl?: string;
   /** Override agent socket path (useful for tests). */
   agentSocketPath?: string;
+  /**
+   * Invoked right after Caddy is switched to the new container and the DB
+   * status has been set to "running" — before the grace period + old-container
+   * stop. Lets callers signal "app live" to the UI without waiting 30s.
+   */
+  onLive?: (info: RunBlueGreenResult) => void | Promise<void>;
 }
 
 export interface RunBlueGreenResult {
@@ -83,8 +92,15 @@ export interface RunBlueGreenResult {
 // Agent gRPC client factory
 // ---------------------------------------------------------------------------
 
-const DEFAULT_AGENT_SOCKET =
-  process.env["PLOYDOK_AGENT_SOCKET"] ?? "/run/ploydok/agent.sock";
+function defaultAgentSocket(): string {
+  const fromEnv = process.env["PLOYDOK_AGENT_SOCKET"];
+  if (fromEnv) return fromEnv;
+  return process.env["NODE_ENV"] === "prod"
+    ? "/run/ploydok/agent.sock"
+    : "/tmp/ploydok-agent.sock";
+}
+
+const DEFAULT_AGENT_SOCKET = defaultAgentSocket();
 
 /**
  * Create a gRPC AgentClient connected to the Unix domain socket.
@@ -102,7 +118,9 @@ function createAgentClient(socketPath = DEFAULT_AGENT_SOCKET): InstanceType<type
 // ---------------------------------------------------------------------------
 
 function containerName(appId: string, color: ContainerColor): string {
-  return `ploydok-app-${appId}-${color}`;
+  // Agent regex: ^ploydok-[a-z0-9][a-z0-9-]{0,62}$ — nanoid() appIds contain
+  // uppercase letters, so lowercase before composing the container name.
+  return `ploydok-app-${appId.toLowerCase()}-${color}`;
 }
 
 function oppositeColor(color: ContainerColor): ContainerColor {
@@ -130,11 +148,14 @@ function sleep(ms: number): Promise<void> {
 }
 
 /**
- * Poll the healthcheck endpoint of a container via HTTP.
+ * Poll the healthcheck endpoint of a container via the Agent gRPC pingContainer.
+ * The agent runs on the host and resolves Docker bridge DNS — the API process
+ * cannot resolve container names directly.
  * Returns true if healthy within the retry budget.
  */
 async function pollHealthcheck(opts: {
-  host: string;
+  agent: InstanceType<typeof AgentClient>;
+  containerId: string;
   port: number;
   path: string;
   intervalMs: number;
@@ -143,26 +164,35 @@ async function pollHealthcheck(opts: {
   appId: string;
   color: ContainerColor;
 }): Promise<boolean> {
-  const url = `http://${opts.host}:${opts.port}${opts.path}`;
+  // Agent rejects empty path — normalise to "/" if not provided.
+  const safePath = opts.path || "/";
   const channel = `runtime:${opts.appId}`;
 
   for (let attempt = 1; attempt <= opts.retries; attempt++) {
     await sleep(opts.intervalMs);
     const label = `[healthcheck ${attempt}/${opts.retries}]`;
     try {
-      const controller = new AbortController();
-      const timer = setTimeout(() => controller.abort(), opts.timeoutMs);
-      const res = await fetch(url, { signal: controller.signal });
-      clearTimeout(timer);
+      const resp = await grpcUnary<PingContainerResponse>(
+        opts.agent.pingContainer.bind(opts.agent),
+        { containerId: opts.containerId, path: safePath, port: opts.port, timeoutMs: opts.timeoutMs },
+      );
 
-      if (res.ok) {
-        logBus.publish(channel, `${label} ${url} → ${res.status} OK`);
+      if (resp.ok) {
+        logBus.publish(
+          channel,
+          `${label} status_code=${resp.statusCode} latency=${resp.latencyMs}ms`,
+        );
         return true;
       }
-      logBus.publish(channel, `${label} ${url} → ${res.status} (not OK)`);
+      logBus.publish(
+        channel,
+        `${label} status_code=${resp.statusCode} latency=${resp.latencyMs}ms (not OK)${
+          resp.error ? ` — ${resp.error}` : ""
+        }`,
+      );
     } catch (err) {
       const msg = err instanceof Error ? err.message : String(err);
-      logBus.publish(channel, `${label} ${url} → error: ${msg}`);
+      logBus.publish(channel, `${label} error: ${msg}`);
     }
   }
   return false;
@@ -199,6 +229,53 @@ async function getCurrentColor(db: Db, appId: string): Promise<ContainerColor> {
 
   // Default: treat current as green so we start with blue.
   return "green";
+}
+
+/**
+ * Pull an image through the Agent (server-streaming gRPC).
+ *
+ * Docker Engine does not auto-pull on container_create — if the image is not
+ * local it returns 404. We must explicitly pull from our registry before
+ * create, even though we just pushed it via BuildKit (the push lives in the
+ * registry container; the host daemon's cache is separate).
+ *
+ * Errors during the stream reject the promise. Progress frames are published
+ * to the runtime log channel so the user sees the pull advancing.
+ */
+async function pullImage(
+  agent: InstanceType<typeof AgentClient>,
+  image: string,
+  channel: string,
+): Promise<void> {
+  return new Promise<void>((resolve, reject) => {
+    const stream = agent.imagePull({ image });
+    let lastStatus = "";
+    stream.on("data", (progress: { status?: string }) => {
+      const s = progress?.status;
+      if (s && s !== lastStatus) {
+        lastStatus = s;
+        logBus.publish(channel, `[runner] pull: ${s}`);
+      }
+    });
+    stream.on("end", () => resolve());
+    stream.on("error", (err: Error) => reject(err));
+  });
+}
+
+/**
+ * Load env vars for an app from the DB and return them as a plain Record.
+ * Secret values are passed as-is — the caller is responsible for not leaking.
+ */
+async function loadEnvVars(db: Db, appId: string): Promise<Record<string, string>> {
+  const rows = await db
+    .select({ key: env_vars.key, value: env_vars.value })
+    .from(env_vars)
+    .where(eq(env_vars.app_id, appId));
+  const result: Record<string, string> = {};
+  for (const row of rows) {
+    result[row.key] = row.value;
+  }
+  return result;
 }
 
 /** Stop a container by name via the Agent (idempotent — errors ignored). */
@@ -245,7 +322,7 @@ export async function runBlueGreen(opts: RunBlueGreenOptions): Promise<RunBlueGr
   const { appId, imageRef, env: containerEnv, db } = opts;
   const channel = `runtime:${appId}`;
 
-  // -- Load app config (healthcheck settings + domain) ----------------------
+  // -- Load app config (healthcheck settings + domain + owner for labels) --
   const appRows = await db
     .select({
       domain: apps.domain,
@@ -254,8 +331,10 @@ export async function runBlueGreen(opts: RunBlueGreenOptions): Promise<RunBlueGr
       healthcheck_interval_s: apps.healthcheck_interval_s,
       healthcheck_timeout_s: apps.healthcheck_timeout_s,
       healthcheck_retries: apps.healthcheck_retries,
+      owner_id: projects.owner_id,
     })
     .from(apps)
+    .innerJoin(projects, eq(apps.project_id, projects.id))
     .where(eq(apps.id, appId))
     .limit(1);
 
@@ -287,6 +366,11 @@ export async function runBlueGreen(opts: RunBlueGreenOptions): Promise<RunBlueGr
   let newContainerId: string;
 
   try {
+    // 0. Pull image — host daemon's cache is separate from the registry storage.
+    logBus.publish(channel, `[runner] pulling image ${imageRef}`);
+    await pullImage(agent, imageRef, channel);
+    logBus.publish(channel, `[runner] image pulled`);
+
     // 1. Create container.
     const createResp = await grpcUnary<ContainerCreateResponse>(
       agent.containerCreate.bind(agent),
@@ -294,7 +378,11 @@ export async function runBlueGreen(opts: RunBlueGreenOptions): Promise<RunBlueGr
         name: newName,
         image: imageRef,
         env: containerEnv,
-        labels: { "ploydok.app_id": appId, "ploydok.color": newColor },
+        labels: {
+          "ploydok.app_id": appId,
+          "ploydok.owner_id": appRow.owner_id,
+          "ploydok.color": newColor,
+        },
         network: "ploydok-public",
         volumes: [],
         ports: [],
@@ -321,7 +409,8 @@ export async function runBlueGreen(opts: RunBlueGreenOptions): Promise<RunBlueGr
       `[runner] polling healthcheck ${hcPath}:${hcPort} (${hcRetries} retries × ${hcIntervalS}s)`,
     );
     const healthy = await pollHealthcheck({
-      host: newName, // container reachable by name on ploydok-public network
+      agent,
+      containerId: newContainerId,
       port: hcPort,
       path: hcPath,
       intervalMs: hcIntervalS * 1_000,
@@ -346,22 +435,34 @@ export async function runBlueGreen(opts: RunBlueGreenOptions): Promise<RunBlueGr
     await caddyClient.setUpstream(appId, domain, { host: newName, port: hcPort });
     logBus.publish(channel, `[runner] Caddy upstream updated`);
 
-    // 5. Grace period.
-    logBus.publish(channel, `[runner] grace period ${GRACE_MS / 1_000}s …`);
-    await sleep(GRACE_MS);
-
-    // 6. Stop old container.
-    logBus.publish(channel, `[runner] stopping old container ${oldName}`);
-    await stopContainer(agent, oldName);
-    logBus.publish(channel, `[runner] old container stopped`);
-
-    // 7. Update DB: apps.container_id + status.
+    // 5. Mark app live immediately — new container serves traffic from this
+    //    point. The grace period + old-container stop below are cleanup and
+    //    must not delay the UI transition to "running".
     await db
       .update(apps)
       .set({ container_id: newName, status: "running", updated_at: new Date() })
       .where(eq(apps.id, appId));
 
-    return { containerId: newContainerId, color: newColor };
+    const liveInfo: RunBlueGreenResult = { containerId: newContainerId, color: newColor };
+    if (opts.onLive) {
+      try {
+        await opts.onLive(liveInfo);
+      } catch {
+        // onLive failures must not abort the deploy — it's a notification hook.
+      }
+    }
+    logBus.publish(channel, `[runner] app live — status set to running`);
+
+    // 6. Grace period.
+    logBus.publish(channel, `[runner] grace period ${GRACE_MS / 1_000}s …`);
+    await sleep(GRACE_MS);
+
+    // 7. Stop old container.
+    logBus.publish(channel, `[runner] stopping old container ${oldName}`);
+    await stopContainer(agent, oldName);
+    logBus.publish(channel, `[runner] old container stopped`);
+
+    return liveInfo;
   } finally {
     agent.close();
   }
@@ -398,30 +499,51 @@ export async function stopApp(
 }
 
 /**
- * Rollback an app to the previous succeeded build image.
+ * Rollback an app to a specific or the previous succeeded build image.
+ *
+ * @param targetBuildId — when provided, rolls back to that exact build (must
+ *   already be validated as `succeeded` by the caller). When absent, falls back
+ *   to the second-to-last succeeded build (legacy behaviour).
  * < 10s target: skips grace period, uses direct container swap.
  */
 export async function rollbackApp(
   appId: string,
   db: Db,
+  targetBuildId?: string,
   opts?: { agentSocketPath?: string; caddyBaseUrl?: string },
 ): Promise<void> {
-  // Find the two most recent succeeded builds with an image_tag.
-  const succeededBuilds = await db
-    .select({ id: builds.id, image_tag: builds.image_tag, container_id: builds.container_id })
-    .from(builds)
-    .where(and(eq(builds.app_id, appId), eq(builds.status, "succeeded")))
-    .orderBy(desc(builds.created_at))
-    .limit(2);
+  let previousBuild: { id: string; image_tag: string | null; container_id: string | null };
 
-  if (succeededBuilds.length < 2) {
-    throw new Error(
-      `Cannot rollback app ${appId}: need at least 2 succeeded builds, found ${succeededBuilds.length}`,
-    );
+  if (targetBuildId) {
+    // Explicit build target — the route handler already validated it is succeeded.
+    const rows = await db
+      .select({ id: builds.id, image_tag: builds.image_tag, container_id: builds.container_id })
+      .from(builds)
+      .where(and(eq(builds.id, targetBuildId), eq(builds.app_id, appId)))
+      .limit(1);
+
+    if (!rows[0]) {
+      throw new Error(`Rollback build ${targetBuildId} not found for app ${appId}`);
+    }
+    previousBuild = rows[0];
+  } else {
+    // Legacy behaviour: use the second-to-last succeeded build.
+    const succeededBuilds = await db
+      .select({ id: builds.id, image_tag: builds.image_tag, container_id: builds.container_id })
+      .from(builds)
+      .where(and(eq(builds.app_id, appId), eq(builds.status, "succeeded")))
+      .orderBy(desc(builds.created_at))
+      .limit(2);
+
+    if (succeededBuilds.length < 2) {
+      throw new Error(
+        `Cannot rollback app ${appId}: need at least 2 succeeded builds, found ${succeededBuilds.length}`,
+      );
+    }
+
+    previousBuild = succeededBuilds[1]!;
   }
 
-  // The second-to-last succeeded build is our target.
-  const previousBuild = succeededBuilds[1]!;
   if (!previousBuild.image_tag) {
     throw new Error(`Rollback target build ${previousBuild.id} has no image_tag`);
   }
@@ -438,10 +560,15 @@ export async function rollbackApp(
   const agentSocket = opts?.agentSocketPath ?? DEFAULT_AGENT_SOCKET;
   const agent = createAgentClient(agentSocket);
 
-  // Load app healthcheck port for Caddy upstream.
+  // Load app healthcheck port for Caddy upstream + owner_id for labels.
   const appRows = await db
-    .select({ domain: apps.domain, healthcheck_port: apps.healthcheck_port })
+    .select({
+      domain: apps.domain,
+      healthcheck_port: apps.healthcheck_port,
+      owner_id: projects.owner_id,
+    })
     .from(apps)
+    .innerJoin(projects, eq(apps.project_id, projects.id))
     .where(eq(apps.id, appId))
     .limit(1);
 
@@ -451,15 +578,27 @@ export async function rollbackApp(
   const domain = appRow.domain ?? `${appId}.ploydok.local`;
   const caddyClient = new CaddyClient(opts?.caddyBaseUrl);
 
+  const containerEnv = await loadEnvVars(db, appId);
+
   try {
+    // Pull image first — host daemon cache ≠ registry storage.
+    logBus.publish(channel, `[runner] pulling image ${previousBuild.image_tag}`);
+    await pullImage(agent, previousBuild.image_tag, channel);
+    logBus.publish(channel, `[runner] image pulled`);
+
     // Create + start rollback container.
     const createResp = await grpcUnary<ContainerCreateResponse>(
       agent.containerCreate.bind(agent),
       {
         name: rollbackName,
         image: previousBuild.image_tag,
-        env: {},
-        labels: { "ploydok.app_id": appId, "ploydok.color": rollbackColor, "ploydok.rollback": "1" },
+        env: containerEnv,
+        labels: {
+          "ploydok.app_id": appId,
+          "ploydok.owner_id": appRow.owner_id,
+          "ploydok.color": rollbackColor,
+          "ploydok.rollback": "1",
+        },
         network: "ploydok-public",
         volumes: [],
         ports: [],
@@ -499,17 +638,19 @@ export async function rollbackApp(
 }
 
 /**
- * Restart an app: stop → runBlueGreen from last succeeded build.
+ * Restart an app: mark restarting → stop containers → runBlueGreen from last
+ * succeeded build. Emits SSE events at each transition.
  */
 export async function restartApp(
   appId: string,
   db: Db,
+  userId?: string,
   opts?: { agentSocketPath?: string; caddyBaseUrl?: string },
 ): Promise<void> {
+  const log = workerLog.child({ appId, op: "restart" });
   const channel = `runtime:${appId}`;
-  logBus.publish(channel, `[runner] restart: stopping current containers`);
 
-  // Find last succeeded build with image_tag.
+  // Find last succeeded build with image_tag before mutating anything.
   const rows = await db
     .select({ image_tag: builds.image_tag })
     .from(builds)
@@ -522,19 +663,92 @@ export async function restartApp(
     throw new Error(`Cannot restart app ${appId}: no succeeded build with an image_tag`);
   }
 
-  await stopApp(appId, db, opts);
+  // 1. Write "restarting" directly — do NOT go through stopApp which forces "stopped".
+  await db
+    .update(apps)
+    .set({ status: "restarting", updated_at: new Date() })
+    .where(eq(apps.id, appId));
+
+  logBus.publish(channel, `[runner] restart: status set to restarting`);
+
+  if (userId) {
+    try {
+      eventBus.publish(`user:${userId}`, {
+        type: "deploy.status_change",
+        appId,
+        message: "Redémarrage en cours",
+        data: { status: "restarting" },
+      });
+    } catch (pubErr) {
+      log.warn({ pubErr }, "eventBus publish restarting failed (non-fatal)");
+    }
+  }
+
+  // 2. Stop containers (the DB write is already done above — stopApp would
+  //    overwrite status to "stopped", so we call the container-stop logic directly).
+  logBus.publish(channel, `[runner] restart: stopping current containers`);
+  const agentSocket = opts?.agentSocketPath ?? DEFAULT_AGENT_SOCKET;
+  const stopAgent = createAgentClient(agentSocket);
+  const stopCaddy = new CaddyClient(opts?.caddyBaseUrl);
+  try {
+    await Promise.allSettled([
+      stopContainer(stopAgent, containerName(appId, "blue")),
+      stopContainer(stopAgent, containerName(appId, "green")),
+    ]);
+    await stopCaddy.removeUpstream(appId);
+  } finally {
+    stopAgent.close();
+  }
+
   logBus.publish(channel, `[runner] restart: re-deploying ${lastBuild.image_tag}`);
 
+  // 3. Load current env vars.
+  const containerEnv = await loadEnvVars(db, appId);
+
+  // 4. Blue-green redeploy — emit "running" as soon as Caddy has switched,
+  //    via onLive. The grace period + old-container stop then run without
+  //    blocking the UI.
   const runOpts: RunBlueGreenOptions = {
     appId,
     imageRef: lastBuild.image_tag,
-    env: {},
+    env: containerEnv,
     db,
+    onLive: () => {
+      if (!userId) return;
+      try {
+        eventBus.publish(`user:${userId}`, {
+          type: "deploy.status_change",
+          appId,
+          message: "Redémarrage terminé",
+          data: { status: "running" },
+        });
+      } catch (pubErr) {
+        log.warn({ pubErr }, "eventBus publish running after restart failed (non-fatal)");
+      }
+    },
   };
   if (opts?.agentSocketPath !== undefined) runOpts.agentSocketPath = opts.agentSocketPath;
   if (opts?.caddyBaseUrl !== undefined) runOpts.caddyBaseUrl = opts.caddyBaseUrl;
 
-  await runBlueGreen(runOpts);
+  try {
+    await runBlueGreen(runOpts);
+  } catch (err) {
+    // runBlueGreen already wrote "failed" via its own DB update path on error.
+    // Emit SSE failure event.
+    if (userId) {
+      try {
+        eventBus.publish(`user:${userId}`, {
+          type: "deploy.status_change",
+          appId,
+          message: `Redémarrage échoué: ${err instanceof Error ? err.message : String(err)}`,
+          data: { status: "failed" },
+        });
+      } catch (pubErr) {
+        log.warn({ pubErr }, "eventBus publish restart failed event failed (non-fatal)");
+      }
+    }
+    throw err;
+  }
 
   logBus.publish(channel, `[runner] restart complete`);
 }

@@ -215,8 +215,8 @@ describe("runRegistryGc", () => {
       appFilter: "app-A",
     });
 
-    expect(scannedRepos).toContain("app-app-A");
-    expect(scannedRepos).not.toContain("app-app-B");
+    expect(scannedRepos).toContain("app-app-a");
+    expect(scannedRepos).not.toContain("app-app-b");
     expect(result.reposScanned).toBe(1);
   });
 

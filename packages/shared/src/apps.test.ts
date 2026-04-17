@@ -19,7 +19,7 @@ import {
 
 describe("AppStatusSchema", () => {
   it("accepts all valid values", () => {
-    for (const v of ['pending', 'building', 'running', 'failed', 'stopped'] as const) {
+    for (const v of ['created', 'pending', 'building', 'running', 'restarting', 'failed', 'stopped'] as const) {
       expect(AppStatusSchema.parse(v)).toBe(v);
     }
   });

@@ -16,6 +16,8 @@ import { getSharedAgent, getSharedCaddy } from "./debug/singletons.js";
 import { AgentError, GrpcStatus } from "./agent/index.js";
 import { childLogger } from "./logger";
 import { appsRouter } from "./routes/apps";
+import { appsEnvRouter } from "./routes/apps-env";
+import { appsDomainsRouter } from "./routes/apps-domains";
 import { githubRouter } from "./routes/github";
 import { wsRouter } from "./routes/ws";
 import { eventsRouter } from "./routes/events";
@@ -115,7 +117,7 @@ app.use(
       return origin === env.WEB_ORIGIN ? origin : null;
     },
     credentials: true,
-    allowMethods: ["GET", "POST", "PUT", "DELETE"],
+    allowMethods: ["GET", "POST", "PUT", "PATCH", "DELETE"],
     allowHeaders: ["content-type", "x-csrf-token"],
   }),
 );
@@ -143,6 +145,12 @@ app.use("*", async (c, next) => {
   // /github/webhook est signé HMAC-SHA256 par GitHub — GitHub ne peut pas
   // envoyer le double-submit token. L'authenticité est garantie par la signature.
   if (c.req.path === "/github/webhook") {
+    return next();
+  }
+
+  // /auth/dev-login is gated hard by NODE_ENV !== "prod" inside the handler
+  // and by a loopback-Origin check. No CSRF cookie exists yet at first call.
+  if (c.req.path === "/auth/dev-login" && env.NODE_ENV !== "prod") {
     return next();
   }
 
@@ -230,7 +238,11 @@ app.use("/debug/*", CI_AUTH_BYPASS ? ciBypassAuth : requireAuth(db));
 app.route("/debug", debugRouter);
 
 // Apps routes — auth enforced per-endpoint inside the router.
+// Order matters: specific sub-routers (env, domains) are mounted before
+// the main appsRouter to avoid path shadowing on `/:id`.
 app.use("/apps/*", requireAuth(db));
+app.route("/apps", appsEnvRouter);
+app.route("/apps", appsDomainsRouter);
 app.route("/apps", appsRouter);
 
 // GitHub App routes — auth enforced per-endpoint inside the router.
