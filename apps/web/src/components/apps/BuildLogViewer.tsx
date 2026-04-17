@@ -1,13 +1,16 @@
 // SPDX-License-Identifier: AGPL-3.0-only
-import * as React from "react";
-import { apiFetch } from "../../lib/api";
-
-// ---------------------------------------------------------------------------
-// Constants
-// ---------------------------------------------------------------------------
-
-const MAX_LINES = 10_000;
-const API_BASE = import.meta.env.VITE_API_URL ?? "http://localhost:4000";
+import * as React from "react"
+import { RiArrowDownLine } from "@remixicon/react"
+import { cn } from "@workspace/ui/lib/utils"
+import {
+  filterByLevel,
+  filterBySearch,
+  useLogStream,
+} from "../../lib/hooks/use-log-stream"
+import { LogFilters, useLogFilters } from "./LogFilters"
+import { LogLine } from "./LogLine"
+import type { LogLine as LogLineData } from "../../lib/hooks/use-log-stream"
+import type { LogFiltersState } from "./LogFilters"
 
 // ---------------------------------------------------------------------------
 // Types
@@ -15,193 +18,273 @@ const API_BASE = import.meta.env.VITE_API_URL ?? "http://localhost:4000";
 
 interface BuildLogViewerProps {
   /** App ID */
-  appId: string;
+  appId: string
   /** Build ID — if undefined or "latest", streams runtime logs */
-  buildId?: string;
-  className?: string;
-}
-
-interface LogLine {
-  id: number;
-  text: string;
+  buildId?: string
+  /** Optional app name for the download filename and title bar */
+  appName?: string
+  className?: string
 }
 
 // ---------------------------------------------------------------------------
-// BuildLogViewer
+// TitleBar
+// ---------------------------------------------------------------------------
+
+function TitleBar({
+  title,
+  isLive,
+  lineCount,
+}: {
+  title: string
+  isLive: boolean
+  lineCount: number
+}): React.JSX.Element {
+  return (
+    <div className="flex h-8 items-center gap-2 border-b border-zinc-800 bg-zinc-900 px-4 shrink-0">
+      <span
+        className={cn(
+          "size-2 rounded-full shrink-0",
+          isLive ? "bg-green-500" : "bg-zinc-600",
+        )}
+        aria-hidden="true"
+      />
+      <span className="text-[11px] font-medium text-zinc-300 truncate">
+        {title}
+      </span>
+      <span className="text-[11px] text-zinc-600 shrink-0">
+        {isLive ? "Live" : "Disconnected"}
+      </span>
+      <div className="flex-1" />
+      {lineCount > 0 && (
+        <span className="text-[11px] text-zinc-600 shrink-0 tabular-nums">
+          {lineCount.toLocaleString()} lines
+        </span>
+      )}
+    </div>
+  )
+}
+
+// ---------------------------------------------------------------------------
+// FollowButton — floating pill shown when user has scrolled away from bottom
+// ---------------------------------------------------------------------------
+
+function FollowButton({
+  visible,
+  newCount,
+  onClick,
+}: {
+  visible: boolean
+  newCount: number
+  onClick: () => void
+}): React.JSX.Element | null {
+  if (!visible) return null
+  return (
+    <button
+      type="button"
+      onClick={onClick}
+      className="absolute bottom-4 right-4 flex items-center gap-1.5 rounded-full bg-primary px-3 py-1.5 text-xs font-medium text-primary-foreground shadow-lg hover:bg-primary/90 transition-colors"
+    >
+      <RiArrowDownLine className="size-3.5" aria-hidden="true" />
+      Follow latest
+      {newCount > 0 && (
+        <span className="rounded-full bg-primary-foreground/20 px-1.5 py-0.5 text-[10px]">
+          {newCount}
+        </span>
+      )}
+    </button>
+  )
+}
+
+// ---------------------------------------------------------------------------
+// BuildLogViewer — integrates title bar + filters + auto-scroll + MutationObserver
 // ---------------------------------------------------------------------------
 
 export function BuildLogViewer({
   appId,
   buildId,
+  appName,
   className,
 }: BuildLogViewerProps): React.JSX.Element {
-  const [lines, setLines] = React.useState<Array<LogLine>>([] as Array<LogLine>);
-  const [connected, setConnected] = React.useState(false);
-  const [error, setError] = React.useState<string | null>(null);
-  const counterRef = React.useRef(0);
-  const scrollRef = React.useRef<HTMLDivElement>(null);
-  const followRef = React.useRef(true);
-  const wsRef = React.useRef<WebSocket | null>(null);
+  const [filters, setFilters] = useLogFilters()
 
-  // Append lines with capping at MAX_LINES
-  const appendLine = React.useCallback((text: string) => {
-    setLines((prev) => {
-      const id = ++counterRef.current;
-      const next = [...prev, { id, text }];
-      return next.length > MAX_LINES ? next.slice(next.length - MAX_LINES) : next;
-    });
-  }, []);
+  const { lines, connected, error } = useLogStream({
+    appId,
+    buildId,
+    maxLines: filters.volume,
+  })
 
-  // Auto-scroll when follow is enabled
+  // ---------------------------------------------------------------------------
+  // Pause / resume buffer
+  // ---------------------------------------------------------------------------
+  const [displayLines, setDisplayLines] = React.useState<Array<LogLineData>>(lines)
+  const pauseBufferRef = React.useRef<Array<LogLineData>>([])
+
   React.useEffect(() => {
-    if (!followRef.current) return;
-    const el = scrollRef.current;
-    if (el) {
-      el.scrollTop = el.scrollHeight;
+    if (filters.paused) {
+      const incoming = lines.slice(displayLines.length)
+      const merged = [...pauseBufferRef.current, ...incoming]
+      pauseBufferRef.current =
+        merged.length > 1000 ? merged.slice(merged.length - 1000) : merged
+    } else {
+      setDisplayLines(lines)
+      pauseBufferRef.current = []
     }
-  }, [lines]);
+  }, [lines, filters.paused, displayLines.length])
 
-  // Detect user scroll-up to stop following
-  const handleScroll = React.useCallback(() => {
-    const el = scrollRef.current;
-    if (!el) return;
-    const atBottom = el.scrollHeight - el.scrollTop - el.clientHeight < 32;
-    followRef.current = atBottom;
-  }, []);
-
-  // Connect WebSocket
-  React.useEffect(() => {
-    setLines([]);
-    setError(null);
-    followRef.current = true;
-
-    const wsBase = API_BASE.replace(/^http/, "ws");
-    const path =
-      buildId && buildId !== "latest"
-        ? `${wsBase}/ws/apps/${appId}/build/${buildId}`
-        : `${wsBase}/ws/apps/${appId}/logs`;
-
-    let ws: WebSocket;
-    let fallbackTriggered = false;
-
-    const connectWs = (): void => {
-      try {
-        ws = new WebSocket(path);
-        wsRef.current = ws;
-
-        ws.onopen = () => {
-          setConnected(true);
-          setError(null);
-        };
-
-        ws.onmessage = (ev: MessageEvent<string>) => {
-          const text = typeof ev.data === "string" ? ev.data : String(ev.data);
-          appendLine(text);
-        };
-
-        ws.onerror = () => {
-          if (!fallbackTriggered) {
-            fallbackTriggered = true;
-            triggerFallback();
-          }
-        };
-
-        ws.onclose = (ev) => {
-          setConnected(false);
-          if (!ev.wasClean && !fallbackTriggered) {
-            fallbackTriggered = true;
-            triggerFallback();
-          }
-        };
-      } catch {
-        if (!fallbackTriggered) {
-          fallbackTriggered = true;
-          triggerFallback();
-        }
+  const handleFiltersChange = React.useCallback(
+    (next: Partial<LogFiltersState>) => {
+      if ("paused" in next && next.paused === false) {
+        setDisplayLines(lines)
+        pauseBufferRef.current = []
       }
-    };
+      setFilters(next)
+    },
+    [lines, setFilters],
+  )
 
-    const triggerFallback = (): void => {
-      setError("WebSocket unavailable — loading archived logs…");
-      const logsPath =
-        buildId && buildId !== "latest"
-          ? `/apps/${appId}/logs?buildId=${buildId}`
-          : `/apps/${appId}/logs`;
-      apiFetch<{ lines: Array<string> }>(logsPath)
-        .then((data) => {
-          setError(null);
-          for (const line of data.lines) {
-            appendLine(line);
-          }
-        })
-        .catch((err: unknown) => {
-          const msg = err instanceof Error ? err.message : "Failed to load logs";
-          setError(msg);
-        });
-    };
+  // ---------------------------------------------------------------------------
+  // Filter pipeline
+  // ---------------------------------------------------------------------------
+  const levelFiltered = filterByLevel(displayLines, filters.level)
+  const filtered = filterBySearch(levelFiltered, filters.search)
 
-    connectWs();
+  // ---------------------------------------------------------------------------
+  // Auto-scroll with MutationObserver
+  // ---------------------------------------------------------------------------
+  const scrollRef = React.useRef<HTMLDivElement>(null)
+  const logBodyRef = React.useRef<HTMLDivElement>(null)
+  const followRef = React.useRef(true)
+  const [showFollowBtn, setShowFollowBtn] = React.useState(false)
+  // Track how many lines were visible when user detached
+  const detachLineCountRef = React.useRef(0)
 
-    return () => {
-      wsRef.current = null;
-      ws?.close();
-    };
-  }, [appId, buildId, appendLine]);
+  const scrollToBottom = React.useCallback(() => {
+    const el = scrollRef.current
+    if (el) el.scrollTop = el.scrollHeight
+  }, [])
+
+  const handleScroll = React.useCallback(() => {
+    const el = scrollRef.current
+    if (!el) return
+    const distFromBottom = el.scrollHeight - el.scrollTop - el.clientHeight
+    if (distFromBottom > 50) {
+      if (followRef.current) {
+        // Just detached — snapshot line count
+        detachLineCountRef.current = filtered.length
+        followRef.current = false
+        setShowFollowBtn(true)
+      }
+    } else {
+      followRef.current = true
+      setShowFollowBtn(false)
+    }
+  }, [filtered.length])
+
+  const handleFollowLatest = React.useCallback(() => {
+    followRef.current = true
+    setShowFollowBtn(false)
+    scrollToBottom()
+  }, [scrollToBottom])
+
+  React.useEffect(() => {
+    const logBody = logBodyRef.current
+    if (!logBody) return
+    const observer = new MutationObserver(() => {
+      if (followRef.current) {
+        scrollToBottom()
+      }
+    })
+    observer.observe(logBody, { childList: true, subtree: false })
+    return () => observer.disconnect()
+  }, [scrollToBottom])
+
+  // New lines since detachment
+  const newLineCount = Math.max(0, filtered.length - detachLineCountRef.current)
+
+  // ---------------------------------------------------------------------------
+  // Download
+  // ---------------------------------------------------------------------------
+  const handleDownload = React.useCallback(() => {
+    const content = filtered.map((l) => l.text).join("\n")
+    const blob = new Blob([content], { type: "text/plain" })
+    const url = URL.createObjectURL(blob)
+    const a = document.createElement("a")
+    a.href = url
+    const baseName = appName ?? appId
+    const ts = new Date().toISOString().replace(/[:.]/g, "-").slice(0, 19)
+    a.download = `${baseName}-${ts}.log`
+    a.click()
+    URL.revokeObjectURL(url)
+  }, [filtered, appId, appName])
+
+  // ---------------------------------------------------------------------------
+  // Title
+  // ---------------------------------------------------------------------------
+  const title =
+    buildId && buildId !== "latest"
+      ? `Build ${buildId.slice(0, 8)}${appName ? ` — ${appName}` : ""}`
+      : appName
+        ? `Runtime logs — ${appName}`
+        : "Runtime logs"
 
   return (
     <div
-      className={[
-        "flex flex-col rounded-lg border border-border bg-[#0d0d0d] font-mono text-xs overflow-hidden",
-        className ?? "",
-      ]
-        .filter(Boolean)
-        .join(" ")}
+      className={cn(
+        "flex flex-col w-full min-h-0 overflow-hidden rounded-lg border border-zinc-800 bg-zinc-950",
+        className,
+      )}
     >
-      {/* Toolbar */}
-      <div className="flex items-center gap-2 border-b border-border/60 bg-muted/40 px-3 py-1.5">
-        <span
-          className={[
-            "size-2 rounded-full",
-            connected ? "bg-green-500" : "bg-muted-foreground/40",
-          ].join(" ")}
-          aria-hidden="true"
-        />
-        <span className="text-muted-foreground text-[11px]">
-          {connected ? "Live" : "Disconnected"}
-        </span>
-        {lines.length > 0 && (
-          <span className="ml-auto text-muted-foreground/60 text-[11px]">
-            {lines.length.toLocaleString()} lines
-          </span>
-        )}
-      </div>
+      {/* Title bar */}
+      <TitleBar title={title} isLive={connected} lineCount={filtered.length} />
 
       {/* Error banner */}
       {error && (
-        <div className="px-3 py-1.5 text-xs text-destructive bg-destructive/10 border-b border-destructive/20">
+        <div className="px-4 py-1.5 text-xs text-red-400 bg-red-500/10 border-b border-red-500/20 shrink-0">
           {error}
         </div>
       )}
 
-      {/* Log body */}
-      <div
-        ref={scrollRef}
-        onScroll={handleScroll}
-        className="flex-1 overflow-auto p-3 min-h-[200px] max-h-[600px]"
-        role="log"
-        aria-live="polite"
-        aria-label="Build logs"
-      >
-        {lines.length === 0 ? (
-          <span className="text-muted-foreground/60">Waiting for logs…</span>
-        ) : (
-          lines.map((line) => (
-            <div key={line.id} className="leading-relaxed whitespace-pre-wrap break-all text-[#e5e7eb]">
-              {line.text}
-            </div>
-          ))
-        )}
+      {/* Filter bar */}
+      <LogFilters
+        state={filters}
+        onChange={handleFiltersChange}
+        onDownload={handleDownload}
+        bufferedCount={pauseBufferRef.current.length}
+      />
+
+      {/* Log body — scrollable, fills remaining space */}
+      <div className="relative flex-1 min-h-0">
+        <div
+          ref={scrollRef}
+          onScroll={handleScroll}
+          className="h-full overflow-auto font-mono text-xs"
+          role="log"
+          aria-live="polite"
+          aria-label={`${title} output`}
+        >
+          {/* Log lines container — observed by MutationObserver */}
+          <div ref={logBodyRef} className="py-2">
+            {filtered.length === 0 ? (
+              <div className="px-4 py-2 text-zinc-500">
+                {filters.search || filters.level !== "all"
+                  ? "No lines match the current filters."
+                  : "Waiting for logs\u2026"}
+              </div>
+            ) : (
+              filtered.map((line) => (
+                <LogLine key={line.id} line={line} search={filters.search} />
+              ))
+            )}
+          </div>
+        </div>
+
+        {/* Floating "Follow latest" button */}
+        <FollowButton
+          visible={showFollowBtn}
+          newCount={newLineCount}
+          onClick={handleFollowLatest}
+        />
       </div>
     </div>
-  );
+  )
 }

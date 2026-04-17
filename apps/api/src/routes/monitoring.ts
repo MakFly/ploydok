@@ -110,7 +110,16 @@ monitoringRouter.get("/overview", async (c) => {
 
   try {
     const overview = await snapshotFromAgent()
-    return c.json(overview)
+    const db = createDb(env.DATABASE_URL)
+    // Keep only app containers that belong to the authenticated user.
+    // Infra containers (no app_id) are excluded from the user-facing overview.
+    const owned: typeof overview.containers = []
+    for (const ct of overview.containers) {
+      if (!ct.app_id) continue
+      const ownerId = await resolveAppOwner(db, ct.app_id)
+      if (ownerId === user.id) owned.push(ct)
+    }
+    return c.json({ ...overview, containers: owned })
   } catch (err) {
     return c.json<MonitoringOverview>(
       {
@@ -127,9 +136,12 @@ monitoringRouter.get("/overview", async (c) => {
 // POST /ping/:id
 // ---------------------------------------------------------------------------
 
+// Ports réservés à l'infra locale — interdits pour éviter le SSRF.
+const RESERVED_PORTS = new Set([22, 5000, 2020, 8180, 8543])
+
 const PingBodySchema = z.object({
-  path: z.string().min(1).max(256),
-  port: z.number().int().positive(),
+  path: z.string().regex(/^\/[^\s?#]{0,255}$/),
+  port: z.number().int().min(1024).max(65535),
   timeoutMs: z.number().int().positive().optional(),
 })
 
@@ -163,28 +175,32 @@ monitoringRouter.post("/ping/:id", async (c) => {
 
   const { path, port, timeoutMs } = parsed.data
 
-  // Ownership check — if the container belongs to an app, verify ownership.
-  // To resolve app_id we do a snapshot and find the container by id.
+  if (RESERVED_PORTS.has(port)) {
+    return c.json(
+      { error: { code: "FORBIDDEN_PORT", message: "Port is reserved for internal infrastructure" } },
+      400,
+    )
+  }
+
+  // Ownership check — resolve container via snapshot then verify tenant.
   const overview = await snapshotFromAgent()
   const container = overview.containers.find((ct) => ct.id === id)
 
-  if (container?.app_id) {
-    // This is an "app" container — verify ownership via resolveAppOwner.
-    // We can't access the db here from the router directly, so we rely on
-    // the app-level db created in app.ts. For the router, we accept that
-    // the check below uses the shared agent and a fresh db from env.
-    // Note: for MVP, we create a db instance here. In production this would
-    // be injected. Since createDb is cheap with libsql, this is acceptable.
-    const db = createDb(env.DATABASE_URL)
-    const ownerId = await resolveAppOwner(db, container.app_id)
-    if (ownerId !== user.id) {
-      return c.json(
-        { error: { code: "FORBIDDEN", message: "You do not own this container" } },
-        403,
-      )
-    }
+  if (!container?.app_id) {
+    return c.json(
+      { error: { code: "FORBIDDEN", message: "Infra container, no ownership" } },
+      403,
+    )
   }
-  // If no app_id (infra/agent containers), allow any authenticated user (MVP).
+
+  const db = createDb(env.DATABASE_URL)
+  const ownerId = await resolveAppOwner(db, container.app_id)
+  if (ownerId !== user.id) {
+    return c.json(
+      { error: { code: "FORBIDDEN", message: "You do not own this container" } },
+      403,
+    )
+  }
 
   const agent = getSharedAgent()
   const result = await agent.pingContainer({
@@ -249,27 +265,32 @@ export async function monitoringTick(
     const prevStatus = prev.get(container.id)
     const currentStatus = container.status
 
-    // Only emit events if status changed AND we have a previous state.
-    if (prevStatus !== undefined && prevStatus !== currentStatus) {
-      if (container.kind === "app" && container.app_id) {
-        try {
-          const userId = await resolveOwner(container.app_id)
-          if (userId) {
-            publish(`user:${userId}`, {
-              id: nanoid(),
-              type: "container.health",
-              appId: container.app_id,
-              message: `Container ${container.name} status changed: ${prevStatus} → ${currentStatus}`,
-              t: now,
-              data: { container, prev_status: prevStatus },
-            })
-          }
-        } catch (err) {
-          log.warn({ containerId: container.id, err }, "resolveOwner failed during monitoring tick")
+    // Emit on status change OR on first appearance with status "running" (catches blue-green swap).
+    const shouldEmit =
+      (prevStatus !== undefined && prevStatus !== currentStatus) ||
+      (prevStatus === undefined && currentStatus === "running")
+
+    if (shouldEmit && container.kind === "app" && container.app_id) {
+      try {
+        const userId = await resolveOwner(container.app_id)
+        if (userId) {
+          publish(`user:${userId}`, {
+            id: nanoid(),
+            type: "container.health",
+            appId: container.app_id,
+            message:
+              prevStatus === undefined
+                ? `Container ${container.name} appeared: ${currentStatus}`
+                : `Container ${container.name} status changed: ${prevStatus} → ${currentStatus}`,
+            t: now,
+            data: { container, prev_status: prevStatus },
+          })
         }
+      } catch (err) {
+        log.warn({ containerId: container.id, err }, "resolveOwner failed during monitoring tick")
       }
-      // Infra/agent containers: skip for MVP.
     }
+    // Infra/agent containers: skip.
 
     prev.set(container.id, currentStatus)
   }

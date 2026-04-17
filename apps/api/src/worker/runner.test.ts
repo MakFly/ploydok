@@ -165,6 +165,7 @@ function makeMockAgent() {
     containerStart: makeMethod("containerStart", () => ({})),
     containerStop: makeMethod("containerStop", () => ({})),
     containerRemove: makeMethod("containerRemove", () => ({})),
+    pingContainer: makeMethod("pingContainer", () => ({ ok: true, statusCode: 200, latencyMs: 5, error: "" })),
     close: () => {},
   };
 }

@@ -28,6 +28,7 @@ interface FormState {
   startCommand: string;
   watchPaths: string;
   healthcheckPath: string;
+  healthcheckPort: string;
 }
 
 const INITIAL_FORM: FormState = {
@@ -41,6 +42,7 @@ const INITIAL_FORM: FormState = {
   startCommand: "",
   watchPaths: "",
   healthcheckPath: "/",
+  healthcheckPort: "",
 };
 
 // ---------------------------------------------------------------------------
@@ -104,6 +106,17 @@ export function CreateAppModal({ open, onClose }: CreateAppModalProps): React.JS
         ? form.watchPaths.split(",").map((s) => s.trim()).filter(Boolean)
         : undefined;
 
+      const parsedPort = form.healthcheckPort.trim() !== ""
+        ? Number.parseInt(form.healthcheckPort.trim(), 10)
+        : undefined;
+      const validPort =
+        parsedPort !== undefined &&
+        Number.isFinite(parsedPort) &&
+        parsedPort >= 1 &&
+        parsedPort <= 65535
+          ? parsedPort
+          : undefined;
+
       await createApp.mutateAsync({
         name: form.name.trim(),
         gitProvider: "github",
@@ -116,7 +129,14 @@ export function CreateAppModal({ open, onClose }: CreateAppModalProps): React.JS
         startCommand: form.startCommand || undefined,
         watchPaths,
         healthcheck: form.healthcheckPath
-          ? { path: form.healthcheckPath, intervalS: 5, timeoutS: 3, retries: 6, startPeriodS: 0 }
+          ? {
+              path: form.healthcheckPath,
+              port: validPort,
+              intervalS: 5,
+              timeoutS: 3,
+              retries: 6,
+              startPeriodS: 0,
+            }
           : undefined,
       } satisfies Partial<AppConfig>);
       onClose();
@@ -415,6 +435,21 @@ function Step3({ form, setField, showAdvanced, onToggleAdvanced }: Step3Props): 
               value={form.healthcheckPath}
               onChange={(v) => setField("healthcheckPath", v)}
             />
+            <div>
+              <label htmlFor="healthcheck-port" className="text-xs font-medium block mb-1">
+                Port
+              </label>
+              <input
+                id="healthcheck-port"
+                type="number"
+                min={1}
+                max={65535}
+                placeholder="3000"
+                value={form.healthcheckPort}
+                onChange={(e) => setField("healthcheckPort", e.target.value)}
+                className="w-full rounded-md border border-input bg-background px-3 py-1.5 text-sm focus:outline-none focus:ring-2 focus:ring-ring"
+              />
+            </div>
           </div>
         </div>
       )}

@@ -9,7 +9,8 @@ import {
   RiWifiLine,
 } from "@remixicon/react"
 
-import { ContainerChart } from "./ContainerChart"
+import { MetricCardButton } from "./MetricCardButton"
+import { MetricDetailDialog } from "./MetricDetailDialog"
 import { StatusDot } from "./StatusDot"
 import type { ContainerSnapshot } from "@ploydok/shared"
 
@@ -67,6 +68,20 @@ export function ResourceCard({
 }: ResourceCardProps) {
   const ratio = memRatio(snapshot)
   const ratioPercent = Math.round(ratio * 100)
+
+  // Ring buffer mem en MB (la sparkline + dialog bossent en MB, pas en bytes).
+  const memHistoryMB = React.useMemo(
+    () => memHistory.map((v) => v / 1_048_576),
+    [memHistory],
+  )
+
+  // State dialog: null = fermée, "cpu" | "mem" = ouverte sur ce metric.
+  const [openMetric, setOpenMetric] = React.useState<null | "cpu" | "mem">(
+    null,
+  )
+
+  const cpuLast = cpuHistory.at(-1) ?? 0
+  const memLastMB = memHistoryMB.at(-1) ?? 0
 
   // Mem bar colour
   const barColor =
@@ -137,29 +152,33 @@ export function ResourceCard({
         </div>
       </div>
 
-      {/* Sparklines Recharts — interactives avec tooltip au survol. */}
+      {/* Instruments cliquables — ouvrent une dialog Recharts détaillée. */}
       <div className="grid grid-cols-2 gap-2">
-        <ChartBlock label="CPU" color="text-blue-500">
-          <ContainerChart
-            points={cpuHistory}
-            dataKey="cpu"
-            label="CPU"
-            color="#3b82f6"
-            formatValue={(v) => `${v.toFixed(2)} %`}
-            className="aspect-[3/1] h-10 w-full"
-          />
-        </ChartBlock>
-        <ChartBlock label="Memory" color="text-violet-500">
-          <ContainerChart
-            points={memHistory.map((v) => v / 1_048_576)}
-            dataKey="mem"
-            label="Mem"
-            color="#8b5cf6"
-            formatValue={(v) => `${v.toFixed(1)} MB`}
-            className="aspect-[3/1] h-10 w-full"
-          />
-        </ChartBlock>
+        <MetricCardButton
+          metric="cpu"
+          value={`${cpuLast.toFixed(2)} %`}
+          history={cpuHistory}
+          unit=" %"
+          onClick={() => setOpenMetric("cpu")}
+        />
+        <MetricCardButton
+          metric="mem"
+          value={`${memLastMB.toFixed(1)} MB`}
+          history={memHistoryMB}
+          unit=" MB"
+          onClick={() => setOpenMetric("mem")}
+        />
       </div>
+
+      <MetricDetailDialog
+        open={openMetric !== null}
+        onOpenChange={(o) => {
+          if (!o) setOpenMetric(null)
+        }}
+        metric={openMetric ?? "cpu"}
+        snapshot={snapshot}
+        points={openMetric === "mem" ? memHistoryMB : cpuHistory}
+      />
 
       {/* Ping button + last ping result */}
       {onPing ? (
@@ -213,21 +232,3 @@ function StatChip({
   )
 }
 
-function ChartBlock({
-  label,
-  color,
-  children,
-}: {
-  label: string
-  color: string
-  children: React.ReactNode
-}) {
-  return (
-    <div className="rounded-[0.75rem] border border-border/60 bg-[#f3f5f8] px-2.5 py-2">
-      <p className={["text-[10px] font-medium uppercase tracking-widest", color].join(" ")}>
-        {label}
-      </p>
-      <div className="mt-1">{children}</div>
-    </div>
-  )
-}

@@ -10,7 +10,7 @@ export const apps = sqliteTable('apps', {
   name: text('name').notNull(),
   slug: text('slug').notNull(),
   status: text('status', {
-    enum: ['created', 'building', 'running', 'stopped', 'failed'],
+    enum: ['created', 'pending', 'building', 'running', 'restarting', 'stopped', 'failed'],
   })
     .notNull()
     .default('created'),

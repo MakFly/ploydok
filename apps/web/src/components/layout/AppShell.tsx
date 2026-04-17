@@ -1,6 +1,6 @@
 // SPDX-License-Identifier: AGPL-3.0-only
 import * as React from "react";
-import { Link, useRouter, useRouterState } from "@tanstack/react-router";
+import { Link, useMatches, useRouter, useRouterState } from "@tanstack/react-router";
 import {
   RiApps2Line,
   RiArrowUpDownLine,
@@ -18,7 +18,10 @@ import {
   RiStackLine,
 } from "@remixicon/react";
 import { useLogout, useMe } from "../../lib/auth"
-import { NotificationBell } from "./NotificationBell";
+import { NotificationBell } from "./NotificationBell"
+import { CommandPaletteRoot } from "./CommandPalette"
+import { CommandBar } from "./CommandBar"
+import { CommandPaletteProvider } from "../../lib/hooks/command-palette-context"
 
 interface AppShellProps {
   children: React.ReactNode;
@@ -146,6 +149,7 @@ export function AppShell({ children }: AppShellProps): React.JSX.Element {
   };
 
   return (
+    <CommandPaletteProvider>
     <div
       data-sidebar-state={state}
       style={wrapperStyle}
@@ -404,12 +408,24 @@ export function AppShell({ children }: AppShellProps): React.JSX.Element {
           "md:peer-data-[state=collapsed]:rounded-tl-none",
         )}
       >
-        <div className="relative flex h-12 items-center justify-end gap-2 px-4 md:px-8">
-          <NotificationBell />
+        <div className="relative flex h-12 items-center gap-3 px-4 md:px-8">
+          <div className="flex min-w-0 flex-1 items-center">
+            <TopbarBreadcrumb />
+          </div>
+          <div className="hidden w-full max-w-md shrink-0 md:flex md:basis-[28rem]">
+            <CommandBar />
+          </div>
+          <div className="flex min-w-0 flex-1 items-center justify-end">
+            <NotificationBell />
+          </div>
         </div>
         <div className="flex flex-1 flex-col gap-4 p-4 md:p-8">{children}</div>
       </main>
+
+      {/* Global command palette — portalized, position-safe */}
+      <CommandPaletteRoot />
     </div>
+    </CommandPaletteProvider>
   );
 }
 
@@ -478,3 +494,73 @@ export function ShellPanel({
     </section>
   );
 }
+
+// ---------------------------------------------------------------------------
+// TopbarBreadcrumb — resolves the current breadcrumb from route matches.
+// Mounted in the global topbar next to NotificationBell so every page shows
+// consistent navigation context without the children having to opt in.
+// ---------------------------------------------------------------------------
+
+interface MatchWithLoader {
+  routeId?: string
+  loaderData?: unknown
+}
+
+function extractAppName(matches: ReadonlyArray<MatchWithLoader>): string | null {
+  const appMatch = matches.find((m) => m.routeId === "/_authed/apps/$id")
+  if (!appMatch) return null
+  const data = appMatch.loaderData as { app?: { name?: string | null } } | undefined
+  return data?.app?.name ?? null
+}
+
+function TopbarBreadcrumb(): React.JSX.Element | null {
+  const matches = useMatches()
+  const pathname = useRouterState({ select: (s) => s.location.pathname })
+
+  const appName = extractAppName(matches)
+
+  if (appName) {
+    return (
+      <nav aria-label="Breadcrumb" className="flex min-w-0 items-center gap-1.5 text-xs">
+        <Link
+          to="/apps"
+          className="text-muted-foreground transition-colors hover:text-foreground"
+        >
+          Apps
+        </Link>
+        <BreadcrumbSeparator />
+        <span className="truncate font-medium text-foreground">{appName}</span>
+      </nav>
+    )
+  }
+
+  if (pathname === "/apps" || pathname.startsWith("/apps?")) {
+    return (
+      <nav aria-label="Breadcrumb" className="flex items-center gap-1.5 text-xs">
+        <span className="font-medium text-foreground">Apps</span>
+      </nav>
+    )
+  }
+
+  return null
+}
+
+function BreadcrumbSeparator(): React.JSX.Element {
+  return (
+    <svg
+      xmlns="http://www.w3.org/2000/svg"
+      viewBox="0 0 24 24"
+      fill="none"
+      stroke="currentColor"
+      strokeWidth="2"
+      strokeLinecap="round"
+      strokeLinejoin="round"
+      className="size-3 shrink-0 text-muted-foreground/50"
+      aria-hidden="true"
+    >
+      <path d="m9 18 6-6-6-6" />
+    </svg>
+  )
+}
+
+export { extractAppName }

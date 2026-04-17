@@ -20,7 +20,11 @@ import type { AuthUser } from "../auth/middleware"
 // Constants
 // ---------------------------------------------------------------------------
 
-const HEARTBEAT_INTERVAL_MS = 30_000
+// Keep this well under Bun.serve's idleTimeout so the TCP socket doesn't get
+// truncated between events (ERR_INCOMPLETE_CHUNKED_ENCODING). Bun's default is
+// 10 s; even when the server disables it via idleTimeout: 0, intermediate
+// proxies (Caddy, browser dev tools) still expect activity within ~15 s.
+const HEARTBEAT_INTERVAL_MS = 8_000
 const REPLAY_LIMIT = 20
 
 // ---------------------------------------------------------------------------

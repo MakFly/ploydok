@@ -1,6 +1,8 @@
 // SPDX-License-Identifier: AGPL-3.0-only
-import * as React from "react";
-import { createFileRoute } from "@tanstack/react-router";
+import * as React from "react"
+import { createFileRoute } from "@tanstack/react-router"
+import { useAddDomain, useDeleteDomain, useDomains, useRecheckDomain } from "../../../../lib/apps-domains"
+import { DomainsTable } from "../../../../components/apps/DomainsTable"
 
 // ---------------------------------------------------------------------------
 // Route
@@ -8,46 +10,57 @@ import { createFileRoute } from "@tanstack/react-router";
 
 export const Route = createFileRoute("/_authed/apps/$id/domains")({
   component: AppDomainsTab,
-});
+})
 
 // ---------------------------------------------------------------------------
-// AppDomainsTab — placeholder, out of scope for Sprint 3
+// AppDomainsTab
 // ---------------------------------------------------------------------------
 
 function AppDomainsTab(): React.JSX.Element {
-  return (
-    <div className="flex flex-col items-center justify-center rounded-lg border border-dashed border-border bg-muted/20 py-20 text-center">
-      <div className="rounded-full bg-muted p-4 mb-4">
-        <DomainsIcon className="size-8 text-muted-foreground" />
+  const { id: appId } = Route.useParams()
+
+  const { data: domains, isLoading, isError } = useDomains(appId)
+  const { mutate: addDomain, isPending: isAdding } = useAddDomain(appId)
+  const { mutate: deleteDomain, isPending: isDeleting } = useDeleteDomain(appId)
+  const { mutate: recheckDomain, isPending: isRechecking } = useRecheckDomain(appId)
+
+  if (isError) {
+    return (
+      <div className="flex flex-col items-center justify-center rounded-lg border border-dashed border-destructive/40 bg-destructive/5 py-12 text-center">
+        <p className="text-sm font-medium text-destructive">Failed to load domains</p>
+        <p className="mt-1 text-xs text-muted-foreground">
+          Check your connection and try refreshing.
+        </p>
       </div>
-      <p className="text-sm font-medium mb-1">Custom domains</p>
-      <p className="text-sm text-muted-foreground">
-        Coming soon — this feature is planned for a future sprint.
+    )
+  }
+
+  return (
+    <div className="mx-auto w-full max-w-3xl space-y-4 py-6">
+      <div className="flex items-center justify-between">
+        <div>
+          <h2 className="text-sm font-semibold">Custom domains</h2>
+          <p className="text-xs text-muted-foreground mt-0.5">
+            Point your DNS to this app and manage TLS certificates here.
+          </p>
+        </div>
+      </div>
+
+      <DomainsTable
+        domains={domains ?? []}
+        isLoading={isLoading}
+        isAdding={isAdding}
+        isDeleting={isDeleting}
+        isRechecking={isRechecking}
+        onAdd={(hostname) => addDomain({ hostname })}
+        onDelete={(domainId) => deleteDomain({ domainId })}
+        onRecheck={(domainId) => recheckDomain({ domainId })}
+      />
+
+      <p className="px-1 text-[11px] text-muted-foreground">
+        After adding a domain, point a CNAME record to your app&apos;s default domain. TLS
+        certificates are provisioned automatically via Caddy.
       </p>
     </div>
-  );
-}
-
-// ---------------------------------------------------------------------------
-// Icon
-// ---------------------------------------------------------------------------
-
-function DomainsIcon({ className }: { className?: string }): React.JSX.Element {
-  return (
-    <svg
-      xmlns="http://www.w3.org/2000/svg"
-      viewBox="0 0 24 24"
-      fill="none"
-      stroke="currentColor"
-      strokeWidth="1.5"
-      strokeLinecap="round"
-      strokeLinejoin="round"
-      className={className}
-      aria-hidden="true"
-    >
-      <circle cx="12" cy="12" r="10" />
-      <path d="M12 2a14.5 14.5 0 0 0 0 20 14.5 14.5 0 0 0 0-20" />
-      <path d="M2 12h20" />
-    </svg>
-  );
+  )
 }

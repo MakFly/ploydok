@@ -12,6 +12,7 @@ export const AppStatusSchema = z.enum([
   'pending',
   'building',
   'running',
+  'restarting',
   'failed',
   'stopped',
 ]);
@@ -84,10 +85,11 @@ export const BuildSchema = z.object({
   id: z.string(),
   appId: z.string(),
   status: BuildStatusSchema,
-  buildMethod: BuildMethodSchema,
+  buildMethod: BuildMethodSchema.nullable().optional(),
   imageTag: z.string().optional(),
   containerId: z.string().optional(),
   commitSha: z.string().optional(),
+  commitMessage: z.string().nullable().optional(),
   startedAt: z.number().optional(),   // unix ms
   finishedAt: z.number().optional(),  // unix ms
   createdAt: z.number(),              // unix ms

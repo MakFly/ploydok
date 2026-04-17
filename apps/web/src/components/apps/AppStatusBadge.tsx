@@ -27,6 +27,12 @@ const STATUS_CONFIG: Record<
       "bg-blue-500/10 text-blue-600 dark:text-blue-400",
     pulse: true,
   },
+  restarting: {
+    label: "Restarting",
+    className:
+      "bg-yellow-500/10 text-yellow-600 dark:text-yellow-400",
+    pulse: true,
+  },
   failed: {
     label: "Failed",
     className: "bg-destructive/10 text-destructive",

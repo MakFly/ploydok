@@ -1,5 +1,9 @@
 // SPDX-License-Identifier: AGPL-3.0-only
 export { apps } from './apps';
+export { domains } from './domains';
+export type { DomainRow, DomainInsert } from './domains';
+export { env_vars } from './env-vars';
+export type { EnvVarRow, EnvVarInsert } from './env-vars';
 export { audit_log } from './audit-log';
 export { backup_codes } from './backup-codes';
 export { builds } from './builds';

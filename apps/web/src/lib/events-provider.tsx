@@ -17,13 +17,10 @@ import * as React from "react"
 const API_BASE = import.meta.env.VITE_API_URL ?? "http://localhost:4000"
 
 type Listener = (data: unknown) => void
+type Subscribe = (eventType: string, cb: Listener) => () => void
 
-interface EventsContextValue {
-  connected: boolean
-  subscribe: (eventType: string, cb: Listener) => () => void
-}
-
-const EventsContext = React.createContext<EventsContextValue | null>(null)
+const SubscribeContext = React.createContext<Subscribe | null>(null)
+const ConnectedContext = React.createContext<boolean>(false)
 
 export function EventsProvider({
   children,
@@ -32,6 +29,7 @@ export function EventsProvider({
 }): React.JSX.Element {
   const [connected, setConnected] = React.useState(false)
   const listenersRef = React.useRef(new Map<string, Set<Listener>>())
+  const attachedRef = React.useRef(new Set<string>())
   const esRef = React.useRef<EventSource | null>(null)
 
   React.useEffect(() => {
@@ -39,52 +37,61 @@ export function EventsProvider({
 
     const es = new EventSource(`${API_BASE}/events`, { withCredentials: true })
     esRef.current = es
+    attachedRef.current = new Set<string>()
 
     es.onopen = () => setConnected(true)
     es.onerror = () => setConnected(false)
 
-    // Ré-attache chaque event type déjà souscrit au moment du mount.
-    // Nécessaire si un consumer s'est abonné avant que l'ES soit ouverte.
+    // Re-attach every event type already subscribed at the time of mount.
+    // Needed if a consumer subscribed before the EventSource was opened.
     for (const eventType of listenersRef.current.keys()) {
-      attachListener(es, eventType, listenersRef.current)
+      if (!attachedRef.current.has(eventType)) {
+        attachListener(es, eventType, listenersRef.current)
+        attachedRef.current.add(eventType)
+      }
     }
 
     return () => {
       es.close()
       esRef.current = null
+      attachedRef.current = new Set<string>()
       setConnected(false)
     }
   }, [])
 
-  const subscribe = React.useCallback<EventsContextValue["subscribe"]>(
-    (eventType, cb) => {
-      let set = listenersRef.current.get(eventType)
-      if (!set) {
-        set = new Set<Listener>()
-        listenersRef.current.set(eventType, set)
-        // Attach le dispatcher UNE fois par type sur l'ES active.
-        const es = esRef.current
-        if (es) attachListener(es, eventType, listenersRef.current)
-      }
-      set.add(cb)
+  const subscribe = React.useCallback<Subscribe>((eventType, cb) => {
+    let set = listenersRef.current.get(eventType)
+    if (!set) {
+      set = new Set<Listener>()
+      listenersRef.current.set(eventType, set)
+    }
+    set.add(cb)
 
-      return () => {
-        const s = listenersRef.current.get(eventType)
-        if (!s) return
-        s.delete(cb)
-        if (s.size === 0) listenersRef.current.delete(eventType)
-      }
-    },
-    [],
-  )
+    // Attach the DOM dispatcher at most once per type per EventSource,
+    // tracked via attachedRef. Previous impl re-attached when the Set was
+    // emptied then re-populated — that duplicated listener calls on every
+    // resubscription (e.g. after a `connected` flip).
+    const es = esRef.current
+    if (es && !attachedRef.current.has(eventType)) {
+      attachListener(es, eventType, listenersRef.current)
+      attachedRef.current.add(eventType)
+    }
 
-  const value = React.useMemo<EventsContextValue>(
-    () => ({ connected, subscribe }),
-    [connected, subscribe],
-  )
+    return () => {
+      const s = listenersRef.current.get(eventType)
+      if (!s) return
+      s.delete(cb)
+      // Keep the empty Set in the map so the attached listener stays
+      // registered — no removeEventListener handle available anyway.
+    }
+  }, [])
 
   return (
-    <EventsContext.Provider value={value}>{children}</EventsContext.Provider>
+    <SubscribeContext.Provider value={subscribe}>
+      <ConnectedContext.Provider value={connected}>
+        {children}
+      </ConnectedContext.Provider>
+    </SubscribeContext.Provider>
   )
 }
 
@@ -118,22 +125,21 @@ export function useEventsSubscription<T>(
   eventType: string,
   callback: (data: T) => void,
 ): void {
-  const ctx = React.useContext(EventsContext)
+  const subscribe = React.useContext(SubscribeContext)
   const cbRef = React.useRef(callback)
   React.useEffect(() => {
     cbRef.current = callback
   })
 
   React.useEffect(() => {
-    if (!ctx) return
-    const unsub = ctx.subscribe(eventType, (data) => {
+    if (!subscribe) return
+    const unsub = subscribe(eventType, (data) => {
       cbRef.current(data as T)
     })
     return unsub
-  }, [ctx, eventType])
+  }, [subscribe, eventType])
 }
 
 export function useEventsConnected(): boolean {
-  const ctx = React.useContext(EventsContext)
-  return ctx?.connected ?? false
+  return React.useContext(ConnectedContext)
 }

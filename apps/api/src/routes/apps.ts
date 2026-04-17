@@ -10,6 +10,7 @@ import { BuildMethodSchema, HealthcheckConfigSchema } from "@ploydok/shared";
 import { getAppForUser, listAppsForUser, listBuildsForApp } from "../queries/apps";
 import { enqueueJob } from "@ploydok/db/queries";
 import { env } from "../env";
+import { childLogger } from "../logger";
 import type { Db } from "@ploydok/db";
 import type { AuthUser } from "../auth/middleware";
 
@@ -88,6 +89,10 @@ function getUser(c: { get: (key: string) => unknown }): AuthUser {
 
 type AppRow = typeof apps.$inferSelect;
 
+function nullToUndefined<T>(value: T | null): T | undefined {
+  return value ?? undefined;
+}
+
 function serializeApp(row: AppRow) {
   return {
     id: row.id,
@@ -99,12 +104,12 @@ function serializeApp(row: AppRow) {
     repoFullName: row.repo_full_name,
     branch: row.branch,
     githubInstallationId: row.github_installation_id,
-    rootDir: row.root_dir,
-    dockerfilePath: row.dockerfile_path,
-    installCommand: row.install_command,
-    buildCommand: row.build_command,
-    startCommand: row.start_command,
-    watchPaths: row.watch_paths ? (JSON.parse(row.watch_paths) as string[]) : null,
+    rootDir: nullToUndefined(row.root_dir),
+    dockerfilePath: nullToUndefined(row.dockerfile_path),
+    installCommand: nullToUndefined(row.install_command),
+    buildCommand: nullToUndefined(row.build_command),
+    startCommand: nullToUndefined(row.start_command),
+    watchPaths: row.watch_paths ? (JSON.parse(row.watch_paths) as string[]) : undefined,
     buildMethod: row.build_method,
     domain: row.domain,
     containerId: row.container_id,
@@ -145,9 +150,9 @@ function serializeAppPartial(row: AppPartialRow) {
     status: row.status,
     gitProvider: row.git_provider,
     repoFullName: row.repo_full_name,
-    branch: row.branch,
-    buildMethod: row.build_method,
-    domain: row.domain,
+    branch: nullToUndefined(row.branch),
+    buildMethod: nullToUndefined(row.build_method),
+    domain: nullToUndefined(row.domain),
     createdAt: row.created_at instanceof Date ? row.created_at.toISOString() : row.created_at,
     updatedAt: row.updated_at instanceof Date ? row.updated_at.toISOString() : row.updated_at,
   };
@@ -161,6 +166,7 @@ type BuildRow = {
   image_tag: string | null;
   container_id: string | null;
   commit_sha: string | null;
+  commit_message: string | null;
   started_at: Date | null;
   finished_at: Date | null;
   created_at: Date | null;
@@ -175,6 +181,7 @@ function serializeBuild(row: BuildRow) {
     imageTag: row.image_tag,
     containerId: row.container_id,
     commitSha: row.commit_sha,
+    commitMessage: row.commit_message,
     startedAt: row.started_at instanceof Date ? row.started_at.getTime() : row.started_at,
     finishedAt: row.finished_at instanceof Date ? row.finished_at.getTime() : row.finished_at,
     createdAt: row.created_at instanceof Date ? row.created_at.getTime() : row.created_at,
@@ -346,8 +353,7 @@ export function createAppsRouter(db: Db): Hono {
     }
 
     // Build update set — only provided fields
-    // eslint-disable-next-line @typescript-eslint/no-explicit-any
-    const patch: Record<string, any> = { updated_at: new Date() };
+    const patch: Record<string, unknown> = { updated_at: new Date() };
 
     if (body.gitProvider !== undefined) patch.git_provider = body.gitProvider;
     if (body.repoFullName !== undefined) patch.repo_full_name = body.repoFullName;
@@ -396,6 +402,19 @@ export function createAppsRouter(db: Db): Hono {
       return c.json({ error: { code: "NOT_FOUND", message: "App not found" } }, 404);
     }
 
+    const { stopApp } = await import("../worker/runner.js");
+    try {
+      await stopApp(appId, db);
+    } catch (err) {
+      // Container may already be stopped or not exist — log and continue.
+      childLogger("apps-delete").warn(
+        { err, appId },
+        "stopApp failed during delete (idempotent — continuing)",
+      );
+    }
+
+    // Ensure status is stopped regardless of stopApp outcome (stopApp
+    // writes this on success; the catch path skips its DB write).
     await db
       .update(apps)
       .set({ status: "stopped", updated_at: new Date() })
@@ -422,7 +441,10 @@ export function createAppsRouter(db: Db): Hono {
       payload: { appId, commitSha: null },
     })
 
-    return c.json({ ok: true, jobId: job.id }, 202)
+    // buildId is not available synchronously because the build record is created
+    // by the worker when it picks up the job. Returning null here is intentional —
+    // the client can poll GET /apps/:id/builds to get the new build once created.
+    return c.json({ ok: true, jobId: job.id, buildId: null }, 202)
   })
   // stop / restart / rollback are implemented in the [M3.3 lifecycle] block below.
   router.get("/:id/builds", async (c) => {
@@ -517,6 +539,10 @@ export function createAppsRouter(db: Db): Hono {
   // POST /apps/:id/restart — stop + re-deploy from last succeeded build image
   // All routes require auth + ownership.
 
+  const RollbackBody = z.object({
+    buildId: z.string().optional(),
+  });
+
   router.post("/:id/rollback", async (c) => {
     const user = getUser(c);
     const appId = c.req.param("id");
@@ -526,9 +552,42 @@ export function createAppsRouter(db: Db): Hono {
       return c.json({ error: { code: "NOT_FOUND", message: "App not found" } }, 404);
     }
 
+    // Parse optional body — empty body is also valid (legacy behaviour)
+    let body: z.infer<typeof RollbackBody> = {};
+    try {
+      const raw = await c.req.text();
+      if (raw.trim()) {
+        body = RollbackBody.parse(JSON.parse(raw));
+      }
+    } catch {
+      return c.json({ error: { code: "VALIDATION_ERROR", message: "Invalid request body" } }, 400);
+    }
+
+    // If an explicit buildId is provided, validate it exists and has status succeeded
+    if (body.buildId) {
+      const targetBuildRows = await db
+        .select({ id: builds.id, app_id: builds.app_id, status: builds.status })
+        .from(builds)
+        .where(and(eq(builds.id, body.buildId), eq(builds.app_id, appId)))
+        .limit(1);
+
+      const targetBuild = targetBuildRows[0];
+      if (!targetBuild) {
+        return c.json({ error: { code: "NOT_FOUND", message: "Build not found for this app" } }, 404);
+      }
+      if (targetBuild.status !== "succeeded") {
+        return c.json({
+          error: {
+            code: "INVALID_BUILD_STATUS",
+            message: `Cannot rollback to build with status '${targetBuild.status}' — only succeeded builds are allowed`,
+          },
+        }, 400);
+      }
+    }
+
     try {
       const { rollbackApp } = await import("../worker/runner.js");
-      await rollbackApp(appId, db);
+      await rollbackApp(appId, db, body.buildId, undefined);
       return c.json({ ok: true });
     } catch (err) {
       const message = err instanceof Error ? err.message : String(err);
@@ -566,7 +625,7 @@ export function createAppsRouter(db: Db): Hono {
 
     try {
       const { restartApp } = await import("../worker/runner.js");
-      await restartApp(appId, db);
+      await restartApp(appId, db, user.id);
       return c.json({ ok: true });
     } catch (err) {
       const message = err instanceof Error ? err.message : String(err);

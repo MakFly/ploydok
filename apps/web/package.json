@@ -4,6 +4,7 @@
   "type": "module",
   "private": true,
   "dependencies": {
+    "@monaco-editor/react": "^4.7.0",
     "@ploydok/shared": "workspace:*",
     "@remixicon/react": "^4.9.0",
     "@simplewebauthn/browser": "^13.3.0",

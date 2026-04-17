@@ -25,6 +25,7 @@ export async function handlePush(
   // ref is e.g. "refs/heads/main" — strip the prefix
   const branch = payload.ref.replace(/^refs\/heads\//, "");
   const commitSha = payload.after;
+  const commitMessage = payload.head_commit?.message ?? null;
   const installationId = payload.installation?.id;
 
   log.info({ repoFullName, branch, commitSha, deliveryId }, "push event received");
@@ -56,6 +57,7 @@ export async function handlePush(
       payload: {
         appId: app.id,
         commitSha,
+        commitMessage,
         installationId: installationId ?? null,
         deliveryId,
       },
