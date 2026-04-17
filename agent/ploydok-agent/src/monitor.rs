@@ -96,10 +96,27 @@ impl Monitor {
 
         let now_ms = unix_now_ms();
 
-        for c in containers {
+        // Collecte en parallèle : chaque container fait inspect + stats en
+        // concurrence. Sans ça, 3 containers × ~2s (stream 2 frames) = 6s
+        // sérialisé > interval 2s → les snapshots restent à 0 plusieurs cycles.
+        let futures = containers.into_iter().map(|c| self.build_snapshot(c, now_ms));
+        let snapshots = futures::future::join_all(futures).await;
+
+        let mut cache = self.cache.write().await;
+        for snap in snapshots.into_iter().flatten() {
+            cache.insert(snap.id.clone(), snap);
+        }
+    }
+
+    async fn build_snapshot(
+        &self,
+        c: bollard::models::ContainerSummary,
+        now_ms: u64,
+    ) -> Option<Snapshot> {
+        {
             let id = match &c.id {
                 Some(id) => id.clone(),
-                None => continue,
+                None => return None,
             };
 
             let name = c
@@ -163,8 +180,8 @@ impl Monitor {
                 guard.get(&id).and_then(|s| s.last_pong)
             };
 
-            let snap = Snapshot {
-                id: id.clone(),
+            Some(Snapshot {
+                id,
                 name,
                 image,
                 status,
@@ -178,9 +195,7 @@ impl Monitor {
                 color,
                 last_pong,
                 last_seen_ms: now_ms,
-            };
-
-            self.cache.write().await.insert(id, snap);
+            })
         }
     }
 
@@ -321,7 +336,18 @@ async fn sample_stats(docker: &bollard::Docker, id: &str) -> (f64, u64, u64) {
     match stream.next().await {
         Some(Ok(stats)) => {
             let cpu_pct = compute_cpu_percent(&stats);
-            let mem_bytes = stats.memory_stats.usage.unwrap_or(0);
+            let mem_bytes = stats
+                .memory_stats
+                .usage
+                // Fallback cgroup v2 rootless : `usage` peut être None, lire
+                // anon + file depuis la variante V2 comme proxy.
+                .or_else(|| match stats.memory_stats.stats {
+                    Some(bollard::container::MemoryStatsStats::V2(v2)) => {
+                        Some(v2.anon + v2.file)
+                    }
+                    _ => None,
+                })
+                .unwrap_or(0);
             let mem_limit_bytes = stats.memory_stats.limit.unwrap_or(0);
             (cpu_pct, mem_bytes, mem_limit_bytes)
         }
