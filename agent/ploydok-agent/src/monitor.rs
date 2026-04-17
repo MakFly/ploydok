@@ -117,27 +117,43 @@ impl Monitor {
             let kind = labels.get("ploydok.kind").cloned().unwrap_or_default();
             let app_id = labels.get("ploydok.app_id").cloned().unwrap_or_default();
             let color = labels.get("ploydok.color").cloned().unwrap_or_default();
-            let restart_count = c.host_config.as_ref().map(|_| 0u32).unwrap_or(0);
 
             // Map bollard status string → our canonical status.
             let bollard_status = c.status.as_deref().unwrap_or("");
             let bollard_state = c.state.as_deref().unwrap_or("");
             let status = map_status(bollard_state, bollard_status);
 
-            // Uptime: use `created` field as a rough approximation when running.
-            let uptime_s = if status == "running" || status == "unhealthy" {
-                c.created.map(|ts| {
-                    let now_s = SystemTime::now()
-                        .duration_since(UNIX_EPOCH)
-                        .unwrap_or_default()
-                        .as_secs();
-                    now_s.saturating_sub(ts as u64)
-                }).unwrap_or(0)
-            } else {
-                0
+            // Inspect pour récupérer restart_count + started_at (list_containers
+            // ne les expose pas). Best-effort — on log et continue si ça rate.
+            let (restart_count, uptime_s) = match self.docker.inspect_container(&id, None).await {
+                Ok(info) => {
+                    let rc = info
+                        .restart_count
+                        .and_then(|v| u32::try_from(v).ok())
+                        .unwrap_or(0);
+                    let up = info
+                        .state
+                        .as_ref()
+                        .and_then(|s| s.started_at.as_deref())
+                        .and_then(parse_iso8601_to_unix_secs)
+                        .map(|started| {
+                            let now_s = SystemTime::now()
+                                .duration_since(UNIX_EPOCH)
+                                .unwrap_or_default()
+                                .as_secs();
+                            now_s.saturating_sub(started)
+                        })
+                        .unwrap_or(0);
+                    let up = if status == "running" || status == "unhealthy" { up } else { 0 };
+                    (rc, up)
+                }
+                Err(e) => {
+                    tracing::debug!(container_id = %id, error = %e, "inspect failed");
+                    (0, 0)
+                }
             };
 
-            // Sample stats (one-shot, non-streaming).
+            // Sample stats (2 frames espacées pour avoir un cpu_delta non-nul).
             let (cpu_pct, mem_bytes, mem_limit_bytes) =
                 sample_stats(&self.docker, &id).await;
 
@@ -286,16 +302,22 @@ impl Monitor {
 // Private helpers
 // ─────────────────────────────────────────────────────────────────────────────
 
-/// Sample one stats frame for a container and return (cpu_pct, mem_bytes, mem_limit_bytes).
+/// Sample 2 stats frames espacées et calcule CPU% à partir de la 2e (qui aura
+/// des `precpu_stats` non-nuls, nécessaires pour la formule cpu_delta).
+/// `one_shot=true` renvoie une seule frame avec precpu=0 → cpu_pct=0, inutile.
 /// Returns (0.0, 0, 0) on any error — poll loop must not crash.
 async fn sample_stats(docker: &bollard::Docker, id: &str) -> (f64, u64, u64) {
     let options = StatsOptions {
-        stream: false,
-        one_shot: true,
+        stream: true,
+        one_shot: false,
     };
 
     let mut stream = docker.stats(id, Some(options));
 
+    // Skip la première frame (sert de baseline precpu_stats).
+    let _first = stream.next().await;
+
+    // La seconde frame contient un cpu_delta exploitable.
     match stream.next().await {
         Some(Ok(stats)) => {
             let cpu_pct = compute_cpu_percent(&stats);
@@ -304,11 +326,52 @@ async fn sample_stats(docker: &bollard::Docker, id: &str) -> (f64, u64, u64) {
             (cpu_pct, mem_bytes, mem_limit_bytes)
         }
         Some(Err(e)) => {
-            tracing::warn!(container_id = %id, error = %e, "sample_stats: stats error");
+            tracing::debug!(container_id = %id, error = %e, "sample_stats: stats error");
             (0.0, 0, 0)
         }
         None => (0.0, 0, 0),
     }
+}
+
+/// Parse un timestamp ISO 8601 (ex. "2026-04-17T09:31:05.123456789Z") vers
+/// Unix secondes. Retourne None si invalide ou zero time ("0001-01-01T…").
+fn parse_iso8601_to_unix_secs(s: &str) -> Option<u64> {
+    if s.starts_with("0001-") || s.is_empty() {
+        return None;
+    }
+    // Parse le format RFC3339 à la main (sans dépendre de chrono).
+    // Format attendu: YYYY-MM-DDTHH:MM:SS[.fraction]Z
+    let date_end = s.find('T')?;
+    let (date, rest) = s.split_at(date_end);
+    let rest = &rest[1..];
+    let time_end = rest.find(['.', 'Z', '+', '-'])?;
+    let time = &rest[..time_end];
+
+    let mut dparts = date.split('-');
+    let year: i32 = dparts.next()?.parse().ok()?;
+    let month: u32 = dparts.next()?.parse().ok()?;
+    let day: u32 = dparts.next()?.parse().ok()?;
+
+    let mut tparts = time.split(':');
+    let hour: u32 = tparts.next()?.parse().ok()?;
+    let min: u32 = tparts.next()?.parse().ok()?;
+    let sec: u32 = tparts.next()?.parse().ok()?;
+
+    // Algorithme Howard Hinnant — days_from_civil.
+    // https://howardhinnant.github.io/date_algorithms.html#days_from_civil
+    let y = if month <= 2 { year - 1 } else { year };
+    let era = if y >= 0 { y / 400 } else { (y - 399) / 400 };
+    let yoe = (y - era * 400) as u32;
+    let doy = (153 * (if month > 2 { month - 3 } else { month + 9 }) + 2) / 5 + day - 1;
+    let doe = yoe * 365 + yoe / 4 - yoe / 100 + doy;
+    let days_since_epoch: i64 = era as i64 * 146_097 + doe as i64 - 719_468;
+
+    let secs = days_since_epoch * 86_400
+        + hour as i64 * 3_600
+        + min as i64 * 60
+        + sec as i64;
+
+    if secs < 0 { None } else { Some(secs as u64) }
 }
 
 /// Compute CPU usage percentage (0–100 × num_cpus) from a bollard Stats snapshot.
