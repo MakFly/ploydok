@@ -15,11 +15,10 @@
  */
 
 import { expect, test } from "@playwright/test"
-import type { AuthContext } from "../dod/_harness"
 import {
-  REAL_E2E,
-  DOMAIN_BASE,
   CADDY_HTTP_PORT,
+  DOMAIN_BASE,
+  REAL_E2E,
   cleanupApp,
   createApp,
   fetchViaProxy,
@@ -29,6 +28,7 @@ import {
   triggerDeploy,
 } from "../dod/_harness"
 import { pollBuildStatus2 } from "../dod/_poll-build2"
+import type { AuthContext } from "../dod/_harness"
 
 // ---------------------------------------------------------------------------
 // Gate + suite-level timeout

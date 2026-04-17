@@ -219,6 +219,60 @@ export interface NetworkRemoveRequest {
 export interface NetworkRemoveResponse {
 }
 
+export interface ContainerSnapshot {
+  id: string;
+  name: string;
+  image: string;
+  /** "running" | "starting" | "unhealthy" | "stopped" | "unknown" */
+  status: string;
+  /** 0 if stopped */
+  uptimeS: number;
+  /** 0-100, sampled */
+  cpuPct: number;
+  memBytes: number;
+  memLimitBytes: number;
+  restartCount: number;
+  /** Label "ploydok.kind" — "app" | "infra" | "agent" | "" (unknown) */
+  kind: string;
+  /** Label "ploydok.app_id" if kind=="app", empty otherwise */
+  appId: string;
+  /** Label "ploydok.color" if kind=="app" — "blue"|"green"|"" */
+  color: string;
+  /** Last active ping result (filled only after PingContainer called); 0 if never */
+  lastPingMs: number;
+  lastPingOk: boolean;
+  /** Unix millis of last seen */
+  lastSeenMs: number;
+}
+
+export interface ListContainersRequest {
+  /** Optional: filter by label "ploydok.kind" */
+  kindFilter: string;
+}
+
+export interface ListContainersResponse {
+  containers: ContainerSnapshot[];
+}
+
+export interface PingContainerRequest {
+  containerId: string;
+  /** e.g. "/health" — mandatory, max 256 chars */
+  path: string;
+  /** Target port on the container (must match one of its exposed ports) */
+  port: number;
+  /** Timeout in ms, capped at 5000 server-side */
+  timeoutMs: number;
+}
+
+export interface PingContainerResponse {
+  ok: boolean;
+  /** 0 if transport error */
+  statusCode: number;
+  latencyMs: number;
+  /** empty if ok */
+  error: string;
+}
+
 function createBaseVolumeMount(): VolumeMount {
   return { hostPath: "", containerPath: "", readOnly: false };
 }
@@ -2798,6 +2852,700 @@ export const NetworkRemoveResponse: MessageFns<NetworkRemoveResponse> = {
   },
 };
 
+function createBaseContainerSnapshot(): ContainerSnapshot {
+  return {
+    id: "",
+    name: "",
+    image: "",
+    status: "",
+    uptimeS: 0,
+    cpuPct: 0,
+    memBytes: 0,
+    memLimitBytes: 0,
+    restartCount: 0,
+    kind: "",
+    appId: "",
+    color: "",
+    lastPingMs: 0,
+    lastPingOk: false,
+    lastSeenMs: 0,
+  };
+}
+
+export const ContainerSnapshot: MessageFns<ContainerSnapshot> = {
+  encode(message: ContainerSnapshot, writer: BinaryWriter = new BinaryWriter()): BinaryWriter {
+    if (message.id !== "") {
+      writer.uint32(10).string(message.id);
+    }
+    if (message.name !== "") {
+      writer.uint32(18).string(message.name);
+    }
+    if (message.image !== "") {
+      writer.uint32(26).string(message.image);
+    }
+    if (message.status !== "") {
+      writer.uint32(34).string(message.status);
+    }
+    if (message.uptimeS !== 0) {
+      writer.uint32(40).uint64(message.uptimeS);
+    }
+    if (message.cpuPct !== 0) {
+      writer.uint32(49).double(message.cpuPct);
+    }
+    if (message.memBytes !== 0) {
+      writer.uint32(56).uint64(message.memBytes);
+    }
+    if (message.memLimitBytes !== 0) {
+      writer.uint32(64).uint64(message.memLimitBytes);
+    }
+    if (message.restartCount !== 0) {
+      writer.uint32(72).uint32(message.restartCount);
+    }
+    if (message.kind !== "") {
+      writer.uint32(82).string(message.kind);
+    }
+    if (message.appId !== "") {
+      writer.uint32(90).string(message.appId);
+    }
+    if (message.color !== "") {
+      writer.uint32(98).string(message.color);
+    }
+    if (message.lastPingMs !== 0) {
+      writer.uint32(104).uint64(message.lastPingMs);
+    }
+    if (message.lastPingOk !== false) {
+      writer.uint32(112).bool(message.lastPingOk);
+    }
+    if (message.lastSeenMs !== 0) {
+      writer.uint32(120).uint64(message.lastSeenMs);
+    }
+    return writer;
+  },
+
+  decode(input: BinaryReader | Uint8Array, length?: number): ContainerSnapshot {
+    const reader = input instanceof BinaryReader ? input : new BinaryReader(input);
+    const end = length === undefined ? reader.len : reader.pos + length;
+    const message = createBaseContainerSnapshot();
+    while (reader.pos < end) {
+      const tag = reader.uint32();
+      switch (tag >>> 3) {
+        case 1: {
+          if (tag !== 10) {
+            break;
+          }
+
+          message.id = reader.string();
+          continue;
+        }
+        case 2: {
+          if (tag !== 18) {
+            break;
+          }
+
+          message.name = reader.string();
+          continue;
+        }
+        case 3: {
+          if (tag !== 26) {
+            break;
+          }
+
+          message.image = reader.string();
+          continue;
+        }
+        case 4: {
+          if (tag !== 34) {
+            break;
+          }
+
+          message.status = reader.string();
+          continue;
+        }
+        case 5: {
+          if (tag !== 40) {
+            break;
+          }
+
+          message.uptimeS = longToNumber(reader.uint64());
+          continue;
+        }
+        case 6: {
+          if (tag !== 49) {
+            break;
+          }
+
+          message.cpuPct = reader.double();
+          continue;
+        }
+        case 7: {
+          if (tag !== 56) {
+            break;
+          }
+
+          message.memBytes = longToNumber(reader.uint64());
+          continue;
+        }
+        case 8: {
+          if (tag !== 64) {
+            break;
+          }
+
+          message.memLimitBytes = longToNumber(reader.uint64());
+          continue;
+        }
+        case 9: {
+          if (tag !== 72) {
+            break;
+          }
+
+          message.restartCount = reader.uint32();
+          continue;
+        }
+        case 10: {
+          if (tag !== 82) {
+            break;
+          }
+
+          message.kind = reader.string();
+          continue;
+        }
+        case 11: {
+          if (tag !== 90) {
+            break;
+          }
+
+          message.appId = reader.string();
+          continue;
+        }
+        case 12: {
+          if (tag !== 98) {
+            break;
+          }
+
+          message.color = reader.string();
+          continue;
+        }
+        case 13: {
+          if (tag !== 104) {
+            break;
+          }
+
+          message.lastPingMs = longToNumber(reader.uint64());
+          continue;
+        }
+        case 14: {
+          if (tag !== 112) {
+            break;
+          }
+
+          message.lastPingOk = reader.bool();
+          continue;
+        }
+        case 15: {
+          if (tag !== 120) {
+            break;
+          }
+
+          message.lastSeenMs = longToNumber(reader.uint64());
+          continue;
+        }
+      }
+      if ((tag & 7) === 4 || tag === 0) {
+        break;
+      }
+      reader.skip(tag & 7);
+    }
+    return message;
+  },
+
+  fromJSON(object: any): ContainerSnapshot {
+    return {
+      id: isSet(object.id) ? globalThis.String(object.id) : "",
+      name: isSet(object.name) ? globalThis.String(object.name) : "",
+      image: isSet(object.image) ? globalThis.String(object.image) : "",
+      status: isSet(object.status) ? globalThis.String(object.status) : "",
+      uptimeS: isSet(object.uptimeS)
+        ? globalThis.Number(object.uptimeS)
+        : isSet(object.uptime_s)
+        ? globalThis.Number(object.uptime_s)
+        : 0,
+      cpuPct: isSet(object.cpuPct)
+        ? globalThis.Number(object.cpuPct)
+        : isSet(object.cpu_pct)
+        ? globalThis.Number(object.cpu_pct)
+        : 0,
+      memBytes: isSet(object.memBytes)
+        ? globalThis.Number(object.memBytes)
+        : isSet(object.mem_bytes)
+        ? globalThis.Number(object.mem_bytes)
+        : 0,
+      memLimitBytes: isSet(object.memLimitBytes)
+        ? globalThis.Number(object.memLimitBytes)
+        : isSet(object.mem_limit_bytes)
+        ? globalThis.Number(object.mem_limit_bytes)
+        : 0,
+      restartCount: isSet(object.restartCount)
+        ? globalThis.Number(object.restartCount)
+        : isSet(object.restart_count)
+        ? globalThis.Number(object.restart_count)
+        : 0,
+      kind: isSet(object.kind) ? globalThis.String(object.kind) : "",
+      appId: isSet(object.appId)
+        ? globalThis.String(object.appId)
+        : isSet(object.app_id)
+        ? globalThis.String(object.app_id)
+        : "",
+      color: isSet(object.color) ? globalThis.String(object.color) : "",
+      lastPingMs: isSet(object.lastPingMs)
+        ? globalThis.Number(object.lastPingMs)
+        : isSet(object.last_ping_ms)
+        ? globalThis.Number(object.last_ping_ms)
+        : 0,
+      lastPingOk: isSet(object.lastPingOk)
+        ? globalThis.Boolean(object.lastPingOk)
+        : isSet(object.last_ping_ok)
+        ? globalThis.Boolean(object.last_ping_ok)
+        : false,
+      lastSeenMs: isSet(object.lastSeenMs)
+        ? globalThis.Number(object.lastSeenMs)
+        : isSet(object.last_seen_ms)
+        ? globalThis.Number(object.last_seen_ms)
+        : 0,
+    };
+  },
+
+  toJSON(message: ContainerSnapshot): unknown {
+    const obj: any = {};
+    if (message.id !== "") {
+      obj.id = message.id;
+    }
+    if (message.name !== "") {
+      obj.name = message.name;
+    }
+    if (message.image !== "") {
+      obj.image = message.image;
+    }
+    if (message.status !== "") {
+      obj.status = message.status;
+    }
+    if (message.uptimeS !== 0) {
+      obj.uptimeS = Math.round(message.uptimeS);
+    }
+    if (message.cpuPct !== 0) {
+      obj.cpuPct = message.cpuPct;
+    }
+    if (message.memBytes !== 0) {
+      obj.memBytes = Math.round(message.memBytes);
+    }
+    if (message.memLimitBytes !== 0) {
+      obj.memLimitBytes = Math.round(message.memLimitBytes);
+    }
+    if (message.restartCount !== 0) {
+      obj.restartCount = Math.round(message.restartCount);
+    }
+    if (message.kind !== "") {
+      obj.kind = message.kind;
+    }
+    if (message.appId !== "") {
+      obj.appId = message.appId;
+    }
+    if (message.color !== "") {
+      obj.color = message.color;
+    }
+    if (message.lastPingMs !== 0) {
+      obj.lastPingMs = Math.round(message.lastPingMs);
+    }
+    if (message.lastPingOk !== false) {
+      obj.lastPingOk = message.lastPingOk;
+    }
+    if (message.lastSeenMs !== 0) {
+      obj.lastSeenMs = Math.round(message.lastSeenMs);
+    }
+    return obj;
+  },
+
+  create(base?: DeepPartial<ContainerSnapshot>): ContainerSnapshot {
+    return ContainerSnapshot.fromPartial(base ?? {});
+  },
+  fromPartial(object: DeepPartial<ContainerSnapshot>): ContainerSnapshot {
+    const message = createBaseContainerSnapshot();
+    message.id = object.id ?? "";
+    message.name = object.name ?? "";
+    message.image = object.image ?? "";
+    message.status = object.status ?? "";
+    message.uptimeS = object.uptimeS ?? 0;
+    message.cpuPct = object.cpuPct ?? 0;
+    message.memBytes = object.memBytes ?? 0;
+    message.memLimitBytes = object.memLimitBytes ?? 0;
+    message.restartCount = object.restartCount ?? 0;
+    message.kind = object.kind ?? "";
+    message.appId = object.appId ?? "";
+    message.color = object.color ?? "";
+    message.lastPingMs = object.lastPingMs ?? 0;
+    message.lastPingOk = object.lastPingOk ?? false;
+    message.lastSeenMs = object.lastSeenMs ?? 0;
+    return message;
+  },
+};
+
+function createBaseListContainersRequest(): ListContainersRequest {
+  return { kindFilter: "" };
+}
+
+export const ListContainersRequest: MessageFns<ListContainersRequest> = {
+  encode(message: ListContainersRequest, writer: BinaryWriter = new BinaryWriter()): BinaryWriter {
+    if (message.kindFilter !== "") {
+      writer.uint32(10).string(message.kindFilter);
+    }
+    return writer;
+  },
+
+  decode(input: BinaryReader | Uint8Array, length?: number): ListContainersRequest {
+    const reader = input instanceof BinaryReader ? input : new BinaryReader(input);
+    const end = length === undefined ? reader.len : reader.pos + length;
+    const message = createBaseListContainersRequest();
+    while (reader.pos < end) {
+      const tag = reader.uint32();
+      switch (tag >>> 3) {
+        case 1: {
+          if (tag !== 10) {
+            break;
+          }
+
+          message.kindFilter = reader.string();
+          continue;
+        }
+      }
+      if ((tag & 7) === 4 || tag === 0) {
+        break;
+      }
+      reader.skip(tag & 7);
+    }
+    return message;
+  },
+
+  fromJSON(object: any): ListContainersRequest {
+    return {
+      kindFilter: isSet(object.kindFilter)
+        ? globalThis.String(object.kindFilter)
+        : isSet(object.kind_filter)
+        ? globalThis.String(object.kind_filter)
+        : "",
+    };
+  },
+
+  toJSON(message: ListContainersRequest): unknown {
+    const obj: any = {};
+    if (message.kindFilter !== "") {
+      obj.kindFilter = message.kindFilter;
+    }
+    return obj;
+  },
+
+  create(base?: DeepPartial<ListContainersRequest>): ListContainersRequest {
+    return ListContainersRequest.fromPartial(base ?? {});
+  },
+  fromPartial(object: DeepPartial<ListContainersRequest>): ListContainersRequest {
+    const message = createBaseListContainersRequest();
+    message.kindFilter = object.kindFilter ?? "";
+    return message;
+  },
+};
+
+function createBaseListContainersResponse(): ListContainersResponse {
+  return { containers: [] };
+}
+
+export const ListContainersResponse: MessageFns<ListContainersResponse> = {
+  encode(message: ListContainersResponse, writer: BinaryWriter = new BinaryWriter()): BinaryWriter {
+    for (const v of message.containers) {
+      ContainerSnapshot.encode(v!, writer.uint32(10).fork()).join();
+    }
+    return writer;
+  },
+
+  decode(input: BinaryReader | Uint8Array, length?: number): ListContainersResponse {
+    const reader = input instanceof BinaryReader ? input : new BinaryReader(input);
+    const end = length === undefined ? reader.len : reader.pos + length;
+    const message = createBaseListContainersResponse();
+    while (reader.pos < end) {
+      const tag = reader.uint32();
+      switch (tag >>> 3) {
+        case 1: {
+          if (tag !== 10) {
+            break;
+          }
+
+          message.containers.push(ContainerSnapshot.decode(reader, reader.uint32()));
+          continue;
+        }
+      }
+      if ((tag & 7) === 4 || tag === 0) {
+        break;
+      }
+      reader.skip(tag & 7);
+    }
+    return message;
+  },
+
+  fromJSON(object: any): ListContainersResponse {
+    return {
+      containers: globalThis.Array.isArray(object?.containers)
+        ? object.containers.map((e: any) => ContainerSnapshot.fromJSON(e))
+        : [],
+    };
+  },
+
+  toJSON(message: ListContainersResponse): unknown {
+    const obj: any = {};
+    if (message.containers?.length) {
+      obj.containers = message.containers.map((e) => ContainerSnapshot.toJSON(e));
+    }
+    return obj;
+  },
+
+  create(base?: DeepPartial<ListContainersResponse>): ListContainersResponse {
+    return ListContainersResponse.fromPartial(base ?? {});
+  },
+  fromPartial(object: DeepPartial<ListContainersResponse>): ListContainersResponse {
+    const message = createBaseListContainersResponse();
+    message.containers = object.containers?.map((e) => ContainerSnapshot.fromPartial(e)) || [];
+    return message;
+  },
+};
+
+function createBasePingContainerRequest(): PingContainerRequest {
+  return { containerId: "", path: "", port: 0, timeoutMs: 0 };
+}
+
+export const PingContainerRequest: MessageFns<PingContainerRequest> = {
+  encode(message: PingContainerRequest, writer: BinaryWriter = new BinaryWriter()): BinaryWriter {
+    if (message.containerId !== "") {
+      writer.uint32(10).string(message.containerId);
+    }
+    if (message.path !== "") {
+      writer.uint32(18).string(message.path);
+    }
+    if (message.port !== 0) {
+      writer.uint32(24).uint32(message.port);
+    }
+    if (message.timeoutMs !== 0) {
+      writer.uint32(32).uint32(message.timeoutMs);
+    }
+    return writer;
+  },
+
+  decode(input: BinaryReader | Uint8Array, length?: number): PingContainerRequest {
+    const reader = input instanceof BinaryReader ? input : new BinaryReader(input);
+    const end = length === undefined ? reader.len : reader.pos + length;
+    const message = createBasePingContainerRequest();
+    while (reader.pos < end) {
+      const tag = reader.uint32();
+      switch (tag >>> 3) {
+        case 1: {
+          if (tag !== 10) {
+            break;
+          }
+
+          message.containerId = reader.string();
+          continue;
+        }
+        case 2: {
+          if (tag !== 18) {
+            break;
+          }
+
+          message.path = reader.string();
+          continue;
+        }
+        case 3: {
+          if (tag !== 24) {
+            break;
+          }
+
+          message.port = reader.uint32();
+          continue;
+        }
+        case 4: {
+          if (tag !== 32) {
+            break;
+          }
+
+          message.timeoutMs = reader.uint32();
+          continue;
+        }
+      }
+      if ((tag & 7) === 4 || tag === 0) {
+        break;
+      }
+      reader.skip(tag & 7);
+    }
+    return message;
+  },
+
+  fromJSON(object: any): PingContainerRequest {
+    return {
+      containerId: isSet(object.containerId)
+        ? globalThis.String(object.containerId)
+        : isSet(object.container_id)
+        ? globalThis.String(object.container_id)
+        : "",
+      path: isSet(object.path) ? globalThis.String(object.path) : "",
+      port: isSet(object.port) ? globalThis.Number(object.port) : 0,
+      timeoutMs: isSet(object.timeoutMs)
+        ? globalThis.Number(object.timeoutMs)
+        : isSet(object.timeout_ms)
+        ? globalThis.Number(object.timeout_ms)
+        : 0,
+    };
+  },
+
+  toJSON(message: PingContainerRequest): unknown {
+    const obj: any = {};
+    if (message.containerId !== "") {
+      obj.containerId = message.containerId;
+    }
+    if (message.path !== "") {
+      obj.path = message.path;
+    }
+    if (message.port !== 0) {
+      obj.port = Math.round(message.port);
+    }
+    if (message.timeoutMs !== 0) {
+      obj.timeoutMs = Math.round(message.timeoutMs);
+    }
+    return obj;
+  },
+
+  create(base?: DeepPartial<PingContainerRequest>): PingContainerRequest {
+    return PingContainerRequest.fromPartial(base ?? {});
+  },
+  fromPartial(object: DeepPartial<PingContainerRequest>): PingContainerRequest {
+    const message = createBasePingContainerRequest();
+    message.containerId = object.containerId ?? "";
+    message.path = object.path ?? "";
+    message.port = object.port ?? 0;
+    message.timeoutMs = object.timeoutMs ?? 0;
+    return message;
+  },
+};
+
+function createBasePingContainerResponse(): PingContainerResponse {
+  return { ok: false, statusCode: 0, latencyMs: 0, error: "" };
+}
+
+export const PingContainerResponse: MessageFns<PingContainerResponse> = {
+  encode(message: PingContainerResponse, writer: BinaryWriter = new BinaryWriter()): BinaryWriter {
+    if (message.ok !== false) {
+      writer.uint32(8).bool(message.ok);
+    }
+    if (message.statusCode !== 0) {
+      writer.uint32(16).uint32(message.statusCode);
+    }
+    if (message.latencyMs !== 0) {
+      writer.uint32(24).uint64(message.latencyMs);
+    }
+    if (message.error !== "") {
+      writer.uint32(34).string(message.error);
+    }
+    return writer;
+  },
+
+  decode(input: BinaryReader | Uint8Array, length?: number): PingContainerResponse {
+    const reader = input instanceof BinaryReader ? input : new BinaryReader(input);
+    const end = length === undefined ? reader.len : reader.pos + length;
+    const message = createBasePingContainerResponse();
+    while (reader.pos < end) {
+      const tag = reader.uint32();
+      switch (tag >>> 3) {
+        case 1: {
+          if (tag !== 8) {
+            break;
+          }
+
+          message.ok = reader.bool();
+          continue;
+        }
+        case 2: {
+          if (tag !== 16) {
+            break;
+          }
+
+          message.statusCode = reader.uint32();
+          continue;
+        }
+        case 3: {
+          if (tag !== 24) {
+            break;
+          }
+
+          message.latencyMs = longToNumber(reader.uint64());
+          continue;
+        }
+        case 4: {
+          if (tag !== 34) {
+            break;
+          }
+
+          message.error = reader.string();
+          continue;
+        }
+      }
+      if ((tag & 7) === 4 || tag === 0) {
+        break;
+      }
+      reader.skip(tag & 7);
+    }
+    return message;
+  },
+
+  fromJSON(object: any): PingContainerResponse {
+    return {
+      ok: isSet(object.ok) ? globalThis.Boolean(object.ok) : false,
+      statusCode: isSet(object.statusCode)
+        ? globalThis.Number(object.statusCode)
+        : isSet(object.status_code)
+        ? globalThis.Number(object.status_code)
+        : 0,
+      latencyMs: isSet(object.latencyMs)
+        ? globalThis.Number(object.latencyMs)
+        : isSet(object.latency_ms)
+        ? globalThis.Number(object.latency_ms)
+        : 0,
+      error: isSet(object.error) ? globalThis.String(object.error) : "",
+    };
+  },
+
+  toJSON(message: PingContainerResponse): unknown {
+    const obj: any = {};
+    if (message.ok !== false) {
+      obj.ok = message.ok;
+    }
+    if (message.statusCode !== 0) {
+      obj.statusCode = Math.round(message.statusCode);
+    }
+    if (message.latencyMs !== 0) {
+      obj.latencyMs = Math.round(message.latencyMs);
+    }
+    if (message.error !== "") {
+      obj.error = message.error;
+    }
+    return obj;
+  },
+
+  create(base?: DeepPartial<PingContainerResponse>): PingContainerResponse {
+    return PingContainerResponse.fromPartial(base ?? {});
+  },
+  fromPartial(object: DeepPartial<PingContainerResponse>): PingContainerResponse {
+    const message = createBasePingContainerResponse();
+    message.ok = object.ok ?? false;
+    message.statusCode = object.statusCode ?? 0;
+    message.latencyMs = object.latencyMs ?? 0;
+    message.error = object.error ?? "";
+    return message;
+  },
+};
+
 export type AgentService = typeof AgentService;
 export const AgentService = {
   /** Container lifecycle */
@@ -2904,6 +3652,28 @@ export const AgentService = {
       Buffer.from(NetworkRemoveResponse.encode(value).finish()),
     responseDeserialize: (value: Buffer): NetworkRemoveResponse => NetworkRemoveResponse.decode(value),
   },
+  /** Monitoring (snapshot + ad-hoc ping) */
+  listContainers: {
+    path: "/ploydok.agent.v1.Agent/ListContainers" as const,
+    requestStream: false as const,
+    responseStream: false as const,
+    requestSerialize: (value: ListContainersRequest): Buffer =>
+      Buffer.from(ListContainersRequest.encode(value).finish()),
+    requestDeserialize: (value: Buffer): ListContainersRequest => ListContainersRequest.decode(value),
+    responseSerialize: (value: ListContainersResponse): Buffer =>
+      Buffer.from(ListContainersResponse.encode(value).finish()),
+    responseDeserialize: (value: Buffer): ListContainersResponse => ListContainersResponse.decode(value),
+  },
+  pingContainer: {
+    path: "/ploydok.agent.v1.Agent/PingContainer" as const,
+    requestStream: false as const,
+    responseStream: false as const,
+    requestSerialize: (value: PingContainerRequest): Buffer => Buffer.from(PingContainerRequest.encode(value).finish()),
+    requestDeserialize: (value: Buffer): PingContainerRequest => PingContainerRequest.decode(value),
+    responseSerialize: (value: PingContainerResponse): Buffer =>
+      Buffer.from(PingContainerResponse.encode(value).finish()),
+    responseDeserialize: (value: Buffer): PingContainerResponse => PingContainerResponse.decode(value),
+  },
 } as const;
 
 export interface AgentServer extends UntypedServiceImplementation {
@@ -2921,6 +3691,9 @@ export interface AgentServer extends UntypedServiceImplementation {
   /** Networking */
   networkCreate: handleUnaryCall<NetworkCreateRequest, NetworkCreateResponse>;
   networkRemove: handleUnaryCall<NetworkRemoveRequest, NetworkRemoveResponse>;
+  /** Monitoring (snapshot + ad-hoc ping) */
+  listContainers: handleUnaryCall<ListContainersRequest, ListContainersResponse>;
+  pingContainer: handleUnaryCall<PingContainerRequest, PingContainerResponse>;
 }
 
 export interface AgentClient extends Client {
@@ -3041,6 +3814,37 @@ export interface AgentClient extends Client {
     metadata: Metadata,
     options: Partial<CallOptions>,
     callback: (error: ServiceError | null, response: NetworkRemoveResponse) => void,
+  ): ClientUnaryCall;
+  /** Monitoring (snapshot + ad-hoc ping) */
+  listContainers(
+    request: ListContainersRequest,
+    callback: (error: ServiceError | null, response: ListContainersResponse) => void,
+  ): ClientUnaryCall;
+  listContainers(
+    request: ListContainersRequest,
+    metadata: Metadata,
+    callback: (error: ServiceError | null, response: ListContainersResponse) => void,
+  ): ClientUnaryCall;
+  listContainers(
+    request: ListContainersRequest,
+    metadata: Metadata,
+    options: Partial<CallOptions>,
+    callback: (error: ServiceError | null, response: ListContainersResponse) => void,
+  ): ClientUnaryCall;
+  pingContainer(
+    request: PingContainerRequest,
+    callback: (error: ServiceError | null, response: PingContainerResponse) => void,
+  ): ClientUnaryCall;
+  pingContainer(
+    request: PingContainerRequest,
+    metadata: Metadata,
+    callback: (error: ServiceError | null, response: PingContainerResponse) => void,
+  ): ClientUnaryCall;
+  pingContainer(
+    request: PingContainerRequest,
+    metadata: Metadata,
+    options: Partial<CallOptions>,
+    callback: (error: ServiceError | null, response: PingContainerResponse) => void,
   ): ClientUnaryCall;
 }
 

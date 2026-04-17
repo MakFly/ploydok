@@ -97,7 +97,7 @@ export function useApp(appId: string) {
   return useQuery<AppDetail, ApiError>({
     queryKey: ["apps", appId],
     queryFn: async () => {
-      const { app } = await apiFetch<{ app: AppDetail; builds: unknown[] }>(
+      const { app } = await apiFetch<{ app: AppDetail; builds: Array<unknown> }>(
         `/apps/${appId}`,
       );
       return app;
@@ -239,7 +239,7 @@ export function useUpdateAppSettings(appId: string) {
   const qc = useQueryClient();
   return useMutation<AppDetail, ApiError, AppSettingsPatch>({
     mutationFn: async (body) => {
-      const { app } = await apiFetch<{ app: AppDetail; builds: unknown[] }>(
+      const { app } = await apiFetch<{ app: AppDetail; builds: Array<unknown> }>(
         `/apps/${appId}`,
         { method: "PATCH", body },
       );

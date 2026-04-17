@@ -23,7 +23,8 @@ import { buildImage } from "../buildkit";
 import { logBus } from "../log-bus";
 import { nixpacksBuild } from "../nixpacks";
 import { diskGuard, gcKeepLast } from "../registry";
-import { workerLog } from "../logger";
+import { workerLog } from "../logger"
+import { eventBus } from "../event-bus";
 
 // ---------------------------------------------------------------------------
 // Types
@@ -161,6 +162,8 @@ export async function handleDeploy(
 
   // Fetch app + owner
   const app = await getAppForDeploy(db, payload.appId);
+  // Resolve owner once — reused for all eventBus publishes below.
+  const ownerId: string | null = app.owner_id ?? null;
 
   if (!app.repo_full_name || !app.branch) {
     throw new Error(`App ${app.id} is missing repo_full_name or branch — cannot deploy`);
@@ -174,6 +177,22 @@ export async function handleDeploy(
     ...(payload.commitSha != null && { commitSha: payload.commitSha }),
   });
   await updateBuildStatus(db, buildId, "running", { startedAt: new Date() });
+
+  // Notify: build started
+  if (ownerId) {
+    try {
+      eventBus.publish(`user:${ownerId}`, {
+        type: "build.started",
+        appId: app.id,
+        buildId,
+        message: "Build démarré",
+      })
+    } catch (pubErr) {
+      log.warn({ pubErr, buildId }, "eventBus publish build.started failed (non-fatal)")
+    }
+  } else {
+    log.warn({ buildId, appId: app.id }, "no owner found — skipping build.started publish")
+  }
 
   log.info({ buildId }, "deploy started");
 
@@ -248,6 +267,21 @@ export async function handleDeploy(
       log.info({ buildId, imageRef, imageDigest, durationMs }, "BuildKit build + push done");
       await updateBuildStatus(db, buildId, "running", { imageTag: imageRef });
 
+      // Notify: image pushed (BuildKit path)
+      if (ownerId) {
+        try {
+          eventBus.publish(`user:${ownerId}`, {
+            type: "deploy.status_change",
+            appId: app.id,
+            buildId,
+            message: "Image poussée au registry",
+            data: { imageTag: imageRef },
+          })
+        } catch (pubErr) {
+          log.warn({ pubErr, buildId }, "eventBus publish deploy.status_change (buildkit) failed (non-fatal)")
+        }
+      }
+
       // Post-push GC: keep last 3 images for this app repo.
       gcKeepLast(repo, 3).catch((gcErr) => {
         log.warn({ gcErr, repo }, "post-build GC failed (non-fatal)");
@@ -268,6 +302,21 @@ export async function handleDeploy(
       log.info({ buildId, imageRef }, "nixpacks build + push done");
       await updateBuildStatus(db, buildId, "running", { imageTag: imageRef });
 
+      // Notify: image pushed (nixpacks path)
+      if (ownerId) {
+        try {
+          eventBus.publish(`user:${ownerId}`, {
+            type: "deploy.status_change",
+            appId: app.id,
+            buildId,
+            message: "Image poussée au registry",
+            data: { imageTag: imageRef },
+          })
+        } catch (pubErr) {
+          log.warn({ pubErr, buildId }, "eventBus publish deploy.status_change (nixpacks) failed (non-fatal)")
+        }
+      }
+
       // Post-push GC: keep last 3 images for this app repo.
       gcKeepLast(repo, 3).catch((gcErr) => {
         log.warn({ gcErr, repo }, "post-build GC failed (non-fatal)");
@@ -278,6 +327,21 @@ export async function handleDeploy(
 
     // 5. Mark succeeded
     await updateBuildStatus(db, buildId, "succeeded", { finishedAt: new Date() });
+
+    // Notify: build succeeded
+    if (ownerId) {
+      try {
+        eventBus.publish(`user:${ownerId}`, {
+          type: "build.succeeded",
+          appId: app.id,
+          buildId,
+          message: "Build réussi",
+        })
+      } catch (pubErr) {
+        log.warn({ pubErr, buildId }, "eventBus publish build.succeeded failed (non-fatal)")
+      }
+    }
+
     log.info({ buildId }, "deploy succeeded");
   } catch (err) {
     const msg = err instanceof Error ? err.message : String(err);
@@ -286,6 +350,21 @@ export async function handleDeploy(
       finishedAt: new Date(),
       errorMessage: msg,
     });
+
+    // Notify: build failed
+    if (ownerId) {
+      try {
+        eventBus.publish(`user:${ownerId}`, {
+          type: "build.failed",
+          appId: app.id,
+          buildId,
+          message: `Build échoué: ${msg.slice(0, 200)}`,
+        })
+      } catch (pubErr) {
+        log.warn({ pubErr, buildId }, "eventBus publish build.failed failed (non-fatal)")
+      }
+    }
+
     throw err;
   } finally {
     // Enqueue async workspace cleanup — do not await, this is fire-and-forget.

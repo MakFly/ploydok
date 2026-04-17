@@ -18,6 +18,8 @@ import { childLogger } from "./logger";
 import { appsRouter } from "./routes/apps";
 import { githubRouter } from "./routes/github";
 import { wsRouter } from "./routes/ws";
+import { eventsRouter } from "./routes/events";
+import { monitoringRouter, startMonitoringLoop } from "./routes/monitoring";
 
 const httpLog = childLogger("http");
 const errorLog = childLogger("error");
@@ -244,6 +246,15 @@ app.route("/github", githubRouter);
 
 // WebSocket upgrade routes — auth is cookie-based, verified inside the handler.
 app.route("/ws", wsRouter);
+app.use("/events", requireAuth(db))
+app.route("/events", eventsRouter)
+
+app.use("/monitoring/*", requireAuth(db))
+app.route("/monitoring", monitoringRouter)
+// Launch the monitoring diff loop only outside of test runs to avoid spurious timers.
+if (env.NODE_ENV !== "test") {
+  startMonitoringLoop(db)
+}
 
 // /me — requires auth
 app.get("/me", requireAuth(db), async (c) => {

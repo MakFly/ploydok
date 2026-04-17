@@ -17,7 +17,6 @@
  */
 
 import { expect, test } from "@playwright/test"
-import type { AuthContext, BuildRow } from "./_harness"
 import {
   API_URL,
   REAL_E2E,
@@ -31,6 +30,7 @@ import {
   triggerRollback,
 } from "./_harness"
 import { pollBuildStatus2 } from "./_poll-build2"
+import type { AuthContext, BuildRow } from "./_harness"
 
 // ---------------------------------------------------------------------------
 // Gate + suite-level timeout

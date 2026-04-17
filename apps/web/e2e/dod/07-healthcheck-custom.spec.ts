@@ -20,7 +20,6 @@
  */
 
 import { expect, test } from "@playwright/test"
-import type { AuthContext } from "../dod/_harness"
 import {
   REAL_E2E,
   cleanupApp,
@@ -29,6 +28,7 @@ import {
   loginViaApi,
   pollBuildStatus,
 } from "../dod/_harness"
+import type { AuthContext } from "../dod/_harness"
 
 const FIXTURE_SLOW_BOOT = "ploydok/fixture-slow-boot"
 const FIXTURE_RESPONSE_TEXT = "hello from ploydok (slow-boot"

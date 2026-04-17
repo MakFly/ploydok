@@ -17,7 +17,8 @@ import {
   RiSparkling2Line,
   RiStackLine,
 } from "@remixicon/react";
-import { useLogout, useMe } from "../../lib/auth";
+import { useLogout, useMe } from "../../lib/auth"
+import { NotificationBell } from "./NotificationBell";
 
 interface AppShellProps {
   children: React.ReactNode;
@@ -53,7 +54,7 @@ const primaryNav: Array<NavItem> = [
   { label: "Applications", to: "/apps", icon: RiApps2Line },
   { label: "Databases", icon: RiDatabase2Line, comingSoon: true },
   { label: "Templates", icon: RiStackLine, comingSoon: true },
-  { label: "Activity", icon: RiPulseLine, comingSoon: true },
+  { label: "Monitoring", to: "/monitoring", icon: RiPulseLine },
   {
     label: "AI Copilot",
     icon: RiSparkling2Line,
@@ -403,6 +404,9 @@ export function AppShell({ children }: AppShellProps): React.JSX.Element {
           "md:peer-data-[state=collapsed]:rounded-tl-none",
         )}
       >
+        <div className="relative flex h-12 items-center justify-end gap-2 px-4 md:px-8">
+          <NotificationBell />
+        </div>
         <div className="flex flex-1 flex-col gap-4 p-4 md:p-8">{children}</div>
       </main>
     </div>

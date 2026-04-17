@@ -18,17 +18,17 @@
  */
 
 import { expect, test } from "@playwright/test"
-import type { AuthContext } from "../dod/_harness"
 import {
   REAL_E2E,
-  cleanupApp,
   chrono,
+  cleanupApp,
   createApp,
   loginViaApi,
   pollBuildStatus,
   triggerDeploy,
 } from "../dod/_harness"
 import { pollBuildStatus2 } from "../dod/_poll-build2"
+import type { AuthContext } from "../dod/_harness"
 
 // ---------------------------------------------------------------------------
 // Gate + suite-level timeout (2 cold+warm builds may take up to 10 min total)

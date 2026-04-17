@@ -64,7 +64,7 @@ interface AppDetailResponse {
     status: string
     domain: string | null
   }
-  builds: BuildSummary[]
+  builds: Array<BuildSummary>
 }
 
 // ---------------------------------------------------------------------------
@@ -227,8 +227,8 @@ test.describe("deploy-real — full pipeline e2e", () => {
     // Launch probe loop and redeploy in parallel.
     const [probeResults] = await Promise.all([
       // 20 sequential probes — collect status codes.
-      (async (): Promise<number[]> => {
-        const statuses: number[] = []
+      (async (): Promise<Array<number>> => {
+        const statuses: Array<number> = []
         for (let i = 0; i < 20; i++) {
           try {
             const r = await fetch(liveUrl, { redirect: "follow" })

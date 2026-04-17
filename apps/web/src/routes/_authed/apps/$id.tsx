@@ -19,7 +19,7 @@ import type { AppDetail } from "../../../lib/apps";
 
 export const Route = createFileRoute("/_authed/apps/$id")({
   loader: async ({ params }): Promise<{ app: AppDetail }> => {
-    const { app } = await apiFetch<{ app: AppDetail; builds: unknown[] }>(
+    const { app } = await apiFetch<{ app: AppDetail; builds: Array<unknown> }>(
       `/apps/${params.id}`,
     );
     return { app };

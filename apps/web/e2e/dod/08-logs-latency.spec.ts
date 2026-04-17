@@ -28,9 +28,8 @@
  *       Filed in docs/sprints/sprint-3-DoD.md.
  */
 
-import { expect, test } from "@playwright/test"
 import { performance } from "node:perf_hooks"
-import type { AuthContext } from "./_harness"
+import { expect, test } from "@playwright/test"
 import {
   API_URL,
   REAL_E2E,
@@ -39,6 +38,7 @@ import {
   loginViaApi,
   pollBuildStatus,
 } from "./_harness"
+import type { AuthContext } from "./_harness"
 
 // ---------------------------------------------------------------------------
 // Gate + suite-level timeout

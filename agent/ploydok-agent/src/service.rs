@@ -26,12 +26,20 @@ use ploydok_proto::agent::{
     agent_server::Agent, BuildProgress, ContainerCreateRequest, ContainerCreateResponse,
     ContainerLogsRequest, ContainerRemoveRequest, ContainerRemoveResponse, ContainerStartRequest,
     ContainerStartResponse, ContainerStatsRequest, ContainerStopRequest, ContainerStopResponse,
-    ImageBuildRequest, ImagePullRequest, LogLine, NetworkCreateRequest, NetworkCreateResponse,
-    NetworkRemoveRequest, NetworkRemoveResponse, PullProgress, StatsFrame,
+    ImageBuildRequest, ImagePullRequest, ListContainersRequest, ListContainersResponse, LogLine,
+    NetworkCreateRequest, NetworkCreateResponse, NetworkRemoveRequest, NetworkRemoveResponse,
+    PingContainerRequest, PingContainerResponse, PullProgress, StatsFrame,
 };
 
 use crate::audit::audit;
 use crate::validator::Validator;
+
+// Include monitor.rs as a submodule. This is the single canonical declaration
+// of the monitor module; lib.rs re-exports it via `pub use service::monitor`.
+// The binary (main.rs) does not need a separate `mod monitor;` declaration.
+#[path = "monitor.rs"]
+pub mod monitor;
+use monitor::Monitor;
 
 // ─────────────────────────────────────────────────────────────────────────────
 // Helpers
@@ -62,11 +70,18 @@ pub struct AgentService {
     docker: bollard::Docker,
     /// Pluggable validator — swap for StrictValidator in task 2.3.
     validator: Arc<dyn Validator>,
+    /// Monitoring — background cache of container snapshots + ad-hoc ping.
+    monitor: Arc<Monitor>,
 }
 
 impl AgentService {
+    /// Construct the service. Monitor is created internally from a cloned Docker handle.
+    /// The background poll task (2-second interval) is started automatically.
     pub fn new(docker: bollard::Docker, validator: Arc<dyn Validator>) -> Self {
-        Self { docker, validator }
+        let monitor = Monitor::new(docker.clone());
+        // Spawn the poll loop immediately — cache will be warm within 2s.
+        Arc::clone(&monitor).spawn_poll_task();
+        Self { docker, validator, monitor }
     }
 }
 
@@ -602,6 +617,29 @@ impl Agent for AgentService {
 
         audit("network_remove", &req.network_id, Ok(()));
         Ok(Response::new(NetworkRemoveResponse {}))
+    }
+
+    // ── ListContainers (monitoring snapshot) ─────────────────────────────────
+
+    async fn list_containers(
+        &self,
+        request: Request<ListContainersRequest>,
+    ) -> Result<Response<ListContainersResponse>, Status> {
+        let req = request.into_inner();
+        let resp = self.monitor.list(&req).await;
+        Ok(Response::new(resp))
+    }
+
+    // ── PingContainer (ad-hoc HTTP health check) ──────────────────────────────
+
+    async fn ping_container(
+        &self,
+        request: Request<PingContainerRequest>,
+    ) -> Result<Response<PingContainerResponse>, Status> {
+        let req = request.into_inner();
+        audit("ping_container", &req.container_id, Ok(()));
+        let resp = self.monitor.ping(req).await;
+        Ok(Response::new(resp))
     }
 }
 

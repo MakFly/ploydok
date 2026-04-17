@@ -216,6 +216,59 @@ message NetworkRemoveRequest {
 message NetworkRemoveResponse {}
 
 // ─────────────────────────────────────────────────────────────────────────────
+// Monitoring
+// ─────────────────────────────────────────────────────────────────────────────
+
+message ContainerSnapshot {
+  string id = 1;
+  string name = 2;
+  string image = 3;
+  string status = 4;                    // "running" | "starting" | "unhealthy" | "stopped" | "unknown"
+  uint64 uptime_s = 5;                  // 0 if stopped
+  double cpu_pct = 6;                   // 0-100, sampled
+  uint64 mem_bytes = 7;
+  uint64 mem_limit_bytes = 8;
+  uint32 restart_count = 9;
+  // Label "ploydok.kind" — "app" | "infra" | "agent" | "" (unknown)
+  string kind = 10;
+  // Label "ploydok.app_id" if kind=="app", empty otherwise
+  string app_id = 11;
+  // Label "ploydok.color" if kind=="app" — "blue"|"green"|""
+  string color = 12;
+  // Last active ping result (filled only after PingContainer called); 0 if never
+  uint64 last_ping_ms = 13;
+  bool   last_ping_ok = 14;
+  // Unix millis of last seen
+  uint64 last_seen_ms = 15;
+}
+
+message ListContainersRequest {
+  // Optional: filter by label "ploydok.kind"
+  string kind_filter = 1;
+}
+
+message ListContainersResponse {
+  repeated ContainerSnapshot containers = 1;
+}
+
+message PingContainerRequest {
+  string container_id = 1;
+  // e.g. "/health" — mandatory, max 256 chars
+  string path = 2;
+  // Target port on the container (must match one of its exposed ports)
+  uint32 port = 3;
+  // Timeout in ms, capped at 5000 server-side
+  uint32 timeout_ms = 4;
+}
+
+message PingContainerResponse {
+  bool ok = 1;
+  uint32 status_code = 2;               // 0 if transport error
+  uint64 latency_ms = 3;
+  string error = 4;                     // empty if ok
+}
+
+// ─────────────────────────────────────────────────────────────────────────────
 // Service definition
 // ─────────────────────────────────────────────────────────────────────────────
 
@@ -237,4 +290,8 @@ service Agent {
   // Networking
   rpc NetworkCreate   (NetworkCreateRequest)    returns (NetworkCreateResponse);
   rpc NetworkRemove   (NetworkRemoveRequest)    returns (NetworkRemoveResponse);
+
+  // Monitoring (snapshot + ad-hoc ping)
+  rpc ListContainers  (ListContainersRequest)   returns (ListContainersResponse);
+  rpc PingContainer   (PingContainerRequest)    returns (PingContainerResponse);
 }
