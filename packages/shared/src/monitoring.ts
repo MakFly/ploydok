@@ -40,6 +40,14 @@ export type ContainerSnapshot = z.infer<typeof ContainerSnapshotSchema>
 export const MonitoringOverviewSchema = z.object({
   containers: z.array(ContainerSnapshotSchema),
   generated_at: z.number().int().nonnegative(), // Date.now() du snapshot
+  // Si présent, l'agent était injoignable ou a renvoyé une erreur. Le payload
+  // reste structurellement valide pour que le front affiche un état dégradé.
+  error: z
+    .object({
+      code: z.string(),
+      message: z.string(),
+    })
+    .optional(),
 })
 export type MonitoringOverview = z.infer<typeof MonitoringOverviewSchema>
 

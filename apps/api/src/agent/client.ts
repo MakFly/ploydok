@@ -5,7 +5,9 @@ import { AgentClient } from "@ploydok/agent-proto";
 export interface AgentClientOptions {
   /**
    * Chemin vers le socket Unix de l'agent Rust.
-   * Par défaut : process.env.PLOYDOK_AGENT_SOCKET ?? '/run/ploydok/agent.sock'
+   * Par défaut : process.env.PLOYDOK_AGENT_SOCKET, sinon
+   *   - `/tmp/ploydok-agent.sock` hors prod (aligné sur `make dev-agent`)
+   *   - `/run/ploydok/agent.sock` en prod
    */
   socketPath?: string;
   /**
@@ -16,6 +18,14 @@ export interface AgentClientOptions {
   credentials?: grpc.ChannelCredentials;
 }
 
+function defaultSocketPath(): string {
+  const env = process.env["PLOYDOK_AGENT_SOCKET"];
+  if (env) return env;
+  return process.env["NODE_ENV"] === "prod"
+    ? "/run/ploydok/agent.sock"
+    : "/tmp/ploydok-agent.sock";
+}
+
 /**
  * Crée un AgentClient gRPC connecté au socket Unix de l'agent.
  *
@@ -24,9 +34,7 @@ export interface AgentClientOptions {
  *   createAgentClient({ credentials: creds });
  */
 export function createAgentClient(opts: AgentClientOptions = {}): AgentClient {
-  const socketPath =
-    opts.socketPath ??
-    (process.env["PLOYDOK_AGENT_SOCKET"] ?? "/run/ploydok/agent.sock");
+  const socketPath = opts.socketPath ?? defaultSocketPath();
 
   const address = `unix://${socketPath}`;
 

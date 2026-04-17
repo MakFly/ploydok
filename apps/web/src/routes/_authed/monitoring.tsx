@@ -105,13 +105,23 @@ function MonitoringPage(): React.JSX.Element {
         />
       </div>
 
-      {/* Error state */}
+      {/* Agent injoignable — API renvoie 503 avec un payload { error } */}
+      {data?.error ? (
+        <div
+          role="alert"
+          className="rounded-[1.5rem] border border-amber-300/60 bg-amber-50 px-4 py-3 text-sm text-amber-900"
+        >
+          <strong className="font-semibold">{data.error.code}</strong> — {data.error.message}
+        </div>
+      ) : null}
+
+      {/* Erreur réseau / fetch */}
       {error ? (
         <div
           role="alert"
           className="rounded-[1.5rem] border border-destructive/30 bg-destructive/10 px-4 py-3 text-sm text-destructive"
         >
-          Failed to load monitoring data: {(error).message}
+          Failed to load monitoring data: {error.message}
         </div>
       ) : null}
 

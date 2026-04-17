@@ -20,9 +20,18 @@ const API_BASE = import.meta.env.VITE_API_URL ?? "http://localhost:4000"
 export function useMonitoring() {
   return useQuery<MonitoringOverview>({
     queryKey: ["monitoring", "overview"],
-    queryFn: () => apiFetch<MonitoringOverview>("/monitoring/overview"),
+    // apiFetch throw sur !res.ok, mais le 503 nous renvoie un payload valide.
+    // On passe donc par fetch natif pour récupérer le body même en erreur.
+    queryFn: async () => {
+      const res = await fetch(`${API_BASE}/monitoring/overview`, {
+        credentials: "include",
+      })
+      const data = (await res.json()) as MonitoringOverview
+      return data
+    },
     refetchInterval: 5000,
     staleTime: 2000,
+    retry: false,
   })
 }
 
