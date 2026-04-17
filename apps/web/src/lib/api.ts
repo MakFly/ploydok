@@ -1,37 +1,10 @@
 // SPDX-License-Identifier: AGPL-3.0-only
 
-const API_BASE = import.meta.env.VITE_API_URL ?? "http://localhost:4000";
+const API_BASE = import.meta.env.VITE_API_URL ?? "http://localhost:4000"
 
-let _csrfToken: string | null = null;
-
-async function fetchCsrf(): Promise<string> {
-  const res = await fetch(`${API_BASE}/auth/csrf`, {
-    credentials: "include",
-  });
-  if (!res.ok) {
-    throw new Error("Failed to fetch CSRF token");
-  }
-  const data = (await res.json()) as { token: string };
-  _csrfToken = data.token;
-  return _csrfToken;
-}
-
-async function getCsrfToken(): Promise<string> {
-  if (_csrfToken) return _csrfToken;
-  return fetchCsrf();
-}
-
-export function resetCsrfToken(): void {
-  _csrfToken = null;
-}
-
-type Method = "GET" | "POST" | "PUT" | "PATCH" | "DELETE";
-
-interface ApiRequestInit {
-  method?: Method;
-  body?: unknown;
-  headers?: Record<string, string>;
-}
+// ---------------------------------------------------------------------------
+// Errors
+// ---------------------------------------------------------------------------
 
 export class ApiError extends Error {
   constructor(
@@ -39,68 +12,344 @@ export class ApiError extends Error {
     public code: string,
     message: string,
   ) {
-    super(message);
-    this.name = "ApiError";
+    super(message)
+    this.name = "ApiError"
   }
 }
 
-// En SSR (Node), `credentials: include` ne fait rien : le runtime n'a pas de
-// cookie store. On forward manuellement le header Cookie de la requête HTTP
-// entrante (via TanStack Start) pour que l'API reçoive les mêmes cookies que
-// le navigateur. Sans ça, beforeLoad fait un fetch anonyme → 401 → redirect
-// login au F5 alors que l'utilisateur est authentifié.
-async function getServerCookieHeader(): Promise<string | undefined> {
-  if (typeof window !== "undefined") return undefined;
-  try {
-    const mod = (await import("@tanstack/react-start/server")) as {
-      getRequestHeader?: (name: string) => string | undefined;
-    };
-    return mod.getRequestHeader?.("cookie");
-  } catch {
-    return undefined;
+export class SessionExpiredError extends ApiError {
+  constructor() {
+    super(401, "SESSION_EXPIRED", "Session expired, please sign in again")
+    this.name = "SessionExpiredError"
   }
 }
 
-async function rawRequest(path: string, init: RequestInit): Promise<Response> {
-  const headers = new Headers(init.headers);
-  const serverCookie = await getServerCookieHeader();
-  if (serverCookie && !headers.has("cookie")) {
-    headers.set("cookie", serverCookie);
+export type RefreshResult =
+  | { ok: true; accessExpiresAt: number | null }
+  | { ok: false; reason: "refresh_expired" | "network_error" | "server_error" }
+
+// ---------------------------------------------------------------------------
+// Module-scope state — shared in both runtimes:
+//   - On the client (single user, single process): correct.
+//   - On the SSR server: csrfToken/refreshPromise/getCache are not user-secret;
+//     refresh is rarely contended because each beforeLoad makes ~1 /me call.
+//     Per-request cookie isolation is handled by _ssrCookieOverrides below.
+// ---------------------------------------------------------------------------
+
+let _clientAccessExpiresAt: number | null = null
+
+interface RuntimeState {
+  csrfToken: string | null
+  refreshPromise: Promise<RefreshResult> | null
+  getCache: Map<string, Promise<unknown>>
+}
+
+function createRuntimeState(): RuntimeState {
+  return {
+    csrfToken: null,
+    refreshPromise: null,
+    getCache: new Map(),
   }
-  return fetch(`${API_BASE}${path}`, { credentials: "include", ...init, headers });
 }
 
-let _refreshPromise: Promise<boolean> | null = null;
+const _clientState = createRuntimeState()
 
-async function refreshSession(): Promise<boolean> {
-  if (_refreshPromise) return _refreshPromise;
-  _refreshPromise = (async () => {
-    try {
-      // /auth/refresh est exempté de CSRF côté serveur (protégé par le cookie
-      // refresh HttpOnly). Pas besoin de jongler avec le token CSRF ici.
-      const res = await rawRequest("/auth/refresh", {
-        method: "POST",
-        headers: { "Content-Type": "application/json" },
-      });
-      return res.ok;
-    } catch {
-      return false;
-    } finally {
-      _refreshPromise = null;
-    }
-  })();
-  return _refreshPromise;
+interface AuthCallbacks {
+  onTokenRefreshed?: () => void
+  onLoggedOut?: () => void
+  onAccessExpiryUpdate?: (expiresAt: number | null) => void
 }
 
-// Cache partagé des GET : aucune re-fetch tant que rien n'a changé.
-// Invalidé automatiquement sur : 401, logout, toute mutation, ou manuellement.
-// Ça tue le "polling" apparent quand plusieurs routes ont un beforeLoad qui
-// appelle le même endpoint (ex: /me dans dashboard, settings, index).
-const getCache = new Map<string, Promise<unknown>>();
+let _authCallbacks: AuthCallbacks = {}
+
+export function setAuthCallbacks(cb: AuthCallbacks): void {
+  _authCallbacks = cb
+}
 
 export function invalidateGetCache(path?: string): void {
-  if (path) getCache.delete(path);
-  else getCache.clear();
+  if (path) _clientState.getCache.delete(path)
+  else _clientState.getCache.clear()
+}
+
+export function resetCsrfToken(): void {
+  _clientState.csrfToken = null
+}
+
+export function updateAccessExpiry(expiresAt: number | null): void {
+  if (typeof window === "undefined") return
+  _clientAccessExpiresAt = expiresAt
+  _authCallbacks.onAccessExpiryUpdate?.(expiresAt)
+}
+
+export function getAccessExpiry(): number | null {
+  return _clientAccessExpiresAt
+}
+
+// ---------------------------------------------------------------------------
+// SSR cookie helpers
+//
+// Why dynamic import of the package path instead of a static import:
+//   TanStack Start's import-protection plugin bans static imports of
+//   `**/*.server.*` files from anything reachable by the client entry. A
+//   dynamic import of `@tanstack/react-start/server` (a package subpath that
+//   resolves to `server.js`, which does not match the pattern) is fine, and
+//   the `typeof window === "undefined"` guard ensures the client never
+//   evaluates the import() at runtime.
+// ---------------------------------------------------------------------------
+
+const DEBUG_AUTH = typeof process !== "undefined" && !!process.env["PLOYDOK_DEBUG_AUTH"]
+
+// Per-request cookie rotation: when /auth/refresh sets new cookies during the
+// SSR cycle, the in-flight retry must use them. The incoming Cookie header is
+// immutable, so we attach rotated values to the per-request Request object via
+// a WeakMap. TanStack's getRequest() is per-request via H3's AsyncLocalStorage,
+// so the key is stable and unique.
+const _ssrOverrides: WeakMap<Request, Map<string, string>> = new WeakMap()
+const _ssrState: WeakMap<Request, RuntimeState> = new WeakMap()
+
+type ReactStartServer = typeof import("@tanstack/react-start/server")
+let _serverModPromise: Promise<ReactStartServer | null> | null = null
+
+async function getServerMod(): Promise<ReactStartServer | null> {
+  if (typeof window !== "undefined") return null
+  if (!_serverModPromise) {
+    _serverModPromise = import("@tanstack/react-start/server").catch((e: unknown) => {
+      if (DEBUG_AUTH) console.log("[ssr-auth] failed to load react-start/server:", e)
+      return null
+    })
+  }
+  return _serverModPromise
+}
+
+async function getRuntimeState(): Promise<RuntimeState> {
+  if (typeof window !== "undefined") return _clientState
+
+  const mod = await getServerMod()
+  if (!mod) return createRuntimeState()
+
+  try {
+    const req = mod.getRequest()
+    let state = _ssrState.get(req)
+    if (!state) {
+      state = createRuntimeState()
+      _ssrState.set(req, state)
+    }
+    return state
+  } catch {
+    return createRuntimeState()
+  }
+}
+
+async function invalidateRuntimeGetCache(path?: string): Promise<void> {
+  const state = await getRuntimeState()
+  if (path) state.getCache.delete(path)
+  else state.getCache.clear()
+}
+
+async function buildSsrCookieHeader(): Promise<string> {
+  const mod = await getServerMod()
+  if (!mod) return ""
+
+  let base: Record<string, string> = {}
+  try {
+    base = mod.getCookies()
+  } catch (e) {
+    if (DEBUG_AUTH) console.log("[ssr-auth] getCookies threw:", e)
+    return ""
+  }
+
+  let overrides: Map<string, string> | undefined
+  try {
+    const req = mod.getRequest()
+    overrides = _ssrOverrides.get(req)
+  } catch {
+    // outside an SSR request context — proceed with base only
+  }
+
+  const merged: Record<string, string> = {
+    ...base,
+    ...(overrides ? Object.fromEntries(overrides) : {}),
+  }
+  const parts: Array<string> = []
+  for (const [k, v] of Object.entries(merged)) parts.push(`${k}=${v}`)
+  const header = parts.join("; ")
+
+  if (DEBUG_AUTH) {
+    console.log(
+      "[ssr-auth] buildSsrCookieHeader → names:",
+      Object.keys(merged).join(",") || "(none)",
+      "len:",
+      header.length,
+    )
+  }
+  return header
+}
+
+async function applySsrSetCookies(setCookies: Array<string>): Promise<void> {
+  if (setCookies.length === 0) return
+  const mod = await getServerMod()
+  if (!mod) return
+
+  try {
+    mod.setResponseHeader("set-cookie", setCookies)
+    if (DEBUG_AUTH) {
+      console.log("[ssr-auth] forwarded", setCookies.length, "Set-Cookie headers to browser")
+    }
+  } catch (e) {
+    if (DEBUG_AUTH) console.log("[ssr-auth] setResponseHeader threw:", e)
+  }
+
+  try {
+    const req = mod.getRequest()
+    let overrides = _ssrOverrides.get(req)
+    if (!overrides) {
+      overrides = new Map()
+      _ssrOverrides.set(req, overrides)
+    }
+    for (const raw of setCookies) {
+      const semi = raw.indexOf(";")
+      const pair = semi === -1 ? raw : raw.slice(0, semi)
+      const eq = pair.indexOf("=")
+      if (eq === -1) continue
+      const name = pair.slice(0, eq).trim()
+      const value = pair.slice(eq + 1).trim()
+      if (!name) continue
+      if (value === "" || /\bMax-Age=0\b/i.test(raw)) overrides.delete(name)
+      else overrides.set(name, value)
+    }
+  } catch {
+    // no request context — ignore
+  }
+}
+
+// ---------------------------------------------------------------------------
+// CSRF
+// ---------------------------------------------------------------------------
+
+async function fetchCsrf(): Promise<string> {
+  const res = await rawRequest("/auth/csrf", { method: "GET" })
+  if (!res.ok) throw new Error("Failed to fetch CSRF token")
+  const data = (await res.json()) as { token: string }
+  const state = await getRuntimeState()
+  state.csrfToken = data.token
+  return data.token
+}
+
+async function getCsrfToken(): Promise<string> {
+  const state = await getRuntimeState()
+  if (state.csrfToken) return state.csrfToken
+  return fetchCsrf()
+}
+
+// ---------------------------------------------------------------------------
+// rawRequest — SSR forwards merged Cookie header (incoming + rotation overrides)
+// ---------------------------------------------------------------------------
+
+async function rawRequest(path: string, init: RequestInit): Promise<Response> {
+  const headers = new Headers(init.headers)
+  if (typeof window === "undefined" && !headers.has("cookie")) {
+    const cookieHeader = await buildSsrCookieHeader()
+    if (cookieHeader) headers.set("cookie", cookieHeader)
+  }
+  if (typeof window === "undefined" && process.env["PLOYDOK_DEBUG_AUTH"]) {
+    const ck = headers.get("cookie") ?? ""
+    console.log(
+      "[ssr-auth] rawRequest",
+      init.method ?? "GET",
+      path,
+      "cookieLen:",
+      ck.length,
+      "hasAccess:",
+      ck.includes("ploydok_access="),
+      "hasRefresh:",
+      ck.includes("ploydok_refresh="),
+    )
+  }
+  const res = await fetch(`${API_BASE}${path}`, { credentials: "include", ...init, headers })
+  if (typeof window === "undefined" && process.env["PLOYDOK_DEBUG_AUTH"]) {
+    console.log("[ssr-auth] rawRequest", path, "→", res.status)
+  }
+  return res
+}
+
+// ---------------------------------------------------------------------------
+// refreshSession — single-flight, typed result
+// ---------------------------------------------------------------------------
+
+async function doRefresh(): Promise<RefreshResult> {
+  let res: Response
+  try {
+    res = await rawRequest("/auth/refresh", {
+      method: "POST",
+      headers: { "Content-Type": "application/json" },
+    })
+  } catch {
+    return { ok: false, reason: "network_error" }
+  }
+  if (!res.ok) {
+    const reason: "refresh_expired" | "server_error" =
+      res.status === 401 ? "refresh_expired" : "server_error"
+    if (reason === "refresh_expired" && typeof window !== "undefined") {
+      _clientAccessExpiresAt = null
+      _authCallbacks.onLoggedOut?.()
+    }
+    return { ok: false, reason }
+  }
+  const setCookies =
+    typeof res.headers.getSetCookie === "function" ? res.headers.getSetCookie() : []
+  if (typeof window === "undefined") {
+    await applySsrSetCookies(setCookies)
+  }
+  let accessExpiresAt: number | null = null
+  try {
+    const data = (await res.json()) as { accessExpiresAt?: unknown }
+    if (typeof data.accessExpiresAt === "number") accessExpiresAt = data.accessExpiresAt
+  } catch {
+    // ignore
+  }
+  if (typeof window !== "undefined") {
+    _clientAccessExpiresAt = accessExpiresAt
+    _authCallbacks.onAccessExpiryUpdate?.(accessExpiresAt)
+    _authCallbacks.onTokenRefreshed?.()
+  }
+  return { ok: true, accessExpiresAt }
+}
+
+async function refreshSession(): Promise<RefreshResult> {
+  const state = await getRuntimeState()
+  if (state.refreshPromise) return state.refreshPromise
+  const promise = doRefresh()
+  state.refreshPromise = promise
+  void promise.finally(() => {
+    if (state.refreshPromise === promise) state.refreshPromise = null
+  })
+  return promise
+}
+
+export async function triggerRefresh(): Promise<RefreshResult> {
+  return refreshSession()
+}
+
+function isPreSessionPath(path: string): boolean {
+  return (
+    path === "/auth/refresh" ||
+    path === "/auth/csrf" ||
+    path === "/auth/backup-codes/consume" ||
+    path.startsWith("/auth/login") ||
+    path.startsWith("/auth/register")
+  )
+}
+
+// ---------------------------------------------------------------------------
+// apiFetch
+// ---------------------------------------------------------------------------
+
+type Method = "GET" | "POST" | "PUT" | "PATCH" | "DELETE"
+
+interface ApiRequestInit {
+  method?: Method
+  body?: unknown
+  headers?: Record<string, string>
 }
 
 async function apiFetchCore<T>(
@@ -110,61 +359,74 @@ async function apiFetchCore<T>(
   extraHeaders: Record<string, string>,
   retried: boolean,
 ): Promise<T> {
-  const isMutating = method !== "GET";
+  const isMutating = method !== "GET"
   const headers: Record<string, string> = {
     "Content-Type": "application/json",
     ...extraHeaders,
-  };
-
+  }
   if (isMutating) {
-    const token = await getCsrfToken();
-    headers["x-csrf-token"] = token;
-    invalidateGetCache();
+    const token = await getCsrfToken()
+    headers["x-csrf-token"] = token
+    await invalidateRuntimeGetCache()
   }
 
   const res = await rawRequest(path, {
     method,
     headers,
     body: body !== undefined ? JSON.stringify(body) : undefined,
-  });
+  })
 
-  // Auto-refresh sur 401 (hors /auth/* pour éviter les boucles).
-  if (res.status === 401 && !retried && !path.startsWith("/auth/")) {
-    invalidateGetCache();
-    const refreshed = await refreshSession();
-    if (refreshed) return apiFetchCore<T>(path, method, body, extraHeaders, true);
+  if (res.status === 401 && !retried && !isPreSessionPath(path)) {
+    await invalidateRuntimeGetCache()
+    const result = await refreshSession()
+    if (result.ok) return apiFetchCore<T>(path, method, body, extraHeaders, true)
+    if (result.reason === "refresh_expired") throw new SessionExpiredError()
+    throw new ApiError(503, "REFRESH_FAILED", `Refresh failed: ${result.reason}`)
   }
 
-  if (res.status === 204) return undefined as T;
+  if (res.status === 204) return undefined as T
 
-  const data: unknown = await res.json();
+  const data: unknown = await res.json().catch(() => ({}))
 
   if (!res.ok) {
-    const errData = data as { error?: { code?: string; message?: string } };
+    const errData = data as { error?: { code?: string; message?: string } }
     throw new ApiError(
       res.status,
       errData.error?.code ?? "UNKNOWN",
       errData.error?.message ?? "An error occurred",
-    );
+    )
   }
-  return data as T;
+
+  if (
+    typeof window !== "undefined" &&
+    data &&
+    typeof data === "object" &&
+    "accessExpiresAt" in data
+  ) {
+    const exp = (data as { accessExpiresAt?: unknown }).accessExpiresAt
+    if (typeof exp === "number") {
+      _clientAccessExpiresAt = exp
+      _authCallbacks.onAccessExpiryUpdate?.(exp)
+    }
+  }
+
+  return data as T
 }
 
 export async function apiFetch<T = unknown>(
   path: string,
   { method = "GET", body, headers: extraHeaders = {} }: ApiRequestInit = {},
 ): Promise<T> {
-  // GET : renvoie la même promesse partagée tant qu'elle n'a pas été invalidée.
   if (method === "GET") {
-    const cached = getCache.get(path);
-    if (cached) return cached as Promise<T>;
+    const state = await getRuntimeState()
+    const cached = state.getCache.get(path)
+    if (cached) return cached as Promise<T>
     const promise = apiFetchCore<T>(path, method, body, extraHeaders, false).catch((err) => {
-      // Sur erreur, retire du cache — le prochain appel refera un vrai fetch.
-      getCache.delete(path);
-      throw err;
-    });
-    getCache.set(path, promise);
-    return promise;
+      state.getCache.delete(path)
+      throw err
+    })
+    state.getCache.set(path, promise)
+    return promise
   }
-  return apiFetchCore<T>(path, method, body, extraHeaders, false);
+  return apiFetchCore<T>(path, method, body, extraHeaders, false)
 }

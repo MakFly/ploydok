@@ -1,9 +1,15 @@
 // SPDX-License-Identifier: AGPL-3.0-only
 import * as React from "react";
-import { HeadContent, Link, Scripts, createRootRoute } from "@tanstack/react-router";
+import { HeadContent, Scripts, createRootRoute } from "@tanstack/react-router";
 import { QueryClient, QueryClientProvider } from "@tanstack/react-query";
 
 import appCss from "@workspace/ui/globals.css?url";
+import { ApiErrorState } from "../components/errors/ApiErrorState";
+import { NotFoundState } from "../components/errors/NotFoundState";
+import { invalidateGetCache, setAuthCallbacks } from "../lib/api";
+import { broadcastAuthEvent, subscribeAuthEvents } from "../lib/api/broadcast";
+import { startProactiveRefresh } from "../lib/api/scheduler";
+import type { ErrorComponentProps } from "@tanstack/react-router";
 
 const queryClient = new QueryClient({
   defaultOptions: {
@@ -13,6 +19,18 @@ const queryClient = new QueryClient({
     },
   },
 });
+
+function RootErrorComponent({ error, reset }: ErrorComponentProps): React.JSX.Element {
+  const status =
+    error instanceof Error && "status" in error
+      ? (error as Error & { status?: number }).status
+      : undefined;
+  return (
+    <div className="flex min-h-screen items-center justify-center p-8">
+      <ApiErrorState status={status} message={error.message} onRetry={reset} />
+    </div>
+  );
+}
 
 export const Route = createRootRoute({
   head: () => ({
@@ -24,17 +42,47 @@ export const Route = createRootRoute({
     links: [{ rel: "stylesheet", href: appCss }],
   }),
   shellComponent: RootDocument,
-  notFoundComponent: NotFound,
+  errorComponent: RootErrorComponent,
+  notFoundComponent: () => (
+    <div className="flex min-h-screen items-center justify-center p-8">
+      <NotFoundState />
+    </div>
+  ),
 });
 
-function NotFound(): React.JSX.Element {
-  return (
-    <div className="flex min-h-screen flex-col items-center justify-center gap-4 p-8 text-center">
-      <h1 className="text-3xl font-semibold">404 — page introuvable</h1>
-      <p className="text-muted-foreground">La page demandée n'existe pas.</p>
-      <Link to="/" className="underline">Retour à l'accueil</Link>
-    </div>
-  );
+// AuthSyncProvider wires together three pieces of the refresh-token machinery:
+//   1. cross-tab events: when this tab refreshes, peers invalidate their cache;
+//      when this tab is logged out (refresh expired), peers hard-redirect.
+//   2. proactive refresh: the scheduler fires ~60s before access expires.
+//   3. centralized callback registry inside lib/api so refreshSession can
+//      notify both layers at once.
+// Mounted once at the root inside QueryClientProvider; SSR no-ops via guards.
+function AuthSyncProvider({ children }: { children: React.ReactNode }): React.JSX.Element {
+  React.useEffect(() => {
+    const unsubBroadcast = subscribeAuthEvents({
+      onTokenRefreshed: () => {
+        // A peer tab refreshed. The browser cookie store already has the new
+        // tokens — drop our cached /me so the next read picks them up.
+        invalidateGetCache();
+      },
+      onLoggedOut: () => {
+        // Hard navigate so the React tree, queries and module state all reset.
+        window.location.href = "/login";
+      },
+    });
+    const scheduler = startProactiveRefresh();
+    setAuthCallbacks({
+      onTokenRefreshed: () => broadcastAuthEvent({ type: "token_refreshed" }),
+      onLoggedOut: () => broadcastAuthEvent({ type: "logged_out" }),
+      onAccessExpiryUpdate: () => scheduler.reschedule(),
+    });
+    return () => {
+      unsubBroadcast();
+      scheduler.stop();
+      setAuthCallbacks({});
+    };
+  }, []);
+  return <>{children}</>;
 }
 
 function RootDocument({ children }: { children: React.ReactNode }): React.JSX.Element {
@@ -50,7 +98,9 @@ function RootDocument({ children }: { children: React.ReactNode }): React.JSX.El
         />
       </head>
       <body>
-        <QueryClientProvider client={queryClient}>{children}</QueryClientProvider>
+        <QueryClientProvider client={queryClient}>
+          <AuthSyncProvider>{children}</AuthSyncProvider>
+        </QueryClientProvider>
         <Scripts />
       </body>
     </html>

@@ -9,191 +9,483 @@
 // Additionally, you should also exclude this file from your linter and/or formatter to prevent it from being checked or modified.
 
 import { Route as rootRouteImport } from './routes/__root'
-import { Route as RegisterRouteImport } from './routes/register'
-import { Route as LoginRouteImport } from './routes/login'
-import { Route as DashboardRouteImport } from './routes/dashboard'
-import { Route as IndexRouteImport } from './routes/index'
-import { Route as SettingsSecurityRouteImport } from './routes/settings/security'
-import { Route as SettingsSecuritySessionsRouteImport } from './routes/settings/security.sessions'
-import { Route as SettingsSecurityPasskeysRouteImport } from './routes/settings/security.passkeys'
+import { Route as PublicRouteImport } from './routes/_public'
+import { Route as AuthedRouteImport } from './routes/_authed'
+import { Route as PublicIndexRouteImport } from './routes/_public/index'
+import { Route as PublicRegisterRouteImport } from './routes/_public/register'
+import { Route as PublicLoginRouteImport } from './routes/_public/login'
+import { Route as AuthedGuideRouteImport } from './routes/_authed/guide'
+import { Route as AuthedDashboardRouteImport } from './routes/_authed/dashboard'
+import { Route as AuthedAppsIndexRouteImport } from './routes/_authed/apps/index'
+import { Route as AuthedSettingsSecurityRouteImport } from './routes/_authed/settings/security'
+import { Route as AuthedSettingsGithubRouteImport } from './routes/_authed/settings/github'
+import { Route as AuthedAppsIdRouteImport } from './routes/_authed/apps/$id'
+import { Route as AuthedAppsIdIndexRouteImport } from './routes/_authed/apps/$id/index'
+import { Route as AuthedSettingsSecuritySessionsRouteImport } from './routes/_authed/settings/security/sessions'
+import { Route as AuthedSettingsSecurityPasskeysRouteImport } from './routes/_authed/settings/security/passkeys'
+import { Route as AuthedAppsIdSettingsRouteImport } from './routes/_authed/apps/$id/settings'
+import { Route as AuthedAppsIdOverviewRouteImport } from './routes/_authed/apps/$id/overview'
+import { Route as AuthedAppsIdLogsRouteImport } from './routes/_authed/apps/$id/logs'
+import { Route as AuthedAppsIdEnvRouteImport } from './routes/_authed/apps/$id/env'
+import { Route as AuthedAppsIdDomainsRouteImport } from './routes/_authed/apps/$id/domains'
+import { Route as AuthedAppsIdBuildsRouteImport } from './routes/_authed/apps/$id/builds'
 
-const RegisterRoute = RegisterRouteImport.update({
-  id: '/register',
-  path: '/register',
+const PublicRoute = PublicRouteImport.update({
+  id: '/_public',
   getParentRoute: () => rootRouteImport,
 } as any)
-const LoginRoute = LoginRouteImport.update({
-  id: '/login',
-  path: '/login',
+const AuthedRoute = AuthedRouteImport.update({
+  id: '/_authed',
   getParentRoute: () => rootRouteImport,
 } as any)
-const DashboardRoute = DashboardRouteImport.update({
-  id: '/dashboard',
-  path: '/dashboard',
-  getParentRoute: () => rootRouteImport,
-} as any)
-const IndexRoute = IndexRouteImport.update({
+const PublicIndexRoute = PublicIndexRouteImport.update({
   id: '/',
   path: '/',
-  getParentRoute: () => rootRouteImport,
+  getParentRoute: () => PublicRoute,
 } as any)
-const SettingsSecurityRoute = SettingsSecurityRouteImport.update({
+const PublicRegisterRoute = PublicRegisterRouteImport.update({
+  id: '/register',
+  path: '/register',
+  getParentRoute: () => PublicRoute,
+} as any)
+const PublicLoginRoute = PublicLoginRouteImport.update({
+  id: '/login',
+  path: '/login',
+  getParentRoute: () => PublicRoute,
+} as any)
+const AuthedGuideRoute = AuthedGuideRouteImport.update({
+  id: '/guide',
+  path: '/guide',
+  getParentRoute: () => AuthedRoute,
+} as any)
+const AuthedDashboardRoute = AuthedDashboardRouteImport.update({
+  id: '/dashboard',
+  path: '/dashboard',
+  getParentRoute: () => AuthedRoute,
+} as any)
+const AuthedAppsIndexRoute = AuthedAppsIndexRouteImport.update({
+  id: '/apps/',
+  path: '/apps/',
+  getParentRoute: () => AuthedRoute,
+} as any)
+const AuthedSettingsSecurityRoute = AuthedSettingsSecurityRouteImport.update({
   id: '/settings/security',
   path: '/settings/security',
-  getParentRoute: () => rootRouteImport,
+  getParentRoute: () => AuthedRoute,
 } as any)
-const SettingsSecuritySessionsRoute =
-  SettingsSecuritySessionsRouteImport.update({
+const AuthedSettingsGithubRoute = AuthedSettingsGithubRouteImport.update({
+  id: '/settings/github',
+  path: '/settings/github',
+  getParentRoute: () => AuthedRoute,
+} as any)
+const AuthedAppsIdRoute = AuthedAppsIdRouteImport.update({
+  id: '/apps/$id',
+  path: '/apps/$id',
+  getParentRoute: () => AuthedRoute,
+} as any)
+const AuthedAppsIdIndexRoute = AuthedAppsIdIndexRouteImport.update({
+  id: '/',
+  path: '/',
+  getParentRoute: () => AuthedAppsIdRoute,
+} as any)
+const AuthedSettingsSecuritySessionsRoute =
+  AuthedSettingsSecuritySessionsRouteImport.update({
     id: '/sessions',
     path: '/sessions',
-    getParentRoute: () => SettingsSecurityRoute,
+    getParentRoute: () => AuthedSettingsSecurityRoute,
   } as any)
-const SettingsSecurityPasskeysRoute =
-  SettingsSecurityPasskeysRouteImport.update({
+const AuthedSettingsSecurityPasskeysRoute =
+  AuthedSettingsSecurityPasskeysRouteImport.update({
     id: '/passkeys',
     path: '/passkeys',
-    getParentRoute: () => SettingsSecurityRoute,
+    getParentRoute: () => AuthedSettingsSecurityRoute,
   } as any)
+const AuthedAppsIdSettingsRoute = AuthedAppsIdSettingsRouteImport.update({
+  id: '/settings',
+  path: '/settings',
+  getParentRoute: () => AuthedAppsIdRoute,
+} as any)
+const AuthedAppsIdOverviewRoute = AuthedAppsIdOverviewRouteImport.update({
+  id: '/overview',
+  path: '/overview',
+  getParentRoute: () => AuthedAppsIdRoute,
+} as any)
+const AuthedAppsIdLogsRoute = AuthedAppsIdLogsRouteImport.update({
+  id: '/logs',
+  path: '/logs',
+  getParentRoute: () => AuthedAppsIdRoute,
+} as any)
+const AuthedAppsIdEnvRoute = AuthedAppsIdEnvRouteImport.update({
+  id: '/env',
+  path: '/env',
+  getParentRoute: () => AuthedAppsIdRoute,
+} as any)
+const AuthedAppsIdDomainsRoute = AuthedAppsIdDomainsRouteImport.update({
+  id: '/domains',
+  path: '/domains',
+  getParentRoute: () => AuthedAppsIdRoute,
+} as any)
+const AuthedAppsIdBuildsRoute = AuthedAppsIdBuildsRouteImport.update({
+  id: '/builds',
+  path: '/builds',
+  getParentRoute: () => AuthedAppsIdRoute,
+} as any)
 
 export interface FileRoutesByFullPath {
-  '/': typeof IndexRoute
-  '/dashboard': typeof DashboardRoute
-  '/login': typeof LoginRoute
-  '/register': typeof RegisterRoute
-  '/settings/security': typeof SettingsSecurityRouteWithChildren
-  '/settings/security/passkeys': typeof SettingsSecurityPasskeysRoute
-  '/settings/security/sessions': typeof SettingsSecuritySessionsRoute
+  '/': typeof PublicIndexRoute
+  '/dashboard': typeof AuthedDashboardRoute
+  '/guide': typeof AuthedGuideRoute
+  '/login': typeof PublicLoginRoute
+  '/register': typeof PublicRegisterRoute
+  '/apps/$id': typeof AuthedAppsIdRouteWithChildren
+  '/settings/github': typeof AuthedSettingsGithubRoute
+  '/settings/security': typeof AuthedSettingsSecurityRouteWithChildren
+  '/apps/': typeof AuthedAppsIndexRoute
+  '/apps/$id/builds': typeof AuthedAppsIdBuildsRoute
+  '/apps/$id/domains': typeof AuthedAppsIdDomainsRoute
+  '/apps/$id/env': typeof AuthedAppsIdEnvRoute
+  '/apps/$id/logs': typeof AuthedAppsIdLogsRoute
+  '/apps/$id/overview': typeof AuthedAppsIdOverviewRoute
+  '/apps/$id/settings': typeof AuthedAppsIdSettingsRoute
+  '/settings/security/passkeys': typeof AuthedSettingsSecurityPasskeysRoute
+  '/settings/security/sessions': typeof AuthedSettingsSecuritySessionsRoute
+  '/apps/$id/': typeof AuthedAppsIdIndexRoute
 }
 export interface FileRoutesByTo {
-  '/': typeof IndexRoute
-  '/dashboard': typeof DashboardRoute
-  '/login': typeof LoginRoute
-  '/register': typeof RegisterRoute
-  '/settings/security': typeof SettingsSecurityRouteWithChildren
-  '/settings/security/passkeys': typeof SettingsSecurityPasskeysRoute
-  '/settings/security/sessions': typeof SettingsSecuritySessionsRoute
+  '/': typeof PublicIndexRoute
+  '/dashboard': typeof AuthedDashboardRoute
+  '/guide': typeof AuthedGuideRoute
+  '/login': typeof PublicLoginRoute
+  '/register': typeof PublicRegisterRoute
+  '/settings/github': typeof AuthedSettingsGithubRoute
+  '/settings/security': typeof AuthedSettingsSecurityRouteWithChildren
+  '/apps': typeof AuthedAppsIndexRoute
+  '/apps/$id/builds': typeof AuthedAppsIdBuildsRoute
+  '/apps/$id/domains': typeof AuthedAppsIdDomainsRoute
+  '/apps/$id/env': typeof AuthedAppsIdEnvRoute
+  '/apps/$id/logs': typeof AuthedAppsIdLogsRoute
+  '/apps/$id/overview': typeof AuthedAppsIdOverviewRoute
+  '/apps/$id/settings': typeof AuthedAppsIdSettingsRoute
+  '/settings/security/passkeys': typeof AuthedSettingsSecurityPasskeysRoute
+  '/settings/security/sessions': typeof AuthedSettingsSecuritySessionsRoute
+  '/apps/$id': typeof AuthedAppsIdIndexRoute
 }
 export interface FileRoutesById {
   __root__: typeof rootRouteImport
-  '/': typeof IndexRoute
-  '/dashboard': typeof DashboardRoute
-  '/login': typeof LoginRoute
-  '/register': typeof RegisterRoute
-  '/settings/security': typeof SettingsSecurityRouteWithChildren
-  '/settings/security/passkeys': typeof SettingsSecurityPasskeysRoute
-  '/settings/security/sessions': typeof SettingsSecuritySessionsRoute
+  '/_authed': typeof AuthedRouteWithChildren
+  '/_public': typeof PublicRouteWithChildren
+  '/_authed/dashboard': typeof AuthedDashboardRoute
+  '/_authed/guide': typeof AuthedGuideRoute
+  '/_public/login': typeof PublicLoginRoute
+  '/_public/register': typeof PublicRegisterRoute
+  '/_public/': typeof PublicIndexRoute
+  '/_authed/apps/$id': typeof AuthedAppsIdRouteWithChildren
+  '/_authed/settings/github': typeof AuthedSettingsGithubRoute
+  '/_authed/settings/security': typeof AuthedSettingsSecurityRouteWithChildren
+  '/_authed/apps/': typeof AuthedAppsIndexRoute
+  '/_authed/apps/$id/builds': typeof AuthedAppsIdBuildsRoute
+  '/_authed/apps/$id/domains': typeof AuthedAppsIdDomainsRoute
+  '/_authed/apps/$id/env': typeof AuthedAppsIdEnvRoute
+  '/_authed/apps/$id/logs': typeof AuthedAppsIdLogsRoute
+  '/_authed/apps/$id/overview': typeof AuthedAppsIdOverviewRoute
+  '/_authed/apps/$id/settings': typeof AuthedAppsIdSettingsRoute
+  '/_authed/settings/security/passkeys': typeof AuthedSettingsSecurityPasskeysRoute
+  '/_authed/settings/security/sessions': typeof AuthedSettingsSecuritySessionsRoute
+  '/_authed/apps/$id/': typeof AuthedAppsIdIndexRoute
 }
 export interface FileRouteTypes {
   fileRoutesByFullPath: FileRoutesByFullPath
   fullPaths:
     | '/'
     | '/dashboard'
+    | '/guide'
     | '/login'
     | '/register'
+    | '/apps/$id'
+    | '/settings/github'
     | '/settings/security'
+    | '/apps/'
+    | '/apps/$id/builds'
+    | '/apps/$id/domains'
+    | '/apps/$id/env'
+    | '/apps/$id/logs'
+    | '/apps/$id/overview'
+    | '/apps/$id/settings'
     | '/settings/security/passkeys'
     | '/settings/security/sessions'
+    | '/apps/$id/'
   fileRoutesByTo: FileRoutesByTo
   to:
     | '/'
     | '/dashboard'
+    | '/guide'
     | '/login'
     | '/register'
+    | '/settings/github'
     | '/settings/security'
+    | '/apps'
+    | '/apps/$id/builds'
+    | '/apps/$id/domains'
+    | '/apps/$id/env'
+    | '/apps/$id/logs'
+    | '/apps/$id/overview'
+    | '/apps/$id/settings'
     | '/settings/security/passkeys'
     | '/settings/security/sessions'
+    | '/apps/$id'
   id:
     | '__root__'
-    | '/'
-    | '/dashboard'
-    | '/login'
-    | '/register'
-    | '/settings/security'
-    | '/settings/security/passkeys'
-    | '/settings/security/sessions'
+    | '/_authed'
+    | '/_public'
+    | '/_authed/dashboard'
+    | '/_authed/guide'
+    | '/_public/login'
+    | '/_public/register'
+    | '/_public/'
+    | '/_authed/apps/$id'
+    | '/_authed/settings/github'
+    | '/_authed/settings/security'
+    | '/_authed/apps/'
+    | '/_authed/apps/$id/builds'
+    | '/_authed/apps/$id/domains'
+    | '/_authed/apps/$id/env'
+    | '/_authed/apps/$id/logs'
+    | '/_authed/apps/$id/overview'
+    | '/_authed/apps/$id/settings'
+    | '/_authed/settings/security/passkeys'
+    | '/_authed/settings/security/sessions'
+    | '/_authed/apps/$id/'
   fileRoutesById: FileRoutesById
 }
 export interface RootRouteChildren {
-  IndexRoute: typeof IndexRoute
-  DashboardRoute: typeof DashboardRoute
-  LoginRoute: typeof LoginRoute
-  RegisterRoute: typeof RegisterRoute
-  SettingsSecurityRoute: typeof SettingsSecurityRouteWithChildren
+  AuthedRoute: typeof AuthedRouteWithChildren
+  PublicRoute: typeof PublicRouteWithChildren
 }
 
 declare module '@tanstack/react-router' {
   interface FileRoutesByPath {
-    '/register': {
-      id: '/register'
-      path: '/register'
-      fullPath: '/register'
-      preLoaderRoute: typeof RegisterRouteImport
+    '/_public': {
+      id: '/_public'
+      path: ''
+      fullPath: '/'
+      preLoaderRoute: typeof PublicRouteImport
       parentRoute: typeof rootRouteImport
     }
-    '/login': {
-      id: '/login'
-      path: '/login'
-      fullPath: '/login'
-      preLoaderRoute: typeof LoginRouteImport
+    '/_authed': {
+      id: '/_authed'
+      path: ''
+      fullPath: '/'
+      preLoaderRoute: typeof AuthedRouteImport
       parentRoute: typeof rootRouteImport
     }
-    '/dashboard': {
-      id: '/dashboard'
-      path: '/dashboard'
-      fullPath: '/dashboard'
-      preLoaderRoute: typeof DashboardRouteImport
-      parentRoute: typeof rootRouteImport
-    }
-    '/': {
-      id: '/'
+    '/_public/': {
+      id: '/_public/'
       path: '/'
       fullPath: '/'
-      preLoaderRoute: typeof IndexRouteImport
-      parentRoute: typeof rootRouteImport
+      preLoaderRoute: typeof PublicIndexRouteImport
+      parentRoute: typeof PublicRoute
     }
-    '/settings/security': {
-      id: '/settings/security'
+    '/_public/register': {
+      id: '/_public/register'
+      path: '/register'
+      fullPath: '/register'
+      preLoaderRoute: typeof PublicRegisterRouteImport
+      parentRoute: typeof PublicRoute
+    }
+    '/_public/login': {
+      id: '/_public/login'
+      path: '/login'
+      fullPath: '/login'
+      preLoaderRoute: typeof PublicLoginRouteImport
+      parentRoute: typeof PublicRoute
+    }
+    '/_authed/guide': {
+      id: '/_authed/guide'
+      path: '/guide'
+      fullPath: '/guide'
+      preLoaderRoute: typeof AuthedGuideRouteImport
+      parentRoute: typeof AuthedRoute
+    }
+    '/_authed/dashboard': {
+      id: '/_authed/dashboard'
+      path: '/dashboard'
+      fullPath: '/dashboard'
+      preLoaderRoute: typeof AuthedDashboardRouteImport
+      parentRoute: typeof AuthedRoute
+    }
+    '/_authed/apps/': {
+      id: '/_authed/apps/'
+      path: '/apps'
+      fullPath: '/apps/'
+      preLoaderRoute: typeof AuthedAppsIndexRouteImport
+      parentRoute: typeof AuthedRoute
+    }
+    '/_authed/settings/security': {
+      id: '/_authed/settings/security'
       path: '/settings/security'
       fullPath: '/settings/security'
-      preLoaderRoute: typeof SettingsSecurityRouteImport
-      parentRoute: typeof rootRouteImport
+      preLoaderRoute: typeof AuthedSettingsSecurityRouteImport
+      parentRoute: typeof AuthedRoute
     }
-    '/settings/security/sessions': {
-      id: '/settings/security/sessions'
+    '/_authed/settings/github': {
+      id: '/_authed/settings/github'
+      path: '/settings/github'
+      fullPath: '/settings/github'
+      preLoaderRoute: typeof AuthedSettingsGithubRouteImport
+      parentRoute: typeof AuthedRoute
+    }
+    '/_authed/apps/$id': {
+      id: '/_authed/apps/$id'
+      path: '/apps/$id'
+      fullPath: '/apps/$id'
+      preLoaderRoute: typeof AuthedAppsIdRouteImport
+      parentRoute: typeof AuthedRoute
+    }
+    '/_authed/apps/$id/': {
+      id: '/_authed/apps/$id/'
+      path: '/'
+      fullPath: '/apps/$id/'
+      preLoaderRoute: typeof AuthedAppsIdIndexRouteImport
+      parentRoute: typeof AuthedAppsIdRoute
+    }
+    '/_authed/settings/security/sessions': {
+      id: '/_authed/settings/security/sessions'
       path: '/sessions'
       fullPath: '/settings/security/sessions'
-      preLoaderRoute: typeof SettingsSecuritySessionsRouteImport
-      parentRoute: typeof SettingsSecurityRoute
+      preLoaderRoute: typeof AuthedSettingsSecuritySessionsRouteImport
+      parentRoute: typeof AuthedSettingsSecurityRoute
     }
-    '/settings/security/passkeys': {
-      id: '/settings/security/passkeys'
+    '/_authed/settings/security/passkeys': {
+      id: '/_authed/settings/security/passkeys'
       path: '/passkeys'
       fullPath: '/settings/security/passkeys'
-      preLoaderRoute: typeof SettingsSecurityPasskeysRouteImport
-      parentRoute: typeof SettingsSecurityRoute
+      preLoaderRoute: typeof AuthedSettingsSecurityPasskeysRouteImport
+      parentRoute: typeof AuthedSettingsSecurityRoute
+    }
+    '/_authed/apps/$id/settings': {
+      id: '/_authed/apps/$id/settings'
+      path: '/settings'
+      fullPath: '/apps/$id/settings'
+      preLoaderRoute: typeof AuthedAppsIdSettingsRouteImport
+      parentRoute: typeof AuthedAppsIdRoute
+    }
+    '/_authed/apps/$id/overview': {
+      id: '/_authed/apps/$id/overview'
+      path: '/overview'
+      fullPath: '/apps/$id/overview'
+      preLoaderRoute: typeof AuthedAppsIdOverviewRouteImport
+      parentRoute: typeof AuthedAppsIdRoute
+    }
+    '/_authed/apps/$id/logs': {
+      id: '/_authed/apps/$id/logs'
+      path: '/logs'
+      fullPath: '/apps/$id/logs'
+      preLoaderRoute: typeof AuthedAppsIdLogsRouteImport
+      parentRoute: typeof AuthedAppsIdRoute
+    }
+    '/_authed/apps/$id/env': {
+      id: '/_authed/apps/$id/env'
+      path: '/env'
+      fullPath: '/apps/$id/env'
+      preLoaderRoute: typeof AuthedAppsIdEnvRouteImport
+      parentRoute: typeof AuthedAppsIdRoute
+    }
+    '/_authed/apps/$id/domains': {
+      id: '/_authed/apps/$id/domains'
+      path: '/domains'
+      fullPath: '/apps/$id/domains'
+      preLoaderRoute: typeof AuthedAppsIdDomainsRouteImport
+      parentRoute: typeof AuthedAppsIdRoute
+    }
+    '/_authed/apps/$id/builds': {
+      id: '/_authed/apps/$id/builds'
+      path: '/builds'
+      fullPath: '/apps/$id/builds'
+      preLoaderRoute: typeof AuthedAppsIdBuildsRouteImport
+      parentRoute: typeof AuthedAppsIdRoute
     }
   }
 }
 
-interface SettingsSecurityRouteChildren {
-  SettingsSecurityPasskeysRoute: typeof SettingsSecurityPasskeysRoute
-  SettingsSecuritySessionsRoute: typeof SettingsSecuritySessionsRoute
+interface AuthedAppsIdRouteChildren {
+  AuthedAppsIdBuildsRoute: typeof AuthedAppsIdBuildsRoute
+  AuthedAppsIdDomainsRoute: typeof AuthedAppsIdDomainsRoute
+  AuthedAppsIdEnvRoute: typeof AuthedAppsIdEnvRoute
+  AuthedAppsIdLogsRoute: typeof AuthedAppsIdLogsRoute
+  AuthedAppsIdOverviewRoute: typeof AuthedAppsIdOverviewRoute
+  AuthedAppsIdSettingsRoute: typeof AuthedAppsIdSettingsRoute
+  AuthedAppsIdIndexRoute: typeof AuthedAppsIdIndexRoute
 }
 
-const SettingsSecurityRouteChildren: SettingsSecurityRouteChildren = {
-  SettingsSecurityPasskeysRoute: SettingsSecurityPasskeysRoute,
-  SettingsSecuritySessionsRoute: SettingsSecuritySessionsRoute,
+const AuthedAppsIdRouteChildren: AuthedAppsIdRouteChildren = {
+  AuthedAppsIdBuildsRoute: AuthedAppsIdBuildsRoute,
+  AuthedAppsIdDomainsRoute: AuthedAppsIdDomainsRoute,
+  AuthedAppsIdEnvRoute: AuthedAppsIdEnvRoute,
+  AuthedAppsIdLogsRoute: AuthedAppsIdLogsRoute,
+  AuthedAppsIdOverviewRoute: AuthedAppsIdOverviewRoute,
+  AuthedAppsIdSettingsRoute: AuthedAppsIdSettingsRoute,
+  AuthedAppsIdIndexRoute: AuthedAppsIdIndexRoute,
 }
 
-const SettingsSecurityRouteWithChildren =
-  SettingsSecurityRoute._addFileChildren(SettingsSecurityRouteChildren)
+const AuthedAppsIdRouteWithChildren = AuthedAppsIdRoute._addFileChildren(
+  AuthedAppsIdRouteChildren,
+)
+
+interface AuthedSettingsSecurityRouteChildren {
+  AuthedSettingsSecurityPasskeysRoute: typeof AuthedSettingsSecurityPasskeysRoute
+  AuthedSettingsSecuritySessionsRoute: typeof AuthedSettingsSecuritySessionsRoute
+}
+
+const AuthedSettingsSecurityRouteChildren: AuthedSettingsSecurityRouteChildren =
+  {
+    AuthedSettingsSecurityPasskeysRoute: AuthedSettingsSecurityPasskeysRoute,
+    AuthedSettingsSecuritySessionsRoute: AuthedSettingsSecuritySessionsRoute,
+  }
+
+const AuthedSettingsSecurityRouteWithChildren =
+  AuthedSettingsSecurityRoute._addFileChildren(
+    AuthedSettingsSecurityRouteChildren,
+  )
+
+interface AuthedRouteChildren {
+  AuthedDashboardRoute: typeof AuthedDashboardRoute
+  AuthedGuideRoute: typeof AuthedGuideRoute
+  AuthedAppsIdRoute: typeof AuthedAppsIdRouteWithChildren
+  AuthedSettingsGithubRoute: typeof AuthedSettingsGithubRoute
+  AuthedSettingsSecurityRoute: typeof AuthedSettingsSecurityRouteWithChildren
+  AuthedAppsIndexRoute: typeof AuthedAppsIndexRoute
+}
+
+const AuthedRouteChildren: AuthedRouteChildren = {
+  AuthedDashboardRoute: AuthedDashboardRoute,
+  AuthedGuideRoute: AuthedGuideRoute,
+  AuthedAppsIdRoute: AuthedAppsIdRouteWithChildren,
+  AuthedSettingsGithubRoute: AuthedSettingsGithubRoute,
+  AuthedSettingsSecurityRoute: AuthedSettingsSecurityRouteWithChildren,
+  AuthedAppsIndexRoute: AuthedAppsIndexRoute,
+}
+
+const AuthedRouteWithChildren =
+  AuthedRoute._addFileChildren(AuthedRouteChildren)
+
+interface PublicRouteChildren {
+  PublicLoginRoute: typeof PublicLoginRoute
+  PublicRegisterRoute: typeof PublicRegisterRoute
+  PublicIndexRoute: typeof PublicIndexRoute
+}
+
+const PublicRouteChildren: PublicRouteChildren = {
+  PublicLoginRoute: PublicLoginRoute,
+  PublicRegisterRoute: PublicRegisterRoute,
+  PublicIndexRoute: PublicIndexRoute,
+}
+
+const PublicRouteWithChildren =
+  PublicRoute._addFileChildren(PublicRouteChildren)
 
 const rootRouteChildren: RootRouteChildren = {
-  IndexRoute: IndexRoute,
-  DashboardRoute: DashboardRoute,
-  LoginRoute: LoginRoute,
-  RegisterRoute: RegisterRoute,
-  SettingsSecurityRoute: SettingsSecurityRouteWithChildren,
+  AuthedRoute: AuthedRouteWithChildren,
+  PublicRoute: PublicRouteWithChildren,
 }
 export const routeTree = rootRouteImport
   ._addFileChildren(rootRouteChildren)

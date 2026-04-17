@@ -106,6 +106,75 @@ export class CaddyClient {
     );
   }
 
+  // ---------------------------------------------------------------------------
+  // M3.3 — upstream management for blue-green deploy
+  // ---------------------------------------------------------------------------
+
+  /**
+   * Set (upsert) the upstream dial target for an app route.
+   * Idempotent: if the route exists, its upstreams array is replaced.
+   * If the route does not exist, creates a new one with the given upstream.
+   *
+   * @param appId   The app id (used as route @id `ploydok-{appId}` and host matcher).
+   * @param host    The virtual host the route matches (e.g. "myapp.ploydok.local").
+   * @param upstream `{ host, port }` of the target container on the ploydok-public network.
+   */
+  async setUpstream(
+    appId: string,
+    host: string,
+    upstream: { host: string; port: number },
+  ): Promise<void> {
+    const dial = `${upstream.host}:${upstream.port}`;
+    await this.upsertRoute({ host, upstream: dial, appId });
+  }
+
+  /**
+   * Get the current upstream dial string for an app route, or null if the route
+   * does not exist / has no reverse_proxy handler.
+   */
+  async getUpstream(
+    appId: string,
+  ): Promise<{ host: string; port: number } | null> {
+    const routeId = `ploydok-${appId}`;
+
+    const res = await fetch(`${this.baseUrl}/id/${routeId}`);
+    if (res.status === 404) return null;
+    if (!res.ok) {
+      throw new Error(`CaddyClient.getUpstream failed: ${res.status} ${await res.text()}`);
+    }
+
+    let route: CaddyRoute;
+    try {
+      route = (await res.json()) as CaddyRoute;
+    } catch {
+      return null;
+    }
+
+    // Find the first reverse_proxy handle and extract its first upstream dial.
+    for (const handle of route.handle ?? []) {
+      if (handle.handler === "reverse_proxy") {
+        const dial = handle.upstreams?.[0]?.dial ?? "";
+        if (!dial) return null;
+        // dial format: "host:port"
+        const colonIdx = dial.lastIndexOf(":");
+        if (colonIdx === -1) return null;
+        const h = dial.slice(0, colonIdx);
+        const p = parseInt(dial.slice(colonIdx + 1), 10);
+        if (!h || isNaN(p)) return null;
+        return { host: h, port: p };
+      }
+    }
+    return null;
+  }
+
+  /**
+   * Remove the upstream route for an app. Idempotent: 404 is treated as success.
+   * Delegates to the existing `removeRoute` method.
+   */
+  async removeUpstream(appId: string): Promise<void> {
+    return this.removeRoute(appId);
+  }
+
   /**
    * Ensure Caddy has a minimal working config with srv0 (`:443`) and srv1 (`:80`).
    * Idempotent: no-op if srv0 already exists.

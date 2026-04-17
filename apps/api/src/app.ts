@@ -15,6 +15,9 @@ import { createDebugRouter } from "./debug/index.js";
 import { getSharedAgent, getSharedCaddy } from "./debug/singletons.js";
 import { AgentError, GrpcStatus } from "./agent/index.js";
 import { childLogger } from "./logger";
+import { appsRouter } from "./routes/apps";
+import { githubRouter } from "./routes/github";
+import { wsRouter } from "./routes/ws";
 
 const httpLog = childLogger("http");
 const errorLog = childLogger("error");
@@ -135,6 +138,12 @@ app.use("*", async (c, next) => {
     return next();
   }
 
+  // /github/webhook est signé HMAC-SHA256 par GitHub — GitHub ne peut pas
+  // envoyer le double-submit token. L'authenticité est garantie par la signature.
+  if (c.req.path === "/github/webhook") {
+    return next();
+  }
+
   const cookieCsrf = getCookieValue(c.req.raw.headers.get("cookie") ?? "", "csrf");
   const headerCsrf = c.req.raw.headers.get("x-csrf-token");
 
@@ -218,10 +227,30 @@ const debugRouter = createDebugRouter();
 app.use("/debug/*", CI_AUTH_BYPASS ? ciBypassAuth : requireAuth(db));
 app.route("/debug", debugRouter);
 
+// Apps routes — auth enforced per-endpoint inside the router.
+app.use("/apps/*", requireAuth(db));
+app.route("/apps", appsRouter);
+
+// GitHub App routes — auth enforced per-endpoint inside the router.
+// /github/app/callback is public (GitHub redirects here after manifest flow).
+// /github/webhook is public (signed by GitHub HMAC — CSRF exempted above).
+// Legacy OAuth routes are 410 Gone — stubs, no auth required.
+app.use("/github/repos/*", requireAuth(db));
+app.use("/github/app/manifest", requireAuth(db));
+app.use("/github/app/config", requireAuth(db));
+app.use("/github/installations", requireAuth(db));
+app.use("/github/installations/*", requireAuth(db));
+app.route("/github", githubRouter);
+
+// WebSocket upgrade routes — auth is cookie-based, verified inside the handler.
+app.route("/ws", wsRouter);
+
 // /me — requires auth
 app.get("/me", requireAuth(db), async (c) => {
   // eslint-disable-next-line @typescript-eslint/no-explicit-any
   const user = (c as any).get("user") as AuthUser;
+  // eslint-disable-next-line @typescript-eslint/no-explicit-any
+  const accessExpiresAt = ((c as any).get("access_exp") as number | undefined) ?? 0;
 
   const passkeyRows = await db
     .select({ id: passkeys.id })
@@ -247,6 +276,7 @@ app.get("/me", requireAuth(db), async (c) => {
     email: fullUser.email,
     display_name: fullUser.display_name,
     created_at: fullUser.created_at?.toISOString(),
+    accessExpiresAt,
     has_passkey_plus: passkeyCount >= 2,
     has_backup_codes: backupCount >= 1,
     needs_second_factor: passkeyCount < 2 && backupCount < 1,

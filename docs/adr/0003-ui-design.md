@@ -38,7 +38,7 @@ The spec requires a re-challenge flow (GET login options → startAuthentication
 ### 4. Test approach: state-machine tests instead of DOM rendering
 
 `@testing-library/react`'s `render` requires a live DOM. In the bun monorepo setup, happy-dom does not propagate correctly to the `.bun` package store where `@testing-library/react` is resolved. Rather than fighting the resolution, we:
-- Test pure logic (state machines, query functions) without DOM for `Topbar.test.tsx` and `auth.test.tsx`.
+- Test pure logic (state machines, query functions) without DOM for `src/tests/components/layout/Topbar.test.tsx` and `src/tests/lib/auth.test.tsx`.
 - Use direct fetch mocks for `api.test.ts` (no DOM needed).
 
 **Trade-off**: Less integration coverage on component rendering. Rendering tests can be added in a dedicated storybook or via playwright E2E tests in a later sprint.

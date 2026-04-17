@@ -1,0 +1,13 @@
+# BuildKit daemon config — dev only.
+# Declares the local dev registries as insecure (plain HTTP, no TLS).
+# The compose service `registry:5000` is the push target from inside the
+# buildkitd container. `127.0.0.1:5000` is declared too for host-network
+# scenarios (CI, when network_mode=host is used).
+
+[registry."registry:5000"]
+  http = true
+  insecure = true
+
+[registry."127.0.0.1:5000"]
+  http = true
+  insecure = true
