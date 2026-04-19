@@ -2,8 +2,9 @@
 import { useMutation, useQueries, useQuery, useQueryClient } from "@tanstack/react-query"
 import { apiFetch, invalidateGetCache } from "./api"
 import { useEventsSubscription } from "./events-provider"
-import type { AppConfig, AppStatus, Build } from "@ploydok/shared"
+import type { AppConfig, AppStatus, Build, RestartPolicy } from "@ploydok/shared"
 import type { ApiError } from "./api"
+import { toast } from "sonner"
 
 // ---------------------------------------------------------------------------
 // Types
@@ -16,6 +17,7 @@ export interface AppListItem {
   status: AppStatus
   branch?: string
   domain?: string
+  publicUrl?: string
   repoFullName?: string
   createdAt: number
   updatedAt: number
@@ -29,6 +31,7 @@ export interface AppDetail extends AppListItem {
   buildCommand?: string
   startCommand?: string
   buildMethod?: string
+  restartPolicy?: RestartPolicy
   currentCommitSha?: string
   latestBuildId?: string
   healthcheckPath?: string
@@ -96,10 +99,30 @@ export type AppSettingsPatch = Partial<
     | "buildCommand"
     | "startCommand"
     | "buildMethod"
+    | "restartPolicy"
     | "healthcheckPath"
     | "healthcheckPort"
   >
 >
+
+interface AppStatusEventPayload {
+  appId?: string
+  data?: {
+    status?: AppStatus
+  }
+}
+
+export function applyAppStatus(
+  app: AppDetail | AppListItem | undefined,
+  status: AppStatus,
+): AppDetail | AppListItem | undefined {
+  if (!app) return app
+  return { ...app, status }
+}
+
+export function getEventAppStatus(payload: AppStatusEventPayload): AppStatus | undefined {
+  return payload.data?.status
+}
 
 // ---------------------------------------------------------------------------
 // useApps
@@ -130,7 +153,11 @@ export function useCreateApp() {
         headers: { "content-type": "application/json" },
       }),
     onSuccess: () => {
+      toast.success("App created")
       qc.invalidateQueries({ queryKey: ["apps"] })
+    },
+    onError: (error) => {
+      toast.error(error.message)
     },
   })
 }
@@ -145,6 +172,46 @@ export interface UseAppOptions {
 }
 
 export function useApp(appId: string, opts?: UseAppOptions) {
+  const qc = useQueryClient()
+
+  const syncStatus = (status: AppStatus) => {
+    qc.setQueryData<AppDetail | undefined>(["apps", appId], (current) =>
+      applyAppStatus(current, status) as AppDetail | undefined,
+    )
+    qc.setQueryData<Array<AppListItem> | undefined>(["apps"], (current) =>
+      current?.map((app) => (app.id === appId ? (applyAppStatus(app, status) as AppListItem) : app)),
+    )
+  }
+
+  const refetchApp = () => {
+    invalidateGetCache(`/apps/${appId}`)
+    void qc.invalidateQueries({ queryKey: ["apps", appId] })
+    void qc.invalidateQueries({ queryKey: ["apps"] })
+  }
+
+  useEventsSubscription<AppStatusEventPayload>("build.started", (payload) => {
+    if (payload.appId !== appId) return
+    const status = getEventAppStatus(payload) ?? "building"
+    syncStatus(status)
+  })
+
+  useEventsSubscription<AppStatusEventPayload>("deploy.status_change", (payload) => {
+    if (payload.appId !== appId) return
+    const status = getEventAppStatus(payload)
+    if (status) syncStatus(status)
+    refetchApp()
+  })
+
+  useEventsSubscription<AppStatusEventPayload>("build.failed", (payload) => {
+    if (payload.appId !== appId) return
+    refetchApp()
+  })
+
+  useEventsSubscription<AppStatusEventPayload>("build.succeeded", (payload) => {
+    if (payload.appId !== appId) return
+    refetchApp()
+  })
+
   return useQuery<AppDetail, ApiError>({
     queryKey: ["apps", appId],
     queryFn: async () => {
@@ -240,9 +307,12 @@ export function useRecentBuildsAcrossApps(
   const results = useQueries({
     queries: targets.map((app) => ({
       queryKey: ["apps", app.id],
-      queryFn: async () => {
-        const data = await apiFetch<{ app: RawAppDetail; builds: Array<Build> }>(`/apps/${app.id}`)
-        return { app: normalizeAppDetail(data.app), builds: data.builds, appName: app.name }
+      queryFn: async (): Promise<AppDetail> => {
+        const { app: raw, builds: rawBuilds } = await apiFetch<{
+          app: RawAppDetail
+          builds: Array<Build>
+        }>(`/apps/${app.id}`)
+        return { ...normalizeAppDetail(raw), builds: rawBuilds }
       },
       staleTime: 15_000,
       enabled: Boolean(app.id),
@@ -252,10 +322,11 @@ export function useRecentBuildsAcrossApps(
   const isLoading = results.some((r) => r.isLoading)
 
   const builds: Array<BuildWithApp> = results
-    .flatMap((r) => {
-      if (!r.data?.builds) return []
-      const { appName, builds: buildList } = r.data
-      return buildList.map((b) => ({ ...b, appName }))
+    .flatMap((r, idx) => {
+      const detail = r.data
+      if (!detail?.builds) return []
+      const appName = targets[idx]?.name ?? detail.name
+      return detail.builds.map((b) => ({ ...b, appName }))
     })
     .sort((a, b) => (b.startedAt ?? b.createdAt) - (a.startedAt ?? a.createdAt))
 

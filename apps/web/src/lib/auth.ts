@@ -8,6 +8,7 @@ import {
 import { ApiError, apiFetch } from "./api";
 import type {UseQueryResult} from "@tanstack/react-query";
 import type { Me } from "@ploydok/shared";
+import { toast } from "sonner";
 
 // ---------------------------------------------------------------------------
 // useMe
@@ -46,7 +47,11 @@ export function useLogin() {
     mutationFn: (payload) =>
       apiFetch<Me>("/auth/login/verify", { method: "POST", body: payload }),
     onSuccess: (data) => {
+      toast.success("Signed in");
       qc.setQueryData(["me"], data);
+    },
+    onError: (error) => {
+      toast.error(error.message);
     },
   });
 }
@@ -67,7 +72,11 @@ export function useRegister() {
     mutationFn: (payload) =>
       apiFetch<Me>("/auth/register/verify", { method: "POST", body: payload }),
     onSuccess: (data) => {
+      toast.success("Account created");
       qc.setQueryData(["me"], data);
+    },
+    onError: (error) => {
+      toast.error(error.message);
     },
   });
 }
@@ -81,8 +90,12 @@ export function useLogout() {
   return useMutation<void, ApiError, void>({
     mutationFn: () => apiFetch<void>("/auth/logout", { method: "POST" }),
     onSuccess: () => {
+      toast.success("Signed out");
       qc.setQueryData(["me"], null);
       qc.invalidateQueries({ queryKey: ["me"] });
+    },
+    onError: (error) => {
+      toast.error(error.message);
     },
   });
 }

@@ -44,11 +44,13 @@ function buildHealthcheckPayload(
   body: Partial<{
     healthcheckPath: string | undefined
     healthcheckPort: number | null | undefined
+    restartPolicy: "no" | "always" | "unless-stopped" | "on-failure"
     branch: string
   }>,
 ): Record<string, unknown> {
-  const { healthcheckPath, healthcheckPort, ...rest } = body
+  const { healthcheckPath, healthcheckPort, restartPolicy, ...rest } = body
   const payload: Record<string, unknown> = { ...rest }
+  if (restartPolicy !== undefined) payload.restartPolicy = restartPolicy
   if (healthcheckPath !== undefined || healthcheckPort !== undefined) {
     const healthcheck: Record<string, unknown> = {}
     if (healthcheckPath !== undefined) healthcheck.path = healthcheckPath ?? undefined
@@ -169,6 +171,11 @@ describe("apps-mutations — settings healthcheck payload serialization", () => 
     const payload = buildHealthcheckPayload({ branch: "main" })
     expect(payload.branch).toBe("main")
     expect(payload.healthcheck).toBeUndefined()
+  })
+
+  it("passes restartPolicy through unchanged", () => {
+    const payload = buildHealthcheckPayload({ restartPolicy: "no" })
+    expect(payload.restartPolicy).toBe("no")
   })
 
   it("omits healthcheck object when neither path nor port is provided", () => {

@@ -4,7 +4,7 @@ import { z } from "zod";
 
 const schema = z.object({
   NODE_ENV: z.enum(["dev", "prod", "test"]).default("dev"),
-  PORT: z.coerce.number().default(4000),
+  PORT: z.coerce.number().default(3335),
   SESSION_SECRET: z.string().min(32).optional(),
   MASTER_KEY: z.string().optional(),
   DATABASE_URL: z.string().default("../../ploydok.db"),
@@ -19,7 +19,7 @@ const schema = z.object({
     .string()
     .url()
     .optional()
-    .default("http://localhost:4000/github/app/callback"),
+    .default("http://localhost:3335/github/app/callback"),
   PLOYDOK_REGISTRY_URL: z.string().default("127.0.0.1:5000"),
   PLOYDOK_REGISTRY_PUSH_URL: z.string().default("registry:5000"),
   PLOYDOK_REGISTRY_USER: z.string().optional(),
@@ -29,6 +29,8 @@ const schema = z.object({
     return `${home}/.ploydok-dev/builds`;
   }),
   PLOYDOK_BUILDKIT_ADDR: z.string().default("docker-container://ploydok-buildkitd"),
+  PLOYDOK_PUBLIC_SCHEME: z.enum(["http", "https"]).optional(),
+  PLOYDOK_PUBLIC_PORT: z.coerce.number().int().positive().optional(),
 });
 
 const raw = schema.parse({
@@ -51,6 +53,8 @@ const raw = schema.parse({
   PLOYDOK_REGISTRY_PASS: Bun.env["PLOYDOK_REGISTRY_PASS"],
   PLOYDOK_BUILD_DIR: Bun.env["PLOYDOK_BUILD_DIR"],
   PLOYDOK_BUILDKIT_ADDR: Bun.env["PLOYDOK_BUILDKIT_ADDR"],
+  PLOYDOK_PUBLIC_SCHEME: Bun.env["PLOYDOK_PUBLIC_SCHEME"],
+  PLOYDOK_PUBLIC_PORT: Bun.env["PLOYDOK_PUBLIC_PORT"],
 });
 
 const isProd = raw.NODE_ENV === "prod";
@@ -115,4 +119,6 @@ export const env = {
   PLOYDOK_REGISTRY_PASS: raw.PLOYDOK_REGISTRY_PASS,
   PLOYDOK_BUILD_DIR: raw.PLOYDOK_BUILD_DIR,
   PLOYDOK_BUILDKIT_ADDR: raw.PLOYDOK_BUILDKIT_ADDR,
+  PLOYDOK_PUBLIC_SCHEME: raw.PLOYDOK_PUBLIC_SCHEME ?? (isProd ? "https" : "http"),
+  PLOYDOK_PUBLIC_PORT: raw.PLOYDOK_PUBLIC_PORT ?? (isProd ? undefined : 8180),
 } as const;

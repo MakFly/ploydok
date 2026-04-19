@@ -14,7 +14,7 @@ make infra-up
 # Shell 2 — agent Rust (socket /tmp/ploydok-agent.sock)
 make dev-agent
 
-# Shell 3 — stack applicative (API :4000 + Web :5173)
+# Shell 3 — stack applicative (API :3335 + Web :5173)
 make dev
 ```
 
@@ -112,7 +112,7 @@ gh repo create ploydok/fixture-hello --public --push --source=.
 | `PLOYDOK_E2E_REAL` | _(absent → skip)_ | Positionner à `"1"` pour activer le test |
 | `E2E_TEST_EMAIL` | — | Email du compte de test (backup-code login) |
 | `E2E_TEST_BACKUP_CODE` | — | Code backup au format `XXXX-XXXX-XXXX` |
-| `E2E_API_URL` | `http://localhost:4000` | URL de l'API |
+| `E2E_API_URL` | `http://localhost:3335` | URL de l'API |
 | `PLOYDOK_DOMAIN_BASE` | `demo.ploydok.local` | Base de domaine Caddy |
 
 ---
@@ -170,7 +170,7 @@ sqlite3 ploydok.db "SELECT id, status, error_message FROM builds ORDER BY create
 Si `builds[0].status === "failed"` → lire `error_message` dans la DB ou via :
 
 ```bash
-curl -s http://localhost:4000/apps/<appId> \
+curl -s http://localhost:3335/apps/<appId> \
   -H "cookie: ploydok_access=<token>" | jq .builds[0]
 ```
 
@@ -182,7 +182,7 @@ Le spec ne détruit pas l'app en fin de run (la DB reste propre pour inspecter
 les builds). Pour arrêter l'app manuellement :
 
 ```bash
-curl -s -X POST http://localhost:4000/apps/<appId>/stop \
+curl -s -X POST http://localhost:3335/apps/<appId>/stop \
   -H "cookie: ploydok_access=<token>" \
   -H "x-csrf-token: <csrf>"
 ```

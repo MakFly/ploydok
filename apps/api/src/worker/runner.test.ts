@@ -376,11 +376,12 @@ describe("getCurrentColor inference", () => {
 // ---------------------------------------------------------------------------
 
 describe("containerName convention", () => {
-  test("formats as ploydok-app-{appId}-{color}", () => {
-    const appId = "abc123";
-    const blue = `ploydok-app-${appId}-blue`;
-    const green = `ploydok-app-${appId}-green`;
-    expect(blue).toBe("ploydok-app-abc123-blue");
-    expect(green).toBe("ploydok-app-abc123-green");
+  test("formats as ploydok-app-{slug}-{shortId}-{color}", () => {
+    const slug = "my-app";
+    const shortId = "abc123ef";
+    const blue = `ploydok-app-${slug}-${shortId}-blue`;
+    const green = `ploydok-app-${slug}-${shortId}-green`;
+    expect(blue).toBe("ploydok-app-my-app-abc123ef-blue");
+    expect(green).toBe("ploydok-app-my-app-abc123ef-green");
   });
 });

@@ -2,6 +2,7 @@
 import * as React from "react";
 import { HeadContent, Scripts, createRootRoute } from "@tanstack/react-router";
 import { QueryClient, QueryClientProvider } from "@tanstack/react-query";
+import { Toaster } from "sonner";
 
 import appCss from "@workspace/ui/globals.css?url";
 import { ApiErrorState } from "../components/errors/ApiErrorState";
@@ -99,7 +100,10 @@ function RootDocument({ children }: { children: React.ReactNode }): React.JSX.El
       </head>
       <body>
         <QueryClientProvider client={queryClient}>
-          <AuthSyncProvider>{children}</AuthSyncProvider>
+          <AuthSyncProvider>
+            {children}
+            <Toaster position="bottom-center" richColors />
+          </AuthSyncProvider>
         </QueryClientProvider>
         <Scripts />
       </body>

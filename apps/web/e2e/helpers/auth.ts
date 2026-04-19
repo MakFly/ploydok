@@ -6,7 +6,7 @@
  * backup-code login is available for automated tests.
  *
  * Required env vars (all have dev defaults):
- *   E2E_API_URL          – defaults to http://localhost:4000
+ *   E2E_API_URL          – defaults to http://localhost:3335
  *   E2E_WEB_URL          – defaults to http://localhost:5173
  *   E2E_TEST_EMAIL       – backup-code login email
  *   E2E_TEST_BACKUP_CODE – backup code for that account (format: XXXX-XXXX-XXXX)
@@ -17,7 +17,7 @@ import type { Page } from "@playwright/test";
 // Constants
 // ---------------------------------------------------------------------------
 
-export const API_URL = process.env.E2E_API_URL ?? "http://localhost:4000";
+export const API_URL = process.env.E2E_API_URL ?? "http://localhost:3335";
 export const WEB_URL = process.env.E2E_WEB_URL ?? "http://localhost:5173";
 
 // ---------------------------------------------------------------------------

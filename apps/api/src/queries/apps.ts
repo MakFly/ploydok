@@ -91,3 +91,110 @@ export async function listBuildsForApp(
     .orderBy(desc(builds.created_at))
     .limit(limit);
 }
+
+// ---------------------------------------------------------------------------
+// Activity (derived from builds)
+// ---------------------------------------------------------------------------
+
+export type ActivityEventType =
+  | "build.started"
+  | "build.succeeded"
+  | "build.failed"
+  | "build.cancelled";
+
+export interface ActivityEvent {
+  id: string;
+  type: ActivityEventType;
+  /** Unix timestamp in milliseconds */
+  timestamp: number;
+  buildId: string;
+  data: {
+    message?: string | undefined;
+    commitSha?: string | undefined;
+    commitMessage?: string | undefined;
+    errorMessage?: string | undefined;
+  };
+}
+
+/**
+ * Derives an activity timeline for an app from its build rows. Each terminal
+ * build produces two events (started + outcome); pending/running builds emit
+ * only the started event.
+ *
+ * Returns events sorted newest first, capped to `limit`.
+ */
+export function deriveActivityFromBuilds(
+  rows: BuildRow[],
+  limit: number,
+): ActivityEvent[] {
+  const events: ActivityEvent[] = [];
+
+  for (const row of rows) {
+    const startTs =
+      (row.started_at instanceof Date ? row.started_at.getTime() : null) ??
+      (row.created_at instanceof Date ? row.created_at.getTime() : null);
+
+    const commitSha = row.commit_sha ?? undefined;
+    const commitMessage = row.commit_message ?? undefined;
+
+    if (startTs !== null) {
+      events.push({
+        id: `${row.id}.started`,
+        type: "build.started",
+        timestamp: startTs,
+        buildId: row.id,
+        data: {
+          message: commitMessage ?? undefined,
+          commitSha,
+          commitMessage,
+        },
+      });
+    }
+
+    if (
+      (row.status === "succeeded" ||
+        row.status === "failed" ||
+        row.status === "cancelled") &&
+      row.finished_at instanceof Date
+    ) {
+      const type: ActivityEventType =
+        row.status === "succeeded"
+          ? "build.succeeded"
+          : row.status === "failed"
+            ? "build.failed"
+            : "build.cancelled";
+
+      events.push({
+        id: `${row.id}.${row.status}`,
+        type,
+        timestamp: row.finished_at.getTime(),
+        buildId: row.id,
+        data: {
+          message:
+            row.status === "failed" && row.error_message
+              ? row.error_message
+              : (commitMessage ?? undefined),
+          commitSha,
+          commitMessage,
+          errorMessage: row.error_message ?? undefined,
+        },
+      });
+    }
+  }
+
+  events.sort((a, b) => b.timestamp - a.timestamp);
+  return events.slice(0, limit);
+}
+
+/**
+ * Returns recent activity for an app, derived from its builds table.
+ * To get N events we read up to N builds (each produces 1-2 events).
+ */
+export async function getAppActivity(
+  db: Db,
+  appId: string,
+  limit = 20,
+): Promise<ActivityEvent[]> {
+  const rows = await listBuildsForApp(db, appId, limit);
+  return deriveActivityFromBuilds(rows, limit);
+}

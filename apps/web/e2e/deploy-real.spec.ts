@@ -12,13 +12,13 @@
  *   PLOYDOK_E2E_REAL        – must be "1" to run (gate)
  *   E2E_TEST_EMAIL          – backup-code login email
  *   E2E_TEST_BACKUP_CODE    – backup code (format: XXXX-XXXX-XXXX)
- *   E2E_API_URL             – defaults to http://localhost:4000
+ *   E2E_API_URL             – defaults to http://localhost:3335
  *   PLOYDOK_DOMAIN_BASE     – defaults to demo.ploydok.local
  *
  * Prerequisites (run in separate shells before launching this spec):
  *   Shell 1: make infra-up       (caddy + buildkitd + registry)
  *   Shell 2: make dev-agent      (Rust agent on /tmp/ploydok-agent.sock)
- *   Shell 3: make dev            (API :4000 + Web :5173)
+ *   Shell 3: make dev            (API :3335 + Web :5173)
  *   GitHub:  Ploydok GitHub App installed on the fixture repo's owner,
  *            with access granted to ploydok/fixture-hello. deploy.ts resolves
  *            the installation token automatically (no PAT seed required).

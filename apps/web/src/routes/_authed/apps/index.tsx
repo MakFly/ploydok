@@ -5,10 +5,10 @@ import { Button } from "@workspace/ui/components/button";
 import { RiAddLine, RiArrowRightUpLine, RiGitBranchLine, RiGlobalLine } from "@remixicon/react";
 import { CreateAppModal } from "../../../components/apps/CreateAppModal";
 import { ShellPage, ShellPanel } from "../../../components/layout/AppShell";
+import { AppStatusBadge } from "../../../components/apps/AppStatusBadge";
 import { useApps } from "../../../lib/apps";
 import { useGitHubAppConfig } from "../../../lib/github";
 import type { AppListItem } from "../../../lib/apps";
-import type { AppStatus } from "@ploydok/shared";
 
 export const Route = createFileRoute("/_authed/apps/")({
   component: AppsPage,
@@ -38,13 +38,16 @@ function AppsPage(): React.JSX.Element {
     >
       <div className="grid gap-4 lg:grid-cols-[1.9fr_1fr]">
         <ShellPanel
-          title="Application roster"
-          description="Every card keeps the softer, inset visual language of the reference shell while exposing real deployment state."
+          title="Applications"
+          description="Toutes tes apps déployées et leur état actuel."
         >
           {isLoading ? (
             <AppsGridSkeleton />
           ) : error ? (
-            <p className="rounded-[1rem] border border-destructive/30 bg-destructive/10 px-4 py-3 text-sm text-destructive" role="alert">
+            <p
+              className="rounded-md border border-destructive/30 bg-destructive/10 px-4 py-3 text-sm text-destructive"
+              role="alert"
+            >
               Failed to load apps: {error.message}
             </p>
           ) : apps.length > 0 ? (
@@ -62,11 +65,15 @@ function AppsPage(): React.JSX.Element {
         </ShellPanel>
 
         <div className="grid gap-4">
-          <ShellPanel title="Flow" description="The right rail mirrors the action-first style from Efferd.">
+          <ShellPanel title="Démarrer" description="Les premières étapes utiles.">
             <div className="space-y-3">
               <MiniStep
                 label="Connect GitHub"
-                body={appConfig?.configured ? "GitHub App is already configured." : "Install the GitHub App to unlock repository selection."}
+                body={
+                  appConfig?.configured
+                    ? "GitHub App is already configured."
+                    : "Install the GitHub App to unlock repository selection."
+                }
                 to="/settings/github"
               />
               <MiniButton
@@ -82,11 +89,17 @@ function AppsPage(): React.JSX.Element {
             </div>
           </ShellPanel>
 
-          <ShellPanel title="Snapshot" description="A lightweight summary for this area.">
+          <ShellPanel title="Snapshot" description="Résumé léger de ton workspace.">
             <div className="grid gap-3">
               <SnapshotRow label="Total apps" value={String(apps.length)} />
-              <SnapshotRow label="Running" value={String(apps.filter((app) => app.status === "running").length)} />
-              <SnapshotRow label="GitHub" value={appConfig?.configured ? "Connected" : "Pending"} />
+              <SnapshotRow
+                label="Running"
+                value={String(apps.filter((app) => app.status === "running").length)}
+              />
+              <SnapshotRow
+                label="GitHub"
+                value={appConfig?.configured ? "Connected" : "Pending"}
+              />
             </div>
           </ShellPanel>
         </div>
@@ -102,19 +115,21 @@ function AppCard({ app }: { app: AppListItem }): React.JSX.Element {
     <Link
       to="/apps/$id/overview"
       params={{ id: app.id }}
-      className="rounded-[1.5rem] border border-border/70 bg-[linear-gradient(180deg,rgba(255,255,255,0.98),rgba(247,248,250,0.94))] p-4 shadow-sm transition-all hover:-translate-y-0.5 hover:border-slate-300 hover:shadow-[0_18px_35px_rgba(148,163,184,0.18)]"
+      className="group rounded-lg border border-border bg-card p-4 transition-colors hover:border-foreground/20 hover:bg-accent/30"
     >
       <div className="flex items-start justify-between gap-3">
         <div className="min-w-0">
-          <p className="truncate text-sm font-semibold text-slate-950">{app.name}</p>
+          <p className="truncate text-sm font-semibold text-foreground">
+            {app.name}
+          </p>
           <p className="mt-1 truncate text-xs text-muted-foreground">
             {app.repoFullName ?? "Repository pending"}
           </p>
         </div>
-        <StatusBadge status={app.status} />
+        <AppStatusBadge status={app.status} />
       </div>
 
-      <div className="mt-4 grid gap-2 text-xs text-slate-500">
+      <div className="mt-4 grid gap-2 text-xs text-muted-foreground">
         <div className="flex items-center gap-2">
           <RiGitBranchLine className="size-4" />
           <span>{app.branch ?? "main"}</span>
@@ -125,35 +140,11 @@ function AppCard({ app }: { app: AppListItem }): React.JSX.Element {
         </div>
       </div>
 
-      <div className="mt-4 flex items-center justify-between border-t border-border/60 pt-4">
+      <div className="mt-4 flex items-center justify-between border-t border-border pt-4">
         <span className="text-xs text-muted-foreground">Open deployment</span>
-        <RiArrowRightUpLine className="size-4 text-slate-500" />
+        <RiArrowRightUpLine className="size-4 text-muted-foreground transition-transform group-hover:translate-x-0.5 group-hover:-translate-y-0.5" />
       </div>
     </Link>
-  );
-}
-
-const STATUS_STYLES: Record<AppStatus, string> = {
-  created: "bg-slate-200 text-slate-700",
-  pending: "bg-slate-200 text-slate-700",
-  building: "bg-sky-500/12 text-sky-700",
-  running: "bg-emerald-500/12 text-emerald-700",
-  restarting: "bg-yellow-500/12 text-yellow-700",
-  failed: "bg-destructive/10 text-destructive",
-  stopped: "bg-slate-200 text-slate-700",
-};
-
-function StatusBadge({ status }: { status: AppStatus }): React.JSX.Element {
-  return (
-    <span
-      className={[
-        "inline-flex shrink-0 items-center gap-1.5 rounded-full px-2.5 py-1 text-[11px] font-medium capitalize",
-        STATUS_STYLES[status] ?? STATUS_STYLES.pending,
-      ].join(" ")}
-    >
-      <span className="size-1.5 rounded-full bg-current" aria-hidden="true" />
-      {status}
-    </span>
   );
 }
 
@@ -165,11 +156,11 @@ function EmptyState({
   onCreateApp: () => void;
 }): React.JSX.Element {
   return (
-    <div className="rounded-[1.5rem] border border-dashed border-border bg-white/70 px-6 py-12 text-center">
-      <p className="text-sm font-semibold text-slate-950">No applications yet</p>
+    <div className="rounded-lg border border-dashed border-border bg-muted/30 px-6 py-12 text-center">
+      <p className="text-sm font-semibold text-foreground">No applications yet</p>
       <p className="mt-2 text-sm leading-6 text-muted-foreground">
         {isGitHubConnected
-          ? "Start the first deployment and this grid will take over the canvas."
+          ? "Start the first deployment and this grid will fill up."
           : "Connect GitHub first so Ploydok can read repositories and create deployments."}
       </p>
       <div className="mt-5 flex justify-center gap-2">
@@ -193,12 +184,12 @@ function AppsGridSkeleton(): React.JSX.Element {
       {Array.from({ length: 6 }).map((_, index) => (
         <div
           key={index}
-          className="animate-pulse rounded-[1.5rem] border border-border/70 bg-white/85 p-4 shadow-sm"
+          className="animate-pulse rounded-lg border border-border bg-card p-4"
         >
-          <div className="h-4 w-32 rounded bg-slate-200" />
-          <div className="mt-2 h-3 w-44 rounded bg-slate-100" />
-          <div className="mt-6 h-3 w-20 rounded bg-slate-100" />
-          <div className="mt-2 h-3 w-28 rounded bg-slate-100" />
+          <div className="h-4 w-32 rounded bg-muted" />
+          <div className="mt-2 h-3 w-44 rounded bg-muted" />
+          <div className="mt-6 h-3 w-20 rounded bg-muted" />
+          <div className="mt-2 h-3 w-28 rounded bg-muted" />
         </div>
       ))}
     </div>
@@ -217,13 +208,13 @@ function MiniStep({
   return (
     <Link
       to={to}
-      className="flex items-center justify-between rounded-[1.15rem] border border-border/70 bg-white/80 px-4 py-3 transition-colors hover:border-slate-300"
+      className="flex items-center justify-between rounded-md border border-border bg-card px-4 py-3 transition-colors hover:bg-accent/40"
     >
       <span>
-        <span className="block text-sm font-medium text-slate-950">{label}</span>
+        <span className="block text-sm font-medium text-foreground">{label}</span>
         <span className="block text-xs text-muted-foreground">{body}</span>
       </span>
-      <RiArrowRightUpLine className="size-4 text-slate-500" />
+      <RiArrowRightUpLine className="size-4 text-muted-foreground" />
     </Link>
   );
 }
@@ -241,22 +232,24 @@ function MiniButton({
     <button
       type="button"
       onClick={onClick}
-      className="flex w-full items-center justify-between rounded-[1.15rem] border border-border/70 bg-white/80 px-4 py-3 text-left transition-colors hover:border-slate-300"
+      className="flex w-full items-center justify-between rounded-md border border-border bg-card px-4 py-3 text-left transition-colors hover:bg-accent/40"
     >
       <span>
-        <span className="block text-sm font-medium text-slate-950">{label}</span>
+        <span className="block text-sm font-medium text-foreground">{label}</span>
         <span className="block text-xs text-muted-foreground">{body}</span>
       </span>
-      <RiArrowRightUpLine className="size-4 text-slate-500" />
+      <RiArrowRightUpLine className="size-4 text-muted-foreground" />
     </button>
   );
 }
 
 function SnapshotRow({ label, value }: { label: string; value: string }): React.JSX.Element {
   return (
-    <div className="rounded-[1rem] border border-border/70 bg-white/80 px-4 py-3">
-      <p className="text-[11px] font-semibold uppercase tracking-[0.22em] text-muted-foreground">{label}</p>
-      <p className="mt-2 text-sm font-semibold text-slate-950">{value}</p>
+    <div className="rounded-md border border-border bg-card px-4 py-3">
+      <p className="text-[11px] font-medium uppercase tracking-wider text-muted-foreground">
+        {label}
+      </p>
+      <p className="mt-1 text-sm font-semibold text-foreground">{value}</p>
     </div>
   );
 }

@@ -28,6 +28,8 @@ import { verifyAccessToken, ACCESS_COOKIE } from "../auth/jwt";
 import { logBus } from "../worker/log-bus";
 import { env } from "../env";
 import type { LogEntry } from "../worker/log-bus";
+import { getSharedAgent } from "../debug/singletons";
+import { resolveRuntimeContainer } from "../runtime-containers";
 
 // ---------------------------------------------------------------------------
 // BunWebSocket adapter — the `websocket` object must be forwarded to Bun.serve.
@@ -109,11 +111,6 @@ async function userOwnsApp(appId: string, userId: string): Promise<boolean> {
 // Generic log stream handler factory
 // ---------------------------------------------------------------------------
 
-type WsContext = {
-  ws: { send: (msg: string) => void; close: (code?: number, reason?: string) => void };
-  channel: string;
-};
-
 function createLogStreamHandler(getChannelAndAuth: (c: Parameters<typeof upgradeWebSocket>[0]) => Promise<{ channel: string; userId: string } | null>) {
   return upgradeWebSocket((c) => {
     // Per-connection mutable state.
@@ -182,6 +179,121 @@ function createLogStreamHandler(getChannelAndAuth: (c: Parameters<typeof upgrade
   });
 }
 
+function createRuntimeLogStreamHandler() {
+  return upgradeWebSocket((c) => {
+    let pingTimer: ReturnType<typeof setInterval> | null = null;
+    let missedPings = 0;
+    let closed = false
+    let stopStreaming: (() => void) | null = null
+
+    return {
+      async onOpen(_evt, ws) {
+        const appId = c.req.param("id") ?? ""
+        if (!appId) {
+          ws.close(4000, "missing app id")
+          return
+        }
+
+        const userId = await getUserIdFromRequest(c.req.raw)
+        if (!userId) {
+          ws.close(4001, "unauthorized")
+          return
+        }
+
+        const ownedRows = await db
+          .select({ id: apps.id, container_id: apps.container_id })
+          .from(apps)
+          .innerJoin(projects, eq(apps.project_id, projects.id))
+          .where(eq(apps.id, appId))
+          .limit(1)
+
+        const app = ownedRows[0]
+        const ownsApp = await userOwnsApp(appId, userId)
+        if (!app || !ownsApp) {
+          ws.close(4001, "unauthorized")
+          return
+        }
+
+        const agent = getSharedAgent()
+        const container = await resolveRuntimeContainer(agent, {
+          appId,
+          preferredContainerRef: app.container_id,
+        })
+
+        if (!container) {
+          ws.send(JSON.stringify({ type: "runtime.missing", t: Date.now() }))
+          ws.close(1000, "no runtime container")
+          return
+        }
+
+        pingTimer = setInterval(() => {
+          missedPings++
+          if (missedPings > MAX_MISSED_PINGS) {
+            ws.close(1001, "heartbeat timeout")
+            return
+          }
+          ws.send(JSON.stringify({ type: "ping", t: Date.now() }))
+        }, HEARTBEAT_INTERVAL_MS)
+
+        const iterator = agent.containerLogs({
+          containerId: container.id,
+          follow: true,
+          sinceUnix: 0,
+          tail: REPLAY_LIMIT,
+        })[Symbol.asyncIterator]()
+
+        stopStreaming = () => {
+          void iterator.return?.()
+        }
+
+        void (async () => {
+          try {
+            for (;;) {
+              const next = await iterator.next()
+              if (next.done || closed) break
+              const line = next.value
+              ws.send(
+                JSON.stringify({
+                  t: Date.parse(line.timestamp) || Date.now(),
+                  line: line.line,
+                  stream:
+                    line.stream === "stdout" || line.stream === "stderr"
+                      ? line.stream
+                      : undefined,
+                }),
+              )
+            }
+          } catch {
+            if (!closed) {
+              ws.close(1011, "runtime log stream failed")
+            }
+          }
+        })()
+      },
+
+      onMessage(msg, _ws) {
+        try {
+          const data = JSON.parse(typeof msg.data === "string" ? msg.data : String(msg.data)) as unknown;
+          if (typeof data === "object" && data !== null && (data as { type?: unknown }).type === "pong") {
+            missedPings = 0;
+          }
+        } catch {
+          // Non-JSON messages are silently ignored.
+        }
+      },
+
+      onClose() {
+        closed = true
+        stopStreaming?.()
+        if (pingTimer) {
+          clearInterval(pingTimer);
+          pingTimer = null;
+        }
+      },
+    }
+  })
+}
+
 // ---------------------------------------------------------------------------
 // Router
 // ---------------------------------------------------------------------------
@@ -210,17 +322,5 @@ wsRouter.get(
 // GET /ws/apps/:id/logs — runtime log stream
 wsRouter.get(
   "/apps/:id/logs",
-  createLogStreamHandler(async (c) => {
-    const appId = c.req.param("id") ?? "";
-
-    if (!appId) return null;
-
-    const userId = await getUserIdFromRequest(c.req.raw);
-    if (!userId) return null;
-
-    const owned = await userOwnsApp(appId, userId);
-    if (!owned) return null;
-
-    return { channel: `runtime:${appId}`, userId };
-  }),
+  createRuntimeLogStreamHandler(),
 );

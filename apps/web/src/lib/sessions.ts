@@ -3,6 +3,7 @@ import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
 import { apiFetch } from "./api";
 import type { ApiError } from "./api";
 import type { SessionInfo } from "@ploydok/shared";
+import { toast } from "sonner";
 
 interface SessionsResponse {
   sessions: Array<SessionInfo>;
@@ -35,7 +36,11 @@ export function useRevokeOthers() {
     mutationFn: () =>
       apiFetch<void>("/auth/sessions/revoke-others", { method: "POST" }),
     onSuccess: () => {
+      toast.success("Other sessions revoked");
       qc.invalidateQueries({ queryKey: ["sessions"] });
+    },
+    onError: (error) => {
+      toast.error(error.message);
     },
   });
 }

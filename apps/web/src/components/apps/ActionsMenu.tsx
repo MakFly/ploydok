@@ -119,9 +119,14 @@ export function ActionsMenu({ app }: ActionsMenuProps): React.JSX.Element {
     <>
       <DropdownMenu>
         <DropdownMenuTrigger asChild>
-          <Button size="sm" variant="outline" aria-label="App actions">
-            Actions
-            <ChevronDownIcon className="ml-1 h-3.5 w-3.5" />
+          <Button
+            size="sm"
+            variant="outline"
+            aria-label="App actions"
+            title="App actions"
+            className="size-7 p-0"
+          >
+            <MoreIcon className="size-3.5" />
           </Button>
         </DropdownMenuTrigger>
         <DropdownMenuContent align="end">
@@ -309,20 +314,16 @@ export function ActionsMenu({ app }: ActionsMenuProps): React.JSX.Element {
 // Icons
 // ---------------------------------------------------------------------------
 
-function ChevronDownIcon({ className }: { className?: string }): React.JSX.Element {
+function MoreIcon({ className }: { className?: string }): React.JSX.Element {
   return (
     <svg
       xmlns="http://www.w3.org/2000/svg"
       viewBox="0 0 24 24"
-      fill="none"
-      stroke="currentColor"
-      strokeWidth="2"
-      strokeLinecap="round"
-      strokeLinejoin="round"
+      fill="currentColor"
       className={className}
       aria-hidden="true"
     >
-      <path d="m6 9 6 6 6-6" />
+      <path d="M5 10a2 2 0 1 1 0 4 2 2 0 0 1 0-4Zm7 0a2 2 0 1 1 0 4 2 2 0 0 1 0-4Zm7 0a2 2 0 1 1 0 4 2 2 0 0 1 0-4Z" />
     </svg>
   )
 }

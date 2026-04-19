@@ -28,11 +28,7 @@ function AppEnvTab(): React.JSX.Element {
   }
 
   if (isLoading) {
-    return (
-      <div className="flex items-center justify-center py-16">
-        <div className="size-5 animate-spin rounded-full border-2 border-muted-foreground/30 border-t-foreground" />
-      </div>
-    )
+    return <EnvSkeleton />
   }
 
   if (isError || !serverVars) {
@@ -57,6 +53,57 @@ function AppEnvTab(): React.JSX.Element {
         </span>{" "}
         — encrypt-at-rest is planned for a future release.
       </p>
+    </div>
+  )
+}
+
+function EnvSkeleton(): React.JSX.Element {
+  return (
+    <div
+      className="mx-auto w-full max-w-3xl space-y-4 py-6"
+      aria-busy="true"
+      aria-label="Loading environment variables"
+    >
+      <div className="flex items-center justify-between gap-3">
+        <div className="h-4 w-44 rounded bg-muted animate-pulse" />
+        <div className="h-7 w-16 rounded-md bg-muted animate-pulse" />
+      </div>
+      <div className="overflow-hidden rounded-lg border border-border">
+        <div className="grid grid-cols-[1fr_1fr_auto_auto_auto] gap-0 border-b border-border bg-muted/40 px-3 py-2 text-xs font-medium text-muted-foreground">
+          <span>Key</span>
+          <span>Value</span>
+          <span className="px-2">Secret</span>
+          <span />
+          <span />
+        </div>
+        <div className="divide-y divide-border animate-pulse">
+          {Array.from({ length: 4 }).map((_, i) => (
+            <div
+              key={i}
+              className="grid grid-cols-[1fr_1fr_auto_auto_auto] items-center gap-0 px-3 py-2.5"
+            >
+              <div className="pr-2">
+                <div className="h-6 w-32 rounded border border-border bg-muted" />
+              </div>
+              <div className="pr-2">
+                <div className="h-6 w-full rounded border border-border bg-muted" />
+              </div>
+              <div className="px-2">
+                <div className="h-4 w-7 rounded-full bg-muted" />
+              </div>
+              <div className="flex justify-center">
+                <div className="size-5 rounded bg-muted" />
+              </div>
+              <div className="flex justify-center">
+                <div className="size-5 rounded bg-muted" />
+              </div>
+            </div>
+          ))}
+        </div>
+        <div className="border-t border-border px-3 py-2">
+          <div className="h-4 w-28 rounded bg-muted animate-pulse" />
+        </div>
+      </div>
     </div>
   )
 }

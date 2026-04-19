@@ -46,6 +46,9 @@ target/
 /.claude/scheduled_tasks.lock
 .playwright-mcp/
 
+# Playwright / screenshot debris at repo root
+/*.png
+
 # Caddy runtime data (created by Docker)
 infra/caddy/data/
 infra/caddy/config/

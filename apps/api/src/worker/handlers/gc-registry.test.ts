@@ -281,6 +281,29 @@ describe("getRegistryUsageForApp", () => {
     expect(usage.tags).toBe(3);
     expect(usage.diskPct).toBe(42);
   });
+
+  it("normalizes mixed-case app ids to the lowercase registry repo name", async () => {
+    const repos: string[] = [];
+    const db = mockDb({ apps: [{ id: "3gfA0pcC3DRtNqqNPWioi" }] });
+    const rc = mockClient({
+      listTags: async (repo) => {
+        repos.push(repo);
+        return ["img1"];
+      },
+      diskUsagePct: async () => 72,
+      getManifest: async () => ({ digest: "sha256:abc", createdAt: new Date() }),
+    });
+
+    const usage = await getRegistryUsageForApp(
+      "3gfA0pcC3DRtNqqNPWioi",
+      db as unknown as GcOptions["db"],
+      rc,
+    );
+
+    expect(repos).toEqual(["app-3gfa0pcc3drtnqqnpwioi"]);
+    expect(usage.tags).toBe(1);
+    expect(usage.diskPct).toBe(72);
+  });
 });
 
 // ---------------------------------------------------------------------------

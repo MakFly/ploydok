@@ -157,14 +157,6 @@ export function DomainsTable({
   onDelete,
   onRecheck,
 }: DomainsTableProps): React.JSX.Element {
-  if (isLoading) {
-    return (
-      <div className="flex items-center justify-center py-12">
-        <div className="size-5 animate-spin rounded-full border-2 border-muted-foreground/30 border-t-foreground" />
-      </div>
-    )
-  }
-
   return (
     <div className="w-full overflow-hidden rounded-lg border border-border">
       <table className="w-full table-fixed text-sm">
@@ -181,7 +173,9 @@ export function DomainsTable({
           </tr>
         </thead>
         <tbody>
-          {domains.length === 0 ? (
+          {isLoading ? (
+            <DomainsSkeletonRows />
+          ) : domains.length === 0 ? (
             <tr>
               <td
                 colSpan={3}
@@ -235,6 +229,33 @@ export function DomainsTable({
         </tbody>
       </table>
     </div>
+  )
+}
+
+// ---------------------------------------------------------------------------
+// DomainsSkeletonRows — placeholder rows mirroring the table's shape
+// ---------------------------------------------------------------------------
+
+function DomainsSkeletonRows(): React.JSX.Element {
+  return (
+    <>
+      {Array.from({ length: 3 }).map((_, i) => (
+        <tr key={i} className="border-b border-border last:border-0 animate-pulse">
+          <td className="px-4 py-3">
+            <div className="h-4 w-3/4 rounded bg-muted" />
+          </td>
+          <td className="px-4 py-3">
+            <div className="h-5 w-20 rounded-full bg-muted" />
+          </td>
+          <td className="px-4 py-3">
+            <div className="flex items-center justify-end gap-2">
+              <div className="size-7 rounded bg-muted" />
+              <div className="size-7 rounded bg-muted" />
+            </div>
+          </td>
+        </tr>
+      ))}
+    </>
   )
 }
 

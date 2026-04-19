@@ -7,7 +7,7 @@ import { apiFetch } from "../api"
 // ---------------------------------------------------------------------------
 
 const ABSOLUTE_MAX_LINES = 10_000
-const API_BASE = import.meta.env.VITE_API_URL ?? "http://localhost:4000"
+const API_BASE = import.meta.env.VITE_API_URL ?? "http://localhost:3335"
 
 // ---------------------------------------------------------------------------
 // Types
@@ -132,6 +132,15 @@ export interface UseLogStreamResult {
   error: string | null
 }
 
+interface RuntimeLogResponse {
+  lines: Array<{
+    t: number
+    line: string
+    stream?: "stdout" | "stderr"
+  }>
+  containerFound?: boolean
+}
+
 export function useLogStream({
   appId,
   buildId,
@@ -179,16 +188,32 @@ export function useLogStream({
     let fallbackTriggered = false
 
     const triggerFallback = (): void => {
-      setError("WebSocket unavailable — loading archived logs\u2026")
+      setError(
+        buildId && buildId !== "latest"
+          ? "WebSocket unavailable — loading archived logs\u2026"
+          : "WebSocket unavailable — loading recent runtime logs\u2026",
+      )
       const restPath =
         buildId && buildId !== "latest"
           ? `/apps/${appId}/logs?buildId=${buildId}`
-          : `/apps/${appId}/logs`
-      apiFetch<{ lines: Array<string> }>(restPath)
+          : `/apps/${appId}/runtime-logs`
+      apiFetch<{ lines: Array<string> } | RuntimeLogResponse>(restPath)
         .then((data) => {
+          const runtimeData = data as RuntimeLogResponse
+          if (
+            !buildId &&
+            runtimeData.containerFound === false &&
+            runtimeData.lines.length === 0
+          ) {
+            setError("No runtime container found for this app")
+            return
+          }
+
           setError(null)
           for (const line of data.lines) {
-            appendLine(line)
+            appendLine(
+              typeof line === "string" ? line : JSON.stringify(line),
+            )
           }
         })
         .catch((err: unknown) => {
@@ -209,6 +234,10 @@ export function useLogStream({
       ws.onmessage = (ev: MessageEvent<string>) => {
         const text =
           typeof ev.data === "string" ? ev.data : String(ev.data)
+        if (text.includes('"type":"runtime.missing"')) {
+          setError("No runtime container found for this app")
+          return
+        }
         appendLine(text)
       }
 

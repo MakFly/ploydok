@@ -16,6 +16,42 @@ function pushToHistory(history: Array<number>, value: number): Array<number> {
   return [...history, value].slice(-HISTORY_LEN)
 }
 
+function selectAppSnapshot(
+  containers: Array<ContainerSnapshot>,
+  appId: string,
+): ContainerSnapshot | null {
+  const statusPriority: Record<ContainerSnapshot["status"], number> = {
+    running: 4,
+    unhealthy: 3,
+    starting: 2,
+    stopped: 1,
+    unknown: 0,
+  }
+
+  let selected: ContainerSnapshot | null = null
+
+  for (const container of containers) {
+    if (container.app_id !== appId) continue
+    if (container.kind && container.kind !== "app") continue
+    if (!selected) {
+      selected = container
+      continue
+    }
+
+    const statusDiff =
+      statusPriority[container.status] - statusPriority[selected.status]
+    if (statusDiff > 0) {
+      selected = container
+      continue
+    }
+    if (statusDiff === 0 && container.last_seen_ms > selected.last_seen_ms) {
+      selected = container
+    }
+  }
+
+  return selected
+}
+
 /**
  * Given a container.health SSE payload, determine if it belongs to this app.
  * Returns null if the snapshot should be ignored.
@@ -92,6 +128,110 @@ describe("AppMonitoringCard — history ring buffer", () => {
     expect(h.length).toBe(HISTORY_LEN)
     // Oldest entries dropped, most recent retained
     expect(h[h.length - 1]).toBe(HISTORY_LEN + 9)
+  })
+})
+
+describe("AppMonitoringCard — overview snapshot selection", () => {
+  it("selects the matching app container", () => {
+    const result = selectAppSnapshot(
+      [
+        {
+          id: "other",
+          name: "other-app",
+          image: "app:latest",
+          status: "running",
+          uptime_s: 10,
+          cpu_pct: 1,
+          mem_bytes: 1,
+          mem_limit_bytes: 10,
+          restart_count: 0,
+          kind: "app",
+          app_id: "app-2",
+          last_seen_ms: 1000,
+        },
+        {
+          id: "match",
+          name: "my-app",
+          image: "app:latest",
+          status: "running",
+          uptime_s: 20,
+          cpu_pct: 2,
+          mem_bytes: 2,
+          mem_limit_bytes: 10,
+          restart_count: 0,
+          kind: "app",
+          app_id: "app-1",
+          last_seen_ms: 2000,
+        },
+      ],
+      "app-1",
+    )
+
+    expect(result?.id).toBe("match")
+  })
+
+  it("prefers a running container over a stale stopped sibling", () => {
+    const result = selectAppSnapshot(
+      [
+        {
+          id: "stopped",
+          name: "my-app-blue",
+          image: "app:latest",
+          status: "stopped",
+          uptime_s: 20,
+          cpu_pct: 0,
+          mem_bytes: 0,
+          mem_limit_bytes: 10,
+          restart_count: 1,
+          kind: "app",
+          app_id: "app-1",
+          color: "blue",
+          last_seen_ms: 5000,
+        },
+        {
+          id: "running",
+          name: "my-app-green",
+          image: "app:latest",
+          status: "running",
+          uptime_s: 5,
+          cpu_pct: 4,
+          mem_bytes: 4,
+          mem_limit_bytes: 10,
+          restart_count: 0,
+          kind: "app",
+          app_id: "app-1",
+          color: "green",
+          last_seen_ms: 4000,
+        },
+      ],
+      "app-1",
+    )
+
+    expect(result?.id).toBe("running")
+  })
+
+  it("accepts a matching app container even when kind is absent", () => {
+    const result = selectAppSnapshot(
+      [
+        {
+          id: "running",
+          name: "my-app-blue",
+          image: "app:latest",
+          status: "running",
+          uptime_s: 5,
+          cpu_pct: 4,
+          mem_bytes: 4,
+          mem_limit_bytes: 10,
+          restart_count: 0,
+          app_id: "app-1",
+          color: "blue",
+          last_seen_ms: 4000,
+        },
+      ],
+      "app-1",
+    )
+
+    expect(result?.id).toBe("running")
   })
 })
 

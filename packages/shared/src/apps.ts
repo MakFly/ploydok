@@ -30,6 +30,9 @@ export type BuildStatus = z.infer<typeof BuildStatusSchema>;
 export const BuildMethodSchema = z.enum(['docker', 'nixpacks', 'auto']);
 export type BuildMethod = z.infer<typeof BuildMethodSchema>;
 
+export const RestartPolicySchema = z.enum(['no', 'always', 'unless-stopped', 'on-failure']);
+export type RestartPolicy = z.infer<typeof RestartPolicySchema>;
+
 export const JobStatusSchema = z.enum(['pending', 'running', 'done', 'failed']);
 export type JobStatus = z.infer<typeof JobStatusSchema>;
 
@@ -72,6 +75,7 @@ export const AppConfigSchema = z.object({
   startCommand: z.string().optional(),
   watchPaths: z.array(z.string()).optional(),
   buildMethod: BuildMethodSchema.optional(),
+  restartPolicy: RestartPolicySchema.optional(),
   healthcheck: HealthcheckConfigSchema.optional(),
   domain: z.string().optional(),
 });

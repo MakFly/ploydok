@@ -1,11 +1,13 @@
 // SPDX-License-Identifier: AGPL-3.0-only
-import { describe, it, expect, beforeEach, mock } from "bun:test";
+import { describe, it, expect, beforeEach, mock, spyOn } from "bun:test";
 import { Hono } from "hono";
 import { nanoid } from "nanoid";
+import { eq } from "drizzle-orm";
 import { createDb } from "@ploydok/db";
 import { users, projects, apps, builds } from "@ploydok/db";
 import { createAppsRouter } from "./apps";
 import type { AuthUser } from "../auth/middleware";
+import * as singletons from "../debug/singletons";
 
 // ---------------------------------------------------------------------------
 // Test DB helper — in-memory SQLite with all required tables
@@ -56,6 +58,7 @@ function makeTestDb() {
       start_command TEXT,
       watch_paths TEXT,
       container_id TEXT,
+      restart_policy TEXT NOT NULL DEFAULT 'unless-stopped',
       domain TEXT,
       build_method TEXT DEFAULT 'auto',
       healthcheck_path TEXT DEFAULT '/',
@@ -168,6 +171,7 @@ async function createTestApp(db: TestDb, opts: CreateAppOpts) {
     start_command: null,
     watch_paths: null,
     container_id: null,
+    restart_policy: "unless-stopped",
     domain: `${slug}.demo.ploydok.local`,
     build_method: "auto",
     healthcheck_path: "/",
@@ -236,12 +240,33 @@ describe("POST /apps", () => {
     });
 
     expect(res.status).toBe(201);
-    const body = await res.json() as { app: { id: string; slug: string; name: string; status: string; domain: string } };
+    const body = await res.json() as { app: { id: string; slug: string; name: string; status: string; domain: string; restartPolicy: string } };
     expect(body.app.name).toBe("My App");
     expect(body.app.slug).toBe("my-app");
     expect(body.app.status).toBe("created");
     expect(body.app.domain).toBe("my-app.demo.ploydok.local");
+    expect(body.app.restartPolicy).toBe("unless-stopped");
     expect(body.app.id).toBeString();
+  });
+
+  it("creates an app with an explicit restart policy", async () => {
+    const app = buildTestApp(db, fakeUser(userId, `u@t.com`));
+    const res = await app.request("/apps", {
+      method: "POST",
+      headers: { "content-type": "application/json" },
+      body: JSON.stringify({
+        name: "Policy App",
+        projectId,
+        gitProvider: "github",
+        repoFullName: "owner/repo",
+        branch: "main",
+        restartPolicy: "no",
+      }),
+    });
+
+    expect(res.status).toBe(201);
+    const body = await res.json() as { app: { restartPolicy: string } };
+    expect(body.app.restartPolicy).toBe("no");
   });
 
   it("generates slug from name — special chars collapsed", async () => {
@@ -479,7 +504,7 @@ describe("PATCH /apps/:id", () => {
     projectId = project.id;
   });
 
-  it("updates branch and healthcheck.retries", async () => {
+  it("updates branch, restartPolicy and healthcheck.retries", async () => {
     const { id: appId } = await createTestApp(db, { userId, projectId, branch: "main" });
 
     const honoApp = buildTestApp(db, fakeUser(userId, `u@t.com`));
@@ -488,13 +513,15 @@ describe("PATCH /apps/:id", () => {
       headers: { "content-type": "application/json" },
       body: JSON.stringify({
         branch: "develop",
+        restartPolicy: "on-failure",
         healthcheck: { retries: 10 },
       }),
     });
 
     expect(res.status).toBe(200);
-    const body = await res.json() as { app: { branch: string; healthcheck: { retries: number } } };
+    const body = await res.json() as { app: { branch: string; restartPolicy: string; healthcheck: { retries: number } } };
     expect(body.app.branch).toBe("develop");
+    expect(body.app.restartPolicy).toBe("on-failure");
     expect(body.app.healthcheck.retries).toBe(10);
   });
 
@@ -651,6 +678,81 @@ describe("GET /apps/:id/builds", () => {
   });
 });
 
+describe("GET /apps/:id/runtime-logs", () => {
+  let db: TestDb;
+  let userId: string;
+  let projectId: string;
+
+  beforeEach(async () => {
+    db = makeTestDb();
+    const user = await createTestUser(db);
+    userId = user.id;
+    const project = await createTestProject(db, userId);
+    projectId = project.id;
+  });
+
+  it("returns recent runtime log lines from the resolved app container", async () => {
+    const { id: appId } = await createTestApp(db, { userId, projectId, name: "Runtime App" });
+    await db
+      .update(apps)
+      .set({ container_id: "ploydok-app-runtime-app-blue", updated_at: new Date() })
+      .where(eq(apps.id, appId));
+
+    using _agentSpy = spyOn(singletons, "getSharedAgent").mockReturnValue({
+      listContainers: async () => ({
+        containers: [
+          {
+            id: "ctr-runtime",
+            name: "ploydok-app-runtime-app-blue",
+            image: "127.0.0.1:5000/app-runtime:tag",
+            status: "running",
+            uptimeS: 120,
+            cpuPct: 1.5,
+            memBytes: 1024,
+            memLimitBytes: 4096,
+            restartCount: 0,
+            kind: "app",
+            appId,
+            color: "blue",
+            lastPingMs: 0,
+            lastPingOk: false,
+            lastSeenMs: Date.now(),
+          },
+        ],
+      }),
+      containerLogs: async function* () {
+        yield {
+          stream: "stdout",
+          line: "hello runtime",
+          timestamp: "2026-04-18T20:00:00.000Z",
+        };
+        yield {
+          stream: "stderr",
+          line: "warn runtime",
+          timestamp: "2026-04-18T20:00:01.000Z",
+        };
+      },
+    } as unknown as ReturnType<typeof singletons.getSharedAgent>);
+
+    const app = buildTestApp(db, fakeUser(userId, `u@t.com`));
+    const res = await app.request(`/apps/${appId}/runtime-logs`);
+
+    expect(res.status).toBe(200);
+    const body = await res.json() as {
+      containerFound: boolean;
+      lines: Array<{ t: number; line: string; stream?: string }>;
+    };
+    expect(body.containerFound).toBe(true);
+    expect(body.lines).toHaveLength(2);
+    expect(body.lines[0]).toEqual({
+      t: Date.parse("2026-04-18T20:00:00.000Z"),
+      line: "hello runtime",
+      stream: "stdout",
+    });
+    expect(body.lines[1]?.stream).toBe("stderr");
+  });
+});
+
 describe("POST /apps/:id/rollback", () => {
   let db: TestDb;
   let userId: string;
@@ -754,5 +856,129 @@ describe("POST /apps/:id/rollback", () => {
     });
 
     expect(res.status).toBe(404);
+  });
+});
+
+// ---------------------------------------------------------------------------
+// GET /apps/:id/activity — historical timeline derived from builds
+// ---------------------------------------------------------------------------
+
+describe("GET /apps/:id/activity", () => {
+  let db: TestDb;
+  let userId: string;
+  let projectId: string;
+
+  beforeEach(async () => {
+    db = makeTestDb();
+    const user = await createTestUser(db);
+    userId = user.id;
+    const project = await createTestProject(db, userId);
+    projectId = project.id;
+  });
+
+  it("returns build.started + build.succeeded for a successful build", async () => {
+    const { id: appId } = await createTestApp(db, { userId, projectId });
+    await createTestBuild(db, appId, "succeeded", {
+      commitSha: "abc1234",
+      commitMessage: "feat: new feature",
+    });
+
+    const honoApp = buildTestApp(db, fakeUser(userId, `u@t.com`));
+    const res = await honoApp.request(`/apps/${appId}/activity`);
+
+    expect(res.status).toBe(200);
+    const body = (await res.json()) as {
+      events: Array<{ type: string; data: { commitSha?: string } }>;
+    };
+    const types = body.events.map((e) => e.type);
+    expect(types).toContain("build.started");
+    expect(types).toContain("build.succeeded");
+    expect(body.events[0]!.data.commitSha).toBe("abc1234");
+  });
+
+  it("returns build.failed with error message when failed", async () => {
+    const { id: appId } = await createTestApp(db, { userId, projectId });
+    const buildId = nanoid();
+    const now = new Date();
+    await db.insert(builds).values({
+      id: buildId,
+      app_id: appId,
+      status: "failed",
+      build_method: "docker",
+      image_tag: null,
+      container_id: null,
+      commit_sha: null,
+      commit_message: null,
+      log_path: null,
+      error_message: "exit code 1",
+      started_at: new Date(now.getTime() - 10_000),
+      finished_at: now,
+      created_at: now,
+    });
+
+    const honoApp = buildTestApp(db, fakeUser(userId, `u@t.com`));
+    const res = await honoApp.request(`/apps/${appId}/activity`);
+
+    const body = (await res.json()) as {
+      events: Array<{ type: string; data: { errorMessage?: string } }>;
+    };
+    const failed = body.events.find((e) => e.type === "build.failed");
+    expect(failed).toBeDefined();
+    expect(failed!.data.errorMessage).toBe("exit code 1");
+  });
+
+  it("emits only build.started for a still-running build", async () => {
+    const { id: appId } = await createTestApp(db, { userId, projectId });
+    const buildId = nanoid();
+    const now = new Date();
+    await db.insert(builds).values({
+      id: buildId,
+      app_id: appId,
+      status: "running",
+      build_method: "docker",
+      image_tag: null,
+      container_id: null,
+      commit_sha: null,
+      commit_message: null,
+      log_path: null,
+      error_message: null,
+      started_at: new Date(now.getTime() - 5_000),
+      finished_at: null,
+      created_at: now,
+    });
+
+    const honoApp = buildTestApp(db, fakeUser(userId, `u@t.com`));
+    const res = await honoApp.request(`/apps/${appId}/activity`);
+
+    const body = (await res.json()) as {
+      events: Array<{ type: string }>;
+    };
+    expect(body.events).toHaveLength(1);
+    expect(body.events[0]!.type).toBe("build.started");
+  });
+
+  it("returns 404 for an app belonging to another user", async () => {
+    const other = await createTestUser(db);
+    const otherProject = await createTestProject(db, other.id);
+    const { id: otherAppId } = await createTestApp(db, {
+      userId: other.id,
+      projectId: otherProject.id,
+    });
+
+    const honoApp = buildTestApp(db, fakeUser(userId, `u@t.com`));
+    const res = await honoApp.request(`/apps/${otherAppId}/activity`);
+
+    expect(res.status).toBe(404);
+  });
+
+  it("returns an empty list when there are no builds", async () => {
+    const { id: appId } = await createTestApp(db, { userId, projectId });
+
+    const honoApp = buildTestApp(db, fakeUser(userId, `u@t.com`));
+    const res = await honoApp.request(`/apps/${appId}/activity`);
+
+    expect(res.status).toBe(200);
+    const body = (await res.json()) as { events: Array<unknown> };
+    expect(body.events).toHaveLength(0);
   });
 });

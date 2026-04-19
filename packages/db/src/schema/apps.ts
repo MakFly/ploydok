@@ -29,6 +29,11 @@ export const apps = sqliteTable('apps', {
   build_method: text('build_method', { enum: ['docker', 'nixpacks', 'auto'] }),
   // Runtime
   container_id: text('container_id'),
+  restart_policy: text('restart_policy', {
+    enum: ['no', 'always', 'unless-stopped', 'on-failure'],
+  })
+    .notNull()
+    .default('unless-stopped'),
   domain: text('domain'),
   // Healthcheck (intervals in seconds to match migration)
   healthcheck_path: text('healthcheck_path'),

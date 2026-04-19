@@ -4,7 +4,7 @@
  * No React hooks; tests pure normalization logic.
  */
 import { describe, expect, it } from "bun:test"
-import { normalizeAppDetail } from "../../lib/apps"
+import { applyAppStatus, getEventAppStatus, normalizeAppDetail } from "../../lib/apps"
 import type { RawAppDetail } from "../../lib/apps"
 
 // ---------------------------------------------------------------------------
@@ -139,13 +139,33 @@ describe("normalizeAppDetail — pass-through fields", () => {
       gitProvider: "github",
       rootDir: "/src",
       buildMethod: "docker",
+      restartPolicy: "on-failure",
       branch: "main",
     })
     const result = normalizeAppDetail(raw)
     expect(result.gitProvider).toBe("github")
     expect(result.rootDir).toBe("/src")
     expect(result.buildMethod).toBe("docker")
+    expect(result.restartPolicy).toBe("on-failure")
     expect(result.branch).toBe("main")
+  })
+})
+
+describe("app status event helpers", () => {
+  it("extracts the next status from an event payload", () => {
+    expect(getEventAppStatus({ data: { status: "running" } })).toBe("running")
+  })
+
+  it("returns undefined when the event has no status", () => {
+    expect(getEventAppStatus({})).toBeUndefined()
+  })
+
+  it("applies a new status without mutating other fields", () => {
+    const raw = makeRaw({ name: "demo", status: "stopped" })
+    const normalized = normalizeAppDetail(raw)
+    const patched = applyAppStatus(normalized, "building")
+    expect(patched?.status).toBe("building")
+    expect(patched?.name).toBe("demo")
   })
 })
 

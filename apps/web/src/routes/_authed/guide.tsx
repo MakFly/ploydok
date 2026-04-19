@@ -12,9 +12,9 @@ function GuidePage(): React.JSX.Element {
   const { data: appConfig } = useGitHubAppConfig();
   const { data: installations } = useInstallations();
 
-  const installUrl = appConfig?.install_url ?? installations?.installUrl ?? "http://localhost:4000/github/installations/start";
-  const setupUrl = "http://localhost:4000/github/app/setup";
-  const callbackUrl = "http://localhost:4000/github/app/callback";
+  const installUrl = appConfig?.install_url ?? installations?.installUrl ?? "http://localhost:3335/github/installations/start";
+  const setupUrl = "http://localhost:3335/github/app/setup";
+  const callbackUrl = "http://localhost:3335/github/app/callback";
 
   return (
     <ShellPage
@@ -75,8 +75,8 @@ function GuidePage(): React.JSX.Element {
           <Checklist
             items={[
               "`WEB_ORIGIN` must be `http://localhost:5173` in the API environment.",
-              "`GITHUB_APP_CALLBACK_URL` should resolve to `http://localhost:4000/github/app/callback` unless you deliberately expose the API elsewhere.",
-              "Your local API must already be running on port `4000` and the web app on `5173`.",
+              "`GITHUB_APP_CALLBACK_URL` should resolve to `http://localhost:3335/github/app/callback` unless you deliberately expose the API elsewhere.",
+              "Your local API must already be running on port `3335` and the web app on `5173`.",
               "If you changed callback or setup URLs after the app was already created, recreate the GitHub App or update its settings manually in GitHub.",
             ]}
           />
@@ -110,8 +110,8 @@ function GuidePage(): React.JSX.Element {
             title="Expected app configuration in GitHub"
             lines={[
               "Homepage URL: http://localhost:5173",
-              "Callback URL: http://localhost:4000/github/app/callback",
-              "Setup URL: http://localhost:4000/github/app/setup",
+              "Callback URL: http://localhost:3335/github/app/callback",
+              "Setup URL: http://localhost:3335/github/app/setup",
               "Request user authorization (OAuth) during installation: disabled",
             ]}
           />
@@ -152,9 +152,9 @@ function GuidePage(): React.JSX.Element {
           <CodeBlock
             title="Expected redirect chain"
             lines={[
-              "1. http://localhost:4000/github/installations/start",
+              "1. http://localhost:3335/github/installations/start",
               "2. https://github.com/apps/<slug>/installations/new?state=<signed-state>",
-              "3. http://localhost:4000/github/app/setup?installation_id=...&setup_action=install&state=...",
+              "3. http://localhost:3335/github/app/setup?installation_id=...&setup_action=install&state=...",
               "4. http://localhost:5173/settings/github?installation_id=...&setup_action=install&installed=1",
             ]}
           />
@@ -180,9 +180,9 @@ function GuidePage(): React.JSX.Element {
         >
           <Checklist
             items={[
-              "Open the GitHub App settings and confirm `Setup URL` is exactly `http://localhost:4000/github/app/setup`.",
+              "Open the GitHub App settings and confirm `Setup URL` is exactly `http://localhost:3335/github/app/setup`.",
               "Confirm `Request user authorization (OAuth) during installation` is disabled.",
-              "Confirm the callback URL is still `http://localhost:4000/github/app/callback`.",
+              "Confirm the callback URL is still `http://localhost:3335/github/app/callback`.",
               "If the app was created before these values were fixed, recreate the app from Ploydok or update the GitHub App settings manually.",
               "If the setup callback returns to Ploydok with `install_error=state_mismatch`, restart the install flow from Ploydok instead of reusing an old GitHub tab.",
               "If Ploydok shows the app as configured but no installation appears, use the Refresh button on Settings > GitHub and check whether the install landed on the expected account.",
@@ -194,7 +194,7 @@ function GuidePage(): React.JSX.Element {
               title="Good local values"
               lines={[
                 "WEB_ORIGIN=http://localhost:5173",
-                "GITHUB_APP_CALLBACK_URL=http://localhost:4000/github/app/callback",
+                "GITHUB_APP_CALLBACK_URL=http://localhost:3335/github/app/callback",
               ]}
             />
             <CodeBlock
@@ -215,7 +215,7 @@ function GuidePage(): React.JSX.Element {
           </p>
           <div className="mt-4 grid gap-3 text-sm">
             <StatusRow label="Ploydok web origin" value="http://localhost:5173" mono />
-            <StatusRow label="Ploydok API origin" value="http://localhost:4000" mono />
+            <StatusRow label="Ploydok API origin" value="http://localhost:3335" mono />
             <StatusRow label="GitHub App callback" value={callbackUrl} mono />
             <StatusRow label="GitHub App setup URL" value={setupUrl} mono />
             <StatusRow label="Install start URL" value={installUrl} mono />

@@ -16,7 +16,7 @@
  *     to a native WebSocket shim via globalThis.
  *
  * Required env vars (all have sensible defaults for local dev):
- *   E2E_API_URL          – defaults to http://localhost:4000
+ *   E2E_API_URL          – defaults to http://localhost:3335
  *   E2E_TEST_EMAIL       – backup-code login email
  *   E2E_TEST_BACKUP_CODE – backup code (format: XXXX-XXXX-XXXX)
  *   PLOYDOK_E2E_REAL     – set to "1" to enable real infra specs
@@ -31,7 +31,7 @@ import { performance } from "node:perf_hooks"
 // ---------------------------------------------------------------------------
 
 export const REAL_E2E = process.env["PLOYDOK_E2E_REAL"] === "1"
-export const API_URL = process.env["E2E_API_URL"] ?? "http://localhost:4000"
+export const API_URL = process.env["E2E_API_URL"] ?? "http://localhost:3335"
 export const DOMAIN_BASE =
   process.env["PLOYDOK_DOMAIN_BASE"] ?? "demo.ploydok.local"
 export const CADDY_HTTP_PORT = 8180
@@ -591,7 +591,7 @@ export interface BuildLogsResult {
 /**
  * Connect to the build-log WebSocket endpoint and collect all log lines.
  *
- * URL: ws://localhost:4000/ws/apps/:appId/build/:buildId
+ * URL: ws://localhost:3335/ws/apps/:appId/build/:buildId
  * Auth: passes the `cookie` header.
  *
  * Message format (server → client): JSON `{ t: number, line: string }` or
@@ -612,7 +612,7 @@ export async function readBuildLogsWs(
   opts: ReadBuildLogsOpts = {},
 ): Promise<BuildLogsResult> {
   const maxWaitMs = opts.maxWaitMs ?? 5_000
-  const wsUrl = `ws://localhost:4000/ws/apps/${appId}/build/${buildId}`
+  const wsUrl = `ws://localhost:3335/ws/apps/${appId}/build/${buildId}`
 
   const lines: Array<string> = []
   const arrivalTimes: Array<number> = []

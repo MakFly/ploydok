@@ -2,6 +2,7 @@
 import * as React from "react"
 import { Link, createFileRoute, useRouter } from "@tanstack/react-router"
 import { Button } from "@workspace/ui/components/button"
+import { toast } from "sonner"
 import { PasskeyButton } from "../../components/auth/PasskeyButton"
 
 export const Route = createFileRoute("/_public/login")({
@@ -115,7 +116,7 @@ function BackupCodePanel({
     setError(null)
     try {
       const res = await fetch(
-        `${import.meta.env.VITE_API_URL ?? "http://localhost:4000"}/auth/backup-codes/consume`,
+        `${import.meta.env.VITE_API_URL ?? "http://localhost:3335"}/auth/backup-codes/consume`,
         {
           method: "POST",
           credentials: "include",
@@ -127,8 +128,10 @@ function BackupCodePanel({
         const data = (await res.json()) as { error?: { message?: string } }
         throw new Error(data.error?.message ?? "Invalid backup code")
       }
+      toast.success("Signed in")
       onSuccess()
     } catch (err) {
+      toast.error(err instanceof Error ? err.message : "Authentication failed")
       setError(err instanceof Error ? err.message : "Authentication failed")
     } finally {
       setLoading(false)

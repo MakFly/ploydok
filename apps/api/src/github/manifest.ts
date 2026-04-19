@@ -2,7 +2,7 @@
 
 export interface ManifestOptions {
   webBaseUrl: string; // e.g. http://localhost:5173
-  apiBaseUrl: string; // e.g. http://localhost:4000
+  apiBaseUrl: string; // e.g. http://localhost:3335
   webhookUrl?: string; // Public webhook URL (ngrok/cloudflared). Omit in local dev.
 }
 

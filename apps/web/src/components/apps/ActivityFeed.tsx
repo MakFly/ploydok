@@ -1,6 +1,6 @@
 // SPDX-License-Identifier: AGPL-3.0-only
 import * as React from "react"
-import { useAppEvents } from "../../lib/hooks/use-app-events"
+import { useAppActivityHistory, useAppEvents } from "../../lib/hooks/use-app-events"
 import type { AppEvent, AppEventType } from "../../lib/hooks/use-app-events"
 
 // ---------------------------------------------------------------------------
@@ -18,6 +18,8 @@ export function formatEventType(type: AppEventType): string {
       return "Build succeeded"
     case "build.failed":
       return "Build failed"
+    case "build.cancelled":
+      return "Build cancelled"
     case "deploy.status_change":
       return "Deployment status changed"
     case "container.health":
@@ -39,6 +41,8 @@ export function eventIcon(type: AppEventType): string {
       return "✓"
     case "build.failed":
       return "✗"
+    case "build.cancelled":
+      return "⊘"
     case "deploy.status_change":
       return "⇄"
     case "container.health":
@@ -117,22 +121,44 @@ interface ActivityFeedProps {
   limit?: number
 }
 
+function ActivitySkeletonRow(): React.JSX.Element {
+  return (
+    <li className="flex items-start gap-2.5 py-2">
+      <span className="mt-0.5 size-5 shrink-0 rounded-full bg-muted" />
+      <div className="min-w-0 flex-1 space-y-1.5">
+        <div className="h-3 w-32 rounded bg-muted" />
+        <div className="h-2.5 w-48 rounded bg-muted" />
+      </div>
+      <div className="shrink-0 h-2.5 w-10 rounded bg-muted" />
+    </li>
+  )
+}
+
 export function ActivityFeed({
   appId,
   limit = 10,
 }: ActivityFeedProps): React.JSX.Element {
   const events = useAppEvents(appId, limit)
+  const { isLoading } = useAppActivityHistory(appId, limit)
 
   return (
     <div className="rounded-lg border border-border bg-card p-4 space-y-2">
-      <p className="text-xs font-medium text-muted-foreground uppercase tracking-wide">
-        Activity
-      </p>
+      <h3 className="text-sm font-medium text-foreground">Activity</h3>
 
       {events.length === 0 ? (
-        <p className="py-3 text-sm text-muted-foreground">
-          No recent activity.
-        </p>
+        isLoading ? (
+          <ul
+            className="animate-pulse divide-y divide-border"
+            aria-busy="true"
+            aria-label="Loading activity"
+          >
+            <ActivitySkeletonRow />
+            <ActivitySkeletonRow />
+            <ActivitySkeletonRow />
+          </ul>
+        ) : (
+          <p className="py-3 text-sm text-muted-foreground">No recent activity.</p>
+        )
       ) : (
         <ul
           className="max-h-64 overflow-y-auto divide-y divide-border"
