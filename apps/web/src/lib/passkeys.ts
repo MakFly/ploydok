@@ -4,6 +4,7 @@ import { startRegistration } from "@simplewebauthn/browser";
 import { apiFetch } from "./api";
 import type { ApiError } from "./api";
 import type { PasskeyInfo } from "@ploydok/shared";
+import { toast } from "sonner";
 
 interface PasskeysResponse {
   passkeys: Array<PasskeyInfo>;
@@ -50,8 +51,12 @@ export function useAddPasskey() {
       });
     },
     onSuccess: () => {
+      toast.success("Passkey added");
       qc.invalidateQueries({ queryKey: ["passkeys"] });
       qc.invalidateQueries({ queryKey: ["me"] });
+    },
+    onError: (error) => {
+      toast.error(error.message);
     },
   });
 }

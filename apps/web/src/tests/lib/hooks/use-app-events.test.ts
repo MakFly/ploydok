@@ -7,7 +7,9 @@ import { describe, expect, it } from "bun:test"
 import {
   eventBelongsToApp,
   buildAppEvent,
+  mergeHistory,
   prependEvent,
+  SUBSCRIBED_TYPES,
   SUPPORTED_TYPES,
 } from "../../../lib/hooks/use-app-events"
 import type { AppEvent, AppEventType } from "../../../lib/hooks/use-app-events"
@@ -137,5 +139,68 @@ describe("SUPPORTED_TYPES", () => {
       "container.health",
     ]
     expect(SUPPORTED_TYPES).toEqual(expected)
+  })
+})
+
+// ---------------------------------------------------------------------------
+// SUBSCRIBED_TYPES — what the activity feed actually listens to live.
+// container.health is excluded on purpose (telemetry, not activity).
+// ---------------------------------------------------------------------------
+
+describe("SUBSCRIBED_TYPES", () => {
+  it("excludes container.health (continuous telemetry, not activity)", () => {
+    expect(SUBSCRIBED_TYPES).not.toContain("container.health")
+  })
+
+  it("includes the four build/deploy event types", () => {
+    expect(SUBSCRIBED_TYPES).toContain("build.started")
+    expect(SUBSCRIBED_TYPES).toContain("build.succeeded")
+    expect(SUBSCRIBED_TYPES).toContain("build.failed")
+    expect(SUBSCRIBED_TYPES).toContain("deploy.status_change")
+  })
+})
+
+// ---------------------------------------------------------------------------
+// mergeHistory — seeds the live event list with fetched historical events.
+// ---------------------------------------------------------------------------
+
+describe("mergeHistory", () => {
+  const mk = (id: string, ts: number): AppEvent => ({
+    id,
+    type: "build.started",
+    timestamp: ts,
+    data: {},
+  })
+
+  it("prepends history entries that aren't already in the list", () => {
+    const current = [mk("live-1", 200)]
+    const history = [mk("hist-1", 100), mk("hist-2", 50)]
+    const result = mergeHistory(current, history, 10)
+    expect(result.map((e) => e.id)).toEqual(["live-1", "hist-1", "hist-2"])
+  })
+
+  it("dedupes by id (live wins)", () => {
+    const current = [mk("shared", 200)]
+    const history = [mk("shared", 100), mk("hist-only", 50)]
+    const result = mergeHistory(current, history, 10)
+    expect(result.length).toBe(2)
+    expect(result.find((e) => e.id === "shared")?.timestamp).toBe(200)
+  })
+
+  it("sorts newest-first regardless of input order", () => {
+    const current = [mk("b", 200)]
+    const history = [mk("a", 300), mk("c", 100)]
+    const result = mergeHistory(current, history, 10)
+    expect(result.map((e) => e.id)).toEqual(["a", "b", "c"])
+  })
+
+  it("caps the result to limit", () => {
+    const current = [mk("a", 500)]
+    const history = Array.from({ length: 20 }, (_, i) =>
+      mk(`h-${i}`, 100 - i),
+    )
+    const result = mergeHistory(current, history, 5)
+    expect(result.length).toBe(5)
+    expect(result[0].id).toBe("a")
   })
 })

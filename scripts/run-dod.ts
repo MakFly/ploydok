@@ -162,7 +162,7 @@ function checkPrereqs(): void {
   // API health
   const apiCheck = spawnSync(
     "curl",
-    ["-sf", "http://localhost:4000/health"],
+    ["-sf", "http://localhost:3335/health"],
     { encoding: "utf8" },
   )
   if (apiCheck.status !== 0) {

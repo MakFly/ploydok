@@ -11,6 +11,7 @@ import {
   JobSchema,
   JobStatusSchema,
   JobTypeSchema,
+  RestartPolicySchema,
 } from "./apps";
 
 // ---------------------------------------------------------------------------
@@ -41,6 +42,14 @@ describe("BuildMethodSchema", () => {
   it("accepts all valid values", () => {
     for (const v of ['docker', 'nixpacks', 'auto'] as const) {
       expect(BuildMethodSchema.parse(v)).toBe(v);
+    }
+  });
+});
+
+describe("RestartPolicySchema", () => {
+  it("accepts all valid values", () => {
+    for (const v of ['no', 'always', 'unless-stopped', 'on-failure'] as const) {
+      expect(RestartPolicySchema.parse(v)).toBe(v);
     }
   });
 });
@@ -121,11 +130,13 @@ describe("AppConfigSchema", () => {
       startCommand: "bun start",
       watchPaths: ["src/**", "package.json"],
       buildMethod: "docker" as const,
+      restartPolicy: "on-failure" as const,
       healthcheck: { path: "/healthz", intervalS: 10, timeoutS: 5, retries: 3, startPeriodS: 5 },
       domain: "my-app.example.com",
     };
     const result = AppConfigSchema.parse(full);
     expect(result.buildMethod).toBe("docker");
+    expect(result.restartPolicy).toBe("on-failure");
     expect(result.watchPaths).toEqual(["src/**", "package.json"]);
     expect(result.healthcheck?.path).toBe("/healthz");
     expect(result.domain).toBe("my-app.example.com");

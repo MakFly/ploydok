@@ -1,353 +1,372 @@
 // SPDX-License-Identifier: AGPL-3.0-only
-import * as React from "react";
-import { Link, createFileRoute } from "@tanstack/react-router";
-import { Button } from "@workspace/ui/components/button";
-import { RiArrowRightUpLine, RiGitRepositoryLine, RiShieldCheckLine, RiSparklingLine } from "@remixicon/react";
-import { CreateAppModal } from "../../components/apps/CreateAppModal";
-import { SecondFactorBanner } from "../../components/auth/SecondFactorBanner";
-import { ShellPage, ShellPanel } from "../../components/layout/AppShell";
-import { useApps, useRecentBuildsAcrossApps } from "../../lib/apps";
-import { useGitHubAppConfig } from "../../lib/github";
+import * as React from "react"
+import { Link, createFileRoute } from "@tanstack/react-router"
+import { Button } from "@workspace/ui/components/button"
+import {
+  RiAddLine,
+  RiAppsLine,
+  RiArrowRightLine,
+  RiCheckboxCircleFill,
+  RiErrorWarningFill,
+  RiGitBranchLine,
+  RiGithubFill,
+  RiHardDrive2Line,
+  RiPlayCircleLine,
+  RiPulseFill,
+  RiTimeLine,
+} from "@remixicon/react"
+import { CreateAppModal } from "../../components/apps/CreateAppModal"
+import { SecondFactorBanner } from "../../components/auth/SecondFactorBanner"
+import { ShellPage, ShellPanel } from "../../components/layout/AppShell"
+import { AppStatusBadge } from "../../components/apps/AppStatusBadge"
+import { useApps, useRecentBuildsAcrossApps } from "../../lib/apps"
+import { useGitHubAppConfig } from "../../lib/github"
+import { useMonitoring } from "../../lib/monitoring"
+import type { AppListItem, BuildWithApp } from "../../lib/apps"
+import type { BuildStatus } from "@ploydok/shared"
 
 export const Route = createFileRoute("/_authed/dashboard")({
   component: DashboardPage,
-});
+})
 
 function DashboardPage(): React.JSX.Element {
-  const { me } = Route.useRouteContext();
-  const [modalOpen, setModalOpen] = React.useState(false);
-  const { data: apps = [], isLoading: appsLoading, error: appsError } = useApps();
-  const { builds: recentBuilds, isLoading: buildsLoading } = useRecentBuildsAcrossApps(apps, 6);
-  const { data: appConfig } = useGitHubAppConfig();
+  const { me } = Route.useRouteContext()
+  const [modalOpen, setModalOpen] = React.useState(false)
+  const { data: apps = [], isLoading: appsLoading, error: appsError } = useApps()
+  const { builds: recentBuilds, isLoading: buildsLoading } = useRecentBuildsAcrossApps(apps, 6)
+  const { data: appConfig } = useGitHubAppConfig()
+  const { data: monitoring } = useMonitoring()
 
-  const runningApps = apps.filter((app) => app.status === "running").length;
-  const secureAccount = me.has_passkey_plus && me.has_backup_codes;
-  const latestBuild = recentBuilds[0];
+  const runningApps = apps.filter((app) => app.status === "running").length
+  const failedApps = apps.filter((app) => app.status === "failed").length
+  const latestBuild = recentBuilds.at(0)
+
+  const containers = monitoring?.containers ?? []
+  const runningContainers = containers.filter((c) => c.status === "running").length
 
   return (
     <ShellPage
-      title={`Hey There! ${me.display_name.split(" ")[0]}`}
-      description="Welcome back. This workspace view mirrors the Efferd shell language while keeping your real Ploydok data in play."
-      eyebrow="Workspace Overview"
+      title="Dashboard"
+      description={
+        appsLoading
+          ? "Loading your workspace…"
+          : `${apps.length} application${apps.length === 1 ? "" : "s"} · ${runningApps} running${failedApps > 0 ? ` · ${failedApps} failed` : ""}`
+      }
       actions={
         <>
           <Button variant="outline" size="sm" asChild>
-            <Link to="/settings/github">Review integrations</Link>
+            <Link to="/settings/github">
+              <RiGithubFill className="size-4" />
+              GitHub setup
+            </Link>
           </Button>
           <Button size="sm" onClick={() => setModalOpen(true)}>
-            New app
+            <RiAddLine className="size-4" />
+            New application
           </Button>
         </>
       }
     >
       <SecondFactorBanner me={me} />
 
-      <div className="grid gap-4 md:grid-cols-2 xl:grid-cols-4">
-        <MetricCard
-          label="Running apps"
-          value={appsLoading ? "..." : String(runningApps)}
-          detail={appsLoading ? "Syncing deployment state" : `${apps.length} total services`}
-          tone="dark"
+      <div className="grid gap-3 md:grid-cols-2 xl:grid-cols-4">
+        <StatCard
+          icon={<RiAppsLine className="size-4" />}
+          label="Applications"
+          value={appsLoading ? "—" : String(apps.length)}
+          hint={appsLoading ? "Syncing…" : `${runningApps} running`}
         />
-        <MetricCard
-          label="GitHub app"
-          value={appConfig?.configured ? "Connected" : "Missing"}
-          detail={appConfig?.configured ? appConfig.name ?? "Manifest installed" : "Set up the app to deploy from repos"}
-          tone={appConfig?.configured ? "light" : "warning"}
+        <StatCard
+          icon={<RiPlayCircleLine className="size-4" />}
+          label="Runtime"
+          value={monitoring ? String(runningContainers) : "—"}
+          hint={
+            monitoring
+              ? `${containers.length} container${containers.length === 1 ? "" : "s"} tracked`
+              : "Agent offline"
+          }
+          tone={monitoring?.error ? "warning" : "default"}
         />
-        <MetricCard
-          label="Security posture"
-          value={secureAccount ? "Hardened" : "Action needed"}
-          detail={secureAccount ? "Passkeys and recovery codes are in place" : "Finish second-factor setup"}
-          tone={secureAccount ? "success" : "warning"}
+        <StatCard
+          icon={<RiTimeLine className="size-4" />}
+          label="Last deploy"
+          value={latestBuild ? relativeTime(latestBuild.createdAt) : "Never"}
+          hint={latestBuild ? `${latestBuild.appName} · ${latestBuild.status}` : "No deployments yet"}
+          tone={latestBuild?.status === "failed" ? "danger" : "default"}
         />
-        <MetricCard
-          label="Latest build"
-          value={latestBuild ? latestBuild.status : buildsLoading ? "..." : "None"}
-          detail={latestBuild ? latestBuild.appName : "No builds observed yet"}
-          tone="light"
+        <StatCard
+          icon={<RiGithubFill className="size-4" />}
+          label="GitHub App"
+          value={appConfig?.configured ? "Connected" : "Not configured"}
+          hint={appConfig?.configured ? appConfig.name ?? "Installed" : "Install to deploy from repos"}
+          tone={appConfig?.configured ? "success" : "warning"}
         />
       </div>
 
       {appsError ? (
         <div
           role="alert"
-          className="rounded-[1.5rem] border border-destructive/30 bg-destructive/10 px-4 py-3 text-sm text-destructive"
+          className="rounded-lg border border-destructive/30 bg-destructive/10 px-4 py-3 text-sm text-destructive"
         >
-          Failed to load apps: {appsError.message}
+          Failed to load applications: {appsError.message}
         </div>
       ) : null}
 
-      <div className="grid gap-4 xl:grid-cols-[1.8fr_1fr]">
+      <div className="grid gap-4 xl:grid-cols-[2fr_1fr]">
         <ShellPanel
-          title="Workspace surface"
-          description="The shell keeps the wide, modular rhythm from the reference while grounding it in deployment data."
+          title="Applications"
+          description="Deployed services and their current state."
+          action={
+            apps.length > 0 ? (
+              <Button variant="ghost" size="sm" asChild>
+                <Link to="/apps">
+                  View all
+                  <RiArrowRightLine className="size-3.5" />
+                </Link>
+              </Button>
+            ) : null
+          }
         >
-          <div className="grid gap-4 md:grid-cols-4">
-            <SurfaceBlock className="md:col-span-2" title="Application roster">
-              {appsLoading ? (
-                <PlaceholderRows />
-              ) : apps.length > 0 ? (
-                <div className="space-y-2">
-                  {apps.slice(0, 4).map((app) => (
-                    <Link
-                      key={app.id}
-                      to="/apps/$id/overview"
-                      params={{ id: app.id }}
-                      className="flex items-center justify-between rounded-[1rem] border border-border/70 bg-white/85 px-4 py-3 transition-colors hover:border-slate-300"
-                    >
-                      <div className="min-w-0">
-                        <p className="truncate text-sm font-medium text-slate-950">{app.name}</p>
-                        <p className="truncate text-xs text-muted-foreground">
-                          {app.repoFullName ?? "No repository linked"}
-                        </p>
-                      </div>
-                      <span className="rounded-full bg-slate-900 px-2.5 py-1 text-[11px] font-medium capitalize text-white">
-                        {app.status}
-                      </span>
-                    </Link>
-                  ))}
-                </div>
-              ) : (
-                <EmptyCopy
-                  title="No deployments yet"
-                  body="Create your first application to replace these placeholder blocks with live rollout data."
-                />
-              )}
-            </SurfaceBlock>
-
-            <SurfaceBlock title="Quick stack">
-              <div className="grid gap-3">
-                <MiniTile
-                  icon={<RiGitRepositoryLine className="size-4" />}
-                  label="Repositories"
-                  value={appConfig?.configured ? "Connected" : "Pending"}
-                />
-                <MiniTile
-                  icon={<RiShieldCheckLine className="size-4" />}
-                  label="Account"
-                  value={secureAccount ? "Protected" : "Review"}
-                />
-                <MiniTile
-                  icon={<RiSparklingLine className="size-4" />}
-                  label="Guide"
-                  value="Playbook ready"
-                />
-              </div>
-            </SurfaceBlock>
-
-            <SurfaceBlock className="md:col-span-3 min-h-[20rem]" title="Recent delivery activity">
-              {buildsLoading ? (
-                <PlaceholderRows rows={4} />
-              ) : recentBuilds.length > 0 ? (
-                <div className="grid gap-3">
-                  {recentBuilds.slice(0, 5).map((build) => (
-                    <div
-                      key={build.id}
-                      className="flex flex-col gap-2 rounded-[1rem] border border-border/70 bg-white/85 px-4 py-3 md:flex-row md:items-center md:justify-between"
-                    >
-                      <div>
-                        <p className="text-sm font-medium text-slate-950">{build.appName}</p>
-                        <p className="text-xs text-muted-foreground">
-                          {build.commitSha ? build.commitSha.slice(0, 7) : "manual"} · {build.status}
-                        </p>
-                      </div>
-                      <span className="rounded-full bg-muted px-2.5 py-1 text-[11px] font-medium text-slate-700">
-                        {new Date(build.createdAt).toLocaleString("en-GB", {
-                          day: "2-digit",
-                          month: "short",
-                          hour: "2-digit",
-                          minute: "2-digit",
-                        })}
-                      </span>
-                    </div>
-                  ))}
-                </div>
-              ) : (
-                <EmptyCopy
-                  title="No builds yet"
-                  body="When new builds land, this panel becomes the activity stream in the shell."
-                />
-              )}
-            </SurfaceBlock>
-          </div>
+          {appsLoading ? (
+            <AppRowsSkeleton />
+          ) : apps.length > 0 ? (
+            <div className="divide-y divide-border">
+              {apps.slice(0, 6).map((app) => (
+                <AppRow key={app.id} app={app} />
+              ))}
+            </div>
+          ) : (
+            <EmptyApps
+              isGitHubConnected={appConfig?.configured ?? false}
+              onCreate={() => setModalOpen(true)}
+            />
+          )}
         </ShellPanel>
 
-        <div className="grid gap-4">
-          <ShellPanel
-            title="Quick actions"
-            description="Keep the right rail practical instead of decorative."
-          >
-            <div className="grid gap-3">
-              <ActionLink to="/apps" label="Browse apps" note="Inspect deployments, logs and tabs." />
-              <ActionButton
-                label="Create a new app"
-                note="Start the repository flow from the modal."
-                onClick={() => setModalOpen(true)}
-              />
-              <ActionLink to="/guide" label="Open the guide" note="Operational notes and GitHub app setup." />
-              <ActionLink
-                to="/settings/security"
-                label="Review security"
-                note="Passkeys, sessions and account hardening."
-              />
-            </div>
-          </ShellPanel>
-
-          <ShellPanel
-            title="Shell notes"
-            description="What changed in this port from the original static reference."
-          >
-            <ul className="space-y-3 text-sm leading-6 text-slate-600">
-              <li className="rounded-[1rem] border border-border/60 bg-white/70 px-4 py-3">
-                The cloned shell grammar now wraps the authenticated router instead of living as a standalone HTML mirror.
-              </li>
-              <li className="rounded-[1rem] border border-border/60 bg-white/70 px-4 py-3">
-                Dashboard surfaces are now backed by real Ploydok queries instead of static placeholder markup.
-              </li>
-              <li className="rounded-[1rem] border border-border/60 bg-white/70 px-4 py-3">
-                The right rail and sidebar map the Efferd navigation language onto your existing `_authed` routes.
-              </li>
+        <ShellPanel
+          title="Activity"
+          description="Recent build and deploy events."
+        >
+          {buildsLoading ? (
+            <ActivitySkeleton />
+          ) : recentBuilds.length > 0 ? (
+            <ul className="space-y-1">
+              {recentBuilds.slice(0, 6).map((build) => (
+                <ActivityRow key={build.id} build={build} />
+              ))}
             </ul>
-          </ShellPanel>
-        </div>
+          ) : (
+            <p className="py-6 text-center text-sm text-muted-foreground">
+              No deployments yet.
+            </p>
+          )}
+        </ShellPanel>
       </div>
 
       <CreateAppModal open={modalOpen} onClose={() => setModalOpen(false)} />
     </ShellPage>
-  );
+  )
 }
 
-function MetricCard({
-  label,
-  value,
-  detail,
-  tone,
-}: {
-  label: string;
-  value: string;
-  detail: string;
-  tone: "dark" | "light" | "success" | "warning";
-}): React.JSX.Element {
-  return (
-    <div
-      className={[
-        "rounded-[1.6rem] border px-5 py-4 shadow-sm",
-        tone === "dark" && "border-slate-900 bg-slate-900 text-white",
-        tone === "light" && "border-border/70 bg-white/90 text-slate-900",
-        tone === "success" && "border-emerald-200 bg-emerald-50 text-emerald-950",
-        tone === "warning" && "border-amber-200 bg-amber-50 text-amber-950",
-      ].join(" ")}
-    >
-      <p className="text-[11px] font-semibold uppercase tracking-[0.28em] opacity-70">{label}</p>
-      <p className="mt-3 text-2xl font-semibold tracking-tight">{value}</p>
-      <p className="mt-2 text-sm opacity-80">{detail}</p>
-    </div>
-  );
-}
+// ---------------------------------------------------------------------------
+// StatCard — clean, uniform, tokens only. No wild gradients.
+// ---------------------------------------------------------------------------
 
-function SurfaceBlock({
-  title,
-  className,
-  children,
-}: {
-  title: string;
-  className?: string;
-  children: React.ReactNode;
-}): React.JSX.Element {
-  return (
-    <div className={["rounded-[1.4rem] border border-border/70 bg-[#f3f5f8] p-4", className].filter(Boolean).join(" ")}>
-      <p className="mb-3 text-sm font-medium text-slate-700">{title}</p>
-      {children}
-    </div>
-  );
-}
+type StatTone = "default" | "success" | "warning" | "danger"
 
-function MiniTile({
+function StatCard({
   icon,
   label,
   value,
+  hint,
+  tone = "default",
 }: {
-  icon: React.ReactNode;
-  label: string;
-  value: string;
+  icon: React.ReactNode
+  label: string
+  value: string
+  hint: string
+  tone?: StatTone
 }): React.JSX.Element {
+  const accent =
+    tone === "success"
+      ? "text-green-600 dark:text-green-400"
+      : tone === "warning"
+        ? "text-amber-600 dark:text-amber-400"
+        : tone === "danger"
+          ? "text-destructive"
+          : "text-muted-foreground"
+
   return (
-    <div className="rounded-[1rem] border border-border/70 bg-white/85 px-4 py-3">
-      <div className="flex items-center gap-2 text-slate-500">
+    <div className="rounded-lg border border-border bg-card px-4 py-3.5">
+      <div className={`flex items-center gap-1.5 ${accent}`}>
         {icon}
-        <span className="text-xs uppercase tracking-[0.2em]">{label}</span>
+        <span className="text-xs font-medium uppercase tracking-wide">{label}</span>
       </div>
-      <p className="mt-2 text-sm font-semibold text-slate-900">{value}</p>
+      <p className="mt-2 text-xl font-semibold tracking-tight text-foreground">{value}</p>
+      <p className="mt-0.5 text-xs text-muted-foreground truncate">{hint}</p>
     </div>
-  );
+  )
 }
 
-function PlaceholderRows({ rows = 3 }: { rows?: number }): React.JSX.Element {
+// ---------------------------------------------------------------------------
+// AppRow — dense list item (Dokploy-style).
+// ---------------------------------------------------------------------------
+
+function AppRow({ app }: { app: AppListItem }): React.JSX.Element {
   return (
-    <div className="space-y-2">
-      {Array.from({ length: rows }).map((_, index) => (
-        <div key={index} className="animate-pulse rounded-[1rem] border border-border/60 bg-white/75 px-4 py-3">
-          <div className="h-3 w-32 rounded bg-slate-200" />
-          <div className="mt-2 h-2.5 w-48 rounded bg-slate-100" />
+    <Link
+      to="/apps/$id/overview"
+      params={{ id: app.id }}
+      className="group flex items-center gap-3 py-3 transition-colors hover:bg-accent/40 -mx-4 px-4 rounded-md"
+    >
+      <div className="flex size-8 shrink-0 items-center justify-center rounded-md border border-border bg-muted/50 text-muted-foreground">
+        <RiHardDrive2Line className="size-4" />
+      </div>
+      <div className="min-w-0 flex-1">
+        <p className="truncate text-sm font-medium text-foreground">{app.name}</p>
+        <p className="truncate text-xs text-muted-foreground">
+          {app.repoFullName ? (
+            <span className="inline-flex items-center gap-1">
+              <RiGitBranchLine className="size-3" />
+              {app.repoFullName}
+              {app.branch ? <span className="opacity-60">· {app.branch}</span> : null}
+            </span>
+          ) : (
+            "Repository pending"
+          )}
+        </p>
+      </div>
+      <AppStatusBadge status={app.status} />
+      <RiArrowRightLine className="size-4 text-muted-foreground/40 transition-colors group-hover:text-muted-foreground" />
+    </Link>
+  )
+}
+
+function AppRowsSkeleton(): React.JSX.Element {
+  return (
+    <div className="divide-y divide-border">
+      {Array.from({ length: 4 }).map((_, i) => (
+        <div key={i} className="flex items-center gap-3 py-3 animate-pulse">
+          <div className="size-8 rounded-md bg-muted" />
+          <div className="flex-1 space-y-1.5">
+            <div className="h-3 w-32 rounded bg-muted" />
+            <div className="h-2.5 w-48 rounded bg-muted" />
+          </div>
+          <div className="h-5 w-16 rounded-full bg-muted" />
         </div>
       ))}
     </div>
-  );
+  )
 }
 
-function EmptyCopy({ title, body }: { title: string; body: string }): React.JSX.Element {
+function EmptyApps({
+  isGitHubConnected,
+  onCreate,
+}: {
+  isGitHubConnected: boolean
+  onCreate: () => void
+}): React.JSX.Element {
   return (
-    <div className="rounded-[1rem] border border-dashed border-border bg-white/60 px-4 py-8 text-center">
-      <p className="text-sm font-medium text-slate-900">{title}</p>
-      <p className="mt-2 text-sm leading-6 text-muted-foreground">{body}</p>
+    <div className="rounded-md border border-dashed border-border bg-muted/30 px-6 py-10 text-center">
+      <p className="text-sm font-semibold text-foreground">No applications yet</p>
+      <p className="mt-1.5 text-sm text-muted-foreground">
+        {isGitHubConnected
+          ? "Deploy your first application to get started."
+          : "Connect GitHub so Ploydok can read your repositories."}
+      </p>
+      <div className="mt-4">
+        {isGitHubConnected ? (
+          <Button size="sm" onClick={onCreate}>
+            <RiAddLine className="size-4" />
+            New application
+          </Button>
+        ) : (
+          <Button size="sm" variant="outline" asChild>
+            <Link to="/settings/github">
+              <RiGithubFill className="size-4" />
+              Connect GitHub
+            </Link>
+          </Button>
+        )}
+      </div>
     </div>
-  );
+  )
 }
 
-function ActionLink({
-  to,
-  label,
-  note,
-}: {
-  to: string;
-  label: string;
-  note: string;
-}): React.JSX.Element {
+// ---------------------------------------------------------------------------
+// Activity feed
+// ---------------------------------------------------------------------------
+
+function ActivityRow({ build }: { build: BuildWithApp }): React.JSX.Element {
+  const tone = buildTone(build.status)
+  const sha = build.commitSha ? build.commitSha.slice(0, 7) : "manual"
+
   return (
-    <Link
-      to={to}
-      className="flex items-center justify-between rounded-[1.15rem] border border-border/70 bg-white/80 px-4 py-3 transition-colors hover:border-slate-300"
-    >
-      <span>
-        <span className="block text-sm font-medium text-slate-950">{label}</span>
-        <span className="block text-xs text-muted-foreground">{note}</span>
-      </span>
-      <RiArrowRightUpLine className="size-4 text-slate-500" />
-    </Link>
-  );
+    <li>
+      <Link
+        to="/apps/$id/overview"
+        params={{ id: build.appId }}
+        className="group flex items-start gap-2.5 rounded-md py-2 -mx-2 px-2 transition-colors hover:bg-accent/40"
+      >
+        <span className={`mt-1.5 inline-flex ${tone.color}`}>{tone.icon}</span>
+        <div className="min-w-0 flex-1">
+          <p className="truncate text-sm font-medium text-foreground">{build.appName}</p>
+          <p className="truncate text-xs text-muted-foreground">
+            <span className="font-mono">{sha}</span>
+            <span className="mx-1 opacity-60">·</span>
+            <span className="capitalize">{build.status}</span>
+            <span className="mx-1 opacity-60">·</span>
+            {relativeTime(build.createdAt)}
+          </p>
+        </div>
+      </Link>
+    </li>
+  )
 }
 
-function ActionButton({
-  label,
-  note,
-  onClick,
-}: {
-  label: string;
-  note: string;
-  onClick: () => void;
-}): React.JSX.Element {
+function ActivitySkeleton(): React.JSX.Element {
   return (
-    <button
-      type="button"
-      onClick={onClick}
-      className="flex items-center justify-between rounded-[1.15rem] border border-border/70 bg-white/80 px-4 py-3 text-left transition-colors hover:border-slate-300"
-    >
-      <span>
-        <span className="block text-sm font-medium text-slate-950">{label}</span>
-        <span className="block text-xs text-muted-foreground">{note}</span>
-      </span>
-      <RiArrowRightUpLine className="size-4 text-slate-500" />
-    </button>
-  );
+    <div className="space-y-3">
+      {Array.from({ length: 4 }).map((_, i) => (
+        <div key={i} className="flex items-start gap-2.5 animate-pulse">
+          <div className="mt-1 size-3 rounded-full bg-muted" />
+          <div className="flex-1 space-y-1.5">
+            <div className="h-3 w-24 rounded bg-muted" />
+            <div className="h-2.5 w-40 rounded bg-muted" />
+          </div>
+        </div>
+      ))}
+    </div>
+  )
+}
+
+function buildTone(status: BuildStatus): { icon: React.JSX.Element; color: string } {
+  switch (status) {
+    case "succeeded":
+      return { icon: <RiCheckboxCircleFill className="size-3.5" />, color: "text-green-600 dark:text-green-400" }
+    case "failed":
+    case "cancelled":
+      return { icon: <RiErrorWarningFill className="size-3.5" />, color: "text-destructive" }
+    case "running":
+      return { icon: <RiPulseFill className="size-3.5 animate-pulse" />, color: "text-blue-600 dark:text-blue-400" }
+    case "pending":
+    default:
+      return { icon: <RiTimeLine className="size-3.5" />, color: "text-muted-foreground" }
+  }
+}
+
+// ---------------------------------------------------------------------------
+// relativeTime — small dependency-free helper
+// ---------------------------------------------------------------------------
+
+function relativeTime(ms: number): string {
+  const delta = Date.now() - ms
+  if (delta < 60_000) return "just now"
+  const minutes = Math.floor(delta / 60_000)
+  if (minutes < 60) return `${minutes}m ago`
+  const hours = Math.floor(minutes / 60)
+  if (hours < 24) return `${hours}h ago`
+  const days = Math.floor(hours / 24)
+  if (days < 7) return `${days}d ago`
+  return new Date(ms).toLocaleDateString("en-GB", { day: "2-digit", month: "short" })
 }

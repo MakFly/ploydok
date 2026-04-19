@@ -50,6 +50,13 @@
       "when": 1776438957813,
       "tag": "0006_commit_message",
       "breakpoints": true
+    },
+    {
+      "idx": 7,
+      "version": "6",
+      "when": 1776500000000,
+      "tag": "0007_restart_policy",
+      "breakpoints": true
     }
   ]
 }

@@ -49,7 +49,7 @@ const METRIC_STYLES = {
     unit: " %",
     decimals: 2,
     color: "#3b82f6",
-    accentText: "text-blue-700",
+    accentText: "text-blue-700 dark:text-blue-400",
     accentRail: "bg-blue-500",
     gradientId: "fill-cpu-detail",
   },
@@ -59,7 +59,7 @@ const METRIC_STYLES = {
     unit: " MB",
     decimals: 1,
     color: "#8b5cf6",
-    accentText: "text-violet-700",
+    accentText: "text-violet-700 dark:text-violet-400",
     accentRail: "bg-violet-500",
     gradientId: "fill-mem-detail",
   },
@@ -156,12 +156,12 @@ export function MetricDetailDialog({
             <HeroStat
               label="Max (5min)"
               value={formatValue(max)}
-              valueClass="font-mono text-[18px] font-semibold leading-none tabular-nums text-slate-800"
+              valueClass="font-mono text-[18px] font-semibold leading-none tabular-nums text-foreground"
             />
             <HeroStat
               label="Average"
               value={formatValue(avg)}
-              valueClass="font-mono text-[18px] font-semibold leading-none tabular-nums text-slate-800"
+              valueClass="font-mono text-[18px] font-semibold leading-none tabular-nums text-foreground"
             />
           </div>
 
@@ -310,7 +310,7 @@ function HeroStat({
   valueClass: string
 }): React.JSX.Element {
   return (
-    <div className="flex flex-col gap-1.5 rounded-[0.85rem] border border-border/60 bg-slate-50/60 px-3.5 py-3">
+    <div className="flex flex-col gap-1.5 rounded-md border border-border bg-muted/40 px-3.5 py-3">
       <span className="text-[9px] font-semibold uppercase tracking-[0.18em] text-muted-foreground">
         {label}
       </span>
@@ -332,7 +332,7 @@ function FooterStat({
     <div className="flex items-center gap-1.5">
       {icon}
       <span className="text-muted-foreground/60">{label}</span>
-      <span className="text-slate-700">{value}</span>
+      <span className="text-foreground">{value}</span>
     </div>
   )
 }

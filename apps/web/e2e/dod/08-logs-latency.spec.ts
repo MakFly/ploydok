@@ -102,7 +102,7 @@ test.describe("DoD #7 — logs latency", () => {
     // 3. Open the WS with cookie header via the `ws` npm package.
     //    We use a Function-constructor dynamic import so tsc does not try to
     //    resolve the `ws` type at compile time (same pattern as the harness).
-    const wsUrl = `ws://localhost:4000/ws/apps/${appId}/build/${buildId}`
+    const wsUrl = `ws://localhost:3335/ws/apps/${appId}/build/${buildId}`
 
     type WsModule = {
       default: new (

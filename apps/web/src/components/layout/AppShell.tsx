@@ -77,6 +77,15 @@ function cx(...values: Array<string | false | null | undefined>): string {
   return values.filter(Boolean).join(" ");
 }
 
+const APP_LOGS_RE = /^\/apps\/[^/]+\/logs(\/|$)/;
+const APP_DETAIL_RE = /^\/apps\/[^/]+(\/|$)/;
+
+function resolveWrapperClass(pathname: string): string {
+  if (APP_LOGS_RE.test(pathname)) return "overflow-hidden";
+  if (APP_DETAIL_RE.test(pathname)) return "overflow-y-auto";
+  return "gap-4 overflow-y-auto p-4 md:p-8";
+}
+
 function isNavActive(pathname: string, target: string): boolean {
   if (target === "/dashboard") return pathname === "/dashboard";
   return pathname === target || pathname.startsWith(`${target}/`);
@@ -153,7 +162,7 @@ export function AppShell({ children }: AppShellProps): React.JSX.Element {
     <div
       data-sidebar-state={state}
       style={wrapperStyle}
-      className="group/shell bg-sidebar/50 text-sidebar-foreground flex min-h-svh w-full"
+      className="group/shell bg-sidebar/50 text-sidebar-foreground flex h-svh w-full overflow-hidden"
     >
       {/* Sidebar (peer) */}
       <div
@@ -419,7 +428,18 @@ export function AppShell({ children }: AppShellProps): React.JSX.Element {
             <NotificationBell />
           </div>
         </div>
-        <div className="flex flex-1 flex-col gap-4 p-4 md:p-8">{children}</div>
+        <div
+          className={cx(
+            "flex flex-1 min-h-0 flex-col",
+            // App-detail routes own their own chrome (AppBar + padded main) and
+            // the logs route needs the terminal flush to the edges, so we strip
+            // padding/gap on `/apps/<id>/*` and only apply scroll. Logs also
+            // disables scroll here — its internal body handles overflow.
+            resolveWrapperClass(pathname),
+          )}
+        >
+          {children}
+        </div>
       </main>
 
       {/* Global command palette — portalized, position-safe */}

@@ -2,6 +2,7 @@
 import * as React from "react";
 import { Button } from "@workspace/ui/components/button";
 import type { Me } from "@ploydok/shared";
+import { toast } from "sonner";
 
 interface SecondFactorBannerProps {
   me: Me;
@@ -18,7 +19,7 @@ export function SecondFactorBanner({ me }: SecondFactorBannerProps): React.JSX.E
     setDownloading(true);
     try {
       const res = await fetch(
-        `${import.meta.env.VITE_API_URL ?? "http://localhost:4000"}/auth/backup-codes/generate`,
+        `${import.meta.env.VITE_API_URL ?? "http://localhost:3335"}/auth/backup-codes/generate`,
         {
           method: "POST",
           credentials: "include",
@@ -36,8 +37,10 @@ export function SecondFactorBanner({ me }: SecondFactorBannerProps): React.JSX.E
       a.remove();
       URL.revokeObjectURL(url);
       setDownloaded(true);
+      toast.success("Backup codes generated");
     } catch (err) {
       console.error("Failed to generate backup codes", err);
+      toast.error(err instanceof Error ? err.message : "Failed to generate backup codes");
     } finally {
       setDownloading(false);
     }

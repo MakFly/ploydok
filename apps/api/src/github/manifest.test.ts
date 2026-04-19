@@ -5,7 +5,7 @@ import { buildManifest } from "./manifest";
 describe("buildManifest", () => {
   const opts = {
     webBaseUrl: "http://localhost:5173",
-    apiBaseUrl: "http://localhost:4000",
+    apiBaseUrl: "http://localhost:3335",
   };
 
   it("sets name from web hostname", () => {
@@ -15,12 +15,12 @@ describe("buildManifest", () => {
 
   it("sets redirect_url to api callback", () => {
     const m = buildManifest(opts);
-    expect(m.redirect_url).toBe("http://localhost:4000/github/app/callback");
+    expect(m.redirect_url).toBe("http://localhost:3335/github/app/callback");
   });
 
   it("sets callback_urls array", () => {
     const m = buildManifest(opts);
-    expect(m.callback_urls).toEqual(["http://localhost:4000/github/app/callback"]);
+    expect(m.callback_urls).toEqual(["http://localhost:3335/github/app/callback"]);
   });
 
   it("omits hook_attributes on loopback apiBaseUrl (GitHub rejects localhost hooks)", () => {

@@ -2,7 +2,7 @@
 // E2E Playwright spec — verifies the refresh-token fix end-to-end.
 //
 // Prerequisites (must be running locally):
-//   - make dev (web on :5173, api on :4000)
+//   - make dev (web on :5173, api on :3335)
 //   - A test user in the DB with a fresh backup code, exposed via env:
 //       E2E_TEST_EMAIL=...
 //       E2E_TEST_BACKUP_CODE=XXXX-XXXX-XXXX

@@ -195,7 +195,7 @@ export async function getRegistryUsageForApp(
   db: Db,
   rc: RegistryClient = defaultRegistryClient,
 ): Promise<RegistryUsage> {
-  const repo = `app-${appId}`;
+  const repo = `app-${appId.toLowerCase()}`;
 
   const [tags, diskPct] = await Promise.all([
     rc.listTags(repo),

@@ -2,8 +2,9 @@
 import { useMutation, useQueryClient } from "@tanstack/react-query"
 import { apiFetch } from "./api"
 import type { ApiError } from "./api"
-import type { AppDetail, AppSettingsPatch, RawAppDetail } from "./apps"
+import type { AppDetail, AppListItem, AppSettingsPatch, RawAppDetail } from "./apps"
 import { normalizeAppDetail } from "./apps"
+import { toast } from "sonner"
 
 // ---------------------------------------------------------------------------
 // useDeployApp
@@ -22,9 +23,31 @@ export function useDeployApp(appId: string) {
         method: "POST",
         body: opts && (opts.rebuild || opts.noCache) ? opts : undefined,
       }),
+    onMutate: async () => {
+      await qc.cancelQueries({ queryKey: ["apps", appId] })
+      const snapshot = qc.getQueryData<AppDetail>(["apps", appId])
+      if (snapshot) {
+        qc.setQueryData<AppDetail>(["apps", appId], { ...snapshot, status: "building" })
+      }
+      qc.setQueryData<Array<AppListItem> | undefined>(
+        ["apps"],
+        (current) => current?.map((app) => (app.id === appId ? { ...app, status: "building" } : app)),
+      )
+      return { snapshot }
+    },
+    onError: (_err, _vars, context) => {
+      toast.error("Deployment failed to start")
+      const ctx = context as { snapshot?: AppDetail } | undefined
+      if (ctx?.snapshot) {
+        qc.setQueryData(["apps", appId], ctx.snapshot)
+      }
+      void qc.invalidateQueries({ queryKey: ["apps"] })
+    },
     onSuccess: () => {
+      toast.success("Deployment queued")
       void qc.invalidateQueries({ queryKey: ["apps", appId] })
       void qc.invalidateQueries({ queryKey: ["apps", appId, "builds"] })
+      void qc.invalidateQueries({ queryKey: ["apps"] })
     },
   })
 }
@@ -47,8 +70,12 @@ export function useRollbackApp(appId: string) {
         body: opts?.buildId ? { buildId: opts.buildId } : undefined,
       }),
     onSuccess: () => {
+      toast.success("Rollback started")
       void qc.invalidateQueries({ queryKey: ["apps", appId] })
       void qc.invalidateQueries({ queryKey: ["apps", appId, "builds"] })
+    },
+    onError: (error) => {
+      toast.error(error.message)
     },
   })
 }
@@ -71,12 +98,14 @@ export function useStopApp(appId: string) {
       return { snapshot }
     },
     onError: (_err, _vars, context) => {
+      toast.error("Stop failed")
       const ctx = context as { snapshot?: AppDetail } | undefined
       if (ctx?.snapshot) {
         qc.setQueryData(["apps", appId], ctx.snapshot)
       }
     },
     onSuccess: () => {
+      toast.success("App stopped")
       void qc.invalidateQueries({ queryKey: ["apps", appId] })
       void qc.invalidateQueries({ queryKey: ["apps", appId, "builds"] })
       void qc.invalidateQueries({ queryKey: ["apps"] })
@@ -105,12 +134,14 @@ export function useRestartApp(appId: string) {
       return { snapshot }
     },
     onError: (_err, _vars, context) => {
+      toast.error("Restart failed")
       const ctx = context as { snapshot?: AppDetail } | undefined
       if (ctx?.snapshot) {
         qc.setQueryData(["apps", appId], ctx.snapshot)
       }
     },
     onSuccess: () => {
+      toast.success("Restart started")
       void qc.invalidateQueries({ queryKey: ["apps", appId] })
       void qc.invalidateQueries({ queryKey: ["apps", appId, "builds"] })
       void qc.invalidateQueries({ queryKey: ["apps"] })
@@ -145,8 +176,9 @@ export function useUpdateAppSettings(appId: string) {
   const qc = useQueryClient()
   return useMutation<AppDetail, ApiError, AppSettingsPatch>({
     mutationFn: async (body) => {
-      const { healthcheckPath, healthcheckPort, ...rest } = body
+      const { healthcheckPath, healthcheckPort, restartPolicy, ...rest } = body
       const payload: Record<string, unknown> = { ...rest }
+      if (restartPolicy !== undefined) payload.restartPolicy = restartPolicy
       if (healthcheckPath !== undefined || healthcheckPort !== undefined) {
         const healthcheck: Record<string, unknown> = {}
         if (healthcheckPath !== undefined) healthcheck.path = healthcheckPath ?? undefined
@@ -160,8 +192,12 @@ export function useUpdateAppSettings(appId: string) {
       return normalizeAppDetail(app)
     },
     onSuccess: (updated) => {
+      toast.success("Settings saved")
       qc.setQueryData(["apps", appId], updated)
       void qc.invalidateQueries({ queryKey: ["apps"] })
+    },
+    onError: (error) => {
+      toast.error(error.message)
     },
   })
 }

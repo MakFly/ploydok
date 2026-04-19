@@ -6,13 +6,15 @@ import { and, eq } from "drizzle-orm";
 import { nanoid } from "nanoid";
 import { createDb } from "@ploydok/db";
 import { apps, builds, projects } from "@ploydok/db";
-import { BuildMethodSchema, HealthcheckConfigSchema } from "@ploydok/shared";
-import { getAppForUser, listAppsForUser, listBuildsForApp } from "../queries/apps";
+import { BuildMethodSchema, HealthcheckConfigSchema, RestartPolicySchema } from "@ploydok/shared";
+import { getAppActivity, getAppForUser, listAppsForUser, listBuildsForApp } from "../queries/apps";
 import { enqueueJob } from "@ploydok/db/queries";
 import { env } from "../env";
 import { childLogger } from "../logger";
 import type { Db } from "@ploydok/db";
 import type { AuthUser } from "../auth/middleware";
+import { getSharedAgent } from "../debug/singletons";
+import { resolveRuntimeContainer } from "../runtime-containers";
 
 // ---------------------------------------------------------------------------
 // Validation schemas
@@ -34,6 +36,7 @@ const CreateAppBody = z.object({
   startCommand: z.string().optional(),
   watchPaths: z.array(z.string()).optional(),
   buildMethod: BuildMethodSchema.optional(),
+  restartPolicy: RestartPolicySchema.optional(),
   healthcheck: HealthcheckConfigSchema.partial().optional(),
   domain: z.string().optional(),
 });
@@ -93,6 +96,12 @@ function nullToUndefined<T>(value: T | null): T | undefined {
   return value ?? undefined;
 }
 
+function buildPublicUrl(domain: string | null): string | null {
+  if (!domain) return null;
+  const port = env.PLOYDOK_PUBLIC_PORT ? `:${env.PLOYDOK_PUBLIC_PORT}` : "";
+  return `${env.PLOYDOK_PUBLIC_SCHEME}://${domain}${port}`;
+}
+
 function serializeApp(row: AppRow) {
   return {
     id: row.id,
@@ -111,7 +120,9 @@ function serializeApp(row: AppRow) {
     startCommand: nullToUndefined(row.start_command),
     watchPaths: row.watch_paths ? (JSON.parse(row.watch_paths) as string[]) : undefined,
     buildMethod: row.build_method,
+    restartPolicy: row.restart_policy,
     domain: row.domain,
+    publicUrl: buildPublicUrl(row.domain),
     containerId: row.container_id,
     healthcheck: {
       path: row.healthcheck_path,
@@ -153,6 +164,7 @@ function serializeAppPartial(row: AppPartialRow) {
     branch: nullToUndefined(row.branch),
     buildMethod: nullToUndefined(row.build_method),
     domain: nullToUndefined(row.domain),
+    publicUrl: nullToUndefined(buildPublicUrl(row.domain)),
     createdAt: row.created_at instanceof Date ? row.created_at.toISOString() : row.created_at,
     updatedAt: row.updated_at instanceof Date ? row.updated_at.toISOString() : row.updated_at,
   };
@@ -277,6 +289,7 @@ export function createAppsRouter(db: Db): Hono {
       start_command: body.startCommand ?? null,
       watch_paths: body.watchPaths ? JSON.stringify(body.watchPaths) : null,
       build_method: body.buildMethod ?? "auto",
+      restart_policy: body.restartPolicy ?? "unless-stopped",
       domain,
       healthcheck_path: hc.path ?? "/",
       healthcheck_port: hc.port ?? null,
@@ -366,6 +379,7 @@ export function createAppsRouter(db: Db): Hono {
     if (body.startCommand !== undefined) patch.start_command = body.startCommand;
     if (body.watchPaths !== undefined) patch.watch_paths = JSON.stringify(body.watchPaths);
     if (body.buildMethod !== undefined) patch.build_method = body.buildMethod;
+    if (body.restartPolicy !== undefined) patch.restart_policy = body.restartPolicy;
     if (body.domain !== undefined) patch.domain = body.domain;
 
     if (body.healthcheck !== undefined) {
@@ -461,6 +475,23 @@ export function createAppsRouter(db: Db): Hono {
     return c.json({ builds: appBuilds.map(serializeBuild) })
   })
   router.get("/:id/stats", (c) => c.json({ error: "not_implemented_m3_4" }, 501));
+
+  // GET /apps/:id/activity — historical activity timeline derived from builds.
+  // Front-end seeds the SSE-driven feed with this so users see recent builds
+  // even when the in-memory event ring buffer is cold (e.g. after API restart).
+  router.get("/:id/activity", async (c) => {
+    const user = getUser(c);
+    const appId = c.req.param("id");
+
+    const app = await getAppForUser(db, appId, user.id);
+    if (!app) {
+      return c.json({ error: { code: "NOT_FOUND", message: "App not found" } }, 404);
+    }
+
+    const limit = Math.min(Number(c.req.query("limit") ?? 20), 100);
+    const events = await getAppActivity(db, appId, limit);
+    return c.json({ events });
+  });
   // registry-usage implemented in [M4.2 registry — BEGIN/END] block below.
 
   // [M3.2 logs — BEGIN]
@@ -522,6 +553,57 @@ export function createAppsRouter(db: Db): Hono {
         "content-disposition": `attachment; filename="build-${buildId}.log"`,
       },
     });
+  });
+
+  router.get("/:id/runtime-logs", async (c) => {
+    const user = getUser(c);
+    const appId = c.req.param("id");
+    const tailRaw = Number(c.req.query("tail") ?? 200);
+    const tail = Number.isFinite(tailRaw)
+      ? Math.max(1, Math.min(Math.floor(tailRaw), 1_000))
+      : 200
+
+    const app = await getAppForUser(db, appId, user.id);
+    if (!app) {
+      return c.json({ error: { code: "NOT_FOUND", message: "App not found" } }, 404);
+    }
+
+    try {
+      const agent = getSharedAgent()
+      const container = await resolveRuntimeContainer(agent, {
+        appId,
+        preferredContainerRef: app.container_id,
+      })
+
+      if (!container) {
+        return c.json({ lines: [], containerFound: false })
+      }
+
+      const lines: Array<{ t: number; line: string; stream?: "stdout" | "stderr" }> = []
+      for await (const line of agent.containerLogs({
+        containerId: container.id,
+        follow: false,
+        sinceUnix: 0,
+        tail,
+      })) {
+        const entry: { t: number; line: string; stream?: "stdout" | "stderr" } = {
+          t: Date.parse(line.timestamp) || Date.now(),
+          line: line.line,
+        }
+        if (line.stream === "stdout" || line.stream === "stderr") {
+          entry.stream = line.stream
+        }
+        lines.push(entry)
+      }
+
+      return c.json({ lines, containerFound: true })
+    } catch (err) {
+      const message = err instanceof Error ? err.message : String(err);
+      return c.json(
+        { error: { code: "RUNTIME_LOGS_ERROR", message } },
+        500,
+      );
+    }
   });
 
   // Also replace the former stub for /:id/builds/:buildId/logs with a redirect

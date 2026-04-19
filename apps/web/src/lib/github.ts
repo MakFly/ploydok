@@ -3,6 +3,7 @@ import { useInfiniteQuery, useMutation, useQuery, useQueryClient } from "@tansta
 import { apiFetch } from "./api";
 import type { ApiError } from "./api";
 import type { GitBranch, GitRepo } from "@ploydok/shared";
+import { toast } from "sonner";
 
 // ---------------------------------------------------------------------------
 // Types
@@ -122,6 +123,9 @@ export function useCreateGitHubApp() {
   return useMutation<CreateGitHubAppResponse, ApiError, void>({
     mutationFn: () =>
       apiFetch<CreateGitHubAppResponse>("/github/app/manifest", { method: "POST" }),
+    onError: (error) => {
+      toast.error(error.message);
+    },
   });
 }
 

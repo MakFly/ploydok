@@ -59,6 +59,7 @@ interface AppForDeploy {
   build_command: string | null;
   start_command: string | null;
   build_method: string | null;
+  restart_policy: string | null;
   owner_id: string;
 }
 
@@ -84,6 +85,7 @@ async function getAppForDeploy(db: Db, appId: string): Promise<AppForDeploy> {
       build_command: apps.build_command,
       start_command: apps.start_command,
       build_method: apps.build_method,
+      restart_policy: apps.restart_policy,
       owner_id: projects.owner_id,
     })
     .from(apps)
@@ -189,6 +191,10 @@ export async function handleDeploy(
     ...(payload.commitMessage != null && { commitMessage: payload.commitMessage }),
   });
   await updateBuildStatus(db, buildId, "running", { startedAt: new Date() });
+  await db
+    .update(apps)
+    .set({ status: "building", updated_at: new Date() })
+    .where(eq(apps.id, app.id));
 
   // Notify: build started
   if (ownerId) {
@@ -198,6 +204,7 @@ export async function handleDeploy(
         appId: app.id,
         buildId,
         message: "Build démarré",
+        data: { status: "building" },
       })
     } catch (pubErr) {
       log.warn({ pubErr, buildId }, "eventBus publish build.started failed (non-fatal)")
@@ -380,7 +387,7 @@ export async function handleDeploy(
           appId: app.id,
           buildId,
           message: "Container live",
-          data: { containerId },
+          data: { containerId, status: "running" },
         })
       } catch (pubErr) {
         log.warn({ pubErr, buildId }, "eventBus publish deploy.status_change (container live) failed (non-fatal)")
@@ -397,6 +404,10 @@ export async function handleDeploy(
 
     finalStatus = "failed";
     finalPatch = { finishedAt: new Date(), errorMessage: msg };
+    await db
+      .update(apps)
+      .set({ status: app.status as typeof apps.$inferSelect.status, updated_at: new Date() })
+      .where(eq(apps.id, app.id));
 
     throw err;
   } finally {

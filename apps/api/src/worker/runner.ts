@@ -32,6 +32,11 @@ import { CaddyClient } from "../caddy/client.js";
 import { logBus } from "./log-bus.js";
 import { eventBus } from "./event-bus.js";
 import { workerLog } from "./logger.js";
+import {
+  inferContainerColor,
+  runtimeContainerName,
+  runtimeContainerNameCandidates,
+} from "../runtime-containers.js";
 
 // ---------------------------------------------------------------------------
 // Constants
@@ -116,12 +121,6 @@ function createAgentClient(socketPath = DEFAULT_AGENT_SOCKET): InstanceType<type
 // ---------------------------------------------------------------------------
 // Helpers
 // ---------------------------------------------------------------------------
-
-function containerName(appId: string, color: ContainerColor): string {
-  // Agent regex: ^ploydok-[a-z0-9][a-z0-9-]{0,62}$ — nanoid() appIds contain
-  // uppercase letters, so lowercase before composing the container name.
-  return `ploydok-app-${appId.toLowerCase()}-${color}`;
-}
 
 function oppositeColor(color: ContainerColor): ContainerColor {
   return color === "blue" ? "green" : "blue";
@@ -208,10 +207,8 @@ async function getCurrentColor(db: Db, appId: string): Promise<ContainerColor> {
     .limit(1);
 
   const currentContainerId = appRows[0]?.container_id;
-  if (currentContainerId) {
-    if (currentContainerId.includes("-blue")) return "blue";
-    if (currentContainerId.includes("-green")) return "green";
-  }
+  const currentColor = inferContainerColor(currentContainerId)
+  if (currentColor) return currentColor
 
   // Fallback: check build records.
   const buildRows = await db
@@ -222,10 +219,8 @@ async function getCurrentColor(db: Db, appId: string): Promise<ContainerColor> {
     .limit(1);
 
   const bid = buildRows[0]?.container_id;
-  if (bid) {
-    if (bid.includes("-blue")) return "blue";
-    if (bid.includes("-green")) return "green";
-  }
+  const buildColor = inferContainerColor(bid)
+  if (buildColor) return buildColor
 
   // Default: treat current as green so we start with blue.
   return "green";
@@ -302,6 +297,15 @@ async function stopContainer(
   }
 }
 
+async function stopContainerCandidates(
+  agent: InstanceType<typeof AgentClient>,
+  names: Array<string>,
+): Promise<void> {
+  for (const name of names) {
+    await stopContainer(agent, name)
+  }
+}
+
 // ---------------------------------------------------------------------------
 // Public API
 // ---------------------------------------------------------------------------
@@ -325,7 +329,10 @@ export async function runBlueGreen(opts: RunBlueGreenOptions): Promise<RunBlueGr
   // -- Load app config (healthcheck settings + domain + owner for labels) --
   const appRows = await db
     .select({
+      id: apps.id,
+      slug: apps.slug,
       domain: apps.domain,
+      restart_policy: apps.restart_policy,
       healthcheck_path: apps.healthcheck_path,
       healthcheck_port: apps.healthcheck_port,
       healthcheck_interval_s: apps.healthcheck_interval_s,
@@ -352,8 +359,8 @@ export async function runBlueGreen(opts: RunBlueGreenOptions): Promise<RunBlueGr
   // -- Determine colors -------------------------------------------------------
   const currentColor = await getCurrentColor(db, appId);
   const newColor = oppositeColor(currentColor);
-  const newName = containerName(appId, newColor);
-  const oldName = containerName(appId, currentColor);
+  const newName = runtimeContainerName(appRow, newColor);
+  const oldNames = runtimeContainerNameCandidates(appRow, currentColor);
 
   logBus.publish(channel, `[runner] blue-green: current=${currentColor} new=${newColor}`);
   logBus.publish(channel, `[runner] starting container ${newName} from ${imageRef}`);
@@ -379,6 +386,7 @@ export async function runBlueGreen(opts: RunBlueGreenOptions): Promise<RunBlueGr
         image: imageRef,
         env: containerEnv,
         labels: {
+          "ploydok.kind": "app",
           "ploydok.app_id": appId,
           "ploydok.owner_id": appRow.owner_id,
           "ploydok.color": newColor,
@@ -386,7 +394,7 @@ export async function runBlueGreen(opts: RunBlueGreenOptions): Promise<RunBlueGr
         network: "ploydok-public",
         volumes: [],
         ports: [],
-        restartPolicy: "unless-stopped",
+        restartPolicy: appRow.restart_policy,
         resourceLimits: undefined,
         command: [],
         user: "",
@@ -458,8 +466,8 @@ export async function runBlueGreen(opts: RunBlueGreenOptions): Promise<RunBlueGr
     await sleep(GRACE_MS);
 
     // 7. Stop old container.
-    logBus.publish(channel, `[runner] stopping old container ${oldName}`);
-    await stopContainer(agent, oldName);
+    logBus.publish(channel, `[runner] stopping old container ${oldNames[0]}`);
+    await stopContainerCandidates(agent, oldNames);
     logBus.publish(channel, `[runner] old container stopped`);
 
     return liveInfo;
@@ -477,14 +485,22 @@ export async function stopApp(
   db: Db,
   opts?: { agentSocketPath?: string; caddyBaseUrl?: string },
 ): Promise<void> {
+  const appRows = await db
+    .select({ id: apps.id, slug: apps.slug })
+    .from(apps)
+    .where(eq(apps.id, appId))
+    .limit(1)
+  const app = appRows[0]
+  if (!app) throw new Error(`App not found: ${appId}`)
+
   const agentSocket = opts?.agentSocketPath ?? DEFAULT_AGENT_SOCKET;
   const agent = createAgentClient(agentSocket);
   const caddyClient = new CaddyClient(opts?.caddyBaseUrl);
 
   try {
     await Promise.allSettled([
-      stopContainer(agent, containerName(appId, "blue")),
-      stopContainer(agent, containerName(appId, "green")),
+      stopContainerCandidates(agent, runtimeContainerNameCandidates(app, "blue")),
+      stopContainerCandidates(agent, runtimeContainerNameCandidates(app, "green")),
     ]);
 
     await caddyClient.removeUpstream(appId);
@@ -554,8 +570,6 @@ export async function rollbackApp(
   // Determine the current color (to know which old container to stop).
   const currentColor = await getCurrentColor(db, appId);
   const rollbackColor = oppositeColor(currentColor);
-  const rollbackName = containerName(appId, rollbackColor);
-  const oldName = containerName(appId, currentColor);
 
   const agentSocket = opts?.agentSocketPath ?? DEFAULT_AGENT_SOCKET;
   const agent = createAgentClient(agentSocket);
@@ -563,7 +577,10 @@ export async function rollbackApp(
   // Load app healthcheck port for Caddy upstream + owner_id for labels.
   const appRows = await db
     .select({
+      id: apps.id,
+      slug: apps.slug,
       domain: apps.domain,
+      restart_policy: apps.restart_policy,
       healthcheck_port: apps.healthcheck_port,
       owner_id: projects.owner_id,
     })
@@ -574,6 +591,8 @@ export async function rollbackApp(
 
   const appRow = appRows[0];
   if (!appRow) throw new Error(`App not found: ${appId}`);
+  const rollbackName = runtimeContainerName(appRow, rollbackColor);
+  const oldNames = runtimeContainerNameCandidates(appRow, currentColor);
   const hcPort = appRow.healthcheck_port ?? 3000;
   const domain = appRow.domain ?? `${appId}.ploydok.local`;
   const caddyClient = new CaddyClient(opts?.caddyBaseUrl);
@@ -594,6 +613,7 @@ export async function rollbackApp(
         image: previousBuild.image_tag,
         env: containerEnv,
         labels: {
+          "ploydok.kind": "app",
           "ploydok.app_id": appId,
           "ploydok.owner_id": appRow.owner_id,
           "ploydok.color": rollbackColor,
@@ -602,7 +622,7 @@ export async function rollbackApp(
         network: "ploydok-public",
         volumes: [],
         ports: [],
-        restartPolicy: "unless-stopped",
+        restartPolicy: appRow.restart_policy,
         resourceLimits: undefined,
         command: [],
         user: "",
@@ -622,7 +642,7 @@ export async function rollbackApp(
     logBus.publish(channel, `[runner] Caddy switched to rollback container`);
 
     // Stop old container.
-    await stopContainer(agent, oldName);
+    await stopContainerCandidates(agent, oldNames);
     logBus.publish(channel, `[runner] old container stopped`);
 
     // Update DB.
@@ -687,13 +707,20 @@ export async function restartApp(
   // 2. Stop containers (the DB write is already done above — stopApp would
   //    overwrite status to "stopped", so we call the container-stop logic directly).
   logBus.publish(channel, `[runner] restart: stopping current containers`);
+  const appRows = await db
+    .select({ id: apps.id, slug: apps.slug })
+    .from(apps)
+    .where(eq(apps.id, appId))
+    .limit(1)
+  const app = appRows[0]
+  if (!app) throw new Error(`App not found: ${appId}`)
   const agentSocket = opts?.agentSocketPath ?? DEFAULT_AGENT_SOCKET;
   const stopAgent = createAgentClient(agentSocket);
   const stopCaddy = new CaddyClient(opts?.caddyBaseUrl);
   try {
     await Promise.allSettled([
-      stopContainer(stopAgent, containerName(appId, "blue")),
-      stopContainer(stopAgent, containerName(appId, "green")),
+      stopContainerCandidates(stopAgent, runtimeContainerNameCandidates(app, "blue")),
+      stopContainerCandidates(stopAgent, runtimeContainerNameCandidates(app, "green")),
     ]);
     await stopCaddy.removeUpstream(appId);
   } finally {

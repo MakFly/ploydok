@@ -2,6 +2,7 @@
 import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query"
 import { apiFetch } from "./api"
 import type { ApiError } from "./api"
+import { toast } from "sonner"
 
 // ---------------------------------------------------------------------------
 // Types
@@ -64,7 +65,11 @@ export function useAddDomain(appId: string) {
       return data.domain
     },
     onSuccess: () => {
+      toast.success("Domain added")
       void qc.invalidateQueries({ queryKey: domainsQueryKey(appId) })
+    },
+    onError: (error) => {
+      toast.error(error.message)
     },
   })
 }
@@ -104,11 +109,15 @@ export function useRecheckDomain(appId: string) {
       return data.domain
     },
     onSuccess: (updatedDomain) => {
+      toast.success("TLS status refreshed")
       // Optimistically patch the cached list so the badge updates immediately.
       qc.setQueryData<Array<Domain>>(domainsQueryKey(appId), (prev) => {
         if (!prev) return prev
         return prev.map((d) => (d.id === updatedDomain.id ? updatedDomain : d))
       })
+    },
+    onError: (error) => {
+      toast.error(error.message)
     },
   })
 }

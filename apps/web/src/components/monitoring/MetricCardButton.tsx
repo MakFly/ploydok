@@ -23,24 +23,16 @@ const METRIC_STYLES = {
   cpu: {
     icon: RiCpuLine,
     label: "CPU",
-    text: "text-blue-700",
-    hoverBorder: "hover:border-blue-400/80",
-    hoverBg: "hover:bg-blue-50/60",
-    ring: "focus-visible:ring-blue-400",
-    border: "border-blue-200/50",
-    stroke: "#3b82f6",
-    gradient: "from-blue-500/10",
+    text: "text-foreground",
+    ring: "focus-visible:ring-ring",
+    stroke: "currentColor",
   },
   mem: {
     icon: RiDatabase2Line,
     label: "Memory",
-    text: "text-violet-700",
-    hoverBorder: "hover:border-violet-400/80",
-    hoverBg: "hover:bg-violet-50/60",
-    ring: "focus-visible:ring-violet-400",
-    border: "border-violet-200/50",
-    stroke: "#8b5cf6",
-    gradient: "from-violet-500/10",
+    text: "text-foreground",
+    ring: "focus-visible:ring-ring",
+    stroke: "currentColor",
   },
 } as const
 
@@ -72,29 +64,17 @@ export function MetricCardButton({
       aria-label={`Voir détail ${style.label}`}
       className={cn(
         "group/metric relative isolate flex w-full flex-col overflow-hidden",
-        "rounded-[1rem] border bg-white/70 px-3 py-2.5 text-left",
-        "transition-all duration-200 ease-out",
+        "rounded-md border border-border bg-muted/30 px-3 py-2.5 text-left",
+        "transition-colors duration-200 ease-out hover:bg-muted/60",
         "focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-offset-1",
-        style.border,
-        style.hoverBorder,
-        style.hoverBg,
         style.ring,
       )}
     >
-      {/* Gradient wash subtil dans la direction du metric */}
-      <span
-        aria-hidden
-        className={cn(
-          "pointer-events-none absolute inset-x-0 top-0 z-0 h-full bg-gradient-to-b to-transparent opacity-60",
-          style.gradient,
-        )}
-      />
-
       {/* Sparkline flottante en fond — SVG inline léger */}
       <InlineSparkline
         points={history}
         stroke={style.stroke}
-        className="pointer-events-none absolute inset-x-0 bottom-0 z-0 h-11 w-full opacity-[0.22]"
+        className="pointer-events-none absolute inset-x-0 bottom-0 z-0 h-11 w-full text-primary opacity-[0.18]"
       />
 
       {/* Header: icon + label + expand hint */}

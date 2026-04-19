@@ -1,12 +1,12 @@
 .PHONY: help dev dev-agent db-migrate infra-up infra-down infra-logs build start test lint typecheck clean
 
 # Ports locaux :
-#   API 4000 — Web 5173 — Caddy 8180/8543/2020 — Agent unix /tmp/ploydok-agent.sock
+#   API 3335 — Web 5173 — Caddy 8180/8543/2020 — Agent unix /tmp/ploydok-agent.sock
 
 help:
 	@echo "Usage: make <target>"
 	@echo ""
-	@echo "  dev          - Lance web + api via turbo (http://localhost:5173 + :4000)"
+	@echo "  dev          - Lance web + api via turbo (http://localhost:5173 + :3335)"
 	@echo "  dev-agent    - Lance l'agent Rust (unix socket, insecure)"
 	@echo "  db-migrate   - Applique les migrations SQLite (ploydok.db à la racine)"
 	@echo "  infra-up     - docker compose up Caddy + network ploydok-public"

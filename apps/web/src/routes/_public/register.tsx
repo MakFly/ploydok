@@ -3,6 +3,7 @@ import * as React from "react"
 import { Link, createFileRoute, useRouter } from "@tanstack/react-router"
 import { startRegistration } from "@simplewebauthn/browser"
 import { apiFetch } from "../../lib/api"
+import { toast } from "sonner"
 
 export const Route = createFileRoute("/_public/register")({
   component: RegisterPage,
@@ -45,8 +46,10 @@ function RegisterPage(): React.JSX.Element {
         },
       });
 
+      toast.success("Account created");
       void router.navigate({ to: "/dashboard" });
     } catch (err) {
+      toast.error(err instanceof Error ? err.message : "Échec de l'inscription");
       setError(err instanceof Error ? err.message : "Échec de l'inscription");
     } finally {
       setLoading(false);

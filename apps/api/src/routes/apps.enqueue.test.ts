@@ -56,6 +56,7 @@ function makeTestDb() {
       start_command TEXT,
       watch_paths TEXT,
       container_id TEXT,
+      restart_policy TEXT NOT NULL DEFAULT 'unless-stopped',
       domain TEXT,
       build_method TEXT DEFAULT 'auto',
       healthcheck_path TEXT DEFAULT '/',

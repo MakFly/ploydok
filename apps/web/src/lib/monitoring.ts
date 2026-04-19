@@ -11,7 +11,7 @@ import type {
 
 
 // Mirrors API_BASE from api.ts — not exported there.
-const API_BASE = import.meta.env.VITE_API_URL ?? "http://localhost:4000"
+const API_BASE = import.meta.env.VITE_API_URL ?? "http://localhost:3335"
 
 // ---------------------------------------------------------------------------
 // useMonitoring — GET /monitoring/overview, polled every 5 s
