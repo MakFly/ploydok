@@ -1,17 +1,21 @@
 // SPDX-License-Identifier: AGPL-3.0-only
 import * as React from "react"
 
-import { memRatio } from "@ploydok/shared"
+import { healthClass, memRatio } from "@ploydok/shared"
 import {
+  RiBox3Line,
   RiCpuLine,
-  RiDatabase2Line,
+  RiHistoryLine,
+  RiPulseLine,
   RiRestartLine,
+  RiServerLine,
+  RiSettings3Line,
   RiWifiLine,
 } from "@remixicon/react"
 
+import { cn } from "@workspace/ui/lib/utils"
 import { MetricCardButton } from "./MetricCardButton"
 import { MetricDetailDialog } from "./MetricDetailDialog"
-import { StatusDot } from "./StatusDot"
 import type { ContainerSnapshot } from "@ploydok/shared"
 
 // ---------------------------------------------------------------------------
@@ -39,14 +43,108 @@ function formatBytes(bytes: number): string {
 }
 
 // ---------------------------------------------------------------------------
-// Kind icon
+// Kind badge — small coloured pill at card corner
 // ---------------------------------------------------------------------------
 
-function KindIcon({ kind }: { kind: ContainerSnapshot["kind"] }) {
-  if (kind === "app") return <RiDatabase2Line className="size-4 opacity-60" />
-  if (kind === "infra") return <RiDatabase2Line className="size-4 opacity-60" />
-  // agent or unknown
-  return <RiCpuLine className="size-4 opacity-60" />
+function KindBadge({
+  kind,
+}: {
+  kind: ContainerSnapshot["kind"]
+}): React.JSX.Element {
+  const k = kind ?? "unknown"
+  const style = {
+    app: {
+      icon: RiBox3Line,
+      label: "APP",
+      cls: "bg-sky-500/10 text-sky-600 border-sky-500/20 dark:text-sky-400",
+    },
+    infra: {
+      icon: RiServerLine,
+      label: "INFRA",
+      cls: "bg-violet-500/10 text-violet-600 border-violet-500/20 dark:text-violet-400",
+    },
+    agent: {
+      icon: RiSettings3Line,
+      label: "AGENT",
+      cls: "bg-amber-500/10 text-amber-600 border-amber-500/20 dark:text-amber-400",
+    },
+    unknown: {
+      icon: RiBox3Line,
+      label: "UNKNOWN",
+      cls: "bg-muted text-muted-foreground border-border",
+    },
+  }[k]
+  const Icon = style.icon
+  return (
+    <span
+      className={cn(
+        "inline-flex items-center gap-1 rounded-full border px-1.5 py-0.5 font-mono text-[9px] tracking-wide",
+        style.cls
+      )}
+    >
+      <Icon className="size-3" />
+      {style.label}
+    </span>
+  )
+}
+
+// ---------------------------------------------------------------------------
+// Status chip (replaces StatusDot+label combo)
+// ---------------------------------------------------------------------------
+
+function StatusChip({
+  snapshot,
+}: {
+  snapshot: ContainerSnapshot
+}): React.JSX.Element {
+  const cls = healthClass(snapshot)
+  const tone = {
+    healthy: {
+      dot: "bg-emerald-500",
+      ring: "bg-emerald-500/60",
+      text: "text-emerald-700 dark:text-emerald-300",
+      bg: "bg-emerald-500/10",
+      animate: true,
+    },
+    warn: {
+      dot: "bg-amber-500",
+      ring: "bg-amber-500/60",
+      text: "text-amber-700 dark:text-amber-300",
+      bg: "bg-amber-500/10",
+      animate: false,
+    },
+    down: {
+      dot: "bg-destructive",
+      ring: "bg-destructive/60",
+      text: "text-destructive",
+      bg: "bg-destructive/10",
+      animate: false,
+    },
+  }[cls]
+  return (
+    <span
+      className={cn(
+        "inline-flex items-center gap-1.5 rounded-full px-1.5 py-0.5 text-[10px] font-medium capitalize",
+        tone.bg,
+        tone.text
+      )}
+    >
+      <span className="relative flex size-1.5">
+        {tone.animate ? (
+          <span
+            className={cn(
+              "absolute inline-flex size-full animate-ping rounded-full",
+              tone.ring
+            )}
+          />
+        ) : null}
+        <span
+          className={cn("relative inline-flex size-1.5 rounded-full", tone.dot)}
+        />
+      </span>
+      {snapshot.status}
+    </span>
+  )
 }
 
 // ---------------------------------------------------------------------------
@@ -69,90 +167,70 @@ export function ResourceCard({
   const ratio = memRatio(snapshot)
   const ratioPercent = Math.round(ratio * 100)
 
-  // Ring buffer mem en MB (la sparkline + dialog bossent en MB, pas en bytes).
   const memHistoryMB = React.useMemo(
     () => memHistory.map((v) => v / 1_048_576),
-    [memHistory],
+    [memHistory]
   )
 
-  // State dialog: null = fermée, "cpu" | "mem" = ouverte sur ce metric.
   const [openMetric, setOpenMetric] = React.useState<null | "cpu" | "mem">(
-    null,
+    null
   )
 
   const cpuLast = cpuHistory.at(-1) ?? 0
   const memLastMB = memHistoryMB.at(-1) ?? 0
 
-  // Mem bar colour
   const barColor =
     ratio > 0.85
-      ? "bg-red-500"
+      ? "bg-destructive"
       : ratio > 0.65
-        ? "bg-amber-400"
+        ? "bg-amber-500"
         : "bg-emerald-500"
 
   return (
-    <div className="flex flex-col gap-3 rounded-[1.4rem] border border-border/70 bg-white/90 p-4 shadow-sm">
+    <div
+      className={cn(
+        "group/card relative flex flex-col gap-3 overflow-hidden rounded-lg border border-border bg-card p-4",
+        "transition-colors hover:border-border/80"
+      )}
+    >
       {/* Header */}
-      <div className="flex items-start justify-between gap-2">
-        <div className="flex min-w-0 items-center gap-2">
-          <KindIcon kind={snapshot.kind} />
-          <div className="min-w-0">
-            <p className="truncate text-sm font-semibold text-slate-900">
-              {snapshot.name}
-            </p>
-            <p className="truncate text-[11px] text-muted-foreground">
-              {snapshot.image}
-            </p>
+      <header className="flex items-start gap-2">
+        <div className="min-w-0 flex-1 space-y-1">
+          <div className="flex items-center gap-1.5">
+            <KindBadge kind={snapshot.kind} />
+            <StatusChip snapshot={snapshot} />
           </div>
+          <p
+            className="truncate text-sm font-semibold text-foreground"
+            title={snapshot.name}
+          >
+            {snapshot.name}
+          </p>
+          <p
+            className="truncate font-mono text-[10px] text-muted-foreground"
+            title={snapshot.image}
+          >
+            {snapshot.image}
+          </p>
         </div>
-        <div className="flex shrink-0 items-center gap-1.5">
-          <StatusDot status={snapshot.status} />
-          <span className="text-[11px] font-medium capitalize text-slate-600">
-            {snapshot.status}
-          </span>
-        </div>
-      </div>
 
-      {/* Stats row */}
-      <div className="grid grid-cols-3 gap-2">
-        <StatChip
-          icon={<RiRestartLine className="size-3.5" />}
-          label="Uptime"
-          value={formatUptime(snapshot.uptime_s)}
-        />
-        <StatChip
-          icon={<RiCpuLine className="size-3.5" />}
-          label="CPU"
-          value={`${snapshot.cpu_pct.toFixed(1)}%`}
-        />
-        <StatChip
-          icon={<RiRestartLine className="size-3.5" />}
-          label="Restarts"
-          value={String(snapshot.restart_count)}
-        />
-      </div>
-
-      {/* Mem bar */}
-      <div className="space-y-1">
-        <div className="flex justify-between text-[11px] text-muted-foreground">
-          <span>Memory</span>
-          <span>
-            {formatBytes(snapshot.mem_bytes)} /{" "}
-            {formatBytes(snapshot.mem_limit_bytes)} ({ratioPercent}%)
-          </span>
-        </div>
-        <div className="h-1.5 w-full overflow-hidden rounded-full bg-slate-100">
-          <div
-            className={["h-full rounded-full transition-all", barColor].join(
-              " ",
+        {onPing ? (
+          <button
+            type="button"
+            onClick={onPing}
+            className={cn(
+              "flex size-7 shrink-0 items-center justify-center rounded-md border border-border bg-background text-muted-foreground transition-colors",
+              "hover:bg-muted hover:text-foreground"
             )}
-            style={{ width: `${ratioPercent}%` }}
-          />
-        </div>
-      </div>
+            aria-label="Ping container"
+            title="Ping /"
+          >
+            <RiWifiLine className="size-3.5" />
+          </button>
+        ) : null}
+      </header>
 
-      {/* Instruments cliquables — ouvrent une dialog Recharts détaillée. */}
+      {/* Metrics — CPU + MEM sparklines side by side */}
       <div className="grid grid-cols-2 gap-2">
         <MetricCardButton
           metric="cpu"
@@ -170,6 +248,57 @@ export function ResourceCard({
         />
       </div>
 
+      {/* Memory usage meter */}
+      <div className="space-y-1">
+        <div className="flex items-baseline justify-between font-mono text-[10px] text-muted-foreground">
+          <span className="tracking-wide uppercase">Memory budget</span>
+          <span className="tabular-nums">
+            <span className="text-foreground">{formatBytes(snapshot.mem_bytes)}</span>
+            <span className="opacity-50"> / </span>
+            <span>{formatBytes(snapshot.mem_limit_bytes)}</span>
+            <span className="ml-1.5 opacity-50">{ratioPercent}%</span>
+          </span>
+        </div>
+        <div className="h-1 w-full overflow-hidden rounded-full bg-muted">
+          <div
+            className={cn("h-full rounded-full transition-all", barColor)}
+            style={{ width: `${Math.max(ratioPercent, 1.5)}%` }}
+          />
+        </div>
+      </div>
+
+      {/* Footer metadata — small row */}
+      <footer className="flex items-center justify-between gap-2 border-t border-border pt-3 font-mono text-[10px] text-muted-foreground">
+        <div className="flex items-center gap-3">
+          <FootStat icon={RiHistoryLine} label="up" value={formatUptime(snapshot.uptime_s)} />
+          <FootStat
+            icon={RiRestartLine}
+            label="restarts"
+            value={String(snapshot.restart_count)}
+            alert={snapshot.restart_count > 0}
+          />
+          <FootStat
+            icon={RiCpuLine}
+            label="avg"
+            value={`${snapshot.cpu_pct.toFixed(1)}%`}
+          />
+        </div>
+        {snapshot.last_ping_ms !== undefined ? (
+          <span
+            className={cn(
+              "inline-flex items-center gap-1 rounded-full px-1.5 py-0.5",
+              snapshot.last_ping_ok
+                ? "bg-emerald-500/10 text-emerald-700 dark:text-emerald-300"
+                : "bg-destructive/10 text-destructive"
+            )}
+            title={`HTTP ping — ${snapshot.last_ping_ok ? "OK" : "failed"}`}
+          >
+            <RiPulseLine className="size-3" />
+            {snapshot.last_ping_ms}ms
+          </span>
+        ) : null}
+      </footer>
+
       <MetricDetailDialog
         open={openMetric !== null}
         onOpenChange={(o) => {
@@ -179,56 +308,28 @@ export function ResourceCard({
         snapshot={snapshot}
         points={openMetric === "mem" ? memHistoryMB : cpuHistory}
       />
-
-      {/* Ping button + last ping result */}
-      {onPing ? (
-        <div className="flex items-center justify-between">
-          <button
-            type="button"
-            onClick={onPing}
-            className="flex items-center gap-1.5 rounded-full border border-border/70 bg-slate-50 px-3 py-1 text-[11px] font-medium text-slate-700 transition-colors hover:border-slate-300 hover:bg-white"
-          >
-            <RiWifiLine className="size-3.5" />
-            Ping
-          </button>
-          {snapshot.last_ping_ms !== undefined ? (
-            <span
-              className={[
-                "text-[11px] font-medium",
-                snapshot.last_ping_ok ? "text-emerald-600" : "text-red-500",
-              ].join(" ")}
-            >
-              {snapshot.last_ping_ok ? "OK" : "KO"} · {snapshot.last_ping_ms}{" "}
-              ms
-            </span>
-          ) : null}
-        </div>
-      ) : null}
     </div>
   )
 }
 
-// ---------------------------------------------------------------------------
-// Local helpers
-// ---------------------------------------------------------------------------
-
-function StatChip({
-  icon,
+function FootStat({
+  icon: Icon,
   label,
   value,
+  alert,
 }: {
-  icon: React.ReactNode
+  icon: React.ComponentType<{ className?: string }>
   label: string
   value: string
-}) {
+  alert?: boolean
+}): React.JSX.Element {
   return (
-    <div className="rounded-[0.75rem] border border-border/60 bg-[#f3f5f8] px-2.5 py-2">
-      <div className="flex items-center gap-1 text-muted-foreground">
-        {icon}
-        <span className="text-[10px] uppercase tracking-widest">{label}</span>
-      </div>
-      <p className="mt-1 text-sm font-semibold text-slate-900">{value}</p>
-    </div>
+    <span className="inline-flex items-center gap-1">
+      <Icon className={cn("size-3", alert ? "text-amber-500" : "opacity-60")} />
+      <span className="opacity-60">{label}</span>
+      <span className={cn("text-foreground/80 tabular-nums", alert && "text-amber-600 dark:text-amber-400")}>
+        {value}
+      </span>
+    </span>
   )
 }
-
