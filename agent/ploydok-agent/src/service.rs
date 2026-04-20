@@ -14,21 +14,25 @@ use bollard::container::{
     Config, CreateContainerOptions, LogsOptions, RemoveContainerOptions, StatsOptions,
     StopContainerOptions,
 };
+use bollard::exec::{CreateExecOptions, ResizeExecOptions, StartExecOptions, StartExecResults};
 use bollard::image::{BuildImageOptions, CreateImageOptions};
 use bollard::models::{HostConfig, PortBinding, RestartPolicy, RestartPolicyNameEnum};
 use bollard::network::CreateNetworkOptions;
 use futures::StreamExt;
+use tokio::io::AsyncWriteExt;
 use tokio::sync::mpsc;
+use tokio::time::{Duration, Instant};
 use tokio_stream::wrappers::ReceiverStream;
 use tonic::{Request, Response, Status};
 
 use ploydok_proto::agent::{
-    agent_server::Agent, BuildProgress, ContainerCreateRequest, ContainerCreateResponse,
-    ContainerLogsRequest, ContainerRemoveRequest, ContainerRemoveResponse, ContainerStartRequest,
-    ContainerStartResponse, ContainerStatsRequest, ContainerStopRequest, ContainerStopResponse,
-    ImageBuildRequest, ImagePullRequest, ListContainersRequest, ListContainersResponse, LogLine,
-    NetworkCreateRequest, NetworkCreateResponse, NetworkRemoveRequest, NetworkRemoveResponse,
-    PingContainerRequest, PingContainerResponse, PullProgress, StatsFrame,
+    agent_server::Agent, exec_frame, BuildProgress, ContainerCreateRequest,
+    ContainerCreateResponse, ContainerLogsRequest, ContainerRemoveRequest, ContainerRemoveResponse,
+    ContainerStartRequest, ContainerStartResponse, ContainerStatsRequest, ContainerStopRequest,
+    ContainerStopResponse, ExecFrame, ImageBuildRequest, ImagePullRequest, ListContainersRequest,
+    ListContainersResponse, LogLine, NetworkCreateRequest, NetworkCreateResponse,
+    NetworkRemoveRequest, NetworkRemoveResponse, PingContainerRequest, PingContainerResponse,
+    PullProgress, StatsFrame,
 };
 
 use crate::audit::audit;
@@ -81,7 +85,11 @@ impl AgentService {
         let monitor = Monitor::new(docker.clone());
         // Spawn the poll loop immediately — cache will be warm within 2s.
         Arc::clone(&monitor).spawn_poll_task();
-        Self { docker, validator, monitor }
+        Self {
+            docker,
+            validator,
+            monitor,
+        }
     }
 }
 
@@ -108,11 +116,7 @@ impl Agent for AgentService {
             .map_err(|s| *s)?;
 
         // Build environment variables list.
-        let env: Vec<String> = req
-            .env
-            .iter()
-            .map(|(k, v)| format!("{k}={v}"))
-            .collect();
+        let env: Vec<String> = req.env.iter().map(|(k, v)| format!("{k}={v}")).collect();
 
         // Build bind-mount strings: "host_path:container_path[:ro]"
         let binds: Vec<String> = req
@@ -158,10 +162,13 @@ impl Agent for AgentService {
                     maximum_retry_count: None,
                 })
             },
-            memory: req
-                .resource_limits
-                .as_ref()
-                .and_then(|r| if r.memory_bytes > 0 { Some(r.memory_bytes) } else { None }),
+            memory: req.resource_limits.as_ref().and_then(|r| {
+                if r.memory_bytes > 0 {
+                    Some(r.memory_bytes)
+                } else {
+                    None
+                }
+            }),
             // bollard uses nano_cpus (1e9 per CPU core)
             nano_cpus: req.resource_limits.as_ref().and_then(|r| {
                 if r.cpu > 0.0 {
@@ -186,7 +193,11 @@ impl Agent for AgentService {
             } else {
                 Some(req.command.clone())
             },
-            user: if req.user.is_empty() { None } else { Some(req.user.clone()) },
+            user: if req.user.is_empty() {
+                None
+            } else {
+                Some(req.user.clone())
+            },
             host_config: Some(host_config),
             // Network is attached via networking_config
             networking_config: if req.network.is_empty() {
@@ -228,7 +239,9 @@ impl Agent for AgentService {
     ) -> Result<Response<ContainerStartResponse>, Status> {
         let req = request.into_inner();
         audit("container_start", &req.container_id, Ok(()));
-        self.validator.validate_container_start(&req).map_err(|e| *e)?;
+        self.validator
+            .validate_container_start(&req)
+            .map_err(|e| *e)?;
 
         self.docker
             .start_container::<String>(&req.container_id, None)
@@ -247,7 +260,9 @@ impl Agent for AgentService {
     ) -> Result<Response<ContainerStopResponse>, Status> {
         let req = request.into_inner();
         audit("container_stop", &req.container_id, Ok(()));
-        self.validator.validate_container_stop(&req).map_err(|e| *e)?;
+        self.validator
+            .validate_container_stop(&req)
+            .map_err(|e| *e)?;
 
         let options = if req.timeout_seconds > 0 {
             Some(StopContainerOptions {
@@ -274,7 +289,9 @@ impl Agent for AgentService {
     ) -> Result<Response<ContainerRemoveResponse>, Status> {
         let req = request.into_inner();
         audit("container_remove", &req.container_id, Ok(()));
-        self.validator.validate_container_remove(&req).map_err(|e| *e)?;
+        self.validator
+            .validate_container_remove(&req)
+            .map_err(|e| *e)?;
 
         let options = RemoveContainerOptions {
             force: req.force,
@@ -401,10 +418,8 @@ impl Agent for AgentService {
                     Ok(stats) => {
                         let cpu_percent = compute_cpu_percent(&stats);
 
-                        let memory_bytes =
-                            stats.memory_stats.usage.unwrap_or(0) as i64;
-                        let memory_limit_bytes =
-                            stats.memory_stats.limit.unwrap_or(0) as i64;
+                        let memory_bytes = stats.memory_stats.usage.unwrap_or(0) as i64;
+                        let memory_limit_bytes = stats.memory_stats.limit.unwrap_or(0) as i64;
 
                         // Network I/O: sum all interfaces.
                         let (net_rx, net_tx) = stats
@@ -540,8 +555,7 @@ impl Agent for AgentService {
 
         let (tx, rx) = mpsc::channel(64);
         tokio::spawn(async move {
-            let mut stream =
-                docker.build_image(options, None, Some(bytes::Bytes::from(tar_bytes)));
+            let mut stream = docker.build_image(options, None, Some(bytes::Bytes::from(tar_bytes)));
             while let Some(item) = stream.next().await {
                 match item {
                     Ok(info) => {
@@ -573,7 +587,9 @@ impl Agent for AgentService {
     ) -> Result<Response<NetworkCreateResponse>, Status> {
         let req = request.into_inner();
         audit("network_create", &req.name, Ok(()));
-        self.validator.validate_network_create(&req).map_err(|e| *e)?;
+        self.validator
+            .validate_network_create(&req)
+            .map_err(|e| *e)?;
 
         let driver = if req.driver.is_empty() {
             "bridge".to_string()
@@ -608,7 +624,9 @@ impl Agent for AgentService {
     ) -> Result<Response<NetworkRemoveResponse>, Status> {
         let req = request.into_inner();
         audit("network_remove", &req.network_id, Ok(()));
-        self.validator.validate_network_remove(&req).map_err(|e| *e)?;
+        self.validator
+            .validate_network_remove(&req)
+            .map_err(|e| *e)?;
 
         self.docker
             .remove_network(&req.network_id)
@@ -640,6 +658,240 @@ impl Agent for AgentService {
         audit("ping_container", &req.container_id, Ok(()));
         let resp = self.monitor.ping(req).await;
         Ok(Response::new(resp))
+    }
+
+    // ── ContainerExec (bidi streaming) ───────────────────────────────────────
+
+    type ContainerExecStream = ReceiverStream<Result<ExecFrame, Status>>;
+
+    async fn container_exec(
+        &self,
+        request: Request<tonic::Streaming<ExecFrame>>,
+    ) -> Result<Response<Self::ContainerExecStream>, Status> {
+        let mut in_stream = request.into_inner();
+
+        // ── Step 1: expect first frame to be ExecStart ───────────────────────
+        let first = in_stream
+            .message()
+            .await
+            .map_err(|e| Status::internal(format!("stream recv error: {e}")))?
+            .ok_or_else(|| Status::invalid_argument("stream closed before ExecStart"))?;
+
+        let start = match first.payload {
+            Some(exec_frame::Payload::Start(s)) => s,
+            _ => {
+                return Err(Status::invalid_argument("first frame must be ExecStart"));
+            }
+        };
+
+        // ── Step 2: validate ─────────────────────────────────────────────────
+        self.validator
+            .validate_container_exec(&start)
+            .map_err(|e| *e)?;
+
+        tracing::info!(container_id = %start.container_id, "exec start");
+        audit("container_exec", &start.container_id, Ok(()));
+
+        let container_id = start.container_id.clone();
+        let tty = start.tty;
+
+        // ── Step 3: create exec ──────────────────────────────────────────────
+        let user_opt = if start.user.is_empty() {
+            None
+        } else {
+            Some(start.user.clone())
+        };
+
+        let create_opts = CreateExecOptions {
+            attach_stdin: Some(true),
+            attach_stdout: Some(true),
+            attach_stderr: Some(true),
+            tty: Some(tty),
+            cmd: Some(start.cmd.iter().map(|s| s.as_str()).collect()),
+            user: user_opt.as_deref(),
+            ..Default::default()
+        };
+
+        let exec_id = self
+            .docker
+            .create_exec(&container_id, create_opts)
+            .await
+            .map_err(|e| bollard_err("create_exec", e))?
+            .id;
+
+        // ── Step 4: start exec ───────────────────────────────────────────────
+        let start_opts = StartExecOptions {
+            detach: false,
+            tty,
+            ..Default::default()
+        };
+
+        let attached = self
+            .docker
+            .start_exec(&exec_id, Some(start_opts))
+            .await
+            .map_err(|e| bollard_err("start_exec", e))?;
+
+        let (mut output, mut input) = match attached {
+            StartExecResults::Attached { output, input } => (output, input),
+            StartExecResults::Detached => {
+                return Err(Status::internal("exec returned detached — unexpected"));
+            }
+        };
+
+        // ── Step 5: initial resize if tty ─────────────────────────────────────
+        if tty && (start.cols > 0 || start.rows > 0) {
+            let _ = self
+                .docker
+                .resize_exec(
+                    &exec_id,
+                    ResizeExecOptions {
+                        height: start.rows as u16,
+                        width: start.cols as u16,
+                    },
+                )
+                .await;
+        }
+
+        // ── Step 6: channel + background tasks ───────────────────────────────
+        let (tx, rx) = mpsc::channel::<Result<ExecFrame, Status>>(64);
+
+        // Send ExecReady
+        let _ = tx
+            .send(Ok(ExecFrame {
+                payload: Some(exec_frame::Payload::Ready(
+                    ploydok_proto::agent::ExecReady {
+                        exec_id: exec_id.clone(),
+                    },
+                )),
+            }))
+            .await;
+
+        let docker_output = self.docker.clone();
+        let exec_id_output = exec_id.clone();
+        let tx_out = tx.clone();
+
+        // Task (b): Docker output → client
+        let output_task = tokio::spawn(async move {
+            // Inactivity deadline (600s)
+            let idle_timeout = Duration::from_secs(600);
+            let mut deadline = Instant::now() + idle_timeout;
+
+            loop {
+                let sleep = tokio::time::sleep_until(deadline);
+                tokio::select! {
+                    biased;
+                    item = output.next() => {
+                        match item {
+                            Some(Ok(log_output)) => {
+                                deadline = Instant::now() + idle_timeout;
+                                let frame = match log_output {
+                                    bollard::container::LogOutput::StdOut { message } => ExecFrame {
+                                        payload: Some(exec_frame::Payload::Stdout(message.to_vec())),
+                                    },
+                                    bollard::container::LogOutput::StdErr { message } => ExecFrame {
+                                        payload: Some(exec_frame::Payload::Stderr(message.to_vec())),
+                                    },
+                                    // In TTY mode bollard routes everything to StdOut.
+                                    // Console output is also treated as stdout.
+                                    bollard::container::LogOutput::Console { message } => ExecFrame {
+                                        payload: Some(exec_frame::Payload::Stdout(message.to_vec())),
+                                    },
+                                    bollard::container::LogOutput::StdIn { .. } => continue,
+                                };
+                                if tx_out.send(Ok(frame)).await.is_err() {
+                                    break;
+                                }
+                            }
+                            Some(Err(e)) => {
+                                tracing::error!(error = %e, "exec output stream error");
+                                let _ = tx_out
+                                    .send(Err(Status::internal(e.to_string())))
+                                    .await;
+                                break;
+                            }
+                            None => {
+                                // Process exited — inspect for exit code.
+                                let code = docker_output
+                                    .inspect_exec(&exec_id_output)
+                                    .await
+                                    .ok()
+                                    .and_then(|info| info.exit_code)
+                                    .unwrap_or(0) as i32;
+
+                                tracing::info!(
+                                    exec_id = %exec_id_output,
+                                    exit_code = code,
+                                    "exec process exited"
+                                );
+
+                                let _ = tx_out
+                                    .send(Ok(ExecFrame {
+                                        payload: Some(exec_frame::Payload::Exit(
+                                            ploydok_proto::agent::ExecExit { code },
+                                        )),
+                                    }))
+                                    .await;
+                                break;
+                            }
+                        }
+                    }
+                    _ = sleep => {
+                        tracing::warn!(exec_id = %exec_id_output, "exec idle timeout");
+                        let _ = tx_out
+                            .send(Err(Status::deadline_exceeded("exec idle timeout (600s)")))
+                            .await;
+                        break;
+                    }
+                }
+            }
+        });
+
+        let docker_input = self.docker.clone();
+        let exec_id_input = exec_id.clone();
+
+        // Task (a): client input → Docker
+        tokio::spawn(async move {
+            loop {
+                match in_stream.message().await {
+                    Ok(Some(frame)) => {
+                        match frame.payload {
+                            Some(exec_frame::Payload::Stdin(bytes)) => {
+                                if input.write_all(&bytes).await.is_err() {
+                                    break;
+                                }
+                            }
+                            Some(exec_frame::Payload::Resize(r)) => {
+                                let _ = docker_input
+                                    .resize_exec(
+                                        &exec_id_input,
+                                        ResizeExecOptions {
+                                            height: r.rows as u16,
+                                            width: r.cols as u16,
+                                        },
+                                    )
+                                    .await;
+                            }
+                            // Other client frames (start sent twice, etc.) are ignored.
+                            _ => {}
+                        }
+                    }
+                    Ok(None) => {
+                        // Client closed its half — abort output task.
+                        output_task.abort();
+                        break;
+                    }
+                    Err(e) => {
+                        tracing::warn!(error = %e, exec_id = %exec_id_input, "exec input stream error");
+                        output_task.abort();
+                        break;
+                    }
+                }
+            }
+        });
+
+        tracing::info!(container_id = %container_id, exec_id = %exec_id, "exec session established");
+        Ok(Response::new(ReceiverStream::new(rx)))
     }
 }
 

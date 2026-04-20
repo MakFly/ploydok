@@ -14,9 +14,7 @@
 use std::path::{Path, PathBuf};
 
 use anyhow::{Context, Result};
-use rcgen::{
-    BasicConstraints, CertificateParams, DnType, IsCa, KeyPair, SanType,
-};
+use rcgen::{BasicConstraints, CertificateParams, DnType, IsCa, KeyPair, SanType};
 use sha2::{Digest, Sha256};
 use tracing::info;
 
@@ -42,8 +40,7 @@ pub fn ensure_pki(pki_dir: &str) -> Result<PkiMaterial> {
         "client.key",
     ];
 
-    let needs_gen = !dir.exists()
-        || files.iter().any(|f| !dir.join(f).exists());
+    let needs_gen = !dir.exists() || files.iter().any(|f| !dir.join(f).exists());
 
     if needs_gen {
         info!(pki_dir = pki_dir, "Génération des certificats PKI...");
@@ -80,8 +77,12 @@ fn generate_pki(dir: &Path) -> Result<()> {
 
     let mut ca_params = CertificateParams::default();
     ca_params.is_ca = IsCa::Ca(BasicConstraints::Unconstrained);
-    ca_params.distinguished_name.push(DnType::CommonName, "Ploydok Root CA");
-    ca_params.distinguished_name.push(DnType::OrganizationName, "Ploydok");
+    ca_params
+        .distinguished_name
+        .push(DnType::CommonName, "Ploydok Root CA");
+    ca_params
+        .distinguished_name
+        .push(DnType::OrganizationName, "Ploydok");
     // 10 year validity
     ca_params.not_before = rcgen::date_time_ymd(2024, 1, 1);
     ca_params.not_after = rcgen::date_time_ymd(2034, 1, 1);
@@ -94,7 +95,9 @@ fn generate_pki(dir: &Path) -> Result<()> {
     // ── Server cert ───────────────────────────────────────────────────────────
     let server_key = KeyPair::generate()?;
     let mut server_params = CertificateParams::default();
-    server_params.distinguished_name.push(DnType::CommonName, "ploydok-agent");
+    server_params
+        .distinguished_name
+        .push(DnType::CommonName, "ploydok-agent");
     server_params.subject_alt_names = vec![
         SanType::DnsName("localhost".try_into()?),
         SanType::DnsName("ploydok-agent".try_into()?),
@@ -110,7 +113,9 @@ fn generate_pki(dir: &Path) -> Result<()> {
     // ── Client cert ───────────────────────────────────────────────────────────
     let client_key = KeyPair::generate()?;
     let mut client_params = CertificateParams::default();
-    client_params.distinguished_name.push(DnType::CommonName, "ploydok-api-client");
+    client_params
+        .distinguished_name
+        .push(DnType::CommonName, "ploydok-api-client");
     client_params.not_before = rcgen::date_time_ymd(2024, 1, 1);
     client_params.not_after = rcgen::date_time_ymd(2034, 1, 1);
 
@@ -124,8 +129,7 @@ fn generate_pki(dir: &Path) -> Result<()> {
 
 /// Write a PEM string to a file path.
 fn write_pem(path: PathBuf, pem: String) -> Result<()> {
-    std::fs::write(&path, pem)
-        .with_context(|| format!("Écriture de {}", path.display()))
+    std::fs::write(&path, pem).with_context(|| format!("Écriture de {}", path.display()))
 }
 
 /// Log the SHA256 fingerprint of a PEM certificate.

@@ -28,6 +28,7 @@ import type {
   ListContainersResponse,
   PingContainerRequest,
   PingContainerResponse,
+  ExecFrame,
 } from "@ploydok/agent-proto";
 import { createAgentClient, type AgentClientOptions } from "./client.js";
 import { AgentError, toAgentError } from "./errors.js";
@@ -255,6 +256,88 @@ export class Agent {
   imageBuild(req: ImageBuildRequest): AsyncIterable<BuildProgress> {
     log.debug({ tag: req.tag }, "imageBuild stream");
     return streamToAsyncIterable(this.client.imageBuild(req));
+  }
+
+  // -------------------------------------------------------------------------
+  // RPC bidi-streaming — ContainerExec
+  // -------------------------------------------------------------------------
+
+  /**
+   * Ouvre un stream bidi ContainerExec vers l'agent Rust.
+   *
+   * TODO: quand @ploydok/agent-proto sera régénéré avec ContainerExec,
+   *       remplacer le cast `any` par le type généré et typer `stream`
+   *       via `ClientDuplexStream<ExecFrame, ExecFrame>`.
+   *
+   * @returns { send, events, close }
+   *   - send(frame)  : envoie un ExecFrame vers l'agent
+   *   - events       : AsyncIterable<ExecFrame> des frames reçus
+   *   - close()      : met fin au stream client-side (half-close)
+   */
+  containerExec(): {
+    send(frame: ExecFrame): void
+    events: AsyncIterable<ExecFrame>
+    close(): void
+  } {
+    log.debug("containerExec: ouverture stream bidi")
+
+    const stream: import("@grpc/grpc-js").ClientDuplexStream<ExecFrame, ExecFrame> =
+      this.client.containerExec(new grpc.Metadata())
+
+    const queue: Array<{ value?: ExecFrame; done: boolean; error?: unknown }> = []
+    let resolveNext: (() => void) | null = null
+    let finished = false
+
+    stream.on("data", (frame: ExecFrame) => {
+      queue.push({ value: frame, done: false })
+      resolveNext?.()
+      resolveNext = null
+    })
+    stream.on("end", () => {
+      finished = true
+      queue.push({ done: true })
+      resolveNext?.()
+      resolveNext = null
+    })
+    stream.on("error", (err: unknown) => {
+      finished = true
+      queue.push({ done: true, error: toAgentError(err) })
+      resolveNext?.()
+      resolveNext = null
+    })
+
+    const events: AsyncIterable<ExecFrame> = {
+      [Symbol.asyncIterator]() {
+        return {
+          async next(): Promise<IteratorResult<ExecFrame>> {
+            while (queue.length === 0 && !finished) {
+              await new Promise<void>((r) => {
+                resolveNext = r
+              })
+            }
+            const item = queue.shift()
+            if (!item) return { done: true, value: undefined as unknown as ExecFrame }
+            if (item.error) throw item.error
+            if (item.done) return { done: true, value: undefined as unknown as ExecFrame }
+            return { done: false, value: item.value as ExecFrame }
+          },
+          return(): Promise<IteratorResult<ExecFrame>> {
+            stream.destroy()
+            return Promise.resolve({ done: true, value: undefined as unknown as ExecFrame })
+          },
+        }
+      },
+    }
+
+    return {
+      send(frame: ExecFrame): void {
+        stream.write(frame)
+      },
+      events,
+      close(): void {
+        stream.end()
+      },
+    }
   }
 
   // -------------------------------------------------------------------------
