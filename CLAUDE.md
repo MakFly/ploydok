@@ -98,6 +98,7 @@ This file is the repo-level agent guide for Codex-style coding agents. Keep it f
 - Do not amend existing commits unless explicitly asked.
 - Do not revert unrelated user changes.
 - Keep the worktree intentional and easy to review.
+- If you used a temporary Claude/Codex worktree under `.claude/worktrees/*` for implementation, remove it once the work is finished and no handoff still depends on it.
 - If you are preparing code for handoff, summarize exactly what was validated and what was not.
 
 ## Repo-Specific References
