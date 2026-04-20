@@ -3,7 +3,7 @@
  * DoD #6 — Custom healthcheck overrides
  *
  * Validates that the healthcheck configuration is respected by the deploy
- * pipeline using the `ploydok/fixture-slow-boot` repo (app sleeps 8 s before
+ * pipeline using the `MakFly/fixture-slow-boot` repo (app sleeps 8 s before
  * binding the port).
  *
  * Gate: PLOYDOK_E2E_REAL=1
@@ -30,7 +30,7 @@ import {
 } from "../dod/_harness"
 import type { AuthContext } from "../dod/_harness"
 
-const FIXTURE_SLOW_BOOT = "ploydok/fixture-slow-boot"
+const FIXTURE_SLOW_BOOT = "MakFly/fixture-slow-boot"
 const FIXTURE_RESPONSE_TEXT = "hello from ploydok (slow-boot"
 
 // ---------------------------------------------------------------------------

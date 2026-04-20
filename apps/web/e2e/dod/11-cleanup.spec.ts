@@ -69,7 +69,7 @@ test.describe("DoD #10 — workspace + registry cleanup", () => {
     // 1. Create app — build #1 auto-enqueued.
     ;({ id: appId } = await createApp(auth, {
       name: `fixture-cleanup-${Date.now()}`,
-      repoFullName: "ploydok/fixture-hello",
+      repoFullName: "MakFly/fixture-hello",
       branch: "main",
       buildMethod: "docker",
     }))
@@ -112,7 +112,7 @@ test.describe("DoD #10 — workspace + registry cleanup", () => {
     if (!appId) {
       ;({ id: appId } = await createApp(auth, {
         name: `fixture-gc-${Date.now()}`,
-        repoFullName: "ploydok/fixture-hello",
+        repoFullName: "MakFly/fixture-hello",
         branch: "main",
         buildMethod: "docker",
       }))
@@ -174,5 +174,72 @@ test.describe("DoD #10 — workspace + registry cleanup", () => {
       usage.tags,
       "registry must keep at most 3 image tags per app (GC keep-last-3)",
     ).toBeLessThanOrEqual(3)
+  })
+
+  // --------------------------------------------------------------------------
+  // C) Cascade delete: DELETE /apps/:id wipes container, registry, build dir,
+  //    Caddy route, and DB row (Coolify-style).
+  // --------------------------------------------------------------------------
+
+  test("DELETE /apps/:id cascades to registry, build dir, and DB row", async () => {
+    if (!appId) {
+      throw new Error("dod-11.C: appId must be set by previous tests")
+    }
+
+    // Snapshot the build dir so we can assert it's gone after cascade.
+    const buildDirBase =
+      process.env["PLOYDOK_BUILD_DIR"] ??
+      join(homedir(), ".ploydok-dev", "builds")
+    const appBuildDir = join(buildDirBase, appId)
+
+    // Trigger cascade delete with all flags = true (the default).
+    const delRes = await fetch(`${API_URL}/apps/${appId}`, {
+      method: "DELETE",
+      headers: {
+        cookie: auth.cookie,
+        "x-csrf-token": auth.csrfToken,
+      },
+    })
+    expect(delRes.status).toBe(202)
+    const delBody = (await delRes.json()) as { ok: boolean; status: string }
+    expect(delBody.ok).toBe(true)
+    expect(delBody.status).toBe("deleting")
+
+    // Wait up to 30 s for the worker to process the cascade (worker tick 2 s,
+    // GC + caddy + rm -rf + DB delete usually finishes in <10 s on this fixture).
+    const deadline = Date.now() + 30_000
+    let stillFound = true
+    while (Date.now() < deadline) {
+      const r = await fetch(`${API_URL}/apps/${appId}`, {
+        headers: { cookie: auth.cookie },
+      })
+      if (r.status === 404) {
+        stillFound = false
+        break
+      }
+      await new Promise<void>((res) => setTimeout(res, 1_000))
+    }
+    expect(stillFound, "GET /apps/:id should 404 after cascade delete").toBe(false)
+
+    // Build dir on disk should be wiped.
+    expect(
+      existsSync(appBuildDir),
+      `build dir ${appBuildDir} should be removed by cascade`,
+    ).toBe(false)
+
+    // Registry catalog should not list this repo anymore. We hit the registry
+    // directly because the API endpoint is gated by app ownership (404 now).
+    const catalogRes = await fetch("http://127.0.0.1:5000/v2/_catalog")
+    if (catalogRes.ok) {
+      const catalog = (await catalogRes.json()) as { repositories?: string[] }
+      const repo = `app-${appId.toLowerCase()}`
+      expect(
+        catalog.repositories ?? [],
+        `registry catalog should not list ${repo} after cascade`,
+      ).not.toContain(repo)
+    }
+
+    // Mark appId as gone so afterAll teardown doesn't try to re-delete it.
+    appId = ""
   })
 })
