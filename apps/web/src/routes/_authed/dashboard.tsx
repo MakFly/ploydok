@@ -16,7 +16,6 @@ import {
   RiTimeLine,
 } from "@remixicon/react"
 import { CreateAppModal } from "../../components/apps/CreateAppModal"
-import { SecondFactorBanner } from "../../components/auth/SecondFactorBanner"
 import { ShellPage, ShellPanel } from "../../components/layout/AppShell"
 import { AppStatusBadge } from "../../components/apps/AppStatusBadge"
 import { useApps, useRecentBuildsAcrossApps } from "../../lib/apps"
@@ -30,7 +29,6 @@ export const Route = createFileRoute("/_authed/dashboard")({
 })
 
 function DashboardPage(): React.JSX.Element {
-  const { me } = Route.useRouteContext()
   const [modalOpen, setModalOpen] = React.useState(false)
   const { data: apps = [], isLoading: appsLoading, error: appsError } = useApps()
   const { builds: recentBuilds, isLoading: buildsLoading } = useRecentBuildsAcrossApps(apps, 6)
@@ -67,8 +65,6 @@ function DashboardPage(): React.JSX.Element {
         </>
       }
     >
-      <SecondFactorBanner me={me} />
-
       <div className="grid gap-3 md:grid-cols-2 xl:grid-cols-4">
         <StatCard
           icon={<RiAppsLine className="size-4" />}

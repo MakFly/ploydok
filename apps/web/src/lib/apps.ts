@@ -1,6 +1,6 @@
 // SPDX-License-Identifier: AGPL-3.0-only
 import { useMutation, useQueries, useQuery, useQueryClient } from "@tanstack/react-query"
-import { apiFetch, invalidateGetCache } from "./api"
+import { apiFetch, criticalRetryDelay, invalidateGetCache, shouldRetryCriticalQuery } from "./api"
 import { useEventsSubscription } from "./events-provider"
 import type { AppConfig, AppStatus, Build, RestartPolicy } from "@ploydok/shared"
 import type { ApiError } from "./api"
@@ -136,6 +136,9 @@ export function useApps() {
       return data.apps
     },
     staleTime: 30_000,
+    retry: shouldRetryCriticalQuery,
+    retryDelay: criticalRetryDelay,
+    meta: { critical: true },
   })
 }
 
@@ -229,6 +232,9 @@ export function useApp(appId: string, opts?: UseAppOptions) {
     staleTime: 15_000,
     refetchOnWindowFocus: true,
     enabled: Boolean(appId),
+    retry: shouldRetryCriticalQuery,
+    retryDelay: criticalRetryDelay,
+    meta: { critical: true },
     ...(opts?.initialData !== undefined
       ? { initialData: opts.initialData }
       : {}),
@@ -281,6 +287,25 @@ export function useBuilds(appId: string, opts?: UseBuildsOptions) {
     ...(opts?.initialData !== undefined
       ? { initialData: opts.initialData }
       : {}),
+  })
+}
+
+// ---------------------------------------------------------------------------
+// useRegistryUsage — per-app registry stats (tags, bytes, diskPct)
+// ---------------------------------------------------------------------------
+
+export interface RegistryUsage {
+  tags: number
+  bytes: number
+  diskPct: number
+}
+
+export function useRegistryUsage(appId: string) {
+  return useQuery<RegistryUsage, ApiError>({
+    queryKey: ["apps", appId, "registry-usage"],
+    queryFn: () => apiFetch<RegistryUsage>(`/apps/${appId}/registry-usage`),
+    staleTime: 30_000,
+    enabled: Boolean(appId),
   })
 }
 

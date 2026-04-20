@@ -1,7 +1,14 @@
 // SPDX-License-Identifier: AGPL-3.0-only
 import { useMutation, useQuery } from "@tanstack/react-query"
 
-import { apiFetch } from "./api"
+import {
+  ApiError,
+  apiFetch,
+  apiFetchAllowErrorBody,
+  criticalRetryDelay,
+  shouldRetryCriticalQuery,
+} from "./api"
+import { useBackendUnavailable } from "./backend-status"
 import { useEventsSubscription } from "./events-provider"
 import type {
   ContainerSnapshot,
@@ -9,29 +16,36 @@ import type {
   MonitoringOverview,
 } from "@ploydok/shared"
 
-
-// Mirrors API_BASE from api.ts — not exported there.
-const API_BASE = import.meta.env.VITE_API_URL ?? "http://localhost:3335"
-
 // ---------------------------------------------------------------------------
 // useMonitoring — GET /monitoring/overview, polled every 5 s
 // ---------------------------------------------------------------------------
 
 export function useMonitoring() {
-  return useQuery<MonitoringOverview>({
+  const backendUnavailable = useBackendUnavailable()
+
+  return useQuery<MonitoringOverview, ApiError>({
     queryKey: ["monitoring", "overview"],
-    // apiFetch throw sur !res.ok, mais le 503 nous renvoie un payload valide.
-    // On passe donc par fetch natif pour récupérer le body même en erreur.
     queryFn: async () => {
-      const res = await fetch(`${API_BASE}/monitoring/overview`, {
-        credentials: "include",
-      })
-      const data = (await res.json()) as MonitoringOverview
+      const { response, data } = await apiFetchAllowErrorBody<MonitoringOverview>(
+        "/monitoring/overview",
+        {
+          method: "GET",
+          credentials: "include",
+        },
+      )
+      if (!data) {
+        throw new Error(`Monitoring request failed with status ${response.status}`)
+      }
       return data
     },
-    refetchInterval: 5000,
+    refetchInterval: backendUnavailable.active
+      ? false
+      : 5000,
     staleTime: 2000,
-    retry: false,
+    retry: shouldRetryCriticalQuery,
+    retryDelay: criticalRetryDelay,
+    enabled: !backendUnavailable.active,
+    meta: { critical: true },
   })
 }
 

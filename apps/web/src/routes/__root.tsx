@@ -1,18 +1,26 @@
 // SPDX-License-Identifier: AGPL-3.0-only
 import * as React from "react";
 import { HeadContent, Scripts, createRootRoute } from "@tanstack/react-router";
-import { QueryClient, QueryClientProvider } from "@tanstack/react-query";
+import { QueryCache, QueryClient, QueryClientProvider, useQueryClient } from "@tanstack/react-query";
 import { Toaster } from "sonner";
 
 import appCss from "@workspace/ui/globals.css?url";
 import { ApiErrorState } from "../components/errors/ApiErrorState";
 import { NotFoundState } from "../components/errors/NotFoundState";
-import { invalidateGetCache, setAuthCallbacks } from "../lib/api";
+import { clearBackendUnavailable, setBackendUnavailable, useBackendUnavailable } from "../lib/backend-status";
+import { BackendUnavailableError, invalidateGetCache, setAuthCallbacks } from "../lib/api";
 import { broadcastAuthEvent, subscribeAuthEvents } from "../lib/api/broadcast";
 import { startProactiveRefresh } from "../lib/api/scheduler";
 import type { ErrorComponentProps } from "@tanstack/react-router";
 
 const queryClient = new QueryClient({
+  queryCache: new QueryCache({
+    onError: (error, query) => {
+      if (!(error instanceof BackendUnavailableError)) return;
+      if (query.meta?.["critical"] !== true) return;
+      setBackendUnavailable(error.message);
+    },
+  }),
   defaultOptions: {
     queries: {
       staleTime: 30_000,
@@ -26,9 +34,13 @@ function RootErrorComponent({ error, reset }: ErrorComponentProps): React.JSX.El
     error instanceof Error && "status" in error
       ? (error as Error & { status?: number }).status
       : undefined;
+  const code =
+    error instanceof Error && "code" in error
+      ? (error as Error & { code?: string }).code
+      : undefined;
   return (
     <div className="flex min-h-screen items-center justify-center p-8">
-      <ApiErrorState status={status} message={error.message} onRetry={reset} />
+      <ApiErrorState code={code} status={status} message={error.message} onRetry={reset} />
     </div>
   );
 }
@@ -86,6 +98,37 @@ function AuthSyncProvider({ children }: { children: React.ReactNode }): React.JS
   return <>{children}</>;
 }
 
+function BackendUnavailableGate({
+  children,
+}: {
+  children: React.ReactNode;
+}): React.JSX.Element {
+  const backendUnavailable = useBackendUnavailable();
+  const queryClient = useQueryClient();
+
+  const handleRetry = React.useCallback(() => {
+    clearBackendUnavailable();
+    invalidateGetCache();
+    void queryClient.resetQueries();
+    void queryClient.invalidateQueries();
+  }, [queryClient]);
+
+  if (backendUnavailable.active) {
+    return (
+      <div className="flex min-h-screen items-center justify-center p-8">
+        <ApiErrorState
+          code="BACKEND_UNAVAILABLE"
+          status={503}
+          message={backendUnavailable.message}
+          onRetry={handleRetry}
+        />
+      </div>
+    );
+  }
+
+  return <>{children}</>;
+}
+
 function RootDocument({ children }: { children: React.ReactNode }): React.JSX.Element {
   return (
     <html lang="en" className="dark">
@@ -101,7 +144,7 @@ function RootDocument({ children }: { children: React.ReactNode }): React.JSX.El
       <body>
         <QueryClientProvider client={queryClient}>
           <AuthSyncProvider>
-            {children}
+            <BackendUnavailableGate>{children}</BackendUnavailableGate>
             <Toaster position="bottom-center" richColors />
           </AuthSyncProvider>
         </QueryClientProvider>

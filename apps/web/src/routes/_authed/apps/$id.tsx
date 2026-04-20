@@ -32,7 +32,8 @@ function AppDetailLayout(): React.JSX.Element {
   const pathname = useRouterState({ select: (s) => s.location.pathname })
 
   const currentApp = app ?? loaderData.app
-  const isLogsRoute = pathname === `/apps/${id}/logs`
+  const isLogsRoute =
+    pathname === `/apps/${id}/logs` || pathname === `/apps/${id}/shell`
 
   return (
     <div

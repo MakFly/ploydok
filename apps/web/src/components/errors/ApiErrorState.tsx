@@ -8,6 +8,7 @@ import { Button } from "@workspace/ui/components/button";
 // ---------------------------------------------------------------------------
 
 export interface ApiErrorStateProps {
+  code?: string;
   status?: number;
   message?: string;
   onRetry?: () => void;
@@ -17,7 +18,9 @@ export interface ApiErrorStateProps {
 // Helpers
 // ---------------------------------------------------------------------------
 
-function titleForStatus(status?: number): string {
+function titleForStatus(code?: string, status?: number): string {
+  if (code === "SECOND_FACTOR_REQUIRED") return "Second factor required";
+  if (code === "BACKEND_UNAVAILABLE") return "Backend indisponible";
   if (status === 401) return "Not signed in";
   if (status === 403) return "Forbidden";
   if (status === 404) return "Not found";
@@ -94,11 +97,45 @@ function RefreshIcon({ className }: { className?: string }): React.JSX.Element {
 // ---------------------------------------------------------------------------
 
 export function ApiErrorState({
+  code,
   status,
   message,
   onRetry,
 }: ApiErrorStateProps): React.JSX.Element {
-  const title = titleForStatus(status);
+  const title = titleForStatus(code, status);
+
+  // Dedicated branch for SECOND_FACTOR_REQUIRED: show a CTA to configure a
+  // second passkey or backup codes instead of a generic error message.
+  if (code === "SECOND_FACTOR_REQUIRED") {
+    return (
+      <div
+        role="alert"
+        className="rounded-lg border border-border bg-card p-8 flex flex-col items-center gap-4 text-center max-w-md mx-auto"
+      >
+        <div className="flex size-12 items-center justify-center rounded-full bg-destructive/10">
+          <AlertCircleIcon className="size-6 text-destructive" />
+        </div>
+        <div className="space-y-1">
+          <h2 className="text-base font-semibold text-foreground">{title}</h2>
+          <p className="text-sm text-muted-foreground">
+            Ajoutez une 2ᵉ passkey ou générez des backup codes pour effectuer
+            cette action.
+          </p>
+        </div>
+        <div className="flex items-center gap-2 flex-wrap justify-center">
+          <Button variant="default" size="sm" asChild>
+            <Link to="/settings/security/passkeys">Configurer</Link>
+          </Button>
+          <Button variant="ghost" size="sm" asChild>
+            <Link to="/dashboard">
+              <HomeIcon className="size-3.5 mr-1.5" />
+              Go home
+            </Link>
+          </Button>
+        </div>
+      </div>
+    );
+  }
 
   return (
     <div

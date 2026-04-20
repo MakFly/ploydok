@@ -114,6 +114,7 @@ describe("awaiting phase — navigation", () => {
       "overview",
       "deployments",
       "logs",
+      "shell",
       "settings",
       "env",
       "domains",
@@ -132,7 +133,7 @@ describe("awaiting phase — navigation", () => {
 
 describe("awaiting phase — cancellation", () => {
   it("pressing an unmapped key cancels and returns idle", () => {
-    const result = nextState(awaiting(T0), keyAction("x", { now: T0 + 300 }))
+    const result = nextState(awaiting(T0), keyAction("z", { now: T0 + 300 }))
     expect(result.state).toEqual({ phase: "idle" })
     expect(result.navigateTo).toBeUndefined()
   })

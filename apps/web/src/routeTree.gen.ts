@@ -22,8 +22,10 @@ import { Route as AuthedSettingsSecurityRouteImport } from './routes/_authed/set
 import { Route as AuthedSettingsGithubRouteImport } from './routes/_authed/settings/github'
 import { Route as AuthedAppsIdRouteImport } from './routes/_authed/apps/$id'
 import { Route as AuthedAppsIdIndexRouteImport } from './routes/_authed/apps/$id/index'
+import { Route as AuthedSettingsSecurityTotpRouteImport } from './routes/_authed/settings/security/totp'
 import { Route as AuthedSettingsSecuritySessionsRouteImport } from './routes/_authed/settings/security/sessions'
 import { Route as AuthedSettingsSecurityPasskeysRouteImport } from './routes/_authed/settings/security/passkeys'
+import { Route as AuthedAppsIdShellRouteImport } from './routes/_authed/apps/$id/shell'
 import { Route as AuthedAppsIdSettingsRouteImport } from './routes/_authed/apps/$id/settings'
 import { Route as AuthedAppsIdOverviewRouteImport } from './routes/_authed/apps/$id/overview'
 import { Route as AuthedAppsIdLogsRouteImport } from './routes/_authed/apps/$id/logs'
@@ -94,6 +96,12 @@ const AuthedAppsIdIndexRoute = AuthedAppsIdIndexRouteImport.update({
   path: '/',
   getParentRoute: () => AuthedAppsIdRoute,
 } as any)
+const AuthedSettingsSecurityTotpRoute =
+  AuthedSettingsSecurityTotpRouteImport.update({
+    id: '/totp',
+    path: '/totp',
+    getParentRoute: () => AuthedSettingsSecurityRoute,
+  } as any)
 const AuthedSettingsSecuritySessionsRoute =
   AuthedSettingsSecuritySessionsRouteImport.update({
     id: '/sessions',
@@ -106,6 +114,11 @@ const AuthedSettingsSecurityPasskeysRoute =
     path: '/passkeys',
     getParentRoute: () => AuthedSettingsSecurityRoute,
   } as any)
+const AuthedAppsIdShellRoute = AuthedAppsIdShellRouteImport.update({
+  id: '/shell',
+  path: '/shell',
+  getParentRoute: () => AuthedAppsIdRoute,
+} as any)
 const AuthedAppsIdSettingsRoute = AuthedAppsIdSettingsRouteImport.update({
   id: '/settings',
   path: '/settings',
@@ -154,8 +167,10 @@ export interface FileRoutesByFullPath {
   '/apps/$id/logs': typeof AuthedAppsIdLogsRoute
   '/apps/$id/overview': typeof AuthedAppsIdOverviewRoute
   '/apps/$id/settings': typeof AuthedAppsIdSettingsRoute
+  '/apps/$id/shell': typeof AuthedAppsIdShellRoute
   '/settings/security/passkeys': typeof AuthedSettingsSecurityPasskeysRoute
   '/settings/security/sessions': typeof AuthedSettingsSecuritySessionsRoute
+  '/settings/security/totp': typeof AuthedSettingsSecurityTotpRoute
   '/apps/$id/': typeof AuthedAppsIdIndexRoute
 }
 export interface FileRoutesByTo {
@@ -174,8 +189,10 @@ export interface FileRoutesByTo {
   '/apps/$id/logs': typeof AuthedAppsIdLogsRoute
   '/apps/$id/overview': typeof AuthedAppsIdOverviewRoute
   '/apps/$id/settings': typeof AuthedAppsIdSettingsRoute
+  '/apps/$id/shell': typeof AuthedAppsIdShellRoute
   '/settings/security/passkeys': typeof AuthedSettingsSecurityPasskeysRoute
   '/settings/security/sessions': typeof AuthedSettingsSecuritySessionsRoute
+  '/settings/security/totp': typeof AuthedSettingsSecurityTotpRoute
   '/apps/$id': typeof AuthedAppsIdIndexRoute
 }
 export interface FileRoutesById {
@@ -198,8 +215,10 @@ export interface FileRoutesById {
   '/_authed/apps/$id/logs': typeof AuthedAppsIdLogsRoute
   '/_authed/apps/$id/overview': typeof AuthedAppsIdOverviewRoute
   '/_authed/apps/$id/settings': typeof AuthedAppsIdSettingsRoute
+  '/_authed/apps/$id/shell': typeof AuthedAppsIdShellRoute
   '/_authed/settings/security/passkeys': typeof AuthedSettingsSecurityPasskeysRoute
   '/_authed/settings/security/sessions': typeof AuthedSettingsSecuritySessionsRoute
+  '/_authed/settings/security/totp': typeof AuthedSettingsSecurityTotpRoute
   '/_authed/apps/$id/': typeof AuthedAppsIdIndexRoute
 }
 export interface FileRouteTypes {
@@ -221,8 +240,10 @@ export interface FileRouteTypes {
     | '/apps/$id/logs'
     | '/apps/$id/overview'
     | '/apps/$id/settings'
+    | '/apps/$id/shell'
     | '/settings/security/passkeys'
     | '/settings/security/sessions'
+    | '/settings/security/totp'
     | '/apps/$id/'
   fileRoutesByTo: FileRoutesByTo
   to:
@@ -241,8 +262,10 @@ export interface FileRouteTypes {
     | '/apps/$id/logs'
     | '/apps/$id/overview'
     | '/apps/$id/settings'
+    | '/apps/$id/shell'
     | '/settings/security/passkeys'
     | '/settings/security/sessions'
+    | '/settings/security/totp'
     | '/apps/$id'
   id:
     | '__root__'
@@ -264,8 +287,10 @@ export interface FileRouteTypes {
     | '/_authed/apps/$id/logs'
     | '/_authed/apps/$id/overview'
     | '/_authed/apps/$id/settings'
+    | '/_authed/apps/$id/shell'
     | '/_authed/settings/security/passkeys'
     | '/_authed/settings/security/sessions'
+    | '/_authed/settings/security/totp'
     | '/_authed/apps/$id/'
   fileRoutesById: FileRoutesById
 }
@@ -367,6 +392,13 @@ declare module '@tanstack/react-router' {
       preLoaderRoute: typeof AuthedAppsIdIndexRouteImport
       parentRoute: typeof AuthedAppsIdRoute
     }
+    '/_authed/settings/security/totp': {
+      id: '/_authed/settings/security/totp'
+      path: '/totp'
+      fullPath: '/settings/security/totp'
+      preLoaderRoute: typeof AuthedSettingsSecurityTotpRouteImport
+      parentRoute: typeof AuthedSettingsSecurityRoute
+    }
     '/_authed/settings/security/sessions': {
       id: '/_authed/settings/security/sessions'
       path: '/sessions'
@@ -380,6 +412,13 @@ declare module '@tanstack/react-router' {
       fullPath: '/settings/security/passkeys'
       preLoaderRoute: typeof AuthedSettingsSecurityPasskeysRouteImport
       parentRoute: typeof AuthedSettingsSecurityRoute
+    }
+    '/_authed/apps/$id/shell': {
+      id: '/_authed/apps/$id/shell'
+      path: '/shell'
+      fullPath: '/apps/$id/shell'
+      preLoaderRoute: typeof AuthedAppsIdShellRouteImport
+      parentRoute: typeof AuthedAppsIdRoute
     }
     '/_authed/apps/$id/settings': {
       id: '/_authed/apps/$id/settings'
@@ -433,6 +472,7 @@ interface AuthedAppsIdRouteChildren {
   AuthedAppsIdLogsRoute: typeof AuthedAppsIdLogsRoute
   AuthedAppsIdOverviewRoute: typeof AuthedAppsIdOverviewRoute
   AuthedAppsIdSettingsRoute: typeof AuthedAppsIdSettingsRoute
+  AuthedAppsIdShellRoute: typeof AuthedAppsIdShellRoute
   AuthedAppsIdIndexRoute: typeof AuthedAppsIdIndexRoute
 }
 
@@ -443,6 +483,7 @@ const AuthedAppsIdRouteChildren: AuthedAppsIdRouteChildren = {
   AuthedAppsIdLogsRoute: AuthedAppsIdLogsRoute,
   AuthedAppsIdOverviewRoute: AuthedAppsIdOverviewRoute,
   AuthedAppsIdSettingsRoute: AuthedAppsIdSettingsRoute,
+  AuthedAppsIdShellRoute: AuthedAppsIdShellRoute,
   AuthedAppsIdIndexRoute: AuthedAppsIdIndexRoute,
 }
 
@@ -453,12 +494,14 @@ const AuthedAppsIdRouteWithChildren = AuthedAppsIdRoute._addFileChildren(
 interface AuthedSettingsSecurityRouteChildren {
   AuthedSettingsSecurityPasskeysRoute: typeof AuthedSettingsSecurityPasskeysRoute
   AuthedSettingsSecuritySessionsRoute: typeof AuthedSettingsSecuritySessionsRoute
+  AuthedSettingsSecurityTotpRoute: typeof AuthedSettingsSecurityTotpRoute
 }
 
 const AuthedSettingsSecurityRouteChildren: AuthedSettingsSecurityRouteChildren =
   {
     AuthedSettingsSecurityPasskeysRoute: AuthedSettingsSecurityPasskeysRoute,
     AuthedSettingsSecuritySessionsRoute: AuthedSettingsSecuritySessionsRoute,
+    AuthedSettingsSecurityTotpRoute: AuthedSettingsSecurityTotpRoute,
   }
 
 const AuthedSettingsSecurityRouteWithChildren =

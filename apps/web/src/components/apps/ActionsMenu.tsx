@@ -108,6 +108,7 @@ export function ActionsMenu({ app }: ActionsMenuProps): React.JSX.Element {
   const handleDelete = async (): Promise<void> => {
     if (deleteConfirmName !== app.name) return
     try {
+      // No flags = server uses all-true defaults = full cascade wipe.
       await deleteApp.mutateAsync()
       void router.navigate({ to: "/apps" })
     } catch (err) {
@@ -266,13 +267,14 @@ export function ActionsMenu({ app }: ActionsMenuProps): React.JSX.Element {
         </AlertDialogContent>
       </AlertDialog>
 
-      {/* Delete dialog */}
+      {/* Delete dialog — full cascade wipe, typing confirm. */}
       <AlertDialog open={openDialog === "delete"} onOpenChange={(o) => { if (!o) closeDialog() }}>
         <AlertDialogContent>
           <AlertDialogHeader>
             <AlertDialogTitle>Delete {app.name}?</AlertDialogTitle>
             <AlertDialogDescription>
-              This action is permanent and cannot be undone. Type{" "}
+              This permanently removes the containers, registry images,
+              build artifacts, Caddy route, and database row. Type{" "}
               <span className="font-mono font-semibold text-foreground">{app.name}</span>{" "}
               to confirm.
             </AlertDialogDescription>
@@ -309,6 +311,7 @@ export function ActionsMenu({ app }: ActionsMenuProps): React.JSX.Element {
     </>
   )
 }
+
 
 // ---------------------------------------------------------------------------
 // Icons
