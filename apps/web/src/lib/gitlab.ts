@@ -1,7 +1,14 @@
 // SPDX-License-Identifier: AGPL-3.0-only
-import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query"
+import {
+  useInfiniteQuery,
+  useMutation,
+  useQuery,
+  useQueryClient,
+} from "@tanstack/react-query"
 import { toast } from "sonner"
 import { apiFetch } from "./api"
+import type { ApiError } from "./api"
+import type { GitBranch, GitRepo } from "@ploydok/shared"
 
 // ---------------------------------------------------------------------------
 // Types
@@ -86,5 +93,56 @@ export function useDisconnectGitLab() {
       toast.success("GitLab déconnecté")
       void qc.invalidateQueries({ queryKey: ["gitlab"] })
     },
+  })
+}
+
+// ---------------------------------------------------------------------------
+// Repos + branches
+// ---------------------------------------------------------------------------
+
+interface GitLabReposPage {
+  repos: Array<GitRepo>
+  hasMore: boolean
+  page: number
+  perPage: number
+}
+
+interface GitLabReposParams {
+  search?: string
+  perPage?: number
+}
+
+export function useGitLabRepos(params: GitLabReposParams = {}) {
+  const { search, perPage = 30 } = params
+
+  return useInfiniteQuery<GitLabReposPage, ApiError>({
+    queryKey: ["gitlab", "repos", search ?? ""],
+    queryFn: ({ pageParam }) => {
+      const page = (pageParam as number | undefined) ?? 1
+      const searchParam = search ? `&search=${encodeURIComponent(search)}` : ""
+      return apiFetch<GitLabReposPage>(
+        `/gitlab/repos?page=${page}&per_page=${perPage}${searchParam}`,
+      )
+    },
+    getNextPageParam: (last, pages) => (last.hasMore ? pages.length + 1 : undefined),
+    initialPageParam: 1,
+    staleTime: 5_000,
+    refetchOnWindowFocus: true,
+    refetchOnMount: "always",
+  })
+}
+
+export function useGitLabBranches(fullName?: string) {
+  return useQuery<Array<GitBranch>, ApiError>({
+    queryKey: ["gitlab", "branches", fullName ?? ""],
+    queryFn: async () => {
+      if (!fullName) return []
+      const res = await apiFetch<{ branches: Array<GitBranch> }>(
+        `/gitlab/repos/${encodeURIComponent(fullName)}/branches`,
+      )
+      return res.branches
+    },
+    enabled: Boolean(fullName),
+    staleTime: 60_000,
   })
 }
