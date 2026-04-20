@@ -1,8 +1,8 @@
 // SPDX-License-Identifier: AGPL-3.0-only
-import { index, integer, text, sqliteTable } from 'drizzle-orm/sqlite-core';
+import { index, pgTable, text, timestamp } from 'drizzle-orm/pg-core';
 import { apps } from './apps';
 
-export const builds = sqliteTable(
+export const builds = pgTable(
   'builds',
   {
     id: text('id').primaryKey(),
@@ -21,9 +21,9 @@ export const builds = sqliteTable(
     commit_message: text('commit_message'),
     log_path: text('log_path'),
     error_message: text('error_message'),
-    started_at: integer('started_at', { mode: 'timestamp_ms' }),
-    finished_at: integer('finished_at', { mode: 'timestamp_ms' }),
-    created_at: integer('created_at', { mode: 'timestamp_ms' })
+    started_at: timestamp('started_at', { withTimezone: true, mode: 'date' }),
+    finished_at: timestamp('finished_at', { withTimezone: true, mode: 'date' }),
+    created_at: timestamp('created_at', { withTimezone: true, mode: 'date' })
       .notNull()
       .$defaultFn(() => new Date()),
   },

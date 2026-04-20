@@ -1,18 +1,15 @@
 // SPDX-License-Identifier: AGPL-3.0-only
-import { rm } from "node:fs/promises";
-import path from "node:path";
-import {
-  pickNextJob,
-  markJobDone,
-  markJobFailed,
-  recordJobRun,
-  enqueueJob,
-} from "@ploydok/db/queries";
-import type { Db } from "@ploydok/db";
-import { env } from "../env";
-import { workerLog as logger } from "./logger";
-import { handleDeploy } from "./handlers/deploy";
-import { runRegistryGc, startRegistryGcCron, stopRegistryGcCron } from "./handlers/gc-registry";
+import { rm } from "node:fs/promises"
+import path from "node:path"
+import { Worker } from "bullmq"
+import { createRedis } from "@ploydok/db"
+import type { Db } from "@ploydok/db"
+import { env } from "../env"
+import { workerLog as logger } from "./logger"
+import { handleDeploy } from "./handlers/deploy"
+import { handleDeleteApp } from "./handlers/delete-app"
+import type { DeleteAppOptions } from "./handlers/delete-app"
+import { runRegistryGc, startRegistryGcCron, stopRegistryGcCron } from "./handlers/gc-registry"
 
 // ---------------------------------------------------------------------------
 // Types
@@ -20,135 +17,96 @@ import { runRegistryGc, startRegistryGcCron, stopRegistryGcCron } from "./handle
 
 /** Returned by `startWorker`. Call `stop()` for graceful shutdown. */
 export interface WorkerHandle {
-  stop(): void;
+  stop(): void
 }
 
-type JobRow = Awaited<ReturnType<typeof pickNextJob>>;
-type Job = NonNullable<JobRow>;
-
 // ---------------------------------------------------------------------------
-// Worker loop
+// Worker
 // ---------------------------------------------------------------------------
 
 /**
- * Start the background polling worker.
+ * Start BullMQ workers for all job types.
  *
- * The worker polls the `jobs` table every `intervalMs` milliseconds,
- * picks the next eligible pending job, and dispatches it.
+ * Each queue maps 1-to-1 to a handler. Concurrency is 1 per queue so that
+ * deployments remain sequential per-app (BullMQ job options can throttle
+ * further if needed).
  *
  * Pass `opts.signal` to stop via AbortSignal (e.g. from a test or SIGTERM).
  */
 export function startWorker(
   db: Db,
-  opts?: { intervalMs?: number; signal?: AbortSignal },
+  opts?: { signal?: AbortSignal },
 ): WorkerHandle {
-  const interval = opts?.intervalMs ?? 2_000;
-  let stopped = false;
+  const connection = createRedis(env.REDIS_URL)
 
-  const tick = async () => {
-    if (stopped) return;
-    try {
-      const job = await pickNextJob(db, { now: new Date() });
-      if (job) await dispatch(db, job);
-    } catch (err) {
-      logger.error({ err }, "worker.tick.error");
-    }
-  };
+  const workers: Worker[] = [
+    new Worker(
+      "deploy",
+      async (job) => {
+        logger.info({ jobId: job.id, name: job.name }, "deploy job started")
+        await handleDeploy(db, {
+          id: job.id ?? "",
+          payload: JSON.stringify(job.data),
+          attempts: job.attemptsMade + 1,
+          max_attempts: (job.opts.attempts ?? 1),
+        })
+      },
+      { connection, concurrency: 1 },
+    ),
 
-  const timer = setInterval(tick, interval);
+    new Worker(
+      "gc.registry",
+      async (job) => {
+        logger.info({ jobId: job.id }, "gc.registry job started")
+        const data = (job.data ?? {}) as { appId?: string }
+        const result = await runRegistryGc(data.appId ? { db, appFilter: data.appId } : { db })
+        logger.info({ jobId: job.id, ...result }, "gc.registry done")
+      },
+      { connection, concurrency: 1 },
+    ),
 
-  startRegistryGcCron({ gcOptions: { db } });
+    new Worker(
+      "cleanup.build",
+      async (job) => {
+        logger.info({ jobId: job.id }, "cleanup.build job started")
+        const { appId, buildId } = job.data as { appId: string; buildId: string }
+        const dir = path.join(env.PLOYDOK_BUILD_DIR, appId, buildId)
+        await rm(dir, { recursive: true, force: true })
+        logger.info({ jobId: job.id, appId, buildId, dir }, "workspace cleaned up")
+      },
+      { connection, concurrency: 1 },
+    ),
 
-  opts?.signal?.addEventListener("abort", () => {
-    stopped = true;
-    clearInterval(timer);
-    stopRegistryGcCron();
-  });
+    new Worker(
+      "app.delete",
+      async (job) => {
+        logger.info({ jobId: job.id }, "app.delete job started")
+        const opts = job.data as DeleteAppOptions
+        const res = await handleDeleteApp(db, opts)
+        logger.info({ jobId: job.id, ...res }, "app.delete done")
+      },
+      { connection, concurrency: 1 },
+    ),
+  ]
 
-  return {
-    stop() {
-      stopped = true;
-      clearInterval(timer);
-      stopRegistryGcCron();
-    },
-  };
-}
-
-// ---------------------------------------------------------------------------
-// Dispatch
-// ---------------------------------------------------------------------------
-
-async function dispatch(db: Db, job: Job): Promise<void> {
-  const startedAt = new Date();
-
-  logger.info({ jobId: job.id, type: job.type, attempt: job.attempts }, "job dispatched");
-
-  try {
-    switch (job.type) {
-      case "deploy.requested":
-        await handleDeploy(db, job);
-        break;
-
-      case "gc.registry": {
-        const payload = job.payload ? JSON.parse(job.payload) as { appId?: string } : {};
-        const result = await runRegistryGc(
-          payload.appId ? { db, appFilter: payload.appId } : { db },
-        );
-        logger.info({ jobId: job.id, ...result }, "gc.registry done");
-        break;
-      }
-
-      case "cleanup.build":
-        await cleanupBuild(db, job);
-        break;
-
-      default: {
-        const unknownType = (job as { type: string }).type;
-        await markJobFailed(db, job.id, `unknown job type: ${unknownType}`, { retry: false });
-        await recordJobRun(db, {
-          jobId: job.id,
-          attempt: job.attempts,
-          startedAt,
-          finishedAt: new Date(),
-          error: `unknown job type: ${unknownType}`,
-        });
-        return;
-      }
-    }
-
-    await markJobDone(db, job.id);
-    await recordJobRun(db, {
-      jobId: job.id,
-      attempt: job.attempts,
-      startedAt,
-      finishedAt: new Date(),
-    });
-
-    logger.info({ jobId: job.id, type: job.type }, "job done");
-  } catch (err) {
-    const msg = err instanceof Error ? err.message : String(err);
-    const canRetry = job.attempts < job.max_attempts;
-
-    logger.warn({ jobId: job.id, type: job.type, attempt: job.attempts, retry: canRetry, err }, "job failed");
-
-    await markJobFailed(db, job.id, msg, { retry: canRetry });
-    await recordJobRun(db, {
-      jobId: job.id,
-      attempt: job.attempts,
-      startedAt,
-      finishedAt: new Date(),
-      error: msg,
-    });
+  // Attach error loggers to each worker
+  for (const worker of workers) {
+    worker.on("failed", (job, err) => {
+      logger.warn({ jobId: job?.id, err }, `${worker.name} job failed`)
+    })
   }
-}
 
-// ---------------------------------------------------------------------------
-// Built-in handlers
-// ---------------------------------------------------------------------------
+  startRegistryGcCron({ gcOptions: { db } })
 
-async function cleanupBuild(db: Db, job: Job): Promise<void> {
-  const { appId, buildId } = JSON.parse(job.payload) as { appId: string; buildId: string };
-  const dir = path.join(env.PLOYDOK_BUILD_DIR, appId, buildId);
-  await rm(dir, { recursive: true, force: true });
-  logger.info({ jobId: job.id, appId, buildId, dir }, "workspace cleaned up");
+  const abortHandler = () => stop()
+  opts?.signal?.addEventListener("abort", abortHandler)
+
+  function stop() {
+    stopRegistryGcCron()
+    Promise.all(workers.map((w) => w.close())).catch((err) => {
+      logger.error({ err }, "error closing BullMQ workers")
+    })
+  }
+
+  return { stop }
 }

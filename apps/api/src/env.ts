@@ -7,7 +7,10 @@ const schema = z.object({
   PORT: z.coerce.number().default(3335),
   SESSION_SECRET: z.string().min(32).optional(),
   MASTER_KEY: z.string().optional(),
-  DATABASE_URL: z.string().default("../../ploydok.db"),
+  DATABASE_URL: z.string().default("postgres://ploydok:ploydok@127.0.0.1:5432/ploydok"),
+  REDIS_URL: z.string().default("redis://127.0.0.1:6379/0"),
+  PLOYDOK_PG_PASSWORD: z.string().optional(),
+  PLOYDOK_REDIS_PASSWORD: z.string().optional(),
   WEB_ORIGIN: z.string().url().default("http://localhost:5173"),
   SMTP_HOST: z.string().default("localhost"),
   SMTP_PORT: z.coerce.number().default(1025),
@@ -39,6 +42,9 @@ const raw = schema.parse({
   SESSION_SECRET: Bun.env["SESSION_SECRET"],
   MASTER_KEY: Bun.env["MASTER_KEY"],
   DATABASE_URL: Bun.env["DATABASE_URL"],
+  REDIS_URL: Bun.env["REDIS_URL"],
+  PLOYDOK_PG_PASSWORD: Bun.env["PLOYDOK_PG_PASSWORD"],
+  PLOYDOK_REDIS_PASSWORD: Bun.env["PLOYDOK_REDIS_PASSWORD"],
   WEB_ORIGIN: Bun.env["WEB_ORIGIN"],
   SMTP_HOST: Bun.env["SMTP_HOST"],
   SMTP_PORT: Bun.env["SMTP_PORT"],
@@ -99,12 +105,23 @@ if (!sessionSecretParsed.success) {
   throw new Error("[env] SESSION_SECRET must be at least 32 characters");
 }
 
+// Warn in dev if DATABASE_URL still looks like a SQLite path
+if (raw.NODE_ENV !== "prod" && !raw.DATABASE_URL.startsWith("postgres")) {
+  // eslint-disable-next-line no-console
+  console.warn(
+    "[env] DATABASE_URL does not look like a Postgres URL. Run `make secrets-init` to generate one.",
+  )
+}
+
 export const env = {
   NODE_ENV: raw.NODE_ENV,
   PORT: raw.PORT,
   SESSION_SECRET,
   MASTER_KEY,
   DATABASE_URL: raw.DATABASE_URL,
+  REDIS_URL: raw.REDIS_URL,
+  PLOYDOK_PG_PASSWORD: raw.PLOYDOK_PG_PASSWORD,
+  PLOYDOK_REDIS_PASSWORD: raw.PLOYDOK_REDIS_PASSWORD,
   WEB_ORIGIN: raw.WEB_ORIGIN,
   SMTP_HOST: raw.SMTP_HOST,
   SMTP_PORT: raw.SMTP_PORT,

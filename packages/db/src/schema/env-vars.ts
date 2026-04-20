@@ -1,8 +1,8 @@
 // SPDX-License-Identifier: AGPL-3.0-only
-import { index, integer, text, sqliteTable, uniqueIndex } from "drizzle-orm/sqlite-core"
+import { index, pgTable, text, timestamp, boolean, uniqueIndex } from "drizzle-orm/pg-core"
 import { apps } from "./apps"
 
-export const env_vars = sqliteTable(
+export const env_vars = pgTable(
   "env_vars",
   {
     id: text("id").primaryKey(),
@@ -11,12 +11,11 @@ export const env_vars = sqliteTable(
       .references(() => apps.id, { onDelete: "cascade" }),
     key: text("key").notNull(),
     value: text("value").notNull(),
-    // SQLite stores booleans as integers. 0 = false, 1 = true.
-    secret: integer("secret").notNull().default(0),
-    created_at: integer("created_at", { mode: "timestamp" })
+    secret: boolean("secret").notNull().default(false),
+    created_at: timestamp("created_at", { withTimezone: true, mode: "date" })
       .notNull()
       .$defaultFn(() => new Date()),
-    updated_at: integer("updated_at", { mode: "timestamp" })
+    updated_at: timestamp("updated_at", { withTimezone: true, mode: "date" })
       .notNull()
       .$defaultFn(() => new Date()),
   },

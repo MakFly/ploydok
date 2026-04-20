@@ -1,13 +1,13 @@
 // SPDX-License-Identifier: AGPL-3.0-only
-import { integer, text, sqliteTable } from 'drizzle-orm/sqlite-core';
+import { pgTable, text, timestamp } from 'drizzle-orm/pg-core';
 import { users } from './users';
 
-export const projects = sqliteTable('projects', {
+export const projects = pgTable('projects', {
   id: text('id').primaryKey(),
   owner_id: text('owner_id')
     .notNull()
     .references(() => users.id, { onDelete: 'cascade' }),
   name: text('name').notNull(),
   slug: text('slug').notNull().unique(),
-  created_at: integer('created_at', { mode: 'timestamp' }).notNull(),
+  created_at: timestamp('created_at', { withTimezone: true, mode: 'date' }).notNull(),
 });

@@ -12,6 +12,8 @@ networks:
 volumes:
   buildkit-cache:
   registry-data:
+  postgres-data:
+  redis-data:
 
 services:
   caddy:
@@ -40,7 +42,7 @@ services:
       - ploydok-public
 
   buildkitd:
-    image: moby/buildkit:v0.13.2-rootless
+    image: moby/buildkit:v0.29.0-rootless
     container_name: ploydok-buildkitd
     labels:
       ploydok.kind: infra
@@ -80,6 +82,49 @@ services:
       timeout: 5s
       retries: 3
       start_period: 5s
+    networks:
+      - ploydok
+
+  postgres:
+    image: postgres:16-alpine
+    container_name: ploydok-postgres
+    environment:
+      POSTGRES_USER: ploydok
+      POSTGRES_PASSWORD: ${PLOYDOK_PG_PASSWORD}
+      POSTGRES_DB: ploydok
+    ports:
+      - "127.0.0.1:5434:5432"
+    volumes:
+      - postgres-data:/var/lib/postgresql/data
+    healthcheck:
+      test: ["CMD-SHELL", "pg_isready -U ploydok"]
+      interval: 5s
+      timeout: 5s
+      retries: 10
+      start_period: 10s
+    labels:
+      ploydok.kind: infra
+      ploydok.service: postgres
+    networks:
+      - ploydok
+
+  redis:
+    image: redis:7-alpine
+    container_name: ploydok-redis
+    command: ["redis-server", "--requirepass", "${PLOYDOK_REDIS_PASSWORD}", "--appendonly", "yes"]
+    ports:
+      - "127.0.0.1:6381:6379"
+    volumes:
+      - redis-data:/data
+    healthcheck:
+      test: ["CMD", "redis-cli", "-a", "${PLOYDOK_REDIS_PASSWORD}", "ping"]
+      interval: 5s
+      timeout: 5s
+      retries: 10
+      start_period: 5s
+    labels:
+      ploydok.kind: infra
+      ploydok.service: redis
     networks:
       - ploydok
 

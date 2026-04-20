@@ -1,17 +1,24 @@
 // SPDX-License-Identifier: AGPL-3.0-only
-import { blob, integer, text, sqliteTable } from 'drizzle-orm/sqlite-core';
+import { pgTable, text, timestamp, integer, customType } from 'drizzle-orm/pg-core';
 import { users } from './users';
 
-export const passkeys = sqliteTable('passkeys', {
+// Postgres bytea ↔ Buffer (mirrors SQLite blob({ mode: 'buffer' }))
+const bytea = customType<{ data: Buffer; notNull: false; default: false }>({
+  dataType() {
+    return 'bytea'
+  },
+})
+
+export const passkeys = pgTable('passkeys', {
   id: text('id').primaryKey(),
   user_id: text('user_id')
     .notNull()
     .references(() => users.id, { onDelete: 'cascade' }),
   credential_id: text('credential_id').notNull().unique(),
-  public_key: blob('public_key', { mode: 'buffer' }).notNull(),
+  public_key: bytea('public_key').notNull(),
   counter: integer('counter').notNull().default(0),
   transports: text('transports').notNull().default('[]'),
   device_name: text('device_name'),
-  created_at: integer('created_at', { mode: 'timestamp' }).notNull(),
-  last_used_at: integer('last_used_at', { mode: 'timestamp' }).notNull(),
+  created_at: timestamp('created_at', { withTimezone: true, mode: 'date' }).notNull(),
+  last_used_at: timestamp('last_used_at', { withTimezone: true, mode: 'date' }).notNull(),
 });
