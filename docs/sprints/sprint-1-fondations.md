@@ -1,4 +1,9 @@
-# Sprint 1 — Fondations
+# Sprint 1 — Fondations ✅ Terminé
+
+> **Statut : TERMINÉ** — audit 2026-04-20.
+> Gap multi-device (`requireSecondFactor`) clos : middleware monté sur les routes mutantes
+> (`apps/api/src/routes/apps.ts:231`, `apps-env.ts:79`, `apps-domains.ts:165`) + check TOTP
+> (fix 2026-04-20 `auth.ts:94-111`).
 
 **Durée** : 1 semaine
 **Objectif** : squelette monorepo opérationnel + auth passkey fonctionnelle.

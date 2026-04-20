@@ -92,6 +92,14 @@ This file is the repo-level agent guide for Codex-style coding agents. Keep it f
 - Monorepo/root commands may exist, but do not run broad expensive suites unless the task warrants it.
 - Before any push or PR-style completion, the relevant Definition of Done must be satisfied with real validation, not just inspection.
 
+## Sprint Tracking (docs/sprints/)
+
+- **Toujours utiliser des checkboxes Markdown `- [ ]` / `- [x]`** pour chaque feature / item DoD d'un sprint. Pas de prose, pas de puces simples : le statut doit être scannable en un coup d'œil.
+- Quand un sprint est réellement terminé (code mergé + DoD validée bout-en-bout), ajouter `✅ Terminé` directement dans le titre H1 du fichier `docs/sprints/sprint-N-*.md` et dans la colonne Statut de `docs/sprints/README.md`.
+- Statuts possibles dans le titre : `✅ Terminé`, `✅ Code · ⏳ e2e` (code mergé, e2e pas encore exécutés), `⚠️ Partiel`, `⏳ À faire`.
+- Cocher un item DoD uniquement quand preuve concrète existe (test vert, endpoint audité, commit référencé). Pas de coche par optimisme.
+- Maintenir le tableau `docs/sprints/README.md` à jour à chaque transition de statut — c'est la source de vérité roadmap.
+
 ## Git And Delivery Rules
 
 - Do not create branches unless the user explicitly asks.

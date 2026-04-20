@@ -1,4 +1,18 @@
-# Sprint 3bis — Multi-source deploy & Ressource quotas
+# Sprint 3bis — Multi-source deploy & Ressource quotas ✅ Code · ⏳ e2e
+
+> **Statut : CODE TERMINÉ** — audit 2026-04-20.
+> ✅ GitLab adapter (`apps/api/src/gitlab/`), deploy from image (inline dans `deploy.ts:261`),
+> registry credentials chiffrées, quotas par plan (`packages/shared/src/plans.ts` + proto `pids_limit` +
+> bollard `HostConfig.pids_limit`), network isolation per-project (`projects.network_name` +
+> `ensureProjectNetwork`) + spec pentest `e2e/isolation/cross-project-blocked.spec.ts`.
+> Migration Postgres + Redis + BullMQ livrée (Wave 1 `PLAN-sprint-3-closure-3bis-pg.md`).
+> ✅ Refacto 2026-04-20 : `verifyWebhookSignature` + `parseWebhookPushEvent` intégrés à l'interface
+> `GitProvider` (`packages/shared/src/git-providers.ts`), implémentés sur `GitHubProvider` /
+> `GitLabProvider`, registre singleton `apps/api/src/providers/index.ts` + détection
+> auto via headers HTTP. Specs e2e `apps/web/e2e/providers/{deploy-image,deploy-gitlab}.spec.ts`
+> ajoutées (gate `PLOYDOK_FULL_INFRA=1` → CI vert par défaut).
+> **Reste à exécuter** : les 2 nouvelles specs e2e (nécessitent OAuth GitLab configuré + agent + infra up).
+> **Hors-scope assumé** : Gitea (retiré délibérément).
 
 **Durée** : 1 semaine
 **Objectif** : élargir les sources de déploiement (GitLab, Gitea, Docker image) + enforcer des quotas ressources par app.

@@ -1,4 +1,8 @@
-# Sprint 2 — Agent Rust + Caddy
+# Sprint 2 — Agent Rust + Caddy ✅ Terminé
+
+> **Statut : TERMINÉ** — audit 2026-04-20. Tous les items DoD vérifiés dans le code.
+> Audit log tracé sur chaque RPC (`agent/ploydok-agent/src/service.rs`).
+> Non-bloquant : valider binaire release < 15 MB en CI.
 
 **Durée** : 1 semaine
 **Objectif** : isoler tout accès à Docker dans un daemon Rust sécurisé et piloter Caddy via admin API.

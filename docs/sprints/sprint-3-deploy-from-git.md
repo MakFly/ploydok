@@ -1,4 +1,10 @@
-# Sprint 3 — Deploy from Git
+# Sprint 3 — Deploy from Git ✅ Terminé (code) · ⏳ e2e à exécuter
+
+> **Statut : CODE TERMINÉ** — audit 2026-04-20. Pipeline complet câblé :
+> BuildKit rootless + cache (Dockerfile + Nixpacks) + blue-green (`runner.ts:372`) + GC
+> registry avec protection DB-driven (tag container live + latest succeeded) + healthchecks
+> custom incluant `start_period` + UI `/apps/$id/*` complète + DeployButton.
+> **Reste à exécuter par l'utilisateur : `make dod`** (11 specs Playwright → régénère `sprint-3-DoD.md`).
 
 **Durée** : 1 semaine
 **Objectif** : connecter un repo GitHub → app live sur un domaine en < 2 min.
