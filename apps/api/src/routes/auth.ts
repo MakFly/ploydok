@@ -2,7 +2,7 @@
 import { Hono } from "hono";
 import { nanoid } from "nanoid";
 import { eq, and, ne } from "drizzle-orm";
-import { users, passkeys, sessions as sessionsTable } from "@ploydok/db";
+import { users, passkeys, sessions as sessionsTable, totp_secrets } from "@ploydok/db";
 import type { Db } from "@ploydok/db";
 import { env } from "../env";
 import {
@@ -98,10 +98,17 @@ async function getUserMeta(db: Db, userId: string) {
     .where(eq(passkeys.user_id, userId));
   const passkeyCount = passkeyRows.length;
   const backupCount = await BackupCodes.countActive(db, userId);
+  const totpRows = await db
+    .select({ verified_at: totp_secrets.verified_at })
+    .from(totp_secrets)
+    .where(eq(totp_secrets.user_id, userId))
+    .limit(1);
+  const hasTotp = Boolean(totpRows[0]?.verified_at);
   return {
     has_passkey_plus: passkeyCount >= 2,
     has_backup_codes: backupCount >= 1,
-    needs_second_factor: passkeyCount < 2 && backupCount < 1,
+    has_totp: hasTotp,
+    needs_second_factor: passkeyCount < 2 && backupCount < 1 && !hasTotp,
   };
 }
 
