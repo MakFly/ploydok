@@ -40,6 +40,7 @@ npm-debug.log*
 *.db
 *.db-shm
 *.db-wal
+*.db.bak-*
 
 # Rust
 target/
