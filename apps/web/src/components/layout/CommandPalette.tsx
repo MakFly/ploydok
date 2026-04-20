@@ -3,6 +3,7 @@ import * as React from "react"
 import { useRouter, useMatches } from "@tanstack/react-router"
 import {
   RiApps2Line,
+  RiShip2Line,
   RiDashboardLine,
   RiGithubLine,
   RiPulseLine,
@@ -63,6 +64,7 @@ const NAV_ITEMS: Array<NavEntry> = [
   { id: "nav-settings-git-providers", label: "Settings — Git providers", icon: RiGithubLine, to: "/settings/git-providers" },
   { id: "nav-settings-github", label: "Settings — GitHub", icon: RiGithubLine, to: "/settings/git-providers/github" },
   { id: "nav-settings-gitlab", label: "Settings — GitLab", icon: RiGithubLine, to: "/settings/git-providers/gitlab" },
+  { id: "nav-settings-registry", label: "Settings — Registry", icon: RiShip2Line, to: "/settings/registry" },
 ]
 
 // ---------------------------------------------------------------------------

@@ -3,6 +3,7 @@ import * as React from "react"
 import { Link, createFileRoute } from "@tanstack/react-router"
 import {
   RiArrowRightSLine,
+  RiShip2Line,
   RiFingerprintLine,
   RiGithubFill,
   RiGitlabFill,
@@ -39,6 +40,13 @@ const SECTIONS: ReadonlyArray<SectionCard> = [
     title: "Git providers",
     description: "Connect GitHub and GitLab to deploy from a repo.",
     icon: RiGithubFill,
+  },
+  {
+    to: "/settings/registry",
+    eyebrow: "Sources",
+    title: "Registry credentials",
+    description: "Authentifie tes registres Docker privés pour déployer des images.",
+    icon: RiShip2Line,
   },
 ]
 
@@ -102,7 +110,7 @@ function SettingsOverviewPage(): React.JSX.Element {
 
         <section
           aria-label="Sections"
-          className="grid gap-3 md:grid-cols-2"
+          className="grid gap-3 md:grid-cols-2 lg:grid-cols-3"
         >
           {SECTIONS.map((s) => (
             <SectionLink key={s.to} section={s} />
