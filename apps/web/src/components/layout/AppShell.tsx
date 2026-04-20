@@ -68,7 +68,7 @@ const primaryNav: Array<NavItem> = [
 
 const secondaryNav: Array<NavItem> = [
   { label: "Guide", to: "/guide", icon: RiBookOpenLine },
-  { label: "Settings", to: "/settings/security", icon: RiSettings3Line },
+  { label: "Settings", to: "/settings", icon: RiSettings3Line },
 ];
 
 const STORAGE_KEY = "ploydok.sidebar.state";
