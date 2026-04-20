@@ -12,6 +12,7 @@ const fakeMe: Me = {
   accessExpiresAt: Date.now() + 60_000,
   has_passkey_plus: true,
   has_backup_codes: true,
+  has_totp: false,
   needs_second_factor: false,
 };
 

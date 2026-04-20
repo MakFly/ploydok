@@ -2,7 +2,6 @@
 import * as React from "react"
 import { createFileRoute } from "@tanstack/react-router"
 import {
-  RiAddLine,
   RiAlarmWarningLine,
   RiDeleteBin6Line,
   RiErrorWarningLine,
@@ -26,17 +25,8 @@ import {
   AlertDialogTrigger,
 } from "@workspace/ui/components/alert-dialog"
 import { Button } from "@workspace/ui/components/button"
-import {
-  InputGroup,
-  InputGroupAddon,
-  InputGroupInput,
-} from "@workspace/ui/components/input-group"
 import { cn } from "@workspace/ui/lib/utils"
-import {
-  useAddPasskey,
-  usePasskeys,
-  useRemovePasskey,
-} from "../../../../lib/passkeys"
+import { usePasskeys, useRemovePasskey } from "../../../../lib/passkeys"
 import type { PasskeyInfo } from "@ploydok/shared"
 
 export const Route = createFileRoute("/_authed/settings/security/passkeys")({
@@ -45,19 +35,6 @@ export const Route = createFileRoute("/_authed/settings/security/passkeys")({
 
 function PasskeysPage(): React.JSX.Element {
   const { data: passkeys, isLoading, error } = usePasskeys()
-  const addPasskey = useAddPasskey()
-  const [deviceName, setDeviceName] = React.useState("")
-  const [addError, setAddError] = React.useState<string | null>(null)
-
-  const handleAdd = async (): Promise<void> => {
-    setAddError(null)
-    try {
-      await addPasskey.mutateAsync({ deviceName: deviceName || undefined })
-      setDeviceName("")
-    } catch (err) {
-      setAddError(err instanceof Error ? err.message : "Failed to add passkey")
-    }
-  }
 
   if (error) {
     return (
@@ -74,65 +51,6 @@ function PasskeysPage(): React.JSX.Element {
 
   return (
     <div className="space-y-5">
-      <CardFrame
-        title="Register a new passkey"
-        description="Your browser will prompt for Touch ID, Windows Hello, or a security key. The device name is optional but helps you recognize it later."
-        icon={RiShieldKeyholeLine}
-      >
-        <form
-          className="flex flex-col gap-3"
-          onSubmit={(e) => {
-            e.preventDefault()
-            void handleAdd()
-          }}
-        >
-          <label className="sr-only" htmlFor="passkey-device-name">
-            Device name
-          </label>
-          <InputGroup>
-            <InputGroupAddon>
-              <RiFingerprintLine />
-            </InputGroupAddon>
-            <InputGroupInput
-              id="passkey-device-name"
-              placeholder='e.g. "MacBook Pro — Touch ID"'
-              value={deviceName}
-              onChange={(e) => setDeviceName(e.target.value)}
-              disabled={addPasskey.isPending}
-              maxLength={60}
-            />
-            <InputGroupAddon align="inline-end">
-              <Button
-                type="submit"
-                size="xs"
-                disabled={addPasskey.isPending}
-              >
-                {addPasskey.isPending ? (
-                  <>
-                    <RiLoader4Line className="animate-spin" />
-                    Registering
-                  </>
-                ) : (
-                  <>
-                    <RiAddLine />
-                    Register
-                  </>
-                )}
-              </Button>
-            </InputGroupAddon>
-          </InputGroup>
-          {addError ? (
-            <p
-              role="alert"
-              className="flex items-center gap-1.5 text-xs text-destructive"
-            >
-              <RiErrorWarningLine className="size-3.5" />
-              {addError}
-            </p>
-          ) : null}
-        </form>
-      </CardFrame>
-
       <div className="space-y-2">
         <div className="flex items-baseline justify-between px-1">
           <p className="font-mono text-[10px] tracking-wide text-muted-foreground uppercase">

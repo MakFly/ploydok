@@ -1,7 +1,7 @@
 // SPDX-License-Identifier: AGPL-3.0-only
 import type { Context, Next } from "hono";
 import { eq } from "drizzle-orm";
-import { users, passkeys } from "@ploydok/db";
+import { users, passkeys, totp_secrets } from "@ploydok/db";
 import { verifyAccessToken, ACCESS_COOKIE } from "./jwt";
 import { countActive } from "./backup-codes";
 import type { Db } from "@ploydok/db";
@@ -144,7 +144,15 @@ export function requireSecondFactor(db: Db) {
     const passkeyCount = passkeyRows.length;
     const backupCount = await countActive(db, user.id);
 
-    if (passkeyCount >= 2 || backupCount >= 1) {
+    // Check TOTP verified
+    const totpRows = await db
+      .select({ verified_at: totp_secrets.verified_at })
+      .from(totp_secrets)
+      .where(eq(totp_secrets.user_id, user.id))
+      .limit(1);
+    const hasTotp = Boolean(totpRows[0]?.verified_at);
+
+    if (passkeyCount >= 2 || backupCount >= 1 || hasTotp) {
       return next();
     }
 

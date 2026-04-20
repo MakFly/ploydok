@@ -24,8 +24,15 @@ import {
 import * as BackupCodes from "../auth/backup-codes";
 import * as Sessions from "../auth/sessions";
 import { setChallenge, consumeChallenge } from "../auth/challenges";
-import { requireAuth, type AuthUser } from "../auth/middleware";
+import { requireAuth, requireSecondFactor, type AuthUser } from "../auth/middleware";
 import { sendMail, renderWelcomeEmail } from "../mailer";
+import {
+  saveTotpSecret,
+  getTotpSecret,
+  markTotpVerified,
+  deleteTotpSecret,
+} from "../auth/totp-storage";
+import { generateSecret, buildOtpauthUrl, verifyCode } from "../auth/totp";
 // AuthenticatorTransportFuture is re-exported from @simplewebauthn/server internals
 // We use a simple string type alias to avoid the missing @simplewebauthn/types package
 type AuthenticatorTransportFuture =
@@ -560,36 +567,6 @@ export function createAuthRouter(db: Db): Hono {
   });
 
   // -------------------------------------------------------------------------
-  // POST /auth/backup-codes/generate
-  // -------------------------------------------------------------------------
-  auth.post("/auth/backup-codes/generate", requireAuth(db), async (c) => {
-    const user = getUser(c);
-    const codes = await BackupCodes.regenerate(db, user.id);
-
-    // TXT download — see ADR 0002
-    const txt = [
-      "Ploydok Backup Codes",
-      "====================",
-      `User: ${user.email}`,
-      `Generated: ${new Date().toISOString()}`,
-      "",
-      "Store these codes in a safe place. Each code can only be used once.",
-      "",
-      ...codes.map((code, i) => `${i + 1}. ${code}`),
-      "",
-      "IMPORTANT: These codes will not be shown again.",
-    ].join("\n");
-
-    return new Response(txt, {
-      status: 200,
-      headers: {
-        "Content-Type": "text/plain; charset=utf-8",
-        "Content-Disposition": `attachment; filename="ploydok-backup-codes.txt"`,
-      },
-    });
-  });
-
-  // -------------------------------------------------------------------------
   // POST /auth/backup-codes/consume
   // -------------------------------------------------------------------------
   auth.post("/auth/backup-codes/consume", async (c) => {
@@ -675,37 +652,6 @@ export function createAuthRouter(db: Db): Hono {
         last_used_at: pk.last_used_at?.toISOString(),
       })),
     });
-  });
-
-  // -------------------------------------------------------------------------
-  // POST /auth/passkeys — add a new device
-  // -------------------------------------------------------------------------
-  auth.post("/auth/passkeys", requireAuth(db), async (c) => {
-    const user = getUser(c);
-    const body = (await c.req.json()) as { device_name?: string };
-
-    const existingPasskeys = await db
-      .select({ credential_id: passkeys.credential_id, transports: passkeys.transports })
-      .from(passkeys)
-      .where(eq(passkeys.user_id, user.id));
-
-    const excludeCredentials = existingPasskeys.map((pk) => ({
-      id: pk.credential_id,
-      type: "public-key" as const,
-      transports: JSON.parse(pk.transports) as AuthenticatorTransportFuture[],
-    }));
-
-    const options = await generateRegOptions({
-      userName: user.email,
-      userDisplayName: user.display_name,
-      userID: new TextEncoder().encode(user.id),
-      excludeCredentials,
-      authenticatorSelection: { residentKey: "preferred", userVerification: "preferred" },
-    });
-
-    setChallenge(`reg:${user.id}`, options.challenge);
-
-    return c.json({ options, userId: user.id, device_name: body.device_name });
   });
 
   // -------------------------------------------------------------------------
@@ -818,6 +764,74 @@ export function createAuthRouter(db: Db): Hono {
     const user = getUser(c);
     await Sessions.revokeOtherSessions(db, user.id, user.session_id);
     return c.json({ ok: true });
+  });
+
+  // -------------------------------------------------------------------------
+  // POST /auth/totp/enroll
+  // -------------------------------------------------------------------------
+  auth.post("/auth/totp/enroll", requireAuth(db), async (c) => {
+    const user = getUser(c);
+
+    const existing = await getTotpSecret(db, user.id);
+    if (existing?.verifiedAt) {
+      return c.json(
+        { error: { code: "TOTP_ALREADY_ENROLLED", message: "TOTP is already enrolled and verified" } },
+        409,
+      );
+    }
+
+    const secret = generateSecret();
+    await saveTotpSecret(db, user.id, secret);
+
+    const otpauthUrl = buildOtpauthUrl({
+      secret,
+      issuer: "Ploydok",
+      accountName: user.email,
+    });
+
+    return c.json({ secret, otpauthUrl });
+  });
+
+  // -------------------------------------------------------------------------
+  // POST /auth/totp/verify
+  // -------------------------------------------------------------------------
+  auth.post("/auth/totp/verify", requireAuth(db), async (c) => {
+    const user = getUser(c);
+    const body = await c.req.json<{ code?: string }>().catch(() => ({}) as { code?: string });
+
+    const totpRow = await getTotpSecret(db, user.id);
+    if (!totpRow) {
+      return c.json(
+        { error: { code: "TOTP_NOT_ENROLLED", message: "TOTP not enrolled" } },
+        404,
+      );
+    }
+    if (totpRow.verifiedAt) {
+      return c.json(
+        { error: { code: "TOTP_ALREADY_ENROLLED", message: "TOTP is already verified" } },
+        409,
+      );
+    }
+
+    const code = String(body.code ?? "");
+    if (!verifyCode(totpRow.secret, code, { window: 1 })) {
+      return c.json(
+        { error: { code: "INVALID_CODE", message: "Invalid TOTP code" } },
+        400,
+      );
+    }
+
+    await markTotpVerified(db, user.id);
+    return c.json({ ok: true });
+  });
+
+  // -------------------------------------------------------------------------
+  // DELETE /auth/totp
+  // -------------------------------------------------------------------------
+  auth.delete("/auth/totp", requireAuth(db), requireSecondFactor(db), async (c) => {
+    const user = getUser(c);
+    await deleteTotpSecret(db, user.id);
+    return c.newResponse(null, 204);
   });
 
   // -------------------------------------------------------------------------

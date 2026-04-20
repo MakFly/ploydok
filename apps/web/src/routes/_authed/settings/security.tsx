@@ -13,6 +13,7 @@ import {
   RiKey2Line,
   RiMacbookLine,
   RiShieldKeyholeLine,
+  RiShieldCheckLine,
 } from "@remixicon/react"
 import { cn } from "@workspace/ui/lib/utils"
 import { ShellPage } from "../../../components/layout/AppShell"
@@ -264,6 +265,11 @@ function SecuritySubTabs({
       to: "/settings/security/sessions",
       label: "Sessions",
       icon: RiMacbookLine,
+    },
+    {
+      to: "/settings/security/totp",
+      label: "TOTP",
+      icon: RiShieldCheckLine,
     },
   ] as const
   return (

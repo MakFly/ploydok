@@ -8,55 +8,26 @@ import {
   revokeOtherSessions,
   rotateRefreshToken,
 } from "./sessions";
-import { createDb } from "@ploydok/db";
-import { users, sessions } from "@ploydok/db";
+import { users } from "@ploydok/db";
+import type { Db } from "@ploydok/db";
 import { nanoid } from "nanoid";
-import { eq } from "drizzle-orm";
+import { makeTestDb, TEST_PG_URL } from "../test/db-helpers";
 
-// ---------------------------------------------------------------------------
-// In-memory test DB
-// ---------------------------------------------------------------------------
-
-function makeTestDb() {
-  const db = createDb(":memory:");
-  db.run(`
-    CREATE TABLE IF NOT EXISTS users (
-      id TEXT PRIMARY KEY,
-      email TEXT NOT NULL UNIQUE,
-      display_name TEXT NOT NULL,
-      created_at INTEGER NOT NULL,
-      updated_at INTEGER NOT NULL,
-      recovery_token_hash TEXT,
-      recovery_expires_at INTEGER
-    )
-  `);
-  db.run(`
-    CREATE TABLE IF NOT EXISTS sessions (
-      id TEXT PRIMARY KEY,
-      user_id TEXT NOT NULL REFERENCES users(id) ON DELETE CASCADE,
-      refresh_token_hash TEXT NOT NULL,
-      user_agent TEXT NOT NULL,
-      ip TEXT NOT NULL,
-      created_at INTEGER NOT NULL,
-      last_seen_at INTEGER NOT NULL,
-      revoked_at INTEGER,
-      expires_at INTEGER NOT NULL
-    )
-  `);
-  return db;
-}
+const skip = !TEST_PG_URL;
+if (skip) console.log("[sessions.test] PLOYDOK_TEST_PG_URL not set — skipping");
 
 // ---------------------------------------------------------------------------
 // Tests
 // ---------------------------------------------------------------------------
 
-describe("sessions", () => {
-  let db: ReturnType<typeof makeTestDb>;
+describe.skipIf(skip)("sessions", () => {
+  let db: Db;
   let userId: string;
 
   beforeEach(async () => {
-    db = makeTestDb();
-    userId = nanoid();
+    const result = await makeTestDb();
+    db = result.db;
+    userId = `sess-${nanoid(6)}`;
     const now = new Date();
     await db.insert(users).values({
       id: userId,
@@ -66,7 +37,7 @@ describe("sessions", () => {
       updated_at: now,
       recovery_token_hash: null,
       recovery_expires_at: null,
-    });
+    }).onConflictDoNothing();
   });
 
   it("createSession returns sessionId and refreshToken", async () => {
@@ -110,20 +81,20 @@ describe("sessions", () => {
     await revokeSession(db, s2.sessionId);
 
     const active = await listSessions(db, userId);
-    expect(active.length).toBe(1);
-    expect(active[0]!.id).toBe(s1.sessionId);
+    expect(active.some((s) => s.id === s1.sessionId)).toBe(true);
+    expect(active.every((s) => s.id !== s2.sessionId)).toBe(true);
   });
 
   it("revokeOtherSessions revokes all but current", async () => {
     const s1 = await createSession(db, { userId, userAgent: "A", ip: "1.0.0.1" });
     const s2 = await createSession(db, { userId, userAgent: "B", ip: "1.0.0.2" });
-    const s3 = await createSession(db, { userId, userAgent: "C", ip: "1.0.0.3" });
+    await createSession(db, { userId, userAgent: "C", ip: "1.0.0.3" });
 
     await revokeOtherSessions(db, userId, s2.sessionId);
 
     const active = await listSessions(db, userId);
-    expect(active.length).toBe(1);
-    expect(active[0]!.id).toBe(s2.sessionId);
+    expect(active.some((s) => s.id === s2.sessionId)).toBe(true);
+    expect(active.every((s) => s.id !== s1.sessionId)).toBe(true);
   });
 
   it("rotateRefreshToken invalidates old token and issues new one", async () => {

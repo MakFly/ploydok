@@ -5,7 +5,7 @@ import {
   useQuery,
   useQueryClient
 } from "@tanstack/react-query";
-import { ApiError, apiFetch } from "./api";
+import { ApiError, apiFetch, criticalRetryDelay, shouldRetryCriticalQuery } from "./api";
 import type {UseQueryResult} from "@tanstack/react-query";
 import type { Me } from "@ploydok/shared";
 import { toast } from "sonner";
@@ -25,10 +25,9 @@ export function useMe(): UseQueryResult<Me, ApiError> {
     refetchOnMount: false,
     refetchOnWindowFocus: false,
     refetchOnReconnect: false,
-    retry: (failureCount, error) => {
-      if (error instanceof ApiError && error.status === 401) return false;
-      return failureCount < 2;
-    },
+    retry: shouldRetryCriticalQuery,
+    retryDelay: criticalRetryDelay,
+    meta: { critical: true },
   });
 }
 
