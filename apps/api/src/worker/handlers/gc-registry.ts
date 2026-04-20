@@ -15,6 +15,7 @@ import {
   diskUsagePct,
   getManifest,
   listTags,
+  runtimeGarbageCollect,
 } from "../registry";
 import type { Db } from "@ploydok/db";
 
@@ -30,6 +31,8 @@ export interface RegistryClient {
   ) => Promise<{ digest: string; createdAt?: Date } | null>;
   deleteDigest: (repo: string, digest: string) => Promise<void>;
   diskUsagePct: () => Promise<number>;
+  /** Reclaim blob storage by running `registry garbage-collect` on the host. */
+  garbageCollect: () => Promise<{ ok: boolean; output: string }>;
 }
 
 export interface GcOptions {
@@ -41,12 +44,20 @@ export interface GcOptions {
   db: Db;
   /** When set, only GC the given app id. */
   appFilter?: string;
+  /**
+   * Skip blob reclamation (`registry garbage-collect`). The HTTP manifest
+   * deletes still happen. Useful for unit tests + when a follow-up call will
+   * reclaim blobs in batch (e.g. cron tick scanning many apps).
+   */
+  skipBlobReclaim?: boolean;
 }
 
 export interface GcResult {
   reposScanned: number;
   tagsDeleted: number;
   bytesFreed: number;
+  /** Whether the binary `registry garbage-collect` ran and succeeded. */
+  blobReclaim?: { ok: boolean; output: string };
 }
 
 export interface RegistryUsage {
@@ -64,6 +75,7 @@ const defaultRegistryClient: RegistryClient = {
   getManifest,
   deleteDigest,
   diskUsagePct,
+  garbageCollect: runtimeGarbageCollect,
 };
 
 // ---------------------------------------------------------------------------
@@ -89,24 +101,52 @@ export async function runRegistryGc(opts: GcOptions): Promise<GcResult> {
     keepPerRepo = 3,
     db,
     appFilter,
+    skipBlobReclaim,
   } = opts;
 
-  // 1. Load all app ids (or just the filtered one).
+  // 1. Load all app ids (or just the filtered one). Pull container_id +
+  //    keep_per_repo override so per-app config wins over the cron default.
   const appRows = appFilter
-    ? await db.select({ id: apps.id }).from(apps).where(eq(apps.id, appFilter)).limit(1)
-    : await db.select({ id: apps.id }).from(apps);
+    ? await db
+        .select({
+          id: apps.id,
+          container_id: apps.container_id,
+          keep_per_repo: apps.keep_per_repo,
+        })
+        .from(apps)
+        .where(eq(apps.id, appFilter))
+        .limit(1)
+    : await db
+        .select({
+          id: apps.id,
+          container_id: apps.container_id,
+          keep_per_repo: apps.keep_per_repo,
+        })
+        .from(apps);
 
   let reposScanned = 0;
   let tagsDeleted = 0;
 
-  for (const { id: appId } of appRows) {
+  for (const { id: appId, container_id, keep_per_repo } of appRows) {
     const repo = `app-${appId.toLowerCase()}`;
     const tags = await rc.listTags(repo);
     if (tags.length === 0) continue;
 
     reposScanned++;
 
-    if (tags.length <= keepPerRepo) continue;
+    // Per-app override beats the global default, unless the caller explicitly
+    // forced keepPerRepo=0 (delete-app wipes everything regardless of config).
+    const effectiveKeep =
+      keepPerRepo === 0
+        ? 0
+        : (keep_per_repo ?? keepPerRepo);
+
+    // Compute protected tags: latest succeeded build tied to the running
+    // container, plus any build flagged by container_id. Always keep at least
+    // these even if `effectiveKeep === 0` (delete-app uses 0 to wipe everything).
+    const protectedTags = await loadProtectedTags(db, appId, container_id);
+
+    if (effectiveKeep > 0 && tags.length <= effectiveKeep) continue;
 
     // 2. Join with builds table to get creation dates.
     const buildRows = await db
@@ -149,13 +189,27 @@ export async function runRegistryGc(opts: GcOptions): Promise<GcResult> {
       return 0;
     });
 
-    // 5. Delete extras, deduplicated by digest.
-    const toDelete = valid.slice(keepPerRepo);
+    // Collect digests of protected tags so we never delete them, even if they
+    // sort beyond keepPerRepo (e.g. running container holds an old tag).
+    const protectedDigests = new Set<string>();
+    for (const item of valid) {
+      if (protectedTags.has(item.tag)) protectedDigests.add(item.digest);
+    }
+
+    // 5. Delete extras, deduplicated by digest, skipping protected digests.
+    const toDelete = valid.slice(effectiveKeep);
     const seen = new Set<string>();
 
     for (const item of toDelete) {
       if (seen.has(item.digest)) continue;
       seen.add(item.digest);
+      if (protectedDigests.has(item.digest)) {
+        // eslint-disable-next-line no-console
+        console.log(
+          `[gc-registry] skipped protected ${repo}:${item.tag} (${item.digest})`,
+        );
+        continue;
+      }
       try {
         await rc.deleteDigest(repo, item.digest);
         tagsDeleted++;
@@ -171,11 +225,108 @@ export async function runRegistryGc(opts: GcOptions): Promise<GcResult> {
 
   // eslint-disable-next-line no-console
   console.log(
-    `[gc-registry] done — scanned ${reposScanned} repos, deleted ${tagsDeleted} tags`,
+    `[gc-registry] manifests pass — scanned ${reposScanned} repos, deleted ${tagsDeleted} tags`,
   );
 
-  return { reposScanned, tagsDeleted, bytesFreed: 0 };
+  let blobReclaim: GcResult["blobReclaim"];
+  if (!skipBlobReclaim && tagsDeleted > 0) {
+    blobReclaim = await rc.garbageCollect();
+    // eslint-disable-next-line no-console
+    console.log(
+      `[gc-registry] blob reclaim — ok=${blobReclaim.ok} output=${blobReclaim.output.slice(0, 200)}`,
+    );
+  }
+
+  const result: GcResult = { reposScanned, tagsDeleted, bytesFreed: 0 };
+  if (blobReclaim) result.blobReclaim = blobReclaim;
+  return result;
 }
+
+/**
+ * Identify tags that must never be deleted by GC for a given app:
+ *   - the build tag tied to the currently-running container_id
+ *   - the latest succeeded build (so a rollback always has a fallback)
+ *
+ * The function is defensive: if `container_id` is unset or no succeeded build
+ * exists, it returns an empty set rather than throwing.
+ */
+async function loadProtectedTags(
+  db: Db,
+  appId: string,
+  containerId: string | null,
+): Promise<Set<string>> {
+  const tags = new Set<string>();
+  // Build tied to the running container.
+  if (containerId) {
+    const rows = await db
+      .select({ image_tag: builds.image_tag })
+      .from(builds)
+      .where(eq(builds.container_id, containerId))
+      .limit(1);
+    const tag = rows[0]?.image_tag;
+    if (tag) tags.add(tag.split(":").at(-1) ?? tag);
+  }
+
+  // Latest succeeded build (rollback safety net).
+  const latestSucceeded = await db
+    .select({ image_tag: builds.image_tag })
+    .from(builds)
+    .where(eq(builds.app_id, appId))
+    .orderBy(desc(builds.created_at))
+    .limit(1);
+  const latestTag = latestSucceeded[0]?.image_tag;
+  if (latestTag) tags.add(latestTag.split(":").at(-1) ?? latestTag);
+
+  return tags;
+}
+
+// ---------------------------------------------------------------------------
+// Aggressive disk-guard GC (item 4)
+// ---------------------------------------------------------------------------
+
+export interface AggressiveGcOptions {
+  db: Db;
+  /** Threshold above which the aggressive sweep kicks in. Default: 80. */
+  thresholdPct?: number;
+  /** Keep this many tags per repo when triggered. Default: 1. */
+  keepPerRepoUnderPressure?: number;
+  /** Injected registry client. */
+  registryClient?: RegistryClient;
+}
+
+/**
+ * Aggressive disk-pressure GC: when registry storage is above
+ * `thresholdPct`, sweep across all apps with `keepPerRepoUnderPressure`
+ * (default 1) and force a blob reclaim. Always honours image protection.
+ *
+ * Returns the GC result, or `null` when disk usage is below the threshold and
+ * nothing ran.
+ */
+export async function runAggressiveDiskGuard(
+  opts: AggressiveGcOptions,
+): Promise<GcResult | null> {
+  const {
+    db,
+    thresholdPct = 80,
+    keepPerRepoUnderPressure = 1,
+    registryClient: rc = defaultRegistryClient,
+  } = opts;
+
+  const pct = await rc.diskUsagePct();
+  if (pct < thresholdPct) return null;
+
+  // eslint-disable-next-line no-console
+  console.warn(
+    `[gc-registry] disk pressure ${pct}% >= ${thresholdPct}% — aggressive sweep keep=${keepPerRepoUnderPressure}`,
+  );
+
+  return runRegistryGc({
+    db,
+    registryClient: rc,
+    keepPerRepo: keepPerRepoUnderPressure,
+  });
+}
+
 
 // ---------------------------------------------------------------------------
 // getRegistryUsageForApp

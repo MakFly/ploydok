@@ -2,89 +2,21 @@
 import { describe, it, expect, beforeEach } from "bun:test"
 import { Hono } from "hono"
 import { nanoid } from "nanoid"
-import { createDb } from "@ploydok/db"
 import { users, projects, apps } from "@ploydok/db"
+import type { Db } from "@ploydok/db"
+import { makeTestDb as makePgTestDb, TEST_PG_URL } from "../test/db-helpers"
 import { createAppsEnvRouter } from "./apps-env"
 import type { AuthUser } from "../auth/middleware"
 
-// ---------------------------------------------------------------------------
-// In-memory test DB
-// ---------------------------------------------------------------------------
+const skip = !TEST_PG_URL
+if (skip) console.log("[apps-env.test] PLOYDOK_TEST_PG_URL not set — skipping")
 
-function makeTestDb() {
-  const db = createDb(":memory:")
-
-  db.run(`
-    CREATE TABLE IF NOT EXISTS users (
-      id TEXT PRIMARY KEY,
-      email TEXT NOT NULL UNIQUE,
-      display_name TEXT NOT NULL,
-      created_at INTEGER NOT NULL,
-      updated_at INTEGER NOT NULL,
-      recovery_token_hash TEXT,
-      recovery_expires_at INTEGER
-    )
-  `)
-
-  db.run(`
-    CREATE TABLE IF NOT EXISTS projects (
-      id TEXT PRIMARY KEY,
-      owner_id TEXT NOT NULL REFERENCES users(id) ON DELETE CASCADE,
-      name TEXT NOT NULL,
-      slug TEXT NOT NULL UNIQUE,
-      created_at INTEGER NOT NULL
-    )
-  `)
-
-  db.run(`
-    CREATE TABLE IF NOT EXISTS apps (
-      id TEXT PRIMARY KEY,
-      project_id TEXT NOT NULL REFERENCES projects(id) ON DELETE CASCADE,
-      name TEXT NOT NULL,
-      slug TEXT NOT NULL,
-      status TEXT NOT NULL DEFAULT 'created',
-      created_at INTEGER NOT NULL,
-      updated_at INTEGER NOT NULL,
-      git_provider TEXT,
-      repo_full_name TEXT,
-      branch TEXT,
-      github_installation_id TEXT,
-      root_dir TEXT,
-      dockerfile_path TEXT,
-      install_command TEXT,
-      build_command TEXT,
-      start_command TEXT,
-      watch_paths TEXT,
-      container_id TEXT,
-      restart_policy TEXT NOT NULL DEFAULT 'unless-stopped',
-      domain TEXT,
-      build_method TEXT DEFAULT 'auto',
-      healthcheck_path TEXT DEFAULT '/',
-      healthcheck_port INTEGER,
-      healthcheck_interval_s INTEGER DEFAULT 5,
-      healthcheck_timeout_s INTEGER DEFAULT 3,
-      healthcheck_retries INTEGER DEFAULT 6,
-      healthcheck_start_period_s INTEGER DEFAULT 0
-    )
-  `)
-
-  db.run(`
-    CREATE TABLE IF NOT EXISTS env_vars (
-      id TEXT PRIMARY KEY,
-      app_id TEXT NOT NULL REFERENCES apps(id) ON DELETE CASCADE,
-      key TEXT NOT NULL,
-      value TEXT NOT NULL,
-      secret INTEGER NOT NULL DEFAULT 0,
-      created_at INTEGER NOT NULL,
-      updated_at INTEGER NOT NULL,
-      UNIQUE(app_id, key)
-    )
-  `)
-
+async function makeTestDb() {
+  const { db } = await makePgTestDb()
   return db
 }
 
-type TestDb = ReturnType<typeof makeTestDb>
+type TestDb = Db
 
 // ---------------------------------------------------------------------------
 // Fixtures helpers
@@ -176,13 +108,13 @@ function buildTestApp(db: TestDb, authedUser?: AuthUser): Hono {
 // GET /:id/env
 // ---------------------------------------------------------------------------
 
-describe("GET /apps/:id/env", () => {
+describe.skipIf(skip)("GET /apps/:id/env", () => {
   let db: TestDb
   let userId: string
   let appId: string
 
   beforeEach(async () => {
-    db = makeTestDb()
+    db = await makeTestDb()
     const user = await createTestUser(db)
     userId = user.id
     const project = await createTestProject(db, userId)
@@ -250,13 +182,13 @@ describe("GET /apps/:id/env", () => {
 // PATCH /:id/env
 // ---------------------------------------------------------------------------
 
-describe("PATCH /apps/:id/env", () => {
+describe.skipIf(skip)("PATCH /apps/:id/env", () => {
   let db: TestDb
   let userId: string
   let appId: string
 
   beforeEach(async () => {
-    db = makeTestDb()
+    db = await makeTestDb()
     const user = await createTestUser(db)
     userId = user.id
     const project = await createTestProject(db, userId)

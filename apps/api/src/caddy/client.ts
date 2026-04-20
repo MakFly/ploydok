@@ -187,41 +187,54 @@ export class CaddyClient {
       return;
     }
 
-    // srv0 sur :80 avec auto_https désactivé — dev HTTP pur.
-    // En prod une autre config l'upgrade vers :443 avec ACME.
-    // IMPORTANT : PATCH /config/apps au lieu de POST /config/ — sinon on écrase
-    // le bloc admin root et on perd l'accès à l'admin API.
-    const appsConfig = {
-      http: {
-        servers: {
-          srv0: {
-            listen: [":80"],
-            routes: [],
-            automatic_https: { disable: true },
-          },
-        },
-      },
+    // srv0 sur :80, auto_https off → dev HTTP pur. En prod une config
+    // séparée upgrade vers :443 + ACME.
+    const srv0 = {
+      listen: [":80"],
+      routes: [],
+      automatic_https: { disable: true },
     };
 
-    const patchRes = await fetch(`${this.baseUrl}/config/apps`, {
-      method: "PATCH",
-      headers: { "Content-Type": "application/json" },
-      body: JSON.stringify(appsConfig),
-    });
-
-    // Si /config/apps n'existe pas encore, PATCH retourne 404/500 → fallback
-    // vers POST avec la clé "apps" explicite (toujours sans toucher à admin).
-    if (!patchRes.ok) {
-      const postRes = await fetch(`${this.baseUrl}/config/apps`, {
-        method: "POST",
-        headers: { "Content-Type": "application/json" },
-        body: JSON.stringify(appsConfig),
-      });
-      if (!postRes.ok) {
-        throw new Error(
-          `CaddyClient.ensureBootstrap failed: PATCH ${patchRes.status} + POST ${postRes.status} ${await postRes.text()}`,
-        );
-      }
+    // Chirurgical : on remonte progressivement jusqu'au niveau d'ancêtre
+    // existant, et on crée srv0 avec le minimum de payload. Aucune requête
+    // ne peut écraser un état existant (tous les parents non-existants sont
+    // créés via PUT, jamais POST/PATCH sur /config/apps).
+    if (config.apps?.http?.servers) {
+      // servers existe → on ajoute juste srv0
+      await this.putOrFail(`/config/apps/http/servers/srv0`, srv0, "servers.srv0");
+      return;
     }
+    if (config.apps?.http) {
+      // http existe → on crée servers avec srv0
+      await this.putOrFail(`/config/apps/http/servers`, { srv0 }, "http.servers");
+      return;
+    }
+    if (config.apps) {
+      // apps existe → on crée http avec servers+srv0
+      await this.putOrFail(
+        `/config/apps/http`,
+        { servers: { srv0 } },
+        "apps.http",
+      );
+      return;
+    }
+    // Config totalement vide → POST /config/apps est sûr (rien à écraser).
+    await this.putOrFail(
+      `/config/apps`,
+      { http: { servers: { srv0 } } },
+      "apps",
+    );
+  }
+
+  private async putOrFail(path: string, body: unknown, label: string): Promise<void> {
+    const res = await fetch(`${this.baseUrl}${path}`, {
+      method: "PUT",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify(body),
+    });
+    if (res.ok) return;
+    throw new Error(
+      `CaddyClient.ensureBootstrap failed creating ${label}: ${res.status} ${await res.text()}`,
+    );
   }
 }

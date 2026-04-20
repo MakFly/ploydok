@@ -7,6 +7,7 @@ import { env } from "../env"
 import { getAppForUser } from "../queries/apps"
 import { listEnvForApp, upsertEnvVars } from "../queries/env"
 import type { AuthUser } from "../auth/middleware"
+import { requireSecondFactor } from "../auth/middleware"
 import type { EnvVarRow } from "../queries/env"
 
 // ---------------------------------------------------------------------------
@@ -75,6 +76,8 @@ function serializeEnvVar(row: EnvVarRow, reveal = false) {
 export function createAppsEnvRouter(db: Db): Hono {
   const router = new Hono()
 
+  const sf = requireSecondFactor(db)
+
   // -------------------------------------------------------------------------
   // GET /:id/env — List env vars for an app (secrets masked)
   // -------------------------------------------------------------------------
@@ -99,9 +102,9 @@ export function createAppsEnvRouter(db: Db): Hono {
   // PATCH /:id/env — Replace the entire env var set for an app
   // -------------------------------------------------------------------------
 
-  router.patch("/:id/env", async (c) => {
+  router.patch("/:id/env", sf, async (c) => {
     const user = getUser(c)
-    const appId = c.req.param("id")
+    const appId = c.req.param("id")!
 
     const app = await getAppForUser(db, appId, user.id)
     if (!app) {

@@ -148,23 +148,23 @@ describe("handleDeploy", () => {
 });
 
 // ---------------------------------------------------------------------------
-// Integration-style tests with a real in-memory DB
+// Integration-style tests with a real Postgres DB (via makeTestDb)
 // ---------------------------------------------------------------------------
 
-import { createDb } from "@ploydok/db";
-import { migrate } from "drizzle-orm/bun-sqlite/migrator";
-import { join } from "node:path";
 import { apps, projects, users } from "@ploydok/db";
+import type { Db } from "@ploydok/db";
 import { eq } from "drizzle-orm";
+import { makeTestDb, TEST_PG_URL } from "../../test/db-helpers";
 
 const NOW = new Date();
 
-const MIGRATIONS_DIR = join(import.meta.dir, "../../../../..", "packages/db/migrations");
+const skipIntegration = !TEST_PG_URL;
+if (skipIntegration)
+  console.log("[deploy.test] PLOYDOK_TEST_PG_URL not set — skipping DB integration tests");
 
-describe("handleDeploy — integration stubs (real in-memory DB)", () => {
+describe.skipIf(skipIntegration)("handleDeploy — integration stubs (real Postgres DB)", () => {
   it("creates a build record with status running then failed when no git config", async () => {
-    const db = createDb(":memory:");
-    await migrate(db, { migrationsFolder: MIGRATIONS_DIR });
+    const { db } = await makeTestDb();
 
     const { handleDeploy } = await import("./deploy");
     const job = makeJob({ appId: "non-existent-app" });
@@ -192,7 +192,7 @@ afterAll(() => {
   }
 });
 
-describe("handleDeploy — log archiving", () => {
+describe.skipIf(skipIntegration)("handleDeploy — log archiving", () => {
   beforeEach(() => {
     mock.restore();
     // Clean up any log files from previous runs of these test app IDs.
@@ -203,9 +203,8 @@ describe("handleDeploy — log archiving", () => {
   });
 
   it("creates a log file at the expected path and writes log lines to it", async () => {
-    // Set up a real in-memory DB with fixtures.
-    const db = createDb(":memory:");
-    await migrate(db, { migrationsFolder: MIGRATIONS_DIR });
+    // Set up a real Postgres DB with fixtures.
+    const { db } = await makeTestDb();
 
     // Insert fixtures: user → project → app
     await db.insert(users).values({
@@ -282,8 +281,7 @@ describe("handleDeploy — log archiving", () => {
   });
 
   it("still creates the log file even when the build fails", async () => {
-    const db = createDb(":memory:");
-    await migrate(db, { migrationsFolder: MIGRATIONS_DIR });
+    const { db } = await makeTestDb();
 
     await db.insert(users).values({
       id: "user-log-2",
@@ -346,15 +344,15 @@ afterAll(() => {
   fs.rmSync(dir, { recursive: true, force: true });
 });
 
-describe("handleDeploy — blue-green", () => {
-  let db: import("@ploydok/db").Db;
+describe.skipIf(skipIntegration)("handleDeploy — blue-green", () => {
+  let db: Db;
 
   beforeEach(async () => {
     mock.restore();
 
-    // Fresh in-memory DB for each test.
-    db = createDb(":memory:");
-    await migrate(db, { migrationsFolder: MIGRATIONS_DIR });
+    // Fresh Postgres DB for each test.
+    const result = await makeTestDb();
+    db = result.db;
 
     // Seed: user → project → app
     await db.insert(users).values({

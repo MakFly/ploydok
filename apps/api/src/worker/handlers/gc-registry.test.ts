@@ -25,6 +25,7 @@ function mockClient(overrides: Partial<RegistryClient> = {}): RegistryClient {
     getManifest: async () => null,
     deleteDigest: async () => undefined,
     diskUsagePct: async () => 0,
+    garbageCollect: async () => ({ ok: true, output: "" }),
     ...overrides,
   };
 }

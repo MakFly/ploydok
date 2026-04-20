@@ -4,7 +4,7 @@
 // All external dependencies (gRPC agent, Caddy, DB) are mocked.
 
 import { afterEach, beforeEach, describe, expect, mock, test } from "bun:test";
-import { DeployFailedError } from "./runner.js";
+import { DeployFailedError, pollHealthcheck } from "./runner.js";
 
 // ---------------------------------------------------------------------------
 // Minimal in-memory DB mock
@@ -338,6 +338,82 @@ describe("healthcheck polling", () => {
     const res = await fetch(`http://127.0.0.1:${port}/`);
     expect(res.status).toBe(503);
     expect(res.ok).toBe(false);
+  });
+});
+
+// ---------------------------------------------------------------------------
+// pollHealthcheck start_period — verifies the grace-period delay is respected.
+// ---------------------------------------------------------------------------
+
+describe("pollHealthcheck start_period", () => {
+  test("respects startPeriodMs before first probe", async () => {
+    // Build a minimal mock agent whose pingContainer returns ok immediately.
+    const mockAgent = {
+      pingContainer(
+        _req: unknown,
+        cb: (err: null, res: { ok: boolean; statusCode: number; latencyMs: number; error: string }) => void,
+      ) {
+        cb(null, { ok: true, statusCode: 200, latencyMs: 1, error: "" });
+        return {} as ReturnType<import("@grpc/grpc-js").Client["makeUnaryRequest"]>;
+      },
+      close() {},
+    };
+
+    const START_PERIOD_MS = 200;
+    const t0 = Date.now();
+
+    const result = await pollHealthcheck({
+      // eslint-disable-next-line @typescript-eslint/no-explicit-any
+      agent: mockAgent as any,
+      containerId: "test-container",
+      port: 3000,
+      path: "/",
+      intervalMs: 50,
+      timeoutMs: 500,
+      retries: 1,
+      startPeriodMs: START_PERIOD_MS,
+      appId: "test-app",
+      color: "blue",
+    });
+
+    const elapsed = Date.now() - t0;
+
+    expect(result).toBe(true);
+    // Allow 20ms tolerance for scheduler jitter.
+    expect(elapsed).toBeGreaterThanOrEqual(START_PERIOD_MS - 20);
+  });
+
+  test("skips grace period when startPeriodMs is 0", async () => {
+    const mockAgent = {
+      pingContainer(
+        _req: unknown,
+        cb: (err: null, res: { ok: boolean; statusCode: number; latencyMs: number; error: string }) => void,
+      ) {
+        cb(null, { ok: true, statusCode: 200, latencyMs: 1, error: "" });
+        return {} as ReturnType<import("@grpc/grpc-js").Client["makeUnaryRequest"]>;
+      },
+      close() {},
+    };
+
+    const t0 = Date.now();
+
+    await pollHealthcheck({
+      // eslint-disable-next-line @typescript-eslint/no-explicit-any
+      agent: mockAgent as any,
+      containerId: "test-container",
+      port: 3000,
+      path: "/",
+      intervalMs: 10,
+      timeoutMs: 500,
+      retries: 1,
+      startPeriodMs: 0,
+      appId: "test-app",
+      color: "blue",
+    });
+
+    const elapsed = Date.now() - t0;
+    // Without grace period, total time should be < 200ms (just intervalMs + probe).
+    expect(elapsed).toBeLessThan(200);
   });
 });
 

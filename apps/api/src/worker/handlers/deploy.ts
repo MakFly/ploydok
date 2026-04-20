@@ -10,6 +10,7 @@ import {
   updateBuildStatus,
   enqueueJob,
 } from "@ploydok/db/queries";
+import { cleanupQueue } from "../queues";
 import type { Db } from "@ploydok/db";
 import { env } from "../../env";
 import { GitHubProvider } from "../../github/client";
@@ -263,7 +264,12 @@ export async function handleDeploy(
     }
 
     // Guard: abort early if registry disk is too full (threshold = 80 %).
-    await diskGuard(80);
+    // Under pressure, kick an aggressive sweep (keep 1 per repo) before
+    // giving up — most builds will recover instead of failing the deploy.
+    await diskGuard(80, async () => {
+      const { runAggressiveDiskGuard } = await import("./gc-registry");
+      await runAggressiveDiskGuard({ db, thresholdPct: 80, keepPerRepoUnderPressure: 1 });
+    });
 
     // 3. Build
     // BuildKit runs inside a compose container; from its POV `127.0.0.1:5000` is
@@ -330,10 +336,14 @@ export async function handleDeploy(
       });
     } else {
       // Nixpacks path
+      const nixpacksCache = path.join(env.PLOYDOK_BUILD_DIR, app.id, ".nixpacks-cache");
       log.info({ buildId, imageRef, pushRef }, "starting nixpacks build");
       await nixpacksBuild({
         workspacePath,
         tag: pushRef,
+        cacheKey: app.id,
+        cacheDir: nixpacksCache,
+        dockerCacheRef: `${pushRegistry}/${repo}:cache`,
         ...(app.root_dir !== null && { rootDir: app.root_dir }),
         ...(app.install_command !== null && { installCmd: app.install_command }),
         ...(app.build_command !== null && { buildCmd: app.build_command }),
@@ -398,15 +408,34 @@ export async function handleDeploy(
     finalStatus = "succeeded";
 
     log.info({ buildId }, "deploy succeeded");
+
+    // 6. Best-effort auto-prune: keep registry tidy after every success.
+    //    Honours image protection (running container + latest succeeded build
+    //    are never deleted). Failures are logged but never propagated — the
+    //    deploy itself already succeeded.
+    try {
+      const { runRegistryGc } = await import("./gc-registry");
+      await runRegistryGc({ db, appFilter: app.id });
+    } catch (gcErr) {
+      log.warn({ gcErr, appId: app.id, buildId }, "post-deploy auto-prune failed (non-fatal)");
+    }
   } catch (err) {
     const msg = err instanceof Error ? err.message : String(err);
     log.error({ buildId, err }, "deploy failed");
 
     finalStatus = "failed";
     finalPatch = { finishedAt: new Date(), errorMessage: msg };
+
+    // If a previous deploy had put the app in "running", a failed redeploy
+    // must NOT overwrite that — blue-green keeps the old container alive.
+    // Otherwise (first deploy, previously stopped/failed, etc.) surface the
+    // failure on the app row so the dashboard doesn't stick to "created".
+    const fallbackStatus: typeof apps.$inferSelect.status =
+      app.status === "running" ? "running" : "failed";
+
     await db
       .update(apps)
-      .set({ status: app.status as typeof apps.$inferSelect.status, updated_at: new Date() })
+      .set({ status: fallbackStatus, updated_at: new Date() })
       .where(eq(apps.id, app.id));
 
     throw err;
@@ -440,12 +469,15 @@ export async function handleDeploy(
       }
     }
 
-    // Enqueue async workspace cleanup — do not await, this is fire-and-forget.
+    // Enqueue async workspace cleanup — fire-and-forget (legacy audit + BullMQ).
     enqueueJob(db, {
       type: "cleanup.build",
       payload: { appId: payload.appId, buildId },
     }).catch((enqErr) => {
       log.warn({ enqErr, buildId }, "failed to enqueue cleanup.build job");
+    });
+    cleanupQueue.add("cleanup.build", { appId: payload.appId, buildId }).catch((enqErr) => {
+      log.warn({ enqErr, buildId }, "failed to push cleanup.build to BullMQ");
     });
   }
 }

@@ -3,8 +3,9 @@ import { describe, it, expect, beforeEach, mock, spyOn } from "bun:test";
 import { Hono } from "hono";
 import { nanoid } from "nanoid";
 import { eq } from "drizzle-orm";
-import { createDb } from "@ploydok/db";
 import { users, projects, apps, builds } from "@ploydok/db";
+import type { Db } from "@ploydok/db";
+import { makeTestDb as makePgTestDb, TEST_PG_URL } from "../test/db-helpers";
 import { createAppsRouter } from "./apps";
 import type { AuthUser } from "../auth/middleware";
 import * as singletons from "../debug/singletons";
@@ -13,100 +14,15 @@ import * as singletons from "../debug/singletons";
 // Test DB helper — in-memory SQLite with all required tables
 // ---------------------------------------------------------------------------
 
-function makeTestDb() {
-  const db = createDb(":memory:");
+const skip = !TEST_PG_URL
+if (skip) console.log("[apps.test] PLOYDOK_TEST_PG_URL not set — skipping")
 
-  db.run(`
-    CREATE TABLE IF NOT EXISTS users (
-      id TEXT PRIMARY KEY,
-      email TEXT NOT NULL UNIQUE,
-      display_name TEXT NOT NULL,
-      created_at INTEGER NOT NULL,
-      updated_at INTEGER NOT NULL,
-      recovery_token_hash TEXT,
-      recovery_expires_at INTEGER
-    )
-  `);
-
-  db.run(`
-    CREATE TABLE IF NOT EXISTS projects (
-      id TEXT PRIMARY KEY,
-      owner_id TEXT NOT NULL REFERENCES users(id) ON DELETE CASCADE,
-      name TEXT NOT NULL,
-      slug TEXT NOT NULL UNIQUE,
-      created_at INTEGER NOT NULL
-    )
-  `);
-
-  db.run(`
-    CREATE TABLE IF NOT EXISTS apps (
-      id TEXT PRIMARY KEY,
-      project_id TEXT NOT NULL REFERENCES projects(id) ON DELETE CASCADE,
-      name TEXT NOT NULL,
-      slug TEXT NOT NULL,
-      status TEXT NOT NULL DEFAULT 'created',
-      created_at INTEGER NOT NULL,
-      updated_at INTEGER NOT NULL,
-      git_provider TEXT,
-      repo_full_name TEXT,
-      branch TEXT,
-      github_installation_id TEXT,
-      root_dir TEXT,
-      dockerfile_path TEXT,
-      install_command TEXT,
-      build_command TEXT,
-      start_command TEXT,
-      watch_paths TEXT,
-      container_id TEXT,
-      restart_policy TEXT NOT NULL DEFAULT 'unless-stopped',
-      domain TEXT,
-      build_method TEXT DEFAULT 'auto',
-      healthcheck_path TEXT DEFAULT '/',
-      healthcheck_port INTEGER,
-      healthcheck_interval_s INTEGER DEFAULT 5,
-      healthcheck_timeout_s INTEGER DEFAULT 3,
-      healthcheck_retries INTEGER DEFAULT 6,
-      healthcheck_start_period_s INTEGER DEFAULT 0
-    )
-  `);
-
-  db.run(`
-    CREATE TABLE IF NOT EXISTS builds (
-      id TEXT PRIMARY KEY,
-      app_id TEXT NOT NULL REFERENCES apps(id) ON DELETE CASCADE,
-      status TEXT NOT NULL DEFAULT 'pending',
-      build_method TEXT,
-      image_tag TEXT,
-      container_id TEXT,
-      commit_sha TEXT,
-      commit_message TEXT,
-      log_path TEXT,
-      error_message TEXT,
-      started_at INTEGER,
-      finished_at INTEGER,
-      created_at INTEGER NOT NULL DEFAULT (unixepoch() * 1000)
-    )
-  `);
-
-  db.run(`
-    CREATE TABLE IF NOT EXISTS jobs (
-      id TEXT PRIMARY KEY,
-      type TEXT NOT NULL,
-      payload TEXT NOT NULL DEFAULT '{}',
-      status TEXT NOT NULL DEFAULT 'pending',
-      attempts INTEGER NOT NULL DEFAULT 0,
-      max_attempts INTEGER NOT NULL DEFAULT 3,
-      run_at INTEGER,
-      error_message TEXT,
-      created_at INTEGER NOT NULL DEFAULT (unixepoch() * 1000),
-      updated_at INTEGER NOT NULL DEFAULT (unixepoch() * 1000)
-    )
-  `);
-
-  return db;
+async function makeTestDb() {
+  const { db } = await makePgTestDb()
+  return db
 }
 
-type TestDb = ReturnType<typeof makeTestDb>;
+type TestDb = Db
 
 // ---------------------------------------------------------------------------
 // Test fixtures helpers
@@ -212,13 +128,13 @@ function fakeUser(id: string, email: string): AuthUser {
 // POST /apps
 // ---------------------------------------------------------------------------
 
-describe("POST /apps", () => {
+describe.skipIf(skip)("POST /apps", () => {
   let db: TestDb;
   let userId: string;
   let projectId: string;
 
   beforeEach(async () => {
-    db = makeTestDb();
+    db = await makeTestDb();
     const user = await createTestUser(db);
     userId = user.id;
     const project = await createTestProject(db, userId);
@@ -371,13 +287,13 @@ describe("POST /apps", () => {
 // GET /apps
 // ---------------------------------------------------------------------------
 
-describe("GET /apps", () => {
+describe.skipIf(skip)("GET /apps", () => {
   let db: TestDb;
   let userId: string;
   let projectId: string;
 
   beforeEach(async () => {
-    db = makeTestDb();
+    db = await makeTestDb();
     const user = await createTestUser(db);
     userId = user.id;
     const project = await createTestProject(db, userId);
@@ -417,13 +333,13 @@ describe("GET /apps", () => {
 // GET /apps/:id
 // ---------------------------------------------------------------------------
 
-describe("GET /apps/:id", () => {
+describe.skipIf(skip)("GET /apps/:id", () => {
   let db: TestDb;
   let userId: string;
   let projectId: string;
 
   beforeEach(async () => {
-    db = makeTestDb();
+    db = await makeTestDb();
     const user = await createTestUser(db);
     userId = user.id;
     const project = await createTestProject(db, userId);
@@ -491,13 +407,13 @@ describe("GET /apps/:id", () => {
 // PATCH /apps/:id
 // ---------------------------------------------------------------------------
 
-describe("PATCH /apps/:id", () => {
+describe.skipIf(skip)("PATCH /apps/:id", () => {
   let db: TestDb;
   let userId: string;
   let projectId: string;
 
   beforeEach(async () => {
-    db = makeTestDb();
+    db = await makeTestDb();
     const user = await createTestUser(db);
     userId = user.id;
     const project = await createTestProject(db, userId);
@@ -561,13 +477,13 @@ describe("PATCH /apps/:id", () => {
 // DELETE /apps/:id
 // ---------------------------------------------------------------------------
 
-describe("DELETE /apps/:id", () => {
+describe.skipIf(skip)("DELETE /apps/:id", () => {
   let db: TestDb;
   let userId: string;
   let projectId: string;
 
   beforeEach(async () => {
-    db = makeTestDb();
+    db = await makeTestDb();
     const user = await createTestUser(db);
     userId = user.id;
     const project = await createTestProject(db, userId);
@@ -636,13 +552,13 @@ async function createTestBuild(
 // GET /apps/:id/builds — commitMessage exposed in serializeBuild
 // ---------------------------------------------------------------------------
 
-describe("GET /apps/:id/builds", () => {
+describe.skipIf(skip)("GET /apps/:id/builds", () => {
   let db: TestDb;
   let userId: string;
   let projectId: string;
 
   beforeEach(async () => {
-    db = makeTestDb();
+    db = await makeTestDb();
     const user = await createTestUser(db);
     userId = user.id;
     const project = await createTestProject(db, userId);
@@ -678,13 +594,13 @@ describe("GET /apps/:id/builds", () => {
   });
 });
 
-describe("GET /apps/:id/runtime-logs", () => {
+describe.skipIf(skip)("GET /apps/:id/runtime-logs", () => {
   let db: TestDb;
   let userId: string;
   let projectId: string;
 
   beforeEach(async () => {
-    db = makeTestDb();
+    db = await makeTestDb();
     const user = await createTestUser(db);
     userId = user.id;
     const project = await createTestProject(db, userId);
@@ -753,7 +669,7 @@ describe("GET /apps/:id/runtime-logs", () => {
   });
 });
 
-describe("POST /apps/:id/rollback", () => {
+describe.skipIf(skip)("POST /apps/:id/rollback", () => {
   let db: TestDb;
   let userId: string;
   let projectId: string;
@@ -775,7 +691,7 @@ describe("POST /apps/:id/rollback", () => {
   }));
 
   beforeEach(async () => {
-    db = makeTestDb();
+    db = await makeTestDb();
     const user = await createTestUser(db);
     userId = user.id;
     const project = await createTestProject(db, userId);
@@ -863,13 +779,13 @@ describe("POST /apps/:id/rollback", () => {
 // GET /apps/:id/activity — historical timeline derived from builds
 // ---------------------------------------------------------------------------
 
-describe("GET /apps/:id/activity", () => {
+describe.skipIf(skip)("GET /apps/:id/activity", () => {
   let db: TestDb;
   let userId: string;
   let projectId: string;
 
   beforeEach(async () => {
-    db = makeTestDb();
+    db = await makeTestDb();
     const user = await createTestUser(db);
     userId = user.id;
     const project = await createTestProject(db, userId);

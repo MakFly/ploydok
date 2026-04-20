@@ -266,15 +266,92 @@ export async function diskUsagePct(): Promise<number> {
 }
 
 /**
- * Throw if disk usage exceeds `thresholdPct` (default 80%).
+ * Throw if disk usage exceeds `thresholdPct` (default 80%) AND no recovery is
+ * possible. The optional `onPressure` callback is invoked when the threshold
+ * is hit, giving the caller a chance to run an aggressive GC sweep before we
+ * decide to throw. Re-checks disk after the callback; only throws if still
+ * above the threshold.
+ *
  * Call this before starting a new build to prevent filling the disk.
  */
-export async function diskGuard(thresholdPct = 80): Promise<void> {
+export async function diskGuard(
+  thresholdPct = 80,
+  onPressure?: () => Promise<void>,
+): Promise<void> {
   const pct = await diskUsagePct();
-  if (pct >= thresholdPct) {
+  if (pct < thresholdPct) return;
+
+  if (onPressure) {
+    try {
+      await onPressure();
+    } catch (err) {
+      // The recovery hook should not mask the original disk-pressure error.
+      // eslint-disable-next-line no-console
+      console.warn(`[registry] diskGuard onPressure callback failed:`, err);
+    }
+    const after = await diskUsagePct();
+    if (after < thresholdPct) return;
     throw new Error(
-      `Registry disk usage is at ${pct}% — above threshold (${thresholdPct}%). ` +
-        `Run GC or free disk space before starting a new build.`,
+      `Registry disk usage is at ${after}% (was ${pct}%) — above threshold (${thresholdPct}%). ` +
+        `Aggressive GC ran but didn't reclaim enough space. Free disk before retrying.`,
     );
+  }
+
+  throw new Error(
+    `Registry disk usage is at ${pct}% — above threshold (${thresholdPct}%). ` +
+      `Run GC or free disk space before starting a new build.`,
+  );
+}
+
+// ---------------------------------------------------------------------------
+// Blob garbage collection (binary call)
+// ---------------------------------------------------------------------------
+
+const REGISTRY_CONTAINER_NAME =
+  process.env.PLOYDOK_REGISTRY_CONTAINER ?? "ploydok-registry-1";
+const REGISTRY_CONTAINER_CONFIG =
+  process.env.PLOYDOK_REGISTRY_CONFIG ?? "/etc/docker/registry/config.yml";
+
+export interface GarbageCollectResult {
+  ok: boolean;
+  output: string;
+}
+
+/**
+ * Reclaim disk space occupied by orphan blobs in the registry. The HTTP
+ * `DELETE /manifests/<digest>` only removes the manifest reference — the
+ * underlying blobs stay on disk until the registry binary is invoked with
+ * `garbage-collect`.
+ *
+ * Runs `docker exec <registry-container> registry garbage-collect <config>
+ * -m` (`-m` deletes manifests of untagged images too).
+ *
+ * Returns `{ ok: false, output }` instead of throwing so callers can log and
+ * continue (the registry may simply be offline in dev).
+ */
+export async function runtimeGarbageCollect(): Promise<GarbageCollectResult> {
+  try {
+    const proc = Bun.spawn(
+      [
+        "docker",
+        "exec",
+        REGISTRY_CONTAINER_NAME,
+        "registry",
+        "garbage-collect",
+        "-m",
+        REGISTRY_CONTAINER_CONFIG,
+      ],
+      { stdout: "pipe", stderr: "pipe" },
+    );
+    const code = await proc.exited;
+    const stdout = await new Response(proc.stdout).text();
+    const stderr = await new Response(proc.stderr).text();
+    const output = `${stdout}${stderr}`.trim();
+    return { ok: code === 0, output };
+  } catch (err) {
+    return {
+      ok: false,
+      output: err instanceof Error ? err.message : String(err),
+    };
   }
 }

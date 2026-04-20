@@ -5,6 +5,7 @@ import { apps } from "@ploydok/db";
 import type { Db } from "@ploydok/db";
 import { childLogger } from "../../logger";
 import type { PushPayload } from "../webhook";
+import { deployQueue } from "../../worker/queues";
 
 const log = childLogger("webhook.push");
 
@@ -61,7 +62,16 @@ export async function handlePush(
         installationId: installationId ?? null,
         deliveryId,
       },
+      maxAttempts: 1,
     });
+    // Also push to BullMQ for real-time processing
+    await deployQueue.add("deploy.requested", {
+      appId: app.id,
+      commitSha,
+      commitMessage,
+      installationId: installationId ?? null,
+      deliveryId,
+    }, { attempts: 1 });
     log.info({ appId: app.id, commitSha }, "deploy.requested enqueued");
   }
 }

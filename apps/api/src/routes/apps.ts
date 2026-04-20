@@ -10,9 +10,11 @@ import { BuildMethodSchema, HealthcheckConfigSchema, RestartPolicySchema } from 
 import { getAppActivity, getAppForUser, listAppsForUser, listBuildsForApp } from "../queries/apps";
 import { enqueueJob } from "@ploydok/db/queries";
 import { env } from "../env";
+import { deployQueue, appDeleteQueue } from "../worker/queues";
 import { childLogger } from "../logger";
 import type { Db } from "@ploydok/db";
 import type { AuthUser } from "../auth/middleware";
+import { requireSecondFactor } from "../auth/middleware";
 import { getSharedAgent } from "../debug/singletons";
 import { resolveRuntimeContainer } from "../runtime-containers";
 
@@ -39,6 +41,8 @@ const CreateAppBody = z.object({
   restartPolicy: RestartPolicySchema.optional(),
   healthcheck: HealthcheckConfigSchema.partial().optional(),
   domain: z.string().optional(),
+  /** Per-app GC override. null clears the override (falls back to default 3). */
+  keepPerRepo: z.number().int().min(0).max(50).nullable().optional(),
 });
 
 // PATCH accepts the same fields except name and projectId are not updatable here
@@ -124,6 +128,7 @@ function serializeApp(row: AppRow) {
     domain: row.domain,
     publicUrl: buildPublicUrl(row.domain),
     containerId: row.container_id,
+    keepPerRepo: nullToUndefined(row.keep_per_repo),
     healthcheck: {
       path: row.healthcheck_path,
       port: row.healthcheck_port,
@@ -206,6 +211,10 @@ function serializeBuild(row: BuildRow) {
 
 export function createAppsRouter(db: Db): Hono {
   const router = new Hono();
+
+  // Second-factor enforcement middleware (must be called after requireAuth).
+  // Applied on all state-mutating endpoints except POST /apps (creation).
+  const sf = requireSecondFactor(db);
 
   // -------------------------------------------------------------------------
   // POST /apps — Create a new app
@@ -308,7 +317,10 @@ export function createAppsRouter(db: Db): Hono {
     await enqueueJob(db, {
       type: "deploy.requested",
       payload: { appId: id, commitSha: null },
+      maxAttempts: 1,
     })
+    // Also push to BullMQ for real-time processing
+    await deployQueue.add("deploy.requested", { appId: id, commitSha: null }, { attempts: 1 })
 
     return c.json({ app: serializeApp(rows[0]!) }, 201);
   });
@@ -348,9 +360,9 @@ export function createAppsRouter(db: Db): Hono {
   // PATCH /apps/:id — Update app config
   // -------------------------------------------------------------------------
 
-  router.patch("/:id", async (c) => {
+  router.patch("/:id", sf, async (c) => {
     const user = getUser(c);
-    const appId = c.req.param("id");
+    const appId = c.req.param("id")!;
 
     // Verify ownership
     const existing = await getAppForUser(db, appId, user.id);
@@ -367,6 +379,8 @@ export function createAppsRouter(db: Db): Hono {
 
     // Build update set — only provided fields
     const patch: Record<string, unknown> = { updated_at: new Date() };
+    const restartPolicyChanged =
+      body.restartPolicy !== undefined && body.restartPolicy !== existing.restart_policy;
 
     if (body.gitProvider !== undefined) patch.git_provider = body.gitProvider;
     if (body.repoFullName !== undefined) patch.repo_full_name = body.repoFullName;
@@ -381,6 +395,7 @@ export function createAppsRouter(db: Db): Hono {
     if (body.buildMethod !== undefined) patch.build_method = body.buildMethod;
     if (body.restartPolicy !== undefined) patch.restart_policy = body.restartPolicy;
     if (body.domain !== undefined) patch.domain = body.domain;
+    if (body.keepPerRepo !== undefined) patch.keep_per_repo = body.keepPerRepo;
 
     if (body.healthcheck !== undefined) {
       const hc = body.healthcheck;
@@ -394,6 +409,14 @@ export function createAppsRouter(db: Db): Hono {
 
     await db.update(apps).set(patch).where(eq(apps.id, appId));
 
+    // Docker only applies restart policy at container creation time.
+    // If a running app changes policy, immediately recreate the runtime so the
+    // new policy from the DB becomes effective right away.
+    if (restartPolicyChanged && existing.status === "running") {
+      const { restartApp } = await import("../worker/runner.js");
+      await restartApp(appId, db, user.id);
+    }
+
     const updated = await db
       .select()
       .from(apps)
@@ -404,46 +427,94 @@ export function createAppsRouter(db: Db): Hono {
   });
 
   // -------------------------------------------------------------------------
-  // DELETE /apps/:id — Soft delete (status = 'stopped')
+  // DELETE /apps/:id — Cascade delete (Coolify-style, async via job queue)
+  //
+  // Marks the app as 'deleting', enqueues an `app.delete.requested` job, and
+  // returns 202. The worker performs: stop+rm containers, wipe registry
+  // images+blobs, remove Caddy route, rm build artifacts, delete DB row
+  // (cascades builds/env_vars/domains via FK).
+  //
+  // Coolify-style query flags (all default true):
+  //   ?deleteImages=false        — keep registry manifests + blobs
+  //   ?dockerCleanup=false       — leave the container running
+  //   ?deleteBuildArtifacts=false — keep ~/.ploydok-dev/builds/<appId>/
+  //   ?deleteCaddyRoutes=false   — leave the Caddy upstream wired
   // -------------------------------------------------------------------------
 
-  router.delete("/:id", async (c) => {
+  const DeleteAppQuery = z.object({
+    deleteImages: z
+      .enum(["true", "false"])
+      .optional()
+      .transform((v) => (v === undefined ? undefined : v === "true")),
+    dockerCleanup: z
+      .enum(["true", "false"])
+      .optional()
+      .transform((v) => (v === undefined ? undefined : v === "true")),
+    deleteBuildArtifacts: z
+      .enum(["true", "false"])
+      .optional()
+      .transform((v) => (v === undefined ? undefined : v === "true")),
+    deleteCaddyRoutes: z
+      .enum(["true", "false"])
+      .optional()
+      .transform((v) => (v === undefined ? undefined : v === "true")),
+  });
+
+  router.delete("/:id", sf, async (c) => {
     const user = getUser(c);
-    const appId = c.req.param("id");
+    const appId = c.req.param("id")!;
 
     const existing = await getAppForUser(db, appId, user.id);
     if (!existing) {
       return c.json({ error: { code: "NOT_FOUND", message: "App not found" } }, 404);
     }
 
-    const { stopApp } = await import("../worker/runner.js");
+    let flags: z.infer<typeof DeleteAppQuery>;
     try {
-      await stopApp(appId, db);
+      flags = DeleteAppQuery.parse({
+        deleteImages: c.req.query("deleteImages"),
+        dockerCleanup: c.req.query("dockerCleanup"),
+        deleteBuildArtifacts: c.req.query("deleteBuildArtifacts"),
+        deleteCaddyRoutes: c.req.query("deleteCaddyRoutes"),
+      });
     } catch (err) {
-      // Container may already be stopped or not exist — log and continue.
-      childLogger("apps-delete").warn(
-        { err, appId },
-        "stopApp failed during delete (idempotent — continuing)",
-      );
+      return c.json({ error: { code: "VALIDATION_ERROR", message: String(err) } }, 400);
     }
 
-    // Ensure status is stopped regardless of stopApp outcome (stopApp
-    // writes this on success; the catch path skips its DB write).
     await db
       .update(apps)
-      .set({ status: "stopped", updated_at: new Date() })
+      .set({ status: "deleting", updated_at: new Date() })
       .where(eq(apps.id, appId));
 
-    return new Response(null, { status: 204 });
+    const deletePayload = {
+      appId,
+      deleteImages: flags.deleteImages ?? true,
+      dockerCleanup: flags.dockerCleanup ?? true,
+      deleteBuildArtifacts: flags.deleteBuildArtifacts ?? true,
+      deleteCaddyRoutes: flags.deleteCaddyRoutes ?? true,
+    }
+    const job = await enqueueJob(db, {
+      type: "app.delete.requested",
+      payload: deletePayload,
+    });
+    // Also push to BullMQ for real-time processing
+    await appDeleteQueue.add("app.delete.requested", deletePayload)
+
+    childLogger("apps-delete").info(
+      { appId, jobId: job.id, flags },
+      "delete cascade enqueued",
+    );
+
+    return c.json({ ok: true, jobId: job.id, status: "deleting" }, 202);
   });
 
   // -------------------------------------------------------------------------
   // Stubs for endpoints owned by other milestones
   // -------------------------------------------------------------------------
 
-  router.post("/:id/deploy", async (c) => {
+  router.post("/:id/deploy", sf, async (c) => {
     const user = getUser(c)
-    const appId = c.req.param("id")
+    const appId = c.req.param("id")!
 
     const app = await getAppForUser(db, appId, user.id)
     if (!app) {
@@ -453,7 +524,10 @@ export function createAppsRouter(db: Db): Hono {
     const job = await enqueueJob(db, {
       type: "deploy.requested",
       payload: { appId, commitSha: null },
+      maxAttempts: 1,
     })
+    // Also push to BullMQ for real-time processing
+    await deployQueue.add("deploy.requested", { appId, commitSha: null }, { attempts: 1 })
 
     // buildId is not available synchronously because the build record is created
     // by the worker when it picks up the job. Returning null here is intentional —
@@ -625,9 +699,9 @@ export function createAppsRouter(db: Db): Hono {
     buildId: z.string().optional(),
   });
 
-  router.post("/:id/rollback", async (c) => {
+  router.post("/:id/rollback", sf, async (c) => {
     const user = getUser(c);
-    const appId = c.req.param("id");
+    const appId = c.req.param("id")!;
 
     const app = await getAppForUser(db, appId, user.id);
     if (!app) {
@@ -677,9 +751,9 @@ export function createAppsRouter(db: Db): Hono {
     }
   });
 
-  router.post("/:id/stop", async (c) => {
+  router.post("/:id/stop", sf, async (c) => {
     const user = getUser(c);
-    const appId = c.req.param("id");
+    const appId = c.req.param("id")!;
 
     const app = await getAppForUser(db, appId, user.id);
     if (!app) {
@@ -696,9 +770,9 @@ export function createAppsRouter(db: Db): Hono {
     }
   });
 
-  router.post("/:id/restart", async (c) => {
+  router.post("/:id/restart", sf, async (c) => {
     const user = getUser(c);
-    const appId = c.req.param("id");
+    const appId = c.req.param("id")!;
 
     const app = await getAppForUser(db, appId, user.id);
     if (!app) {
@@ -744,9 +818,9 @@ export function createAppsRouter(db: Db): Hono {
     }
   });
 
-  router.post("/:id/registry-gc", async (c) => {
+  router.post("/:id/registry-gc", sf, async (c) => {
     const user = getUser(c);
-    const appId = c.req.param("id");
+    const appId = c.req.param("id")!;
 
     const app = await getAppForUser(db, appId, user.id);
     if (!app) {
