@@ -1,6 +1,7 @@
 // SPDX-License-Identifier: AGPL-3.0-only
 import * as React from "react"
 import { useEventsSubscription } from "../../lib/events-provider"
+import { selectAppSnapshot } from "../../lib/app-runtime"
 import { useMonitoring } from "../../lib/monitoring"
 import { ResourceCard } from "../monitoring/ResourceCard"
 import type { AppStatus, ContainerSnapshot } from "@ploydok/shared"
@@ -20,44 +21,8 @@ interface ContainerHealthPayload {
 // ---------------------------------------------------------------------------
 
 const HISTORY_LEN = 60
-const STATUS_PRIORITY: Record<ContainerSnapshot["status"], number> = {
-  running: 4,
-  unhealthy: 3,
-  starting: 2,
-  stopped: 1,
-  unknown: 0,
-}
-
 function pushToHistory(history: Array<number>, value: number): Array<number> {
   return [...history, value].slice(-HISTORY_LEN)
-}
-
-export function selectAppSnapshot(
-  containers: Array<ContainerSnapshot>,
-  appId: string,
-): ContainerSnapshot | null {
-  let selected: ContainerSnapshot | null = null
-
-  for (const container of containers) {
-    if (container.app_id !== appId) continue
-    if (container.kind && container.kind !== "app") continue
-    if (!selected) {
-      selected = container
-      continue
-    }
-
-    const statusDiff =
-      STATUS_PRIORITY[container.status] - STATUS_PRIORITY[selected.status]
-    if (statusDiff > 0) {
-      selected = container
-      continue
-    }
-    if (statusDiff === 0 && container.last_seen_ms > selected.last_seen_ms) {
-      selected = container
-    }
-  }
-
-  return selected
 }
 
 // ---------------------------------------------------------------------------
@@ -175,6 +140,15 @@ export function AppMonitoringCard({
 
   useEventsSubscription<ContainerHealthPayload>("container.health", handleHealth)
 
+  // Reset state only when the watched app changes, not when status changes.
+  // Declared before the snapshot-sync effect so the initial overview snapshot
+  // for the new app wins on mount instead of being wiped until the next poll.
+  React.useEffect(() => {
+    setSnapshot(null)
+    setCpuHistory([])
+    setMemHistory([])
+  }, [appId])
+
   React.useEffect(() => {
     if (!overviewSnapshot) return
 
@@ -198,14 +172,6 @@ export function AppMonitoringCard({
         : pushToHistory(prev, overviewSnapshot.mem_bytes),
     )
   }, [overviewSnapshot])
-
-  // Reset state only when the watched app changes, not when status changes.
-  // This preserves the last metrics during a restarting transition.
-  React.useEffect(() => {
-    setSnapshot(null)
-    setCpuHistory([])
-    setMemHistory([])
-  }, [appId])
 
   const isRestarting = appStatus === "restarting"
 

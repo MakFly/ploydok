@@ -6,8 +6,10 @@ import { RiAddLine, RiArrowRightUpLine, RiGitBranchLine, RiGlobalLine } from "@r
 import { CreateAppModal } from "../../../components/apps/CreateAppModal";
 import { ShellPage, ShellPanel } from "../../../components/layout/AppShell";
 import { AppStatusBadge } from "../../../components/apps/AppStatusBadge";
+import { resolveRuntimeAppStatus, selectAppSnapshot } from "../../../lib/app-runtime";
 import { useApps } from "../../../lib/apps";
 import { useGitHubAppConfig } from "../../../lib/github";
+import { useMonitoring } from "../../../lib/monitoring";
 import type { AppListItem } from "../../../lib/apps";
 
 export const Route = createFileRoute("/_authed/apps/")({
@@ -18,6 +20,16 @@ function AppsPage(): React.JSX.Element {
   const [modalOpen, setModalOpen] = React.useState(false);
   const { data: apps = [], isLoading, error } = useApps();
   const { data: appConfig } = useGitHubAppConfig();
+  const { data: monitoring } = useMonitoring();
+  const containers = monitoring?.containers ?? [];
+  const appsWithRuntimeStatus = React.useMemo(
+    () =>
+      apps.map((app) => ({
+        ...app,
+        runtimeStatus: resolveRuntimeAppStatus(app.status, selectAppSnapshot(containers, app.id)),
+      })),
+    [apps, containers],
+  );
 
   return (
     <ShellPage
@@ -27,7 +39,7 @@ function AppsPage(): React.JSX.Element {
       actions={
         <>
           <Button variant="outline" size="sm" asChild>
-            <Link to="/settings/git-providers">GitHub setup</Link>
+            <Link to="/settings/git-providers/$slug" params={{ slug: "github" }}>GitHub setup</Link>
           </Button>
           <Button size="sm" onClick={() => setModalOpen(true)}>
             <RiAddLine className="size-4" />
@@ -50,9 +62,9 @@ function AppsPage(): React.JSX.Element {
             >
               Failed to load apps: {error.message}
             </p>
-          ) : apps.length > 0 ? (
+          ) : appsWithRuntimeStatus.length > 0 ? (
             <div className="grid gap-4 md:grid-cols-2 xl:grid-cols-3">
-              {apps.map((app) => (
+              {appsWithRuntimeStatus.map((app) => (
                 <AppCard key={app.id} app={app} />
               ))}
             </div>
@@ -74,7 +86,8 @@ function AppsPage(): React.JSX.Element {
                     ? "GitHub App is already configured."
                     : "Install the GitHub App to unlock repository selection."
                 }
-                to="/settings/git-providers"
+                to="/settings/git-providers/$slug"
+                params={{ slug: "github" }}
               />
               <MiniButton
                 label="Create a new app"
@@ -94,7 +107,7 @@ function AppsPage(): React.JSX.Element {
               <SnapshotRow label="Total apps" value={String(apps.length)} />
               <SnapshotRow
                 label="Running"
-                value={String(apps.filter((app) => app.status === "running").length)}
+                value={String(appsWithRuntimeStatus.filter((app) => app.runtimeStatus === "running").length)}
               />
               <SnapshotRow
                 label="GitHub"
@@ -110,7 +123,11 @@ function AppsPage(): React.JSX.Element {
   );
 }
 
-function AppCard({ app }: { app: AppListItem }): React.JSX.Element {
+function AppCard({
+  app,
+}: {
+  app: AppListItem & { runtimeStatus: AppListItem["status"] }
+}): React.JSX.Element {
   return (
     <Link
       to="/apps/$id/overview"
@@ -126,7 +143,7 @@ function AppCard({ app }: { app: AppListItem }): React.JSX.Element {
             {app.repoFullName ?? "Repository pending"}
           </p>
         </div>
-        <AppStatusBadge status={app.status} />
+        <AppStatusBadge status={app.runtimeStatus} />
       </div>
 
       <div className="mt-4 grid gap-2 text-xs text-muted-foreground">
@@ -170,7 +187,7 @@ function EmptyState({
           </Button>
         ) : (
           <Button size="sm" variant="outline" asChild>
-            <Link to="/settings/git-providers">Connect GitHub</Link>
+            <Link to="/settings/git-providers/$slug" params={{ slug: "github" }}>Connect GitHub</Link>
           </Button>
         )}
       </div>
@@ -200,14 +217,17 @@ function MiniStep({
   label,
   body,
   to,
+  params,
 }: {
   label: string;
   body: string;
   to: string;
+  params?: Record<string, string>;
 }): React.JSX.Element {
+  const linkProps = { to, ...(params ? { params } : {}) } as Parameters<typeof Link>[0];
   return (
     <Link
-      to={to}
+      {...linkProps}
       className="flex items-center justify-between rounded-md border border-border bg-card px-4 py-3 transition-colors hover:bg-accent/40"
     >
       <span>

@@ -141,6 +141,33 @@ interface RuntimeLogResponse {
   containerFound?: boolean
 }
 
+type FallbackResult =
+  | { kind: "empty-runtime" }
+  | { kind: "lines"; lines: Array<string> }
+
+async function loadArchivedBuildLogs(
+  appId: string,
+  buildId: string,
+): Promise<FallbackResult> {
+  const path = `/apps/${appId}/logs?buildId=${encodeURIComponent(buildId)}`
+  const res = await fetch(`${API_BASE}${path}`, { credentials: "include" })
+  if (!res.ok) throw new Error(`Failed to load logs (${res.status})`)
+  const text = await res.text()
+  const lines = text.split(/\r?\n/).filter((l) => l.length > 0)
+  return { kind: "lines", lines }
+}
+
+async function loadRuntimeLogs(appId: string): Promise<FallbackResult> {
+  const data = await apiFetch<RuntimeLogResponse>(`/apps/${appId}/runtime-logs`)
+  if (data.containerFound === false && data.lines.length === 0) {
+    return { kind: "empty-runtime" }
+  }
+  return {
+    kind: "lines",
+    lines: data.lines.map((entry) => JSON.stringify(entry)),
+  }
+}
+
 export function useLogStream({
   appId,
   buildId,
@@ -193,28 +220,20 @@ export function useLogStream({
           ? "WebSocket unavailable — loading archived logs\u2026"
           : "WebSocket unavailable — loading recent runtime logs\u2026",
       )
-      const restPath =
+
+      const loader =
         buildId && buildId !== "latest"
-          ? `/apps/${appId}/logs?buildId=${buildId}`
-          : `/apps/${appId}/runtime-logs`
-      apiFetch<{ lines: Array<string> } | RuntimeLogResponse>(restPath)
-        .then((data) => {
-          const runtimeData = data as RuntimeLogResponse
-          if (
-            !buildId &&
-            runtimeData.containerFound === false &&
-            runtimeData.lines.length === 0
-          ) {
+          ? loadArchivedBuildLogs(appId, buildId)
+          : loadRuntimeLogs(appId)
+
+      loader
+        .then((result) => {
+          if (result.kind === "empty-runtime") {
             setError("No runtime container found for this app")
             return
           }
-
           setError(null)
-          for (const line of data.lines) {
-            appendLine(
-              typeof line === "string" ? line : JSON.stringify(line),
-            )
-          }
+          for (const raw of result.lines) appendLine(raw)
         })
         .catch((err: unknown) => {
           const msg =
