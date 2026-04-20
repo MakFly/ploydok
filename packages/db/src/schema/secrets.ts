@@ -1,9 +1,16 @@
 // SPDX-License-Identifier: AGPL-3.0-only
-import { blob, integer, text, sqliteTable } from 'drizzle-orm/sqlite-core';
+import { pgTable, text, timestamp, customType } from 'drizzle-orm/pg-core';
 import { apps } from './apps';
 import { projects } from './projects';
 
-export const secrets = sqliteTable('secrets', {
+// Postgres bytea ↔ Buffer (mirrors SQLite blob({ mode: 'buffer' }))
+const bytea = customType<{ data: Buffer; notNull: false; default: false }>({
+  dataType() {
+    return 'bytea'
+  },
+})
+
+export const secrets = pgTable('secrets', {
   id: text('id').primaryKey(),
   app_id: text('app_id').references(() => apps.id, { onDelete: 'cascade' }),
   project_id: text('project_id').references(() => projects.id, {
@@ -13,7 +20,7 @@ export const secrets = sqliteTable('secrets', {
     enum: ['shared', 'prod', 'preview', 'dev'],
   }).notNull(),
   key: text('key').notNull(),
-  value_ciphertext: blob('value_ciphertext', { mode: 'buffer' }).notNull(),
-  nonce: blob('nonce', { mode: 'buffer' }).notNull(),
-  created_at: integer('created_at', { mode: 'timestamp' }).notNull(),
+  value_ciphertext: bytea('value_ciphertext').notNull(),
+  nonce: bytea('nonce').notNull(),
+  created_at: timestamp('created_at', { withTimezone: true, mode: 'date' }).notNull(),
 });

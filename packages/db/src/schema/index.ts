@@ -13,4 +13,5 @@ export { passkeys } from './passkeys';
 export { projects } from './projects';
 export { secrets } from './secrets';
 export { sessions } from './sessions';
+export { totp_secrets } from "./totp"
 export { users } from './users';

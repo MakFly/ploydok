@@ -1,8 +1,8 @@
 // SPDX-License-Identifier: AGPL-3.0-only
-import { index, integer, text, sqliteTable, uniqueIndex } from "drizzle-orm/sqlite-core"
+import { index, pgTable, text, timestamp, uniqueIndex } from "drizzle-orm/pg-core"
 import { apps } from "./apps"
 
-export const domains = sqliteTable(
+export const domains = pgTable(
   "domains",
   {
     id: text("id").primaryKey(),
@@ -14,10 +14,10 @@ export const domains = sqliteTable(
     tls_status: text("tls_status", { enum: ["pending", "issued", "failed"] })
       .notNull()
       .default("pending"),
-    created_at: integer("created_at", { mode: "timestamp" })
+    created_at: timestamp("created_at", { withTimezone: true, mode: "date" })
       .notNull()
       .$defaultFn(() => new Date()),
-    updated_at: integer("updated_at", { mode: "timestamp" })
+    updated_at: timestamp("updated_at", { withTimezone: true, mode: "date" })
       .notNull()
       .$defaultFn(() => new Date()),
   },

@@ -4,13 +4,19 @@ import { nanoid } from 'nanoid';
 import type { Db } from '../client';
 import { job_runs, jobs } from '../schema';
 
-type JobType = 'deploy.requested' | 'gc.registry' | 'cleanup.build';
+type JobType = 'deploy.requested' | 'gc.registry' | 'cleanup.build' | 'app.delete.requested';
 type JobStatus = 'pending' | 'running' | 'done' | 'failed';
 
 interface EnqueueJobInput {
   type: JobType;
   payload: unknown;
   runAt?: Date;
+  /**
+   * Override the schema default (3). Use `1` for jobs that must fail fast
+   * without retry — typically user-triggered builds, where a transient retry
+   * would re-run a hefty Docker build against the same broken input.
+   */
+  maxAttempts?: number;
 }
 
 interface RecordJobRunInput {
@@ -21,13 +27,17 @@ interface RecordJobRunInput {
   error?: string;
 }
 
-export async function enqueueJob(db: Db, { type, payload, runAt }: EnqueueJobInput) {
+export async function enqueueJob(
+  db: Db,
+  { type, payload, runAt, maxAttempts }: EnqueueJobInput,
+) {
   const id = nanoid();
   await db.insert(jobs).values({
     id,
     type,
     payload: JSON.stringify(payload),
     run_at: runAt ?? null,
+    ...(maxAttempts !== undefined && { max_attempts: maxAttempts }),
   });
   const rows = await db.select().from(jobs).where(eq(jobs.id, id)).limit(1);
   return rows[0]!;
@@ -36,15 +46,12 @@ export async function enqueueJob(db: Db, { type, payload, runAt }: EnqueueJobInp
 /**
  * Atomically pick the next eligible pending job and mark it running.
  *
- * Uses a single UPDATE … WHERE id = (SELECT … LIMIT 1) RETURNING statement
- * which is the only truly atomic approach in SQLite (no need for BEGIN
- * IMMEDIATE, which does not prevent read-read races in the same connection).
+ * Uses a CTE with FOR UPDATE SKIP LOCKED — the standard Postgres pattern for
+ * concurrent job queues. This avoids double-processing when multiple workers
+ * call this concurrently.
  */
 export async function pickNextJob(db: Db, { now }: { now: Date }) {
-  const nowMs = now.getTime();
-
-  // Single atomic statement: update the job whose id is returned by the
-  // correlated sub-SELECT (LIMIT 1 guarantees only one row is picked).
+  // Use a CTE to atomically select + update with FOR UPDATE SKIP LOCKED
   const rows = await db
     .update(jobs)
     .set({
@@ -53,16 +60,18 @@ export async function pickNextJob(db: Db, { now }: { now: Date }) {
       updated_at: new Date(),
     })
     .where(
-      eq(
-        jobs.id,
-        sql`(
-          SELECT ${jobs.id} FROM ${jobs}
-          WHERE ${jobs.status} = 'pending'
-            AND (${jobs.run_at} IS NULL OR ${jobs.run_at} <= ${nowMs})
-          ORDER BY ${jobs.created_at} ASC
-          LIMIT 1
-        )`,
-      ),
+      and(
+        eq(jobs.id,
+          sql`(
+            SELECT ${jobs.id} FROM ${jobs}
+            WHERE ${jobs.status} = 'pending'
+              AND (${jobs.run_at} IS NULL OR ${jobs.run_at} <= ${now})
+            ORDER BY ${jobs.created_at} ASC
+            LIMIT 1
+            FOR UPDATE SKIP LOCKED
+          )`
+        ),
+      )
     )
     .returning();
 

@@ -1,18 +1,18 @@
 // SPDX-License-Identifier: AGPL-3.0-only
-import { Database } from 'bun:sqlite';
-import { drizzle } from 'drizzle-orm/bun-sqlite';
-import { migrate } from 'drizzle-orm/bun-sqlite/migrator';
 import { fileURLToPath } from 'node:url';
 import { dirname, join } from 'node:path';
+import postgres from 'postgres';
+import { drizzle } from 'drizzle-orm/postgres-js';
+import { migrate } from 'drizzle-orm/postgres-js/migrator';
 
-const url = Bun.env['DATABASE_URL'] ?? '../../ploydok.db';
+const url = Bun.env['DATABASE_URL'] ?? 'postgres://ploydok:ploydok@127.0.0.1:5432/ploydok';
 const here = dirname(fileURLToPath(import.meta.url));
 const migrationsFolder = join(here, '..', 'migrations');
 
-const sqlite = new Database(url);
-sqlite.exec('PRAGMA foreign_keys = ON;');
-const db = drizzle(sqlite);
+const sql = postgres(url, { max: 1 });
+const db = drizzle(sql);
 
 console.log(`[migrate] applying migrations from ${migrationsFolder} to ${url}`);
-migrate(db, { migrationsFolder });
+await migrate(db, { migrationsFolder });
+await sql.end();
 console.log('[migrate] done');

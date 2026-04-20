@@ -1,15 +1,20 @@
 // SPDX-License-Identifier: AGPL-3.0-only
-import { migrate } from 'drizzle-orm/bun-sqlite/migrator';
+import postgres from 'postgres';
+import { drizzle } from 'drizzle-orm/postgres-js';
+import { migrate } from 'drizzle-orm/postgres-js/migrator';
 import { join } from 'node:path';
 import { createDb } from './client';
 import { users, projects } from './schema';
 
-const DB_PATH = process.env['DB_PATH'] ?? join(import.meta.dir, '../../dev.db');
+const DB_URL = Bun.env['DATABASE_URL'] ?? 'postgres://ploydok:ploydok@127.0.0.1:5432/ploydok';
 const MIGRATIONS_DIR = join(import.meta.dir, '../migrations');
 
-const db = createDb(DB_PATH);
+// Run migrations first
+const migSql = postgres(DB_URL, { max: 1 });
+await migrate(drizzle(migSql), { migrationsFolder: MIGRATIONS_DIR });
+await migSql.end();
 
-await migrate(db, { migrationsFolder: MIGRATIONS_DIR });
+const db = createDb(DB_URL);
 
 const now = new Date();
 

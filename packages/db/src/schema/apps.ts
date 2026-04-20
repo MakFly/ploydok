@@ -1,8 +1,8 @@
 // SPDX-License-Identifier: AGPL-3.0-only
-import { integer, text, sqliteTable } from 'drizzle-orm/sqlite-core';
+import { pgTable, text, timestamp, integer } from 'drizzle-orm/pg-core';
 import { projects } from './projects';
 
-export const apps = sqliteTable('apps', {
+export const apps = pgTable('apps', {
   id: text('id').primaryKey(),
   project_id: text('project_id')
     .notNull()
@@ -10,7 +10,7 @@ export const apps = sqliteTable('apps', {
   name: text('name').notNull(),
   slug: text('slug').notNull(),
   status: text('status', {
-    enum: ['created', 'pending', 'building', 'running', 'restarting', 'stopped', 'failed'],
+    enum: ['created', 'pending', 'building', 'running', 'restarting', 'stopped', 'failed', 'deleting'],
   })
     .notNull()
     .default('created'),
@@ -35,6 +35,8 @@ export const apps = sqliteTable('apps', {
     .notNull()
     .default('unless-stopped'),
   domain: text('domain'),
+  // Registry GC override (null → fall back to global default of 3).
+  keep_per_repo: integer('keep_per_repo'),
   // Healthcheck (intervals in seconds to match migration)
   healthcheck_path: text('healthcheck_path'),
   healthcheck_port: integer('healthcheck_port'),
@@ -43,6 +45,6 @@ export const apps = sqliteTable('apps', {
   healthcheck_retries: integer('healthcheck_retries'),
   healthcheck_start_period_s: integer('healthcheck_start_period_s'),
   // Timestamps
-  created_at: integer('created_at', { mode: 'timestamp' }).notNull().$defaultFn(() => new Date()),
-  updated_at: integer('updated_at', { mode: 'timestamp' }).notNull().$defaultFn(() => new Date()),
+  created_at: timestamp('created_at', { withTimezone: true, mode: 'date' }).notNull().$defaultFn(() => new Date()),
+  updated_at: timestamp('updated_at', { withTimezone: true, mode: 'date' }).notNull().$defaultFn(() => new Date()),
 });

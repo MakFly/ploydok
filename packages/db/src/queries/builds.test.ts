@@ -1,6 +1,13 @@
 // SPDX-License-Identifier: AGPL-3.0-only
-import { beforeAll, describe, expect, it } from 'bun:test';
-import { migrate } from 'drizzle-orm/bun-sqlite/migrator';
+/**
+ * builds.test.ts — builds queries against Postgres
+ *
+ * Requires PLOYDOK_TEST_PG_URL — skipped if absent.
+ */
+import { beforeAll, afterAll, describe, expect, it } from 'bun:test';
+import postgres from 'postgres';
+import { drizzle } from 'drizzle-orm/postgres-js';
+import { migrate } from 'drizzle-orm/postgres-js/migrator';
 import { join } from 'node:path';
 import { eq } from 'drizzle-orm';
 import { nanoid } from 'nanoid';
@@ -14,32 +21,41 @@ import {
   updateBuildStatus,
 } from './builds';
 
+const PG_URL = Bun.env['PLOYDOK_TEST_PG_URL'];
 const MIGRATIONS_DIR = join(import.meta.dir, '../../migrations');
 
-describe('builds queries', () => {
-  const db = createDb(':memory:');
+const skip = !PG_URL;
+if (skip) {
+  console.log('[builds.test] PLOYDOK_TEST_PG_URL not set — skipping Postgres tests');
+}
+
+describe.skipIf(skip)('builds queries', () => {
+  const db = createDb(PG_URL!);
+  let sql: ReturnType<typeof postgres>;
 
   let userId: string;
   let projectId: string;
   let appId: string;
 
   beforeAll(async () => {
-    await migrate(db, { migrationsFolder: MIGRATIONS_DIR });
+    sql = postgres(PG_URL!, { max: 1 });
+    const migDb = drizzle(sql);
+    await migrate(migDb, { migrationsFolder: MIGRATIONS_DIR });
 
     const now = new Date();
-    userId = nanoid();
-    projectId = nanoid();
-    appId = nanoid();
+    userId = `bt-user-${nanoid(6)}`;
+    projectId = `bt-proj-${nanoid(6)}`;
+    appId = `bt-app-${nanoid(6)}`;
 
     await db.insert(users).values({
       id: userId,
-      email: `test-${userId}@example.com`,
+      email: `builds-test-${userId}@example.com`,
       display_name: 'Test User',
       created_at: now,
       updated_at: now,
       recovery_token_hash: null,
       recovery_expires_at: null,
-    });
+    }).onConflictDoNothing();
 
     await db.insert(projects).values({
       id: projectId,
@@ -47,7 +63,7 @@ describe('builds queries', () => {
       name: 'Test Project',
       slug: `slug-${projectId}`,
       created_at: now,
-    });
+    }).onConflictDoNothing();
 
     await db.insert(apps).values({
       id: appId,
@@ -56,7 +72,13 @@ describe('builds queries', () => {
       slug: `app-${appId}`,
       created_at: now,
       updated_at: now,
-    });
+    }).onConflictDoNothing();
+  });
+
+  afterAll(async () => {
+    // Cleanup test data
+    await db.delete(users).where(eq(users.id, userId)).catch(() => {});
+    await sql.end();
   });
 
   it('inserts a build and retrieves it by id', async () => {
@@ -153,12 +175,12 @@ describe('builds queries', () => {
   });
 
   it('listBuildsByApp returns up to limit results ordered by created_at desc', async () => {
-    const localAppId = nanoid();
+    const localAppId = `bt-list-${nanoid(6)}`;
     await db.insert(apps).values({
       id: localAppId,
       project_id: projectId,
       name: 'List Test App',
-      slug: `app-${localAppId}`,
+      slug: `app-list-${localAppId}`,
       created_at: new Date(),
       updated_at: new Date(),
     });
@@ -176,12 +198,12 @@ describe('builds queries', () => {
   });
 
   it('getLastSucceededBuild returns most recent succeeded build', async () => {
-    const localAppId = nanoid();
+    const localAppId = `bt-rollback-${nanoid(6)}`;
     await db.insert(apps).values({
       id: localAppId,
       project_id: projectId,
       name: 'Rollback App',
-      slug: `app-${localAppId}`,
+      slug: `app-rollback-${localAppId}`,
       created_at: new Date(),
       updated_at: new Date(),
     });
@@ -192,6 +214,9 @@ describe('builds queries', () => {
 
     await insertBuild(db, { id: b1, appId: localAppId });
     await updateBuildStatus(db, b1, 'succeeded');
+
+    // Small delay to ensure ordering
+    await new Promise<void>((r) => setTimeout(r, 5));
 
     await insertBuild(db, { id: b2, appId: localAppId });
     await updateBuildStatus(db, b2, 'succeeded');
@@ -210,7 +235,7 @@ describe('builds queries', () => {
   });
 
   it('FK cascade: builds deleted when app deleted', async () => {
-    const localAppId = nanoid();
+    const localAppId = `bt-cascade-${nanoid(6)}`;
     await db.insert(apps).values({
       id: localAppId,
       project_id: projectId,
