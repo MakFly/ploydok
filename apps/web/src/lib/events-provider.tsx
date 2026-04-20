@@ -13,6 +13,7 @@
 //   useEventsSubscription("container.health", (data) => { ... })
 
 import * as React from "react"
+import { useBackendUnavailable } from "./backend-status"
 
 const API_BASE = import.meta.env.VITE_API_URL ?? "http://localhost:3335"
 
@@ -27,6 +28,7 @@ export function EventsProvider({
 }: {
   children: React.ReactNode
 }): React.JSX.Element {
+  const backendUnavailable = useBackendUnavailable()
   const [connected, setConnected] = React.useState(false)
   const listenersRef = React.useRef(new Map<string, Set<Listener>>())
   const attachedRef = React.useRef(new Set<string>())
@@ -34,6 +36,13 @@ export function EventsProvider({
 
   React.useEffect(() => {
     if (typeof window === "undefined") return
+    if (backendUnavailable.active) {
+      esRef.current?.close()
+      esRef.current = null
+      attachedRef.current = new Set<string>()
+      setConnected(false)
+      return
+    }
 
     const es = new EventSource(`${API_BASE}/events`, { withCredentials: true })
     esRef.current = es
@@ -57,7 +66,7 @@ export function EventsProvider({
       attachedRef.current = new Set<string>()
       setConnected(false)
     }
-  }, [])
+  }, [backendUnavailable.active])
 
   const subscribe = React.useCallback<Subscribe>((eventType, cb) => {
     let set = listenersRef.current.get(eventType)

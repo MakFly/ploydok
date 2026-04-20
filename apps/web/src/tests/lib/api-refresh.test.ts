@@ -2,10 +2,13 @@
 import { beforeEach, describe, expect, it } from "bun:test";
 import {
   ApiError,
+  BackendUnavailableError,
   SessionExpiredError,
   apiFetch,
+  criticalRetryDelay,
   invalidateGetCache,
   resetCsrfToken,
+  shouldRetryCriticalQuery,
 } from "../../lib/api";
 
 const BASE = "http://localhost:3335";
@@ -177,7 +180,7 @@ describe("apiFetch — auto-refresh sur 401", () => {
     await expect(apiFetch("/me")).rejects.toBeInstanceOf(SessionExpiredError);
   });
 
-  it("propage une ApiError REFRESH_FAILED quand le réseau échoue sur /auth/refresh", async () => {
+  it("propage une BackendUnavailableError quand le réseau échoue sur /auth/refresh", async () => {
     let firstMeCall = true;
     (global as unknown as { fetch: unknown }).fetch = async (
       input: string | URL | Request,
@@ -205,8 +208,29 @@ describe("apiFetch — auto-refresh sur 401", () => {
     } catch (e) {
       caught = e;
     }
-    expect(caught).toBeInstanceOf(ApiError);
-    expect((caught as ApiError).code).toBe("REFRESH_FAILED");
+    expect(caught).toBeInstanceOf(BackendUnavailableError);
+    expect((caught as ApiError).code).toBe("BACKEND_UNAVAILABLE");
+  });
+
+  it("normalise les erreurs reseau directes en BackendUnavailableError", async () => {
+    (global as unknown as { fetch: unknown }).fetch = async (input: string | URL | Request) => {
+      const url = typeof input === "string" ? input : input.toString();
+      if (url === `${BASE}/apps`) {
+        throw new TypeError("Failed to fetch");
+      }
+      return new Response(JSON.stringify({}), { status: 200 });
+    };
+
+    await expect(apiFetch("/apps")).rejects.toBeInstanceOf(BackendUnavailableError);
+  });
+
+  it("ne fait qu'un seul retry rapide pour BackendUnavailableError", () => {
+    const error = new BackendUnavailableError();
+
+    expect(shouldRetryCriticalQuery(0, error)).toBe(true);
+    expect(shouldRetryCriticalQuery(1, error)).toBe(false);
+    expect(criticalRetryDelay(0, error)).toBe(150);
+    expect(criticalRetryDelay(1, error)).toBe(150);
   });
 
   it("retente une mutation POST après un refresh réussi", async () => {

@@ -1,7 +1,6 @@
 // SPDX-License-Identifier: AGPL-3.0-only
 import * as React from "react"
 import { createFileRoute } from "@tanstack/react-router"
-import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query"
 import { Button } from "@workspace/ui/components/button"
 import {
   Select,
@@ -12,28 +11,18 @@ import {
   SelectValue,
 } from "@workspace/ui/components/select"
 import {
-  AlertDialog,
-  AlertDialogAction,
-  AlertDialogCancel,
-  AlertDialogContent,
-  AlertDialogDescription,
-  AlertDialogFooter,
-  AlertDialogHeader,
-  AlertDialogTitle,
-} from "@workspace/ui/components/alert-dialog"
-import {
   RiExternalLinkLine,
   RiGitBranchLine,
   RiGitCommitLine,
   RiGithubFill,
 } from "@remixicon/react"
 import { toast } from "sonner"
-import { apiFetch } from "../../../../lib/api"
 import { useApp } from "../../../../lib/apps"
 import { useUpdateAppSettings } from "../../../../lib/apps-mutations"
 import { AppMonitoringCard } from "../../../../components/apps/AppMonitoringCard"
 import { LastDeploymentCard } from "../../../../components/apps/LastDeploymentCard"
 import { ActivityFeed } from "../../../../components/apps/ActivityFeed"
+import { RegistryUsageWidget } from "../../../../components/apps/RegistryUsageWidget"
 import type { AppDetail } from "../../../../lib/apps"
 import type { RestartPolicy } from "@ploydok/shared"
 
@@ -314,167 +303,3 @@ function OverviewSkeleton(): React.JSX.Element {
   )
 }
 
-// ---------------------------------------------------------------------------
-// Registry usage widget
-// ---------------------------------------------------------------------------
-
-interface RegistryUsage {
-  tags: number
-  bytes: number
-  diskPct: number
-}
-
-interface GcResult {
-  reposScanned: number
-  tagsDeleted: number
-  bytesFreed: number
-}
-
-function formatBytes(bytes: number): string {
-  if (bytes === 0) return "0 B"
-  const units = ["B", "KB", "MB", "GB", "TB"]
-  const i = Math.min(Math.floor(Math.log2(bytes) / 10), units.length - 1)
-  const value = bytes / Math.pow(1024, i)
-  return `${value.toFixed(i === 0 ? 0 : 1)} ${units[i]}`
-}
-
-function useRegistryUsage(appId: string) {
-  return useQuery<RegistryUsage, Error>({
-    queryKey: ["apps", appId, "registry-usage"],
-    queryFn: () => apiFetch<RegistryUsage>(`/apps/${appId}/registry-usage`),
-    staleTime: 30_000,
-    enabled: Boolean(appId),
-  })
-}
-
-function useRegistryGc(appId: string) {
-  const qc = useQueryClient()
-  return useMutation<GcResult, Error, void>({
-    mutationFn: () =>
-      apiFetch<GcResult>(`/apps/${appId}/registry-gc`, { method: "POST" }),
-    onSuccess: () => {
-      void qc.invalidateQueries({ queryKey: ["apps", appId, "registry-usage"] })
-    },
-    onError: (error) => {
-      toast.error(error.message)
-    },
-  })
-}
-
-function RegistryUsageWidget({ appId }: { appId: string }): React.JSX.Element {
-  const { data, isLoading, error } = useRegistryUsage(appId)
-  const gc = useRegistryGc(appId)
-  const [confirmOpen, setConfirmOpen] = React.useState(false)
-
-  const handlePrune = async (): Promise<void> => {
-    setConfirmOpen(false)
-    try {
-      const result = await gc.mutateAsync()
-      toast.success(
-        `Pruned ${result.tagsDeleted} image(s) across ${result.reposScanned} repo(s).`,
-      )
-    } catch (err) {
-      toast.error(err instanceof Error ? err.message : "GC failed")
-    }
-  }
-
-  const barTone =
-    data && data.diskPct >= 80
-      ? "bg-destructive"
-      : data && data.diskPct >= 60
-        ? "bg-foreground"
-        : "bg-primary"
-
-  return (
-    <div className="flex h-full flex-col gap-3 rounded-lg border border-border bg-card p-4">
-      <h3 className="text-sm font-medium text-foreground">Registry storage</h3>
-
-      {isLoading && (
-        <div className="space-y-2 animate-pulse">
-          <div className="h-5 w-24 rounded bg-muted" />
-          <div className="h-2 w-full rounded bg-muted" />
-        </div>
-      )}
-
-      {error && (
-        <p className="text-xs text-destructive" role="alert">
-          {error.message}
-        </p>
-      )}
-
-      {data && (
-        <>
-          <div className="flex items-baseline gap-3">
-            <span className="text-2xl font-semibold tabular-nums text-foreground">
-              {data.tags}
-            </span>
-            <span className="text-xs text-muted-foreground">
-              image{data.tags !== 1 ? "s" : ""}
-            </span>
-            {data.bytes > 0 && (
-              <span className="ml-auto font-mono text-xs text-muted-foreground">
-                {formatBytes(data.bytes)}
-              </span>
-            )}
-          </div>
-
-          <div className="space-y-1">
-            <div className="flex justify-between text-xs text-muted-foreground">
-              <span>Host disk</span>
-              <span className="tabular-nums">{data.diskPct}%</span>
-            </div>
-            <div
-              className="h-1.5 w-full overflow-hidden rounded-full bg-muted"
-              role="progressbar"
-              aria-valuenow={data.diskPct}
-              aria-valuemin={0}
-              aria-valuemax={100}
-            >
-              <div
-                className={`h-full rounded-full transition-all ${barTone}`}
-                style={{ width: `${Math.min(data.diskPct, 100)}%` }}
-              />
-            </div>
-          </div>
-        </>
-      )}
-
-      <div className="mt-auto pt-2">
-        <Button
-          size="sm"
-          variant="outline"
-          className="w-full"
-          disabled={gc.isPending || isLoading}
-          onClick={() => setConfirmOpen(true)}
-        >
-          {gc.isPending ? "Pruning…" : "Prune now"}
-        </Button>
-      </div>
-
-      <AlertDialog
-        open={confirmOpen}
-        onOpenChange={(o) => {
-          if (!o) setConfirmOpen(false)
-        }}
-      >
-        <AlertDialogContent>
-          <AlertDialogHeader>
-            <AlertDialogTitle>Prune registry images?</AlertDialogTitle>
-            <AlertDialogDescription>
-              This will delete all but the 3 most recent images for this app.
-              Running containers are not affected.
-            </AlertDialogDescription>
-          </AlertDialogHeader>
-          <AlertDialogFooter>
-            <AlertDialogCancel onClick={() => setConfirmOpen(false)}>
-              Cancel
-            </AlertDialogCancel>
-            <AlertDialogAction onClick={() => void handlePrune()}>
-              Prune
-            </AlertDialogAction>
-          </AlertDialogFooter>
-        </AlertDialogContent>
-      </AlertDialog>
-    </div>
-  )
-}

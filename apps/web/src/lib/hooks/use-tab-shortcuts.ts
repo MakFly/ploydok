@@ -28,6 +28,7 @@ export type TabSegment =
   | "overview"
   | "deployments"
   | "logs"
+  | "shell"
   | "settings"
   | "env"
   | "domains"
@@ -36,6 +37,7 @@ export const SHORTCUT_MAP: Partial<Record<string, TabSegment>> = {
   o: "overview",
   d: "deployments",
   l: "logs",
+  x: "shell",
   s: "settings",
   e: "env",
   n: "domains",
@@ -121,6 +123,9 @@ function navigateToTab(
       break
     case "logs":
       void router.navigate({ to: "/apps/$id/logs", params })
+      break
+    case "shell":
+      void router.navigate({ to: "/apps/$id/shell", params })
       break
     case "settings":
       void router.navigate({ to: "/apps/$id/settings", params })

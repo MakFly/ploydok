@@ -43,7 +43,7 @@ function AppEnvTab(): React.JSX.Element {
   }
 
   return (
-    <div className="mx-auto w-full max-w-3xl space-y-2 py-6">
+    <div className="mx-auto w-full max-w-5xl space-y-3 py-6">
       <EnvTable serverVars={serverVars} isSaving={isSaving} onSave={handleSave} />
 
       <p className="px-1 text-[11px] text-muted-foreground">
@@ -60,7 +60,7 @@ function AppEnvTab(): React.JSX.Element {
 function EnvSkeleton(): React.JSX.Element {
   return (
     <div
-      className="mx-auto w-full max-w-3xl space-y-4 py-6"
+      className="mx-auto w-full max-w-5xl space-y-4 py-6"
       aria-busy="true"
       aria-label="Loading environment variables"
     >
@@ -68,11 +68,11 @@ function EnvSkeleton(): React.JSX.Element {
         <div className="h-4 w-44 rounded bg-muted animate-pulse" />
         <div className="h-7 w-16 rounded-md bg-muted animate-pulse" />
       </div>
-      <div className="overflow-hidden rounded-lg border border-border">
-        <div className="grid grid-cols-[1fr_1fr_auto_auto_auto] gap-0 border-b border-border bg-muted/40 px-3 py-2 text-xs font-medium text-muted-foreground">
+      <div className="overflow-hidden rounded-xl border border-border">
+        <div className="grid grid-cols-[minmax(200px,1.1fr)_minmax(260px,2fr)_auto_auto_auto] gap-0 border-b border-border bg-muted/40 px-4 py-2.5 text-[11px] font-medium uppercase tracking-wide text-muted-foreground">
           <span>Key</span>
           <span>Value</span>
-          <span className="px-2">Secret</span>
+          <span className="px-3">Secret</span>
           <span />
           <span />
         </div>
@@ -80,7 +80,7 @@ function EnvSkeleton(): React.JSX.Element {
           {Array.from({ length: 4 }).map((_, i) => (
             <div
               key={i}
-              className="grid grid-cols-[1fr_1fr_auto_auto_auto] items-center gap-0 px-3 py-2.5"
+              className="grid grid-cols-[minmax(200px,1.1fr)_minmax(260px,2fr)_auto_auto_auto] items-center gap-0 px-4 py-3"
             >
               <div className="pr-2">
                 <div className="h-6 w-32 rounded border border-border bg-muted" />

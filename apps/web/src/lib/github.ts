@@ -1,6 +1,6 @@
 // SPDX-License-Identifier: AGPL-3.0-only
 import { useInfiniteQuery, useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
-import { apiFetch } from "./api";
+import { apiFetch, criticalRetryDelay, shouldRetryCriticalQuery } from "./api";
 import type { ApiError } from "./api";
 import type { GitBranch, GitRepo } from "@ploydok/shared";
 import { toast } from "sonner";
@@ -108,10 +108,9 @@ export function useGitHubAppConfig() {
     queryKey: ["github", "app", "config"],
     queryFn: () => apiFetch<GitHubAppConfig>("/github/app/config"),
     staleTime: 60_000,
-    retry: (failureCount, error) => {
-      if (error.status === 401) return false;
-      return failureCount < 2;
-    },
+    retry: shouldRetryCriticalQuery,
+    retryDelay: criticalRetryDelay,
+    meta: { critical: true },
   });
 }
 

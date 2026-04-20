@@ -7,6 +7,7 @@ import {
   RiKey2Line,
   RiRocketLine,
   RiSettings3Line,
+  RiTerminalBoxLine,
   RiTerminalLine,
 } from "@remixicon/react"
 import { DeployButton } from "./DeployButton"
@@ -29,6 +30,7 @@ const NAV_ITEMS: Array<NavItem> = [
   { label: "Overview", to: "/apps/$id/overview", icon: RiDashboardLine },
   { label: "Deployments", to: "/apps/$id/deployments", icon: RiRocketLine },
   { label: "Logs", to: "/apps/$id/logs", icon: RiTerminalLine },
+  { label: "Shell", to: "/apps/$id/shell", icon: RiTerminalBoxLine },
   { label: "Settings", to: "/apps/$id/settings", icon: RiSettings3Line },
   { label: "Env", to: "/apps/$id/env", icon: RiKey2Line },
   { label: "Domains", to: "/apps/$id/domains", icon: RiGlobalLine },

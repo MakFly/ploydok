@@ -24,6 +24,24 @@ export class SessionExpiredError extends ApiError {
   }
 }
 
+export class BackendUnavailableError extends ApiError {
+  constructor(message = `Le frontend ne parvient plus a joindre l'API sur ${API_BASE}.`) {
+    super(503, "BACKEND_UNAVAILABLE", message)
+    this.name = "BackendUnavailableError"
+  }
+}
+
+export function shouldRetryCriticalQuery(failureCount: number, error: ApiError): boolean {
+  if (error.status === 401) return false
+  if (error instanceof BackendUnavailableError) return failureCount < 1
+  return error.status >= 500 && error.status < 600 && failureCount < 2
+}
+
+export function criticalRetryDelay(attemptIndex: number, error: ApiError): number {
+  if (error instanceof BackendUnavailableError) return 150
+  return Math.min(1000 * 2 ** attemptIndex, 30_000)
+}
+
 export type RefreshResult =
   | { ok: true; accessExpiresAt: number | null }
   | { ok: false; reason: "refresh_expired" | "network_error" | "server_error" }
@@ -272,6 +290,11 @@ async function rawRequest(path: string, init: RequestInit): Promise<Response> {
   return res
 }
 
+function toBackendUnavailableError(error: unknown): BackendUnavailableError {
+  if (error instanceof BackendUnavailableError) return error
+  return new BackendUnavailableError()
+}
+
 // ---------------------------------------------------------------------------
 // refreshSession — single-flight, typed result
 // ---------------------------------------------------------------------------
@@ -370,17 +393,23 @@ async function apiFetchCore<T>(
     await invalidateRuntimeGetCache()
   }
 
-  const res = await rawRequest(path, {
-    method,
-    headers,
-    body: body !== undefined ? JSON.stringify(body) : undefined,
-  })
+  let res: Response
+  try {
+    res = await rawRequest(path, {
+      method,
+      headers,
+      body: body !== undefined ? JSON.stringify(body) : undefined,
+    })
+  } catch (error) {
+    throw toBackendUnavailableError(error)
+  }
 
   if (res.status === 401 && !retried && !isPreSessionPath(path)) {
     await invalidateRuntimeGetCache()
     const result = await refreshSession()
     if (result.ok) return apiFetchCore<T>(path, method, body, extraHeaders, true)
     if (result.reason === "refresh_expired") throw new SessionExpiredError()
+    if (result.reason === "network_error") throw new BackendUnavailableError()
     throw new ApiError(503, "REFRESH_FAILED", `Refresh failed: ${result.reason}`)
   }
 
@@ -429,4 +458,18 @@ export async function apiFetch<T = unknown>(
     return promise
   }
   return apiFetchCore<T>(path, method, body, extraHeaders, false)
+}
+
+export async function apiFetchAllowErrorBody<T = unknown>(
+  path: string,
+  init: RequestInit = {},
+): Promise<{ response: Response; data: T | undefined }> {
+  let response: Response
+  try {
+    response = await rawRequest(path, init)
+  } catch (error) {
+    throw toBackendUnavailableError(error)
+  }
+  const data = (await response.json().catch(() => undefined)) as T | undefined
+  return { response, data }
 }

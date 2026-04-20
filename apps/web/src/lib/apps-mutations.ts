@@ -156,14 +156,61 @@ export function useRestartApp(appId: string) {
 // useDeleteApp
 // ---------------------------------------------------------------------------
 
+export interface DeleteAppFlags {
+  /** Wipe registry images + reclaim blobs. Default true. */
+  deleteImages?: boolean
+  /** Stop + force-remove Docker containers. Default true. */
+  dockerCleanup?: boolean
+  /** rm -rf the on-disk build workspace. Default true. */
+  deleteBuildArtifacts?: boolean
+  /** Remove the Caddy upstream/route. Default true. */
+  deleteCaddyRoutes?: boolean
+}
+
 export function useDeleteApp(appId: string) {
   const qc = useQueryClient()
-  return useMutation<void, ApiError, void>({
-    mutationFn: () =>
-      apiFetch<void>(`/apps/${appId}`, { method: "DELETE" }),
+  return useMutation<{ ok: boolean; jobId: string; status: string }, ApiError, DeleteAppFlags | void>({
+    mutationFn: (flags) => {
+      const params = new URLSearchParams()
+      if (flags) {
+        for (const [k, v] of Object.entries(flags)) {
+          if (typeof v === "boolean") params.set(k, String(v))
+        }
+      }
+      const qs = params.toString()
+      return apiFetch<{ ok: boolean; jobId: string; status: string }>(
+        `/apps/${appId}${qs ? `?${qs}` : ""}`,
+        { method: "DELETE" },
+      )
+    },
     onSuccess: () => {
       qc.removeQueries({ queryKey: ["apps", appId] })
       void qc.invalidateQueries({ queryKey: ["apps"] })
+    },
+  })
+}
+
+// ---------------------------------------------------------------------------
+// usePruneRegistry
+// ---------------------------------------------------------------------------
+
+export interface GcResult {
+  reposScanned: number
+  tagsDeleted: number
+  bytesFreed: number
+}
+
+export function usePruneRegistry(appId: string) {
+  const qc = useQueryClient()
+  return useMutation<GcResult, ApiError, void>({
+    mutationFn: () =>
+      apiFetch<GcResult>(`/apps/${appId}/registry-gc`, { method: "POST" }),
+    onSuccess: () => {
+      void qc.invalidateQueries({ queryKey: ["apps", appId, "registry-usage"] })
+      void qc.invalidateQueries({ queryKey: ["apps", appId, "builds"] })
+    },
+    onError: (error) => {
+      toast.error(error.message)
     },
   })
 }
