@@ -8,6 +8,13 @@
       "when": 1776623531293,
       "tag": "0000_burly_maddog",
       "breakpoints": true
+    },
+    {
+      "idx": 1,
+      "version": "7",
+      "when": 1776676840695,
+      "tag": "0001_sprint3bis_foundation",
+      "breakpoints": true
     }
   ]
 }

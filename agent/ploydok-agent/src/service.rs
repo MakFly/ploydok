@@ -177,6 +177,13 @@ impl Agent for AgentService {
                     None
                 }
             }),
+            pids_limit: req.resource_limits.as_ref().and_then(|r| {
+                if r.pids_limit > 0 {
+                    Some(r.pids_limit)
+                } else {
+                    None
+                }
+            }),
             ..Default::default()
         };
 
@@ -199,17 +206,29 @@ impl Agent for AgentService {
                 Some(req.user.clone())
             },
             host_config: Some(host_config),
-            // Network is attached via networking_config
-            networking_config: if req.network.is_empty() {
-                None
-            } else {
+            // Multi-network support: `networks` (repeated) takes precedence over
+            // the legacy single-string `network` field. Empty on both → Docker default.
+            networking_config: {
                 use bollard::container::NetworkingConfig;
                 use bollard::models::EndpointSettings;
-                let mut endpoints = HashMap::new();
-                endpoints.insert(req.network.clone(), EndpointSettings::default());
-                Some(NetworkingConfig {
-                    endpoints_config: endpoints,
-                })
+                let names: Vec<&str> = if !req.networks.is_empty() {
+                    req.networks.iter().map(String::as_str).collect()
+                } else if !req.network.is_empty() {
+                    vec![req.network.as_str()]
+                } else {
+                    vec![]
+                };
+                if names.is_empty() {
+                    None
+                } else {
+                    let mut endpoints = HashMap::new();
+                    for name in names {
+                        endpoints.insert(name.to_string(), EndpointSettings::default());
+                    }
+                    Some(NetworkingConfig {
+                        endpoints_config: endpoints,
+                    })
+                }
             },
             ..Default::default()
         };
@@ -483,12 +502,25 @@ impl Agent for AgentService {
             changes: vec![],
         };
 
+        // Registry auth is optional; only materialise it when either credential field is set.
+        let credentials = req.registry_auth.as_ref().and_then(|a| {
+            if a.username.is_empty() && a.password.is_empty() {
+                None
+            } else {
+                Some(bollard::auth::DockerCredentials {
+                    username: Some(a.username.clone()),
+                    password: Some(a.password.clone()),
+                    ..Default::default()
+                })
+            }
+        });
+
         let docker = self.docker.clone();
         let image = req.image.clone();
 
         let (tx, rx) = mpsc::channel(64);
         tokio::spawn(async move {
-            let mut stream = docker.create_image(Some(options), None, None);
+            let mut stream = docker.create_image(Some(options), None, credentials);
             while let Some(item) = stream.next().await {
                 match item {
                     Ok(info) => {

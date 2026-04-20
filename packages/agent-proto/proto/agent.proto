@@ -27,12 +27,14 @@ message PortMapping {
   string proto = 3;
 }
 
-// CPU / memory limits. Zero values mean "no limit".
+// CPU / memory / pids limits. Zero values mean "no limit".
 message ResourceLimits {
   // Fractional CPUs, e.g. 0.5 = 50 % of one core
   double cpu = 1;
   // Memory limit in bytes
   int64  memory_bytes = 2;
+  // Maximum number of PIDs (processes+threads) the container may spawn
+  int64  pids_limit = 3;
 }
 
 // ─────────────────────────────────────────────────────────────────────────────
@@ -52,7 +54,8 @@ message ContainerCreateRequest {
   // Labels applied to the container.
   map<string, string> labels = 4;
 
-  // Docker network to attach the container to (must be pre-created via NetworkCreate).
+  // DEPRECATED: use `networks` below. Kept for backward compat.
+  // When `networks` is non-empty it takes precedence and this field is ignored.
   string network = 5;
 
   // Volume mounts. host_path must be under /var/lib/ploydok/volumes/.
@@ -72,6 +75,10 @@ message ContainerCreateRequest {
 
   // Run the container process as this user (e.g. "1000:1000").
   string user = 11;
+
+  // Docker networks to attach the container to (each must be pre-created via NetworkCreate).
+  // When non-empty this supersedes the deprecated `network` field above.
+  repeated string networks = 12;
 }
 
 message ContainerCreateResponse {
@@ -158,9 +165,17 @@ message StatsFrame {
 // ImagePull (server-side streaming)
 // ─────────────────────────────────────────────────────────────────────────────
 
+// Registry authentication for private image pulls.
+message RegistryAuth {
+  string username = 1;
+  string password = 2;
+}
+
 message ImagePullRequest {
   // Full image reference including tag (e.g. "nginx:1.25-alpine").
   string image = 1;
+  // Optional registry credentials. Omit for anonymous pulls.
+  RegistryAuth registry_auth = 2;
 }
 
 message PullProgress {

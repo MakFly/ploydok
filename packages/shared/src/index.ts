@@ -6,3 +6,4 @@ export * from './auth';
 export * from './apps';
 export * from './git-providers';
 export * from './monitoring';
+export * from './plans';
