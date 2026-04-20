@@ -1,8 +1,7 @@
 // SPDX-License-Identifier: AGPL-3.0-only
 import * as React from "react"
-import { Link, createFileRoute, notFound } from "@tanstack/react-router"
+import { createFileRoute, notFound } from "@tanstack/react-router"
 import {
-  RiArrowLeftLine,
   RiCheckboxCircleFill,
   RiCircleLine,
   RiGithubFill,
@@ -68,8 +67,6 @@ function ProviderDashboard(): React.JSX.Element {
       <div className="space-y-6">
         <SettingsTabs />
 
-        <BackLink />
-
         <section
           aria-label="Provider header"
           className="flex items-center gap-3 rounded-xl border border-border bg-card p-4"
@@ -90,18 +87,6 @@ function ProviderDashboard(): React.JSX.Element {
         {slug === "gitlab" ? <GitLabPanel /> : null}
       </div>
     </ShellPage>
-  )
-}
-
-function BackLink(): React.JSX.Element {
-  return (
-    <Link
-      to="/settings/git-providers"
-      className="inline-flex items-center gap-1 text-xs text-muted-foreground transition-colors hover:text-foreground"
-    >
-      <RiArrowLeftLine className="size-3.5" />
-      Git providers
-    </Link>
   )
 }
 
