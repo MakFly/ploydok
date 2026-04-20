@@ -23,6 +23,7 @@ import {
   useMonitoringEvents,
   usePingContainer,
 } from "../../lib/monitoring"
+import { QuotaUsageCard } from "../../components/monitoring/QuotaUsageCard"
 import { ResourceCard } from "../../components/monitoring/ResourceCard"
 import { ShellPage } from "../../components/layout/AppShell"
 import type {
@@ -176,6 +177,8 @@ function MonitoringPage(): React.JSX.Element {
       }
     >
       <div className="space-y-5">
+        <QuotaUsageCard />
+
         <OpsStrip
           live={liveStatus}
           ageSec={ageSec}
