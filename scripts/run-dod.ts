@@ -159,6 +159,12 @@ function checkPrereqs(): void {
     )
   }
 
+  // Auth creds required by specs via loginViaApi. Defaults hit the dev seed
+  // (`bun --cwd packages/db run seed`) so `make dod` works without exports.
+  // Override with env vars when targeting a non-seed account.
+  process.env["E2E_TEST_EMAIL"] ??= "dev@ploydok.local"
+  process.env["E2E_TEST_BACKUP_CODE"] ??= "DEVD-EVDE-VDEV"
+
   // API health
   const apiCheck = spawnSync(
     "curl",
