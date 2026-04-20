@@ -8,7 +8,7 @@
  *  - stopRegistryGcCron()     : cancel the scheduled cron (used in tests / shutdown)
  *  - getRegistryUsageForApp() : per-app registry stats (tags, bytes, diskPct)
  */
-import { desc, eq } from "drizzle-orm";
+import { and, desc, eq } from "drizzle-orm";
 import { apps, builds } from "@ploydok/db";
 import {
   deleteDigest,
@@ -267,11 +267,12 @@ async function loadProtectedTags(
     if (tag) tags.add(tag.split(":").at(-1) ?? tag);
   }
 
-  // Latest succeeded build (rollback safety net).
+  // Latest succeeded build (rollback safety net). Filter on status so a
+  // pending/failed build can't shadow the real rollback target.
   const latestSucceeded = await db
     .select({ image_tag: builds.image_tag })
     .from(builds)
-    .where(eq(builds.app_id, appId))
+    .where(and(eq(builds.app_id, appId), eq(builds.status, "succeeded")))
     .orderBy(desc(builds.created_at))
     .limit(1);
   const latestTag = latestSucceeded[0]?.image_tag;
