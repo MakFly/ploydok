@@ -60,7 +60,7 @@ test.describe("DoD #4 — build cache", () => {
     const appName = `fixture-cache-${Date.now()}`
     ;({ id: appId } = await createApp(auth, {
       name: appName,
-      repoFullName: "ploydok/fixture-nextjs",
+      repoFullName: "MakFly/fixture-nextjs",
       branch: "main",
       buildMethod: "docker",
     }))

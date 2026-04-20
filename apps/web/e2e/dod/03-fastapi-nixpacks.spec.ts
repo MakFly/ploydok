@@ -34,7 +34,7 @@ test.describe("DoD #2 — deploy FastAPI via Nixpacks", () => {
     //    Procfile + requirements.txt + runtime.txt to assemble the image.
     const created = await createApp(auth, {
       name: "fixture-fastapi-nixpacks",
-      repoFullName: "ploydok/fixture-fastapi",
+      repoFullName: "MakFly/fixture-fastapi",
       branch: "main",
       buildMethod: "nixpacks",
     })

@@ -66,7 +66,7 @@ test.describe("DoD #7 — logs latency", () => {
     // 1. Create app — build #1 is auto-enqueued on creation.
     ;({ id: appId } = await createApp(auth, {
       name: `fixture-logs-${Date.now()}`,
-      repoFullName: "ploydok/fixture-hello",
+      repoFullName: "MakFly/fixture-hello",
       branch: "main",
       buildMethod: "docker",
     }))

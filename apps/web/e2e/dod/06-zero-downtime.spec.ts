@@ -57,7 +57,7 @@ test.describe("DoD #5 — zero-downtime redeploy", () => {
     // 1. Create app and wait for build #1 to succeed.
     ;({ id: appId, slug } = await createApp(auth, {
       name: `fixture-zdt-${Date.now()}`,
-      repoFullName: "ploydok/fixture-nextjs",
+      repoFullName: "MakFly/fixture-nextjs",
       branch: "main",
       buildMethod: "docker",
     }))

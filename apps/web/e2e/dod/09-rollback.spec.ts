@@ -59,7 +59,7 @@ test.describe("DoD #8 — rollback < 10s", () => {
     // 1. Create app — build #1 is auto-enqueued on creation.
     ;({ id: appId, slug } = await createApp(auth, {
       name: `fixture-rb-${Date.now()}`,
-      repoFullName: "ploydok/fixture-nextjs",
+      repoFullName: "MakFly/fixture-nextjs",
       branch: "main",
       buildMethod: "docker",
     }))

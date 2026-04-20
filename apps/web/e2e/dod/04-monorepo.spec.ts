@@ -33,7 +33,7 @@ test.describe("DoD #3 — deploy monorepo with rootDir + Dockerfile override", (
     //    rootDir restricts the build context; dockerfilePath is relative to rootDir.
     const created = await createApp(auth, {
       name: "fixture-monorepo-server",
-      repoFullName: "ploydok/fixture-monorepo",
+      repoFullName: "MakFly/fixture-monorepo",
       branch: "main",
       rootDir: "apps/server",
       dockerfilePath: "Dockerfile",

@@ -32,7 +32,7 @@ test.describe("DoD #1 — deploy Next.js via Dockerfile", () => {
     // 1. Create app with docker build method.
     const created = await createApp(auth, {
       name: "fixture-nextjs-docker",
-      repoFullName: "ploydok/fixture-nextjs",
+      repoFullName: "MakFly/fixture-nextjs",
       branch: "main",
       buildMethod: "docker",
     })
