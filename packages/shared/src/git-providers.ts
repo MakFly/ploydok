@@ -5,7 +5,9 @@ import { z } from "zod";
 // Git provider kinds
 // ---------------------------------------------------------------------------
 
-export type GitProviderKind = 'github'; // extensible: | 'gitlab' | 'gitea'
+// 'image' is a virtual provider for Docker-image deploys (no clone/build).
+// TODO(bitbucket): add 'bitbucket' once the adapter lands.
+export type GitProviderKind = 'github' | 'gitlab' | 'image';
 
 // ---------------------------------------------------------------------------
 // Schemas
@@ -42,3 +44,18 @@ export interface GitProvider {
   /** Build a clone URL embedding the token (for `git clone`). */
   cloneUrlWithToken(fullName: string, token: string): string;
 }
+
+// ---------------------------------------------------------------------------
+// Webhook parsing — shared contract for provider-agnostic push handler
+// ---------------------------------------------------------------------------
+
+export const ParsedPushEventSchema = z.object({
+  provider: z.enum(['github', 'gitlab']),
+  repoFullName: z.string(),
+  branch: z.string(),
+  commitSha: z.string(),
+  commitMessage: z.string(),
+  /** Provider-specific authentication token reference (installation id for GitHub, user id for GitLab). */
+  authRef: z.string(),
+});
+export type ParsedPushEvent = z.infer<typeof ParsedPushEventSchema>;

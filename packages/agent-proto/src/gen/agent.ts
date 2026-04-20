@@ -40,12 +40,14 @@ export interface PortMapping {
   proto: string;
 }
 
-/** CPU / memory limits. Zero values mean "no limit". */
+/** CPU / memory / pids limits. Zero values mean "no limit". */
 export interface ResourceLimits {
   /** Fractional CPUs, e.g. 0.5 = 50 % of one core */
   cpu: number;
   /** Memory limit in bytes */
   memoryBytes: number;
+  /** Maximum number of PIDs (processes+threads) the container may spawn */
+  pidsLimit: number;
 }
 
 export interface ContainerCreateRequest {
@@ -57,7 +59,10 @@ export interface ContainerCreateRequest {
   env: { [key: string]: string };
   /** Labels applied to the container. */
   labels: { [key: string]: string };
-  /** Docker network to attach the container to (must be pre-created via NetworkCreate). */
+  /**
+   * DEPRECATED: use `networks` below. Kept for backward compat.
+   * When `networks` is non-empty it takes precedence and this field is ignored.
+   */
   network: string;
   /** Volume mounts. host_path must be under /var/lib/ploydok/volumes/. */
   volumes: VolumeMount[];
@@ -73,6 +78,11 @@ export interface ContainerCreateRequest {
   command: string[];
   /** Run the container process as this user (e.g. "1000:1000"). */
   user: string;
+  /**
+   * Docker networks to attach the container to (each must be pre-created via NetworkCreate).
+   * When non-empty this supersedes the deprecated `network` field above.
+   */
+  networks: string[];
 }
 
 export interface ContainerCreateRequest_EnvEntry {
@@ -156,9 +166,17 @@ export interface StatsFrame {
   netTxBytes: number;
 }
 
+/** Registry authentication for private image pulls. */
+export interface RegistryAuth {
+  username: string;
+  password: string;
+}
+
 export interface ImagePullRequest {
   /** Full image reference including tag (e.g. "nginx:1.25-alpine"). */
   image: string;
+  /** Optional registry credentials. Omit for anonymous pulls. */
+  registryAuth: RegistryAuth | undefined;
 }
 
 export interface PullProgress {
@@ -528,7 +546,7 @@ export const PortMapping: MessageFns<PortMapping> = {
 };
 
 function createBaseResourceLimits(): ResourceLimits {
-  return { cpu: 0, memoryBytes: 0 };
+  return { cpu: 0, memoryBytes: 0, pidsLimit: 0 };
 }
 
 export const ResourceLimits: MessageFns<ResourceLimits> = {
@@ -538,6 +556,9 @@ export const ResourceLimits: MessageFns<ResourceLimits> = {
     }
     if (message.memoryBytes !== 0) {
       writer.uint32(16).int64(message.memoryBytes);
+    }
+    if (message.pidsLimit !== 0) {
+      writer.uint32(24).int64(message.pidsLimit);
     }
     return writer;
   },
@@ -565,6 +586,14 @@ export const ResourceLimits: MessageFns<ResourceLimits> = {
           message.memoryBytes = longToNumber(reader.int64());
           continue;
         }
+        case 3: {
+          if (tag !== 24) {
+            break;
+          }
+
+          message.pidsLimit = longToNumber(reader.int64());
+          continue;
+        }
       }
       if ((tag & 7) === 4 || tag === 0) {
         break;
@@ -582,6 +611,11 @@ export const ResourceLimits: MessageFns<ResourceLimits> = {
         : isSet(object.memory_bytes)
         ? globalThis.Number(object.memory_bytes)
         : 0,
+      pidsLimit: isSet(object.pidsLimit)
+        ? globalThis.Number(object.pidsLimit)
+        : isSet(object.pids_limit)
+        ? globalThis.Number(object.pids_limit)
+        : 0,
     };
   },
 
@@ -593,6 +627,9 @@ export const ResourceLimits: MessageFns<ResourceLimits> = {
     if (message.memoryBytes !== 0) {
       obj.memoryBytes = Math.round(message.memoryBytes);
     }
+    if (message.pidsLimit !== 0) {
+      obj.pidsLimit = Math.round(message.pidsLimit);
+    }
     return obj;
   },
 
@@ -603,6 +640,7 @@ export const ResourceLimits: MessageFns<ResourceLimits> = {
     const message = createBaseResourceLimits();
     message.cpu = object.cpu ?? 0;
     message.memoryBytes = object.memoryBytes ?? 0;
+    message.pidsLimit = object.pidsLimit ?? 0;
     return message;
   },
 };
@@ -620,6 +658,7 @@ function createBaseContainerCreateRequest(): ContainerCreateRequest {
     resourceLimits: undefined,
     command: [],
     user: "",
+    networks: [],
   };
 }
 
@@ -657,6 +696,9 @@ export const ContainerCreateRequest: MessageFns<ContainerCreateRequest> = {
     }
     if (message.user !== "") {
       writer.uint32(90).string(message.user);
+    }
+    for (const v of message.networks) {
+      writer.uint32(98).string(v!);
     }
     return writer;
   },
@@ -762,6 +804,14 @@ export const ContainerCreateRequest: MessageFns<ContainerCreateRequest> = {
           message.user = reader.string();
           continue;
         }
+        case 12: {
+          if (tag !== 98) {
+            break;
+          }
+
+          message.networks.push(reader.string());
+          continue;
+        }
       }
       if ((tag & 7) === 4 || tag === 0) {
         break;
@@ -810,6 +860,9 @@ export const ContainerCreateRequest: MessageFns<ContainerCreateRequest> = {
         ? object.command.map((e: any) => globalThis.String(e))
         : [],
       user: isSet(object.user) ? globalThis.String(object.user) : "",
+      networks: globalThis.Array.isArray(object?.networks)
+        ? object.networks.map((e: any) => globalThis.String(e))
+        : [],
     };
   },
 
@@ -860,6 +913,9 @@ export const ContainerCreateRequest: MessageFns<ContainerCreateRequest> = {
     if (message.user !== "") {
       obj.user = message.user;
     }
+    if (message.networks?.length) {
+      obj.networks = message.networks;
+    }
     return obj;
   },
 
@@ -897,6 +953,7 @@ export const ContainerCreateRequest: MessageFns<ContainerCreateRequest> = {
       : undefined;
     message.command = object.command?.map((e) => e) || [];
     message.user = object.user ?? "";
+    message.networks = object.networks?.map((e) => e) || [];
     return message;
   },
 };
@@ -1974,14 +2031,93 @@ export const StatsFrame: MessageFns<StatsFrame> = {
   },
 };
 
+function createBaseRegistryAuth(): RegistryAuth {
+  return { username: "", password: "" };
+}
+
+export const RegistryAuth: MessageFns<RegistryAuth> = {
+  encode(message: RegistryAuth, writer: BinaryWriter = new BinaryWriter()): BinaryWriter {
+    if (message.username !== "") {
+      writer.uint32(10).string(message.username);
+    }
+    if (message.password !== "") {
+      writer.uint32(18).string(message.password);
+    }
+    return writer;
+  },
+
+  decode(input: BinaryReader | Uint8Array, length?: number): RegistryAuth {
+    const reader = input instanceof BinaryReader ? input : new BinaryReader(input);
+    const end = length === undefined ? reader.len : reader.pos + length;
+    const message = createBaseRegistryAuth();
+    while (reader.pos < end) {
+      const tag = reader.uint32();
+      switch (tag >>> 3) {
+        case 1: {
+          if (tag !== 10) {
+            break;
+          }
+
+          message.username = reader.string();
+          continue;
+        }
+        case 2: {
+          if (tag !== 18) {
+            break;
+          }
+
+          message.password = reader.string();
+          continue;
+        }
+      }
+      if ((tag & 7) === 4 || tag === 0) {
+        break;
+      }
+      reader.skip(tag & 7);
+    }
+    return message;
+  },
+
+  fromJSON(object: any): RegistryAuth {
+    return {
+      username: isSet(object.username) ? globalThis.String(object.username) : "",
+      password: isSet(object.password) ? globalThis.String(object.password) : "",
+    };
+  },
+
+  toJSON(message: RegistryAuth): unknown {
+    const obj: any = {};
+    if (message.username !== "") {
+      obj.username = message.username;
+    }
+    if (message.password !== "") {
+      obj.password = message.password;
+    }
+    return obj;
+  },
+
+  create(base?: DeepPartial<RegistryAuth>): RegistryAuth {
+    return RegistryAuth.fromPartial(base ?? {});
+  },
+  fromPartial(object: DeepPartial<RegistryAuth>): RegistryAuth {
+    const message = createBaseRegistryAuth();
+    message.username = object.username ?? "";
+    message.password = object.password ?? "";
+    return message;
+  },
+};
+
 function createBaseImagePullRequest(): ImagePullRequest {
-  return { image: "" };
+  return { image: "", registryAuth: undefined };
 }
 
 export const ImagePullRequest: MessageFns<ImagePullRequest> = {
   encode(message: ImagePullRequest, writer: BinaryWriter = new BinaryWriter()): BinaryWriter {
     if (message.image !== "") {
       writer.uint32(10).string(message.image);
+    }
+    if (message.registryAuth !== undefined) {
+      RegistryAuth.encode(message.registryAuth, writer.uint32(18).fork()).join();
     }
     return writer;
   },
@@ -2001,6 +2137,14 @@ export const ImagePullRequest: MessageFns<ImagePullRequest> = {
           message.image = reader.string();
           continue;
         }
+        case 2: {
+          if (tag !== 18) {
+            break;
+          }
+
+          message.registryAuth = RegistryAuth.decode(reader, reader.uint32());
+          continue;
+        }
       }
       if ((tag & 7) === 4 || tag === 0) {
         break;
@@ -2011,13 +2155,23 @@ export const ImagePullRequest: MessageFns<ImagePullRequest> = {
   },
 
   fromJSON(object: any): ImagePullRequest {
-    return { image: isSet(object.image) ? globalThis.String(object.image) : "" };
+    return {
+      image: isSet(object.image) ? globalThis.String(object.image) : "",
+      registryAuth: isSet(object.registryAuth)
+        ? RegistryAuth.fromJSON(object.registryAuth)
+        : isSet(object.registry_auth)
+        ? RegistryAuth.fromJSON(object.registry_auth)
+        : undefined,
+    };
   },
 
   toJSON(message: ImagePullRequest): unknown {
     const obj: any = {};
     if (message.image !== "") {
       obj.image = message.image;
+    }
+    if (message.registryAuth !== undefined) {
+      obj.registryAuth = RegistryAuth.toJSON(message.registryAuth);
     }
     return obj;
   },
@@ -2028,6 +2182,9 @@ export const ImagePullRequest: MessageFns<ImagePullRequest> = {
   fromPartial(object: DeepPartial<ImagePullRequest>): ImagePullRequest {
     const message = createBaseImagePullRequest();
     message.image = object.image ?? "";
+    message.registryAuth = (object.registryAuth !== undefined && object.registryAuth !== null)
+      ? RegistryAuth.fromPartial(object.registryAuth)
+      : undefined;
     return message;
   },
 };

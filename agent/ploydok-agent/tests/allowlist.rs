@@ -30,6 +30,7 @@ fn valid_create() -> ContainerCreateRequest {
         resource_limits: None,
         command: vec![],
         user: String::new(),
+        networks: vec![],
     }
 }
 
@@ -173,6 +174,7 @@ fn test_resource_cpu_over_limit_is_denied() {
     req.resource_limits = Some(ResourceLimits {
         cpu: 8.0,
         memory_bytes: 0,
+        pids_limit: 0,
     });
 
     let err = v.validate_container_create(&req).unwrap_err();
@@ -239,6 +241,7 @@ fn test_valid_container_create_passes() {
     req.resource_limits = Some(ResourceLimits {
         cpu: 2.0,
         memory_bytes: 512 * 1024 * 1024, // 512 MiB
+        pids_limit: 0,
     });
     assert!(v.validate_container_create(&req).is_ok());
 }
@@ -248,6 +251,7 @@ fn test_valid_image_pull_passes() {
     let v = make_validator();
     let req = ImagePullRequest {
         image: "ghcr.io/myorg/myimage:latest".to_string(),
+        registry_auth: None,
     };
     assert!(v.validate_image_pull(&req).is_ok());
 }
@@ -280,6 +284,7 @@ fn test_image_pull_evil_registry_denied() {
     let v = make_validator();
     let req = ImagePullRequest {
         image: "attacker.io/payload:latest".to_string(),
+        registry_auth: None,
     };
     let err = v.validate_image_pull(&req).unwrap_err();
     assert_eq!(err.code(), Code::PermissionDenied);
@@ -314,8 +319,45 @@ fn test_memory_over_limit_is_denied() {
     req.resource_limits = Some(ResourceLimits {
         cpu: 1.0,
         memory_bytes: 16 * 1024 * 1024 * 1024, // 16 GiB
+        pids_limit: 0,
     });
     let err = v.validate_container_create(&req).unwrap_err();
     assert_eq!(err.code(), Code::InvalidArgument);
     assert!(err.message().contains("resource_memory_limit"));
+}
+
+// ─── Sprint-3bis: multi-network support ──────────────────────────────────────
+
+#[test]
+fn test_multi_networks_ploydok_prefix_ok() {
+    let v = make_validator();
+    let mut req = valid_create();
+    req.network = String::new();
+    req.networks = vec![
+        "ploydok-proj-abc".to_string(),
+        "ploydok-ingress".to_string(),
+    ];
+    assert!(v.validate_container_create(&req).is_ok());
+}
+
+#[test]
+fn test_multi_networks_rejects_host() {
+    let v = make_validator();
+    let mut req = valid_create();
+    req.network = String::new();
+    req.networks = vec!["ploydok-proj-abc".to_string(), "host".to_string()];
+    let err = v.validate_container_create(&req).unwrap_err();
+    assert_eq!(err.code(), Code::PermissionDenied);
+    assert!(err.message().contains("network_host_forbidden"));
+}
+
+#[test]
+fn test_multi_networks_rejects_bad_prefix() {
+    let v = make_validator();
+    let mut req = valid_create();
+    req.network = String::new();
+    req.networks = vec!["evil-net".to_string()];
+    let err = v.validate_container_create(&req).unwrap_err();
+    assert_eq!(err.code(), Code::PermissionDenied);
+    assert!(err.message().contains("network_prefix"));
 }

@@ -252,7 +252,7 @@ async function pullImage(
   channel: string,
 ): Promise<void> {
   return new Promise<void>((resolve, reject) => {
-    const stream = agent.imagePull({ image });
+    const stream = agent.imagePull({ image, registryAuth: undefined });
     let lastStatus = "";
     stream.on("data", (progress: { status?: string }) => {
       const s = progress?.status;
@@ -404,6 +404,7 @@ export async function runBlueGreen(opts: RunBlueGreenOptions): Promise<RunBlueGr
           "ploydok.color": newColor,
         },
         network: "ploydok-public",
+        networks: [],
         volumes: [],
         ports: [],
         restartPolicy: appRow.restart_policy,
@@ -633,6 +634,7 @@ export async function rollbackApp(
           "ploydok.rollback": "1",
         },
         network: "ploydok-public",
+        networks: [],
         volumes: [],
         ports: [],
         restartPolicy: appRow.restart_policy,

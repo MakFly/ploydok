@@ -109,6 +109,7 @@ describe("Agent — containerCreate", () => {
       resourceLimits: undefined,
       command: [],
       user: "",
+      networks: [],
     });
     expect(res.containerId).toBe("abc123");
   });
@@ -128,6 +129,7 @@ describe("Agent — containerCreate", () => {
         resourceLimits: undefined,
         command: [],
         user: "",
+        networks: [],
       });
     } catch (e) {
       caught = e;
@@ -191,6 +193,7 @@ describe("Agent — retry sur UNAVAILABLE", () => {
       resourceLimits: undefined,
       command: [],
       user: "",
+      networks: [],
     });
     expect(res.containerId).toBe("retry-ok");
     expect(callCount).toBe(2);
@@ -235,6 +238,7 @@ describe("Agent — timeout", () => {
           resourceLimits: undefined,
           command: [],
           user: "",
+          networks: [],
         },
         100, // 100ms de timeout
       );

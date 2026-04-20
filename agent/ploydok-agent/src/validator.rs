@@ -291,20 +291,31 @@ impl Validator for StrictValidator {
             }
         }
 
-        // 5. Network: empty or matching ploydok-*; never "host".
+        // 5. Network(s): empty or matching ploydok-*; never "host".
+        // Validate both the legacy single-string `network` field AND the new
+        // repeated `networks` field (sprint-3bis multi-network support).
+        let mut net_candidates: Vec<&str> = Vec::new();
         if !req.network.is_empty() {
-            if req.network == "host" {
+            net_candidates.push(&req.network);
+        }
+        for n in &req.networks {
+            if !n.is_empty() {
+                net_candidates.push(n);
+            }
+        }
+        for n in &net_candidates {
+            if *n == "host" {
                 return Err(deny(
                     tonic::Code::PermissionDenied,
                     "network_host_forbidden",
-                    serde_json::json!({ "network": &req.network }),
+                    serde_json::json!({ "network": n }),
                 ));
             }
-            if !req.network.starts_with("ploydok-") {
+            if !n.starts_with("ploydok-") {
                 return Err(deny(
                     tonic::Code::PermissionDenied,
                     "network_prefix",
-                    serde_json::json!({ "network": &req.network, "expected_prefix": "ploydok-" }),
+                    serde_json::json!({ "network": n, "expected_prefix": "ploydok-" }),
                 ));
             }
         }

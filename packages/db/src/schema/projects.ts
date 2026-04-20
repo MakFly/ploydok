@@ -9,5 +9,7 @@ export const projects = pgTable('projects', {
     .references(() => users.id, { onDelete: 'cascade' }),
   name: text('name').notNull(),
   slug: text('slug').notNull().unique(),
+  // Per-project Docker network (lazily created by ensureProjectNetwork).
+  network_name: text('network_name'),
   created_at: timestamp('created_at', { withTimezone: true, mode: 'date' }).notNull(),
 });
