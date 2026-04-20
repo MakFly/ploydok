@@ -27,7 +27,7 @@ function AppsPage(): React.JSX.Element {
       actions={
         <>
           <Button variant="outline" size="sm" asChild>
-            <Link to="/settings/github">GitHub setup</Link>
+            <Link to="/settings/git-providers">GitHub setup</Link>
           </Button>
           <Button size="sm" onClick={() => setModalOpen(true)}>
             <RiAddLine className="size-4" />
@@ -74,7 +74,7 @@ function AppsPage(): React.JSX.Element {
                     ? "GitHub App is already configured."
                     : "Install the GitHub App to unlock repository selection."
                 }
-                to="/settings/github"
+                to="/settings/git-providers"
               />
               <MiniButton
                 label="Create a new app"
@@ -170,7 +170,7 @@ function EmptyState({
           </Button>
         ) : (
           <Button size="sm" variant="outline" asChild>
-            <Link to="/settings/github">Connect GitHub</Link>
+            <Link to="/settings/git-providers">Connect GitHub</Link>
           </Button>
         )}
       </div>

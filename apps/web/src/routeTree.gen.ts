@@ -20,6 +20,7 @@ import { Route as AuthedDashboardRouteImport } from './routes/_authed/dashboard'
 import { Route as AuthedSettingsIndexRouteImport } from './routes/_authed/settings/index'
 import { Route as AuthedAppsIndexRouteImport } from './routes/_authed/apps/index'
 import { Route as AuthedSettingsSecurityRouteImport } from './routes/_authed/settings/security'
+import { Route as AuthedSettingsRegistryRouteImport } from './routes/_authed/settings/registry'
 import { Route as AuthedAppsIdRouteImport } from './routes/_authed/apps/$id'
 import { Route as AuthedSettingsGitProvidersIndexRouteImport } from './routes/_authed/settings/git-providers/index'
 import { Route as AuthedAppsIdIndexRouteImport } from './routes/_authed/apps/$id/index'
@@ -86,6 +87,11 @@ const AuthedAppsIndexRoute = AuthedAppsIndexRouteImport.update({
 const AuthedSettingsSecurityRoute = AuthedSettingsSecurityRouteImport.update({
   id: '/settings/security',
   path: '/settings/security',
+  getParentRoute: () => AuthedRoute,
+} as any)
+const AuthedSettingsRegistryRoute = AuthedSettingsRegistryRouteImport.update({
+  id: '/settings/registry',
+  path: '/settings/registry',
   getParentRoute: () => AuthedRoute,
 } as any)
 const AuthedAppsIdRoute = AuthedAppsIdRouteImport.update({
@@ -172,6 +178,7 @@ export interface FileRoutesByFullPath {
   '/login': typeof PublicLoginRoute
   '/register': typeof PublicRegisterRoute
   '/apps/$id': typeof AuthedAppsIdRouteWithChildren
+  '/settings/registry': typeof AuthedSettingsRegistryRoute
   '/settings/security': typeof AuthedSettingsSecurityRouteWithChildren
   '/apps/': typeof AuthedAppsIndexRoute
   '/settings/': typeof AuthedSettingsIndexRoute
@@ -196,6 +203,7 @@ export interface FileRoutesByTo {
   '/monitoring': typeof AuthedMonitoringRoute
   '/login': typeof PublicLoginRoute
   '/register': typeof PublicRegisterRoute
+  '/settings/registry': typeof AuthedSettingsRegistryRoute
   '/settings/security': typeof AuthedSettingsSecurityRouteWithChildren
   '/apps': typeof AuthedAppsIndexRoute
   '/settings': typeof AuthedSettingsIndexRoute
@@ -224,6 +232,7 @@ export interface FileRoutesById {
   '/_public/register': typeof PublicRegisterRoute
   '/_public/': typeof PublicIndexRoute
   '/_authed/apps/$id': typeof AuthedAppsIdRouteWithChildren
+  '/_authed/settings/registry': typeof AuthedSettingsRegistryRoute
   '/_authed/settings/security': typeof AuthedSettingsSecurityRouteWithChildren
   '/_authed/apps/': typeof AuthedAppsIndexRoute
   '/_authed/settings/': typeof AuthedSettingsIndexRoute
@@ -251,6 +260,7 @@ export interface FileRouteTypes {
     | '/login'
     | '/register'
     | '/apps/$id'
+    | '/settings/registry'
     | '/settings/security'
     | '/apps/'
     | '/settings/'
@@ -275,6 +285,7 @@ export interface FileRouteTypes {
     | '/monitoring'
     | '/login'
     | '/register'
+    | '/settings/registry'
     | '/settings/security'
     | '/apps'
     | '/settings'
@@ -302,6 +313,7 @@ export interface FileRouteTypes {
     | '/_public/register'
     | '/_public/'
     | '/_authed/apps/$id'
+    | '/_authed/settings/registry'
     | '/_authed/settings/security'
     | '/_authed/apps/'
     | '/_authed/settings/'
@@ -402,6 +414,13 @@ declare module '@tanstack/react-router' {
       path: '/settings/security'
       fullPath: '/settings/security'
       preLoaderRoute: typeof AuthedSettingsSecurityRouteImport
+      parentRoute: typeof AuthedRoute
+    }
+    '/_authed/settings/registry': {
+      id: '/_authed/settings/registry'
+      path: '/settings/registry'
+      fullPath: '/settings/registry'
+      preLoaderRoute: typeof AuthedSettingsRegistryRouteImport
       parentRoute: typeof AuthedRoute
     }
     '/_authed/apps/$id': {
@@ -554,6 +573,7 @@ interface AuthedRouteChildren {
   AuthedGuideRoute: typeof AuthedGuideRoute
   AuthedMonitoringRoute: typeof AuthedMonitoringRoute
   AuthedAppsIdRoute: typeof AuthedAppsIdRouteWithChildren
+  AuthedSettingsRegistryRoute: typeof AuthedSettingsRegistryRoute
   AuthedSettingsSecurityRoute: typeof AuthedSettingsSecurityRouteWithChildren
   AuthedAppsIndexRoute: typeof AuthedAppsIndexRoute
   AuthedSettingsIndexRoute: typeof AuthedSettingsIndexRoute
@@ -566,6 +586,7 @@ const AuthedRouteChildren: AuthedRouteChildren = {
   AuthedGuideRoute: AuthedGuideRoute,
   AuthedMonitoringRoute: AuthedMonitoringRoute,
   AuthedAppsIdRoute: AuthedAppsIdRouteWithChildren,
+  AuthedSettingsRegistryRoute: AuthedSettingsRegistryRoute,
   AuthedSettingsSecurityRoute: AuthedSettingsSecurityRouteWithChildren,
   AuthedAppsIndexRoute: AuthedAppsIndexRoute,
   AuthedSettingsIndexRoute: AuthedSettingsIndexRoute,

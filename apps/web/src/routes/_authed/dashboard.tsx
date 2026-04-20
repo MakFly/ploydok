@@ -53,7 +53,7 @@ function DashboardPage(): React.JSX.Element {
       actions={
         <>
           <Button variant="outline" size="sm" asChild>
-            <Link to="/settings/github">
+            <Link to="/settings/git-providers">
               <RiGithubFill className="size-4" />
               GitHub setup
             </Link>
@@ -278,7 +278,7 @@ function EmptyApps({
           </Button>
         ) : (
           <Button size="sm" variant="outline" asChild>
-            <Link to="/settings/github">
+            <Link to="/settings/git-providers">
               <RiGithubFill className="size-4" />
               Connect GitHub
             </Link>

@@ -2,6 +2,7 @@
 import * as React from "react"
 import { Link, useRouterState } from "@tanstack/react-router"
 import {
+  RiShip2Line,
   RiGitMergeLine,
   RiShieldCheckLine,
   RiUserLine,
@@ -33,6 +34,12 @@ const TABS: ReadonlyArray<SettingsTab> = [
     label: "Git providers",
     icon: RiGitMergeLine,
     matches: (p) => p.startsWith("/settings/git-providers"),
+  },
+  {
+    to: "/settings/registry",
+    label: "Registry",
+    icon: RiShip2Line,
+    matches: (p) => p.startsWith("/settings/registry"),
   },
 ]
 
