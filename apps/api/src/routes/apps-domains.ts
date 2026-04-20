@@ -16,6 +16,7 @@ import {
 import { CaddyClient } from "../caddy/client"
 import { childLogger } from "../logger"
 import type { AuthUser } from "../auth/middleware"
+import { requireSecondFactor } from "../auth/middleware"
 
 // ---------------------------------------------------------------------------
 // Constants
@@ -161,6 +162,8 @@ async function tryCaddyCheckTls(domainId: string): Promise<"pending" | "issued" 
 export function createAppsDomainsRouter(db: Db): Hono {
   const router = new Hono()
 
+  const sf = requireSecondFactor(db)
+
   // -------------------------------------------------------------------------
   // GET /:id/domains — List custom domains for an app
   // -------------------------------------------------------------------------
@@ -183,9 +186,9 @@ export function createAppsDomainsRouter(db: Db): Hono {
   // POST /:id/domains — Add a custom domain
   // -------------------------------------------------------------------------
 
-  router.post("/:id/domains", async (c) => {
+  router.post("/:id/domains", sf, async (c) => {
     const user = getUser(c)
-    const appId = c.req.param("id")
+    const appId = c.req.param("id")!
 
     const app = await getAppForUser(db, appId, user.id)
     if (!app) {
@@ -222,10 +225,10 @@ export function createAppsDomainsRouter(db: Db): Hono {
   // DELETE /:id/domains/:domainId — Remove a custom domain
   // -------------------------------------------------------------------------
 
-  router.delete("/:id/domains/:domainId", async (c) => {
+  router.delete("/:id/domains/:domainId", sf, async (c) => {
     const user = getUser(c)
-    const appId = c.req.param("id")
-    const domainId = c.req.param("domainId")
+    const appId = c.req.param("id")!
+    const domainId = c.req.param("domainId")!
 
     const app = await getAppForUser(db, appId, user.id)
     if (!app) {

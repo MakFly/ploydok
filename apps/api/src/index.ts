@@ -6,7 +6,8 @@ import { getSharedCaddy, getSharedAgent } from "./debug/singletons.js";
 import { AgentError, GrpcStatus } from "./agent/index.js";
 import { childLogger } from "./logger";
 import { startWorker } from "./worker";
-import { createDb } from "@ploydok/db";
+import { createDb, type Db } from "@ploydok/db";
+import { fetchRunningAppsForCaddy, reconcileCaddyRoutes } from "./caddy/reconciler.js";
 
 const log = childLogger("boot");
 
@@ -14,15 +15,16 @@ export function createApp() {
   return app;
 }
 
-async function bootInfra(): Promise<void> {
+async function bootInfra(db: Db): Promise<void> {
   const caddy = getSharedCaddy();
   const agent = getSharedAgent();
 
   try {
-    await caddy.ensureBootstrap();
-    log.info("Caddy bootstrap OK");
+    const apps = await fetchRunningAppsForCaddy(db);
+    const result = await reconcileCaddyRoutes({ caddy, logger: log, apps });
+    log.info(result, "caddy reconcile complete");
   } catch (err) {
-    log.warn({ err }, "Caddy bootstrap failed (non-fatal)");
+    log.warn({ err }, "caddy reconcile failed (non-fatal)");
   }
 
   try {
@@ -61,15 +63,11 @@ if (import.meta.main) {
   process.on("SIGTERM", shutdown)
   process.on("SIGINT", shutdown)
 
-  // En dev : bootInfra skippé par défaut (évite warn Caddy/agent absents).
-  // Activer explicitement via PLOYDOK_BOOT_INFRA=1 (ou via NODE_ENV=prod/test).
-  const shouldBoot =
-    env.NODE_ENV !== "dev" || Bun.env["PLOYDOK_BOOT_INFRA"] === "1";
-  if (shouldBoot) {
-    bootInfra().catch((err) => {
+  // bootInfra est toujours exécuté (sauf en test) : le reconciler et
+  // networkCreate sont idempotents et gèrent Caddy/agent absents en warn.
+  if (env.NODE_ENV !== "test") {
+    bootInfra(workerDb).catch((err) => {
       log.error({ err }, "erreur inattendue au boot");
     });
-  } else {
-    log.debug("bootInfra skippé en dev (set PLOYDOK_BOOT_INFRA=1 pour l'activer)");
   }
 }

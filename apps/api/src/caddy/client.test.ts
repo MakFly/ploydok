@@ -205,28 +205,48 @@ describe("CaddyClient", () => {
   // ensureBootstrap
   // -------------------------------------------------------------------------
 
-  test("ensureBootstrap PATCH /config/apps when config is empty", async () => {
+  test("ensureBootstrap PUT /config/apps when config is empty", async () => {
     const calls: MockRequest[] = [];
 
     handler = (req) => {
       calls.push(req);
       if (req.method === "GET") return { status: 200, body: null };
-      if (req.method === "PATCH") return { status: 200, body: null };
+      if (req.method === "PUT") return { status: 200, body: null };
       return { status: 405, body: null };
     };
 
     await client.ensureBootstrap();
 
-    // GET /config/ + PATCH /config/apps
     expect(calls).toHaveLength(2);
     expect(calls[0]?.method).toBe("GET");
-    expect(calls[1]?.method).toBe("PATCH");
+    expect(calls[1]?.method).toBe("PUT");
     expect(calls[1]?.path).toBe("/config/apps");
 
     const posted = calls[1]?.body as Record<string, unknown>;
     const http = posted["http"] as Record<string, unknown>;
     const servers = http["servers"] as Record<string, unknown>;
     expect(servers["srv0"]).toBeDefined();
+  });
+
+  test("ensureBootstrap PUT /config/apps/http/servers/srv0 when only srv0 missing", async () => {
+    const calls: MockRequest[] = [];
+    const existingConfig: CaddyConfig = {
+      apps: { http: { servers: { srv1: { listen: [":443"], routes: [] } } } },
+    };
+
+    handler = (req) => {
+      calls.push(req);
+      if (req.method === "GET") return { status: 200, body: existingConfig };
+      if (req.method === "PUT") return { status: 200, body: null };
+      return { status: 405, body: null };
+    };
+
+    await client.ensureBootstrap();
+
+    const put = calls.find((c) => c.method === "PUT");
+    expect(put?.path).toBe("/config/apps/http/servers/srv0");
+    const body = put?.body as Record<string, unknown>;
+    expect(body["listen"]).toEqual([":80"]);
   });
 
   test("ensureBootstrap is a no-op when srv0 already exists", async () => {
@@ -248,7 +268,7 @@ describe("CaddyClient", () => {
     expect(calls[0]?.method).toBe("GET");
   });
 
-  test("ensureBootstrap throws when PATCH and POST both fail", async () => {
+  test("ensureBootstrap throws when PUT fails", async () => {
     let callCount = 0;
 
     handler = (req) => {
@@ -258,9 +278,8 @@ describe("CaddyClient", () => {
     };
 
     await expect(client.ensureBootstrap()).rejects.toThrow(
-      "CaddyClient.ensureBootstrap failed:",
+      "CaddyClient.ensureBootstrap failed creating apps: 503",
     );
-    // GET + PATCH + POST fallback = 3 calls
-    expect(callCount).toBe(3);
+    expect(callCount).toBe(2);
   });
 });

@@ -75,11 +75,12 @@ mock.module("../queries/app-owner", () => ({
   },
 }))
 
-// createDb is called in handlers — return a dummy object (queries are mocked above).
-mock.module("@ploydok/db", () => ({
-  createDb: () => ({}),
-  // Re-export schema symbols used by other imports in monitoring.ts (none directly).
-}))
+// NOTE: we intentionally do NOT mock "@ploydok/db" here. `mock.module` in bun
+// test is process-wide and leaks into any test that runs after this file,
+// breaking tests that call `createDb(":memory:")` (the global test runner
+// loads files alphabetically, so monitoring.test.ts runs before apps.test.ts).
+// Since `resolveAppOwner` is already mocked above, the real `createDb` is
+// called but never actually queried — the returned client is harmless.
 
 // ---------------------------------------------------------------------------
 // Test app builder — injects fake auth middleware

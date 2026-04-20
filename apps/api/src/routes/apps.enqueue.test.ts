@@ -2,8 +2,9 @@
 import { describe, it, expect, beforeEach } from "bun:test"
 import { Hono } from "hono"
 import { nanoid } from "nanoid"
-import { createDb } from "@ploydok/db"
 import { users, projects, apps, jobs } from "@ploydok/db"
+import type { Db } from "@ploydok/db"
+import { makeTestDb as makePgTestDb, TEST_PG_URL } from "../test/db-helpers"
 import { createAppsRouter } from "./apps"
 import type { AuthUser } from "../auth/middleware"
 
@@ -11,110 +12,15 @@ import type { AuthUser } from "../auth/middleware"
 // Test DB helper — mirrors makeTestDb from apps.test.ts, with job_runs added
 // ---------------------------------------------------------------------------
 
-function makeTestDb() {
-  const db = createDb(":memory:")
+const skip = !TEST_PG_URL
+if (skip) console.log("[apps.enqueue.test] PLOYDOK_TEST_PG_URL not set — skipping")
 
-  db.run(`
-    CREATE TABLE IF NOT EXISTS users (
-      id TEXT PRIMARY KEY,
-      email TEXT NOT NULL UNIQUE,
-      display_name TEXT NOT NULL,
-      created_at INTEGER NOT NULL,
-      updated_at INTEGER NOT NULL,
-      recovery_token_hash TEXT,
-      recovery_expires_at INTEGER
-    )
-  `)
-
-  db.run(`
-    CREATE TABLE IF NOT EXISTS projects (
-      id TEXT PRIMARY KEY,
-      owner_id TEXT NOT NULL REFERENCES users(id) ON DELETE CASCADE,
-      name TEXT NOT NULL,
-      slug TEXT NOT NULL UNIQUE,
-      created_at INTEGER NOT NULL
-    )
-  `)
-
-  db.run(`
-    CREATE TABLE IF NOT EXISTS apps (
-      id TEXT PRIMARY KEY,
-      project_id TEXT NOT NULL REFERENCES projects(id) ON DELETE CASCADE,
-      name TEXT NOT NULL,
-      slug TEXT NOT NULL,
-      status TEXT NOT NULL DEFAULT 'created',
-      created_at INTEGER NOT NULL,
-      updated_at INTEGER NOT NULL,
-      git_provider TEXT,
-      repo_full_name TEXT,
-      branch TEXT,
-      github_installation_id TEXT,
-      root_dir TEXT,
-      dockerfile_path TEXT,
-      install_command TEXT,
-      build_command TEXT,
-      start_command TEXT,
-      watch_paths TEXT,
-      container_id TEXT,
-      restart_policy TEXT NOT NULL DEFAULT 'unless-stopped',
-      domain TEXT,
-      build_method TEXT DEFAULT 'auto',
-      healthcheck_path TEXT DEFAULT '/',
-      healthcheck_port INTEGER,
-      healthcheck_interval_s INTEGER DEFAULT 5,
-      healthcheck_timeout_s INTEGER DEFAULT 3,
-      healthcheck_retries INTEGER DEFAULT 6,
-      healthcheck_start_period_s INTEGER DEFAULT 0
-    )
-  `)
-
-  db.run(`
-    CREATE TABLE IF NOT EXISTS builds (
-      id TEXT PRIMARY KEY,
-      app_id TEXT NOT NULL REFERENCES apps(id) ON DELETE CASCADE,
-      status TEXT NOT NULL DEFAULT 'pending',
-      build_method TEXT,
-      image_tag TEXT,
-      container_id TEXT,
-      commit_sha TEXT,
-      log_path TEXT,
-      error_message TEXT,
-      started_at INTEGER,
-      finished_at INTEGER,
-      created_at INTEGER NOT NULL DEFAULT (unixepoch() * 1000)
-    )
-  `)
-
-  db.run(`
-    CREATE TABLE IF NOT EXISTS jobs (
-      id TEXT PRIMARY KEY,
-      type TEXT NOT NULL,
-      payload TEXT NOT NULL DEFAULT '{}',
-      status TEXT NOT NULL DEFAULT 'pending',
-      attempts INTEGER NOT NULL DEFAULT 0,
-      max_attempts INTEGER NOT NULL DEFAULT 3,
-      run_at INTEGER,
-      error_message TEXT,
-      created_at INTEGER NOT NULL DEFAULT (unixepoch() * 1000),
-      updated_at INTEGER NOT NULL DEFAULT (unixepoch() * 1000)
-    )
-  `)
-
-  db.run(`
-    CREATE TABLE IF NOT EXISTS job_runs (
-      id TEXT PRIMARY KEY,
-      job_id TEXT NOT NULL REFERENCES jobs(id) ON DELETE CASCADE,
-      attempt INTEGER NOT NULL,
-      started_at INTEGER,
-      finished_at INTEGER,
-      error TEXT
-    )
-  `)
-
+async function makeTestDb() {
+  const { db } = await makePgTestDb()
   return db
 }
 
-type TestDb = ReturnType<typeof makeTestDb>
+type TestDb = Db
 
 // ---------------------------------------------------------------------------
 // Fixture helpers
@@ -171,13 +77,13 @@ function buildTestApp(db: TestDb, authedUser: AuthUser): Hono {
 // Test 1: POST /apps enqueues a deploy.requested job
 // ---------------------------------------------------------------------------
 
-describe("POST /apps — enqueue job", () => {
+describe.skipIf(skip)("POST /apps — enqueue job", () => {
   let db: TestDb
   let userId: string
   let projectId: string
 
   beforeEach(async () => {
-    db = makeTestDb()
+    db = await makeTestDb()
     const user = await createTestUser(db)
     userId = user.id
     const project = await createTestProject(db, userId)
@@ -221,13 +127,13 @@ describe("POST /apps — enqueue job", () => {
 // Test 2: POST /apps/:id/deploy enqueues a second job
 // ---------------------------------------------------------------------------
 
-describe("POST /apps/:id/deploy — enqueue job", () => {
+describe.skipIf(skip)("POST /apps/:id/deploy — enqueue job", () => {
   let db: TestDb
   let userId: string
   let projectId: string
 
   beforeEach(async () => {
-    db = makeTestDb()
+    db = await makeTestDb()
     const user = await createTestUser(db)
     userId = user.id
     const project = await createTestProject(db, userId)
@@ -280,12 +186,12 @@ describe("POST /apps/:id/deploy — enqueue job", () => {
 // Test 3: POST /apps/:id/deploy returns 404 for unknown app
 // ---------------------------------------------------------------------------
 
-describe("POST /apps/:id/deploy — unknown app", () => {
+describe.skipIf(skip)("POST /apps/:id/deploy — unknown app", () => {
   let db: TestDb
   let userId: string
 
   beforeEach(async () => {
-    db = makeTestDb()
+    db = await makeTestDb()
     const user = await createTestUser(db)
     userId = user.id
   })
@@ -311,14 +217,14 @@ describe("POST /apps/:id/deploy — unknown app", () => {
 // Test 4: POST /apps/:id/deploy returns 404 for another user's app
 // ---------------------------------------------------------------------------
 
-describe("POST /apps/:id/deploy — wrong user", () => {
+describe.skipIf(skip)("POST /apps/:id/deploy — wrong user", () => {
   let db: TestDb
   let userA: { id: string; email: string }
   let userB: { id: string; email: string }
   let appId: string
 
   beforeEach(async () => {
-    db = makeTestDb()
+    db = await makeTestDb()
     userA = await createTestUser(db, { email: "a@test.com" })
     userB = await createTestUser(db, { email: "b@test.com" })
 

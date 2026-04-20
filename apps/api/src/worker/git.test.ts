@@ -67,7 +67,9 @@ describe("cloneRepo", () => {
       depth: 1,
     });
 
-    expect(spawnMock).toHaveBeenCalledTimes(1);
+    // cloneRepo spawns twice: once for `git clone`, once for `git rev-parse HEAD`
+    // (to resolve the head sha). We assert on the first invocation only.
+    expect(spawnMock.mock.calls.length).toBeGreaterThanOrEqual(1);
     const [cmd] = spawnMock.mock.calls[0]!;
     expect(cmd[0]).toBe("git");
     expect(cmd).toContain("clone");

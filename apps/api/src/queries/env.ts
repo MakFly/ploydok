@@ -62,8 +62,7 @@ export async function upsertEnvVars(
       app_id: appId,
       key: v.key,
       value: v.value,
-      // Coerce boolean to integer for SQLite.
-      secret: v.secret ? 1 : 0,
+      secret: v.secret,
       created_at: now,
       updated_at: now,
     }))

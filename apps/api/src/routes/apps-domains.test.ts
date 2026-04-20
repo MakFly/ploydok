@@ -2,90 +2,21 @@
 import { describe, it, expect, beforeEach } from "bun:test"
 import { Hono } from "hono"
 import { nanoid } from "nanoid"
-import { createDb } from "@ploydok/db"
-import { users, projects, apps } from "@ploydok/db"
+import { users, projects, apps, passkeys } from "@ploydok/db"
+import type { Db } from "@ploydok/db"
 import { createAppsDomainsRouter } from "./apps-domains"
 import type { AuthUser } from "../auth/middleware"
+import { makeTestDb as makePgTestDb, TEST_PG_URL } from "../test/db-helpers"
 
-// ---------------------------------------------------------------------------
-// In-memory test DB
-// ---------------------------------------------------------------------------
+const skip = !TEST_PG_URL
+if (skip) console.log("[apps-domains.test] PLOYDOK_TEST_PG_URL not set — skipping")
 
-function makeTestDb() {
-  const db = createDb(":memory:")
-
-  db.run(`
-    CREATE TABLE IF NOT EXISTS users (
-      id TEXT PRIMARY KEY,
-      email TEXT NOT NULL UNIQUE,
-      display_name TEXT NOT NULL,
-      created_at INTEGER NOT NULL,
-      updated_at INTEGER NOT NULL,
-      recovery_token_hash TEXT,
-      recovery_expires_at INTEGER
-    )
-  `)
-
-  db.run(`
-    CREATE TABLE IF NOT EXISTS projects (
-      id TEXT PRIMARY KEY,
-      owner_id TEXT NOT NULL REFERENCES users(id) ON DELETE CASCADE,
-      name TEXT NOT NULL,
-      slug TEXT NOT NULL UNIQUE,
-      created_at INTEGER NOT NULL
-    )
-  `)
-
-  db.run(`
-    CREATE TABLE IF NOT EXISTS apps (
-      id TEXT PRIMARY KEY,
-      project_id TEXT NOT NULL REFERENCES projects(id) ON DELETE CASCADE,
-      name TEXT NOT NULL,
-      slug TEXT NOT NULL,
-      status TEXT NOT NULL DEFAULT 'created',
-      created_at INTEGER NOT NULL,
-      updated_at INTEGER NOT NULL,
-      git_provider TEXT,
-      repo_full_name TEXT,
-      branch TEXT,
-      github_installation_id TEXT,
-      root_dir TEXT,
-      dockerfile_path TEXT,
-      install_command TEXT,
-      build_command TEXT,
-      start_command TEXT,
-      watch_paths TEXT,
-      container_id TEXT,
-      restart_policy TEXT NOT NULL DEFAULT 'unless-stopped',
-      domain TEXT,
-      build_method TEXT DEFAULT 'auto',
-      healthcheck_path TEXT DEFAULT '/',
-      healthcheck_port INTEGER,
-      healthcheck_interval_s INTEGER DEFAULT 5,
-      healthcheck_timeout_s INTEGER DEFAULT 3,
-      healthcheck_retries INTEGER DEFAULT 6,
-      healthcheck_start_period_s INTEGER DEFAULT 0
-    )
-  `)
-
-  db.run(`
-    CREATE TABLE IF NOT EXISTS domains (
-      id TEXT PRIMARY KEY,
-      app_id TEXT NOT NULL REFERENCES apps(id) ON DELETE CASCADE,
-      hostname TEXT NOT NULL UNIQUE,
-      tls_status TEXT NOT NULL DEFAULT 'pending',
-      created_at INTEGER NOT NULL,
-      updated_at INTEGER NOT NULL
-    )
-  `)
-
-  db.run(`CREATE UNIQUE INDEX IF NOT EXISTS domains_hostname_unique ON domains (hostname)`)
-  db.run(`CREATE INDEX IF NOT EXISTS domains_app_id_idx ON domains (app_id)`)
-
+async function makeTestDb() {
+  const { db } = await makePgTestDb()
   return db
 }
 
-type TestDb = ReturnType<typeof makeTestDb>
+type TestDb = Db
 
 // ---------------------------------------------------------------------------
 // Fixtures
@@ -184,17 +115,45 @@ function fakeUser(id: string): AuthUser {
   return { id, email: `${id}@test.com`, display_name: "Test User", session_id: "sess-test" }
 }
 
+async function grantSecondFactor(db: TestDb, userId: string): Promise<void> {
+  const now = new Date()
+  await db.insert(passkeys).values([
+    {
+      id: nanoid(),
+      user_id: userId,
+      credential_id: `cred-sf-a-${userId}`,
+      public_key: Buffer.from("pk1"),
+      counter: 0,
+      transports: "[]",
+      device_name: "Device A",
+      created_at: now,
+      last_used_at: now,
+    },
+    {
+      id: nanoid(),
+      user_id: userId,
+      credential_id: `cred-sf-b-${userId}`,
+      public_key: Buffer.from("pk2"),
+      counter: 0,
+      transports: "[]",
+      device_name: "Device B",
+      created_at: now,
+      last_used_at: now,
+    },
+  ])
+}
+
 // ---------------------------------------------------------------------------
 // GET /apps/:id/domains
 // ---------------------------------------------------------------------------
 
-describe("GET /apps/:id/domains", () => {
+describe.skipIf(skip)("GET /apps/:id/domains", () => {
   let db: TestDb
   let userId: string
   let appId: string
 
   beforeEach(async () => {
-    db = makeTestDb()
+    db = await makeTestDb()
     const user = await createTestUser(db)
     userId = user.id
     const project = await createTestProject(db, userId)
@@ -239,15 +198,16 @@ describe("GET /apps/:id/domains", () => {
 // POST /apps/:id/domains
 // ---------------------------------------------------------------------------
 
-describe("POST /apps/:id/domains", () => {
+describe.skipIf(skip)("POST /apps/:id/domains", () => {
   let db: TestDb
   let userId: string
   let appId: string
 
   beforeEach(async () => {
-    db = makeTestDb()
+    db = await makeTestDb()
     const user = await createTestUser(db)
     userId = user.id
+    await grantSecondFactor(db, userId)
     const project = await createTestProject(db, userId)
     const app = await createTestApp(db, { userId, projectId: project.id })
     appId = app.id
@@ -345,6 +305,8 @@ describe("POST /apps/:id/domains", () => {
 
   it("returns 404 when app belongs to another user", async () => {
     const other = await createTestUser(db)
+    // Grant second factor so sf check passes — ownership check should produce 404.
+    await grantSecondFactor(db, other.id)
     const honoApp = buildTestApp(db, fakeUser(other.id))
     const res = await honoApp.request(`/apps/${appId}/domains`, {
       method: "POST",
@@ -359,15 +321,16 @@ describe("POST /apps/:id/domains", () => {
 // DELETE /apps/:id/domains/:domainId
 // ---------------------------------------------------------------------------
 
-describe("DELETE /apps/:id/domains/:domainId", () => {
+describe.skipIf(skip)("DELETE /apps/:id/domains/:domainId", () => {
   let db: TestDb
   let userId: string
   let appId: string
 
   beforeEach(async () => {
-    db = makeTestDb()
+    db = await makeTestDb()
     const user = await createTestUser(db)
     userId = user.id
+    await grantSecondFactor(db, userId)
     const project = await createTestProject(db, userId)
     const app = await createTestApp(db, { userId, projectId: project.id })
     appId = app.id
@@ -423,15 +386,16 @@ describe("DELETE /apps/:id/domains/:domainId", () => {
 // POST /apps/:id/domains/:domainId/recheck
 // ---------------------------------------------------------------------------
 
-describe("POST /apps/:id/domains/:domainId/recheck", () => {
+describe.skipIf(skip)("POST /apps/:id/domains/:domainId/recheck", () => {
   let db: TestDb
   let userId: string
   let appId: string
 
   beforeEach(async () => {
-    db = makeTestDb()
+    db = await makeTestDb()
     const user = await createTestUser(db)
     userId = user.id
+    await grantSecondFactor(db, userId)
     const project = await createTestProject(db, userId)
     const app = await createTestApp(db, { userId, projectId: project.id })
     appId = app.id
@@ -465,5 +429,92 @@ describe("POST /apps/:id/domains/:domainId/recheck", () => {
       { method: "POST" },
     )
     expect(res.status).toBe(404)
+  })
+})
+
+// ---------------------------------------------------------------------------
+// D.2 — mutations require second factor (domains router)
+// Matrix test: each mutating endpoint returns 403 SECOND_FACTOR_REQUIRED
+// when the user has only 1 passkey and 0 backup codes.
+// ---------------------------------------------------------------------------
+
+describe.skipIf(skip)("domains mutations require second factor", () => {
+  let db: TestDb
+  let userId: string
+  let appId: string
+
+  beforeEach(async () => {
+    db = await makeTestDb()
+    const user = await createTestUser(db)
+    userId = user.id
+
+    // Only 1 passkey — triggers SECOND_FACTOR_REQUIRED.
+    const now = new Date()
+    await db.insert(passkeys).values({
+      id: nanoid(),
+      user_id: userId,
+      credential_id: "cred-dom-sf-only",
+      public_key: Buffer.from("pk"),
+      counter: 0,
+      transports: "[]",
+      device_name: null,
+      created_at: now,
+      last_used_at: now,
+    })
+
+    const project = await createTestProject(db, userId)
+    const app = await createTestApp(db, { userId, projectId: project.id })
+    appId = app.id
+  })
+
+  const endpoints: Array<{ method: string; path: (id: string) => string; body?: unknown }> = [
+    {
+      method: "POST",
+      path: (id) => `/apps/${id}/domains`,
+      body: { hostname: "sf-test.example.com" },
+    },
+    {
+      method: "DELETE",
+      path: (id) => `/apps/${id}/domains/fake-domain-id`,
+    },
+  ]
+
+  for (const ep of endpoints) {
+    it(`${ep.method} ${ep.path(":id")} → 403 SECOND_FACTOR_REQUIRED`, async () => {
+      const honoApp = buildTestApp(db, fakeUser(userId))
+      const reqOpts: RequestInit = { method: ep.method }
+      if (ep.body !== undefined) {
+        reqOpts.headers = { "content-type": "application/json" }
+        reqOpts.body = JSON.stringify(ep.body)
+      }
+
+      const res = await honoApp.request(ep.path(appId), reqOpts)
+      expect(res.status).toBe(403)
+      const body = (await res.json()) as { error: { code: string } }
+      expect(body.error.code).toBe("SECOND_FACTOR_REQUIRED")
+    })
+  }
+
+  it("POST /apps/:id/domains passes with 2 passkeys (happy path — second factor satisfied)", async () => {
+    const now = new Date()
+    await db.insert(passkeys).values({
+      id: nanoid(),
+      user_id: userId,
+      credential_id: "cred-dom-sf-second",
+      public_key: Buffer.from("pk2"),
+      counter: 0,
+      transports: "[]",
+      device_name: null,
+      created_at: now,
+      last_used_at: now,
+    })
+
+    const honoApp = buildTestApp(db, fakeUser(userId))
+    const res = await honoApp.request(`/apps/${appId}/domains`, {
+      method: "POST",
+      headers: { "content-type": "application/json" },
+      body: JSON.stringify({ hostname: "happy-path.example.com" }),
+    })
+    expect(res.status).toBe(201)
   })
 })

@@ -7,7 +7,7 @@ import { eq } from "drizzle-orm";
 import type { Context, Next } from "hono";
 import { env } from "./env";
 import { createDb } from "@ploydok/db";
-import { users, passkeys } from "@ploydok/db";
+import { users, passkeys, totp_secrets } from "@ploydok/db";
 import { createAuthRouter } from "./routes/auth";
 import { requireAuth, type AuthUser } from "./auth/middleware";
 import { countActive } from "./auth/backup-codes";
@@ -20,6 +20,7 @@ import { appsEnvRouter } from "./routes/apps-env";
 import { appsDomainsRouter } from "./routes/apps-domains";
 import { githubRouter } from "./routes/github";
 import { wsRouter } from "./routes/ws";
+import { wsExecRouter } from "./routes/apps-exec";
 import { eventsRouter } from "./routes/events";
 import { monitoringRouter, startMonitoringLoop } from "./routes/monitoring";
 
@@ -258,6 +259,7 @@ app.route("/github", githubRouter);
 
 // WebSocket upgrade routes — auth is cookie-based, verified inside the handler.
 app.route("/ws", wsRouter);
+app.route("/ws", wsExecRouter);
 app.use("/events", requireAuth(db))
 app.route("/events", eventsRouter)
 
@@ -283,6 +285,13 @@ app.get("/me", requireAuth(db), async (c) => {
   const passkeyCount = passkeyRows.length;
   const backupCount = await countActive(db, user.id);
 
+  const totpRows = await db
+    .select({ verified_at: totp_secrets.verified_at })
+    .from(totp_secrets)
+    .where(eq(totp_secrets.user_id, user.id))
+    .limit(1);
+  const hasTotp = Boolean(totpRows[0]?.verified_at);
+
   const userRows = await db
     .select()
     .from(users)
@@ -302,7 +311,8 @@ app.get("/me", requireAuth(db), async (c) => {
     accessExpiresAt,
     has_passkey_plus: passkeyCount >= 2,
     has_backup_codes: backupCount >= 1,
-    needs_second_factor: passkeyCount < 2 && backupCount < 1,
+    has_totp: hasTotp,
+    needs_second_factor: passkeyCount < 2 && backupCount < 1 && !hasTotp,
   });
 });
 

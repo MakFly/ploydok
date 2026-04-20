@@ -74,6 +74,7 @@ export interface RunBlueGreenOptions {
     intervalS?: number;
     timeoutS?: number;
     retries?: number;
+    startPeriodS?: number;
   };
   db: Db;
   /** Override Caddy admin URL (useful for tests). */
@@ -151,8 +152,10 @@ function sleep(ms: number): Promise<void> {
  * The agent runs on the host and resolves Docker bridge DNS — the API process
  * cannot resolve container names directly.
  * Returns true if healthy within the retry budget.
+ *
+ * @internal Exported for unit testing only — do not use outside this module.
  */
-async function pollHealthcheck(opts: {
+export async function pollHealthcheck(opts: {
   agent: InstanceType<typeof AgentClient>;
   containerId: string;
   port: number;
@@ -160,12 +163,18 @@ async function pollHealthcheck(opts: {
   intervalMs: number;
   timeoutMs: number;
   retries: number;
+  startPeriodMs: number;
   appId: string;
   color: ContainerColor;
 }): Promise<boolean> {
   // Agent rejects empty path — normalise to "/" if not provided.
   const safePath = opts.path || "/";
   const channel = `runtime:${opts.appId}`;
+
+  if (opts.startPeriodMs > 0) {
+    logBus.publish(channel, `[healthcheck] grace period ${opts.startPeriodMs}ms before first probe`);
+    await sleep(opts.startPeriodMs);
+  }
 
   for (let attempt = 1; attempt <= opts.retries; attempt++) {
     await sleep(opts.intervalMs);
@@ -338,6 +347,7 @@ export async function runBlueGreen(opts: RunBlueGreenOptions): Promise<RunBlueGr
       healthcheck_interval_s: apps.healthcheck_interval_s,
       healthcheck_timeout_s: apps.healthcheck_timeout_s,
       healthcheck_retries: apps.healthcheck_retries,
+      healthcheck_start_period_s: apps.healthcheck_start_period_s,
       owner_id: projects.owner_id,
     })
     .from(apps)
@@ -354,6 +364,8 @@ export async function runBlueGreen(opts: RunBlueGreenOptions): Promise<RunBlueGr
   const hcIntervalS = opts.healthcheck?.intervalS ?? appRow.healthcheck_interval_s ?? 5;
   const hcTimeoutS = opts.healthcheck?.timeoutS ?? appRow.healthcheck_timeout_s ?? 3;
   const hcRetries = opts.healthcheck?.retries ?? appRow.healthcheck_retries ?? 6;
+  const hcStartPeriodS =
+    opts.healthcheck?.startPeriodS ?? appRow.healthcheck_start_period_s ?? 0;
   const domain = appRow.domain ?? `${appId}.ploydok.local`;
 
   // -- Determine colors -------------------------------------------------------
@@ -424,6 +436,7 @@ export async function runBlueGreen(opts: RunBlueGreenOptions): Promise<RunBlueGr
       intervalMs: hcIntervalS * 1_000,
       timeoutMs: hcTimeoutS * 1_000,
       retries: hcRetries,
+      startPeriodMs: hcStartPeriodS * 1_000,
       appId,
       color: newColor,
     });

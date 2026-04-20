@@ -2,7 +2,9 @@
 import { describe, test, expect, beforeEach } from "bun:test"
 import { Hono } from "hono"
 import { nanoid } from "nanoid"
-import { createDb, users } from "@ploydok/db"
+import { users } from "@ploydok/db"
+import type { Db } from "@ploydok/db"
+import { makeTestDb as makePgTestDb, TEST_PG_URL } from "../test/db-helpers"
 import { signAccessToken, ACCESS_COOKIE } from "../auth/jwt"
 import { requireAuth } from "../auth/middleware"
 import { eventBus } from "../worker/event-bus"
@@ -12,23 +14,15 @@ import { eventsRouter } from "./events"
 // Test DB helper — in-memory SQLite with the users table only
 // ---------------------------------------------------------------------------
 
-function makeTestDb() {
-  const db = createDb(":memory:")
-  db.run(`
-    CREATE TABLE IF NOT EXISTS users (
-      id TEXT PRIMARY KEY,
-      email TEXT NOT NULL UNIQUE,
-      display_name TEXT NOT NULL,
-      created_at INTEGER NOT NULL,
-      updated_at INTEGER NOT NULL,
-      recovery_token_hash TEXT,
-      recovery_expires_at INTEGER
-    )
-  `)
+const skip = !TEST_PG_URL
+if (skip) console.log("[events.test] PLOYDOK_TEST_PG_URL not set — skipping")
+
+async function makeTestDb() {
+  const { db } = await makePgTestDb()
   return db
 }
 
-type TestDb = ReturnType<typeof makeTestDb>
+type TestDb = Db
 
 async function createTestUser(db: TestDb, id = nanoid()) {
   const now = new Date()
@@ -100,11 +94,11 @@ async function collectSseEvents(
 // Tests
 // ---------------------------------------------------------------------------
 
-describe("GET /events", () => {
+describe.skipIf(skip)("GET /events", () => {
   let db: TestDb
 
-  beforeEach(() => {
-    db = makeTestDb()
+  beforeEach(async () => {
+    db = await makeTestDb()
   })
 
   // -------------------------------------------------------------------------

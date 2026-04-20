@@ -1,6 +1,6 @@
 // SPDX-License-Identifier: AGPL-3.0-only
 import { mkdir, chmod } from "node:fs/promises";
-import { existsSync } from "node:fs";
+import { existsSync, mkdirSync } from "node:fs";
 import path from "node:path";
 import os from "node:os";
 
@@ -74,7 +74,29 @@ export interface NixpacksBuildOptions {
   rootDir?: string;
   /** Docker image tag to produce (e.g. `registry/name:sha`). */
   tag: string;
+  /**
+   * Stable key used for `--cache-key` (typically the app ID).
+   * Must not change between builds of the same app — do not use the image SHA.
+   */
+  cacheKey?: string;
+  /**
+   * Local directory where Nixpacks may store build-layer cache.
+   * Created automatically if it doesn't exist.
+   */
   cacheDir?: string;
+  /**
+   * Registry image reference used as a remote cache source **and** destination,
+   * e.g. `127.0.0.1:5000/app-xyz:cache`.
+   *
+   * When provided together with `cacheDir`, two BuildKit cache flags are
+   * injected into the nixpacks command:
+   *   --docker-cache-from=<dockerCacheRef>
+   *   --docker-cache-to=type=local,dest=<cacheDir>,mode=max
+   *
+   * Nixpacks delegates these flags verbatim to the underlying Docker buildx
+   * backend, so they follow the standard BuildKit cache export/import syntax.
+   */
+  dockerCacheRef?: string;
   installCmd?: string;
   buildCmd?: string;
   startCmd?: string;
@@ -91,8 +113,32 @@ export async function nixpacksBuild(opts: NixpacksBuildOptions): Promise<void> {
   const bin = await ensureNixpacksInstalled();
   const ctx = path.join(opts.workspacePath, opts.rootDir ?? ".");
 
+  // Ensure the cache directory exists before spawning.
+  if (opts.cacheDir) {
+    mkdirSync(opts.cacheDir, { recursive: true });
+  }
+
   const args = ["build", ctx, "--name", opts.tag];
-  if (opts.cacheDir) args.push("--cache-key", opts.tag);
+
+  // Pass a stable cache key so Nixpacks can reuse layer cache across builds
+  // of the same app.  We use `cacheKey` (the app ID) rather than `tag` because
+  // the tag embeds the commit SHA and changes every build.
+  if (opts.cacheDir && opts.cacheKey) {
+    args.push("--cache-key", opts.cacheKey);
+  } else if (opts.cacheDir) {
+    // cacheDir provided without an explicit cacheKey — derive a stable key
+    // from the cache directory name (last path segment = app ID in practice).
+    args.push("--cache-key", path.basename(opts.cacheDir));
+  }
+
+  // Inject BuildKit-level cache flags when both a remote cache reference and a
+  // local cache directory are provided.  Nixpacks forwards these flags verbatim
+  // to the Docker buildx backend (--docker-cache-from / --docker-cache-to).
+  if (opts.dockerCacheRef && opts.cacheDir) {
+    args.push(`--docker-cache-from=${opts.dockerCacheRef}`);
+    args.push(`--docker-cache-to=type=local,dest=${opts.cacheDir},mode=max`);
+  }
+
   if (opts.installCmd) args.push("--install-cmd", opts.installCmd);
   if (opts.buildCmd) args.push("--build-cmd", opts.buildCmd);
   if (opts.startCmd) args.push("--start-cmd", opts.startCmd);
