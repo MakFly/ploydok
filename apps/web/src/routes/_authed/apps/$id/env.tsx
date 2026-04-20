@@ -1,8 +1,9 @@
 // SPDX-License-Identifier: AGPL-3.0-only
 import * as React from "react"
 import { createFileRoute } from "@tanstack/react-router"
-import { useEnvVars, useUpdateEnvVars } from "../../../../lib/apps-env"
 import { EnvTable } from "../../../../components/apps/EnvTable"
+import { useEnvVars, useUpdateEnvVars } from "../../../../lib/apps-env"
+import { useMe } from "../../../../lib/auth"
 import type { EnvVarPatch } from "../../../../lib/apps-env"
 
 // ---------------------------------------------------------------------------
@@ -22,6 +23,10 @@ function AppEnvTab(): React.JSX.Element {
 
   const { data: serverVars, isLoading, isError } = useEnvVars(appId)
   const { mutate: updateEnvVars, isPending: isSaving } = useUpdateEnvVars(appId)
+  const { data: me } = useMe()
+  const lockReason = me?.needs_second_factor
+    ? "Configurez un second facteur pour modifier les variables d'environnement."
+    : undefined
 
   function handleSave(vars: Array<EnvVarPatch>) {
     updateEnvVars(vars)
@@ -44,7 +49,12 @@ function AppEnvTab(): React.JSX.Element {
 
   return (
     <div className="mx-auto w-full max-w-5xl space-y-3 py-6">
-      <EnvTable serverVars={serverVars} isSaving={isSaving} onSave={handleSave} />
+      <EnvTable
+        serverVars={serverVars}
+        isSaving={isSaving}
+        onSave={handleSave}
+        lockReason={lockReason}
+      />
 
       <p className="px-1 text-[11px] text-muted-foreground">
         Changes apply on the next deployment.{" "}

@@ -18,13 +18,14 @@ import {
   RiStackLine,
 } from "@remixicon/react";
 import { useLogout, useMe } from "../../lib/auth"
-import { NotificationBell } from "./NotificationBell"
-import { CommandPaletteRoot } from "./CommandPalette"
-import { CommandBar } from "./CommandBar"
 import { CommandPaletteProvider } from "../../lib/hooks/command-palette-context"
+import { CommandBar } from "./CommandBar"
+import { CommandPaletteRoot } from "./CommandPalette"
+import { NotificationBell } from "./NotificationBell"
 
 interface AppShellProps {
   children: React.ReactNode;
+  banner?: React.ReactNode;
 }
 
 interface ShellPageProps {
@@ -118,7 +119,7 @@ function useSidebarState(): [boolean, () => void] {
   return [open, toggle];
 }
 
-export function AppShell({ children }: AppShellProps): React.JSX.Element {
+export function AppShell({ children, banner }: AppShellProps): React.JSX.Element {
   const pathname = useRouterState({
     select: (state) => state.location.pathname,
   });
@@ -417,6 +418,7 @@ export function AppShell({ children }: AppShellProps): React.JSX.Element {
           "md:peer-data-[state=collapsed]:rounded-tl-none",
         )}
       >
+        {banner}
         <div className="relative flex h-12 items-center gap-3 px-4 md:px-8">
           <div className="flex min-w-0 flex-1 items-center">
             <TopbarBreadcrumb />

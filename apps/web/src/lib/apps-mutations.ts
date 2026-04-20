@@ -4,6 +4,7 @@ import { apiFetch } from "./api"
 import type { ApiError } from "./api"
 import type { AppDetail, AppListItem, AppSettingsPatch, RawAppDetail } from "./apps"
 import { normalizeAppDetail } from "./apps"
+import { notifyMutationError } from "./second-factor-toast"
 import { toast } from "sonner"
 
 // ---------------------------------------------------------------------------
@@ -35,8 +36,8 @@ export function useDeployApp(appId: string) {
       )
       return { snapshot }
     },
-    onError: (_err, _vars, context) => {
-      toast.error("Deployment failed to start")
+    onError: (err, _vars, context) => {
+      notifyMutationError(err, "Deployment failed to start")
       const ctx = context as { snapshot?: AppDetail } | undefined
       if (ctx?.snapshot) {
         qc.setQueryData(["apps", appId], ctx.snapshot)
@@ -75,7 +76,7 @@ export function useRollbackApp(appId: string) {
       void qc.invalidateQueries({ queryKey: ["apps", appId, "builds"] })
     },
     onError: (error) => {
-      toast.error(error.message)
+      notifyMutationError(error, "Rollback failed")
     },
   })
 }
@@ -97,8 +98,8 @@ export function useStopApp(appId: string) {
       }
       return { snapshot }
     },
-    onError: (_err, _vars, context) => {
-      toast.error("Stop failed")
+    onError: (err, _vars, context) => {
+      notifyMutationError(err, "Stop failed")
       const ctx = context as { snapshot?: AppDetail } | undefined
       if (ctx?.snapshot) {
         qc.setQueryData(["apps", appId], ctx.snapshot)
@@ -133,8 +134,8 @@ export function useRestartApp(appId: string) {
       }
       return { snapshot }
     },
-    onError: (_err, _vars, context) => {
-      toast.error("Restart failed")
+    onError: (err, _vars, context) => {
+      notifyMutationError(err, "Restart failed")
       const ctx = context as { snapshot?: AppDetail } | undefined
       if (ctx?.snapshot) {
         qc.setQueryData(["apps", appId], ctx.snapshot)
@@ -187,6 +188,9 @@ export function useDeleteApp(appId: string) {
       qc.removeQueries({ queryKey: ["apps", appId] })
       void qc.invalidateQueries({ queryKey: ["apps"] })
     },
+    onError: (error) => {
+      notifyMutationError(error, "Delete failed")
+    },
   })
 }
 
@@ -210,7 +214,7 @@ export function usePruneRegistry(appId: string) {
       void qc.invalidateQueries({ queryKey: ["apps", appId, "builds"] })
     },
     onError: (error) => {
-      toast.error(error.message)
+      notifyMutationError(error, "Registry GC failed")
     },
   })
 }
@@ -244,7 +248,7 @@ export function useUpdateAppSettings(appId: string) {
       void qc.invalidateQueries({ queryKey: ["apps"] })
     },
     onError: (error) => {
-      toast.error(error.message)
+      notifyMutationError(error, "Settings save failed")
     },
   })
 }

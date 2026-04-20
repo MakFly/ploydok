@@ -10,6 +10,7 @@ import {
 } from "@workspace/ui/components/dropdown-menu"
 import { useDeployApp } from "../../lib/apps-mutations"
 import { useActiveBuild } from "../../lib/hooks/use-active-build"
+import { useMe } from "../../lib/auth"
 
 // ---------------------------------------------------------------------------
 // DeployButton — split-button: primary Deploy + dropdown for variants
@@ -23,6 +24,8 @@ export function DeployButton({ appId }: DeployButtonProps): React.JSX.Element {
   const router = useRouter()
   const deploy = useDeployApp(appId)
   const { isActive } = useActiveBuild(appId)
+  const { data: me } = useMe()
+  const needs2FA = Boolean(me?.needs_second_factor)
 
   const handleDeploy = async (opts?: { rebuild?: boolean; noCache?: boolean }): Promise<void> => {
     try {
@@ -37,7 +40,10 @@ export function DeployButton({ appId }: DeployButtonProps): React.JSX.Element {
     }
   }
 
-  const disabled = isActive || deploy.isPending
+  const disabled = isActive || deploy.isPending || needs2FA
+  const lockTitle = needs2FA
+    ? "Configurez un second facteur (passkey additionnel, TOTP ou backup codes) pour déployer."
+    : undefined
 
   return (
     <div className="flex items-center">
@@ -47,8 +53,11 @@ export function DeployButton({ appId }: DeployButtonProps): React.JSX.Element {
         disabled={disabled}
         onClick={() => void handleDeploy()}
         className="rounded-r-none border-r-0"
+        title={lockTitle}
       >
-        {disabled ? (
+        {needs2FA && !isActive && !deploy.isPending ? (
+          "Deploy"
+        ) : disabled ? (
           <span className="flex items-center gap-1.5">
             <LoaderIcon className="h-3.5 w-3.5 animate-spin" />
             Deploying…
@@ -67,6 +76,7 @@ export function DeployButton({ appId }: DeployButtonProps): React.JSX.Element {
             disabled={disabled}
             className="rounded-l-none px-2"
             aria-label="More deploy options"
+            title={lockTitle}
           >
             <ChevronDownIcon className="h-3.5 w-3.5" />
           </Button>

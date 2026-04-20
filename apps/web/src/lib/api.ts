@@ -24,6 +24,15 @@ export class SessionExpiredError extends ApiError {
   }
 }
 
+export class SecondFactorRequiredError extends ApiError {
+  constructor(
+    message = "Configurez un second facteur pour déverrouiller cette action.",
+  ) {
+    super(403, "SECOND_FACTOR_REQUIRED", message)
+    this.name = "SecondFactorRequiredError"
+  }
+}
+
 export class BackendUnavailableError extends ApiError {
   constructor(message = `Le frontend ne parvient plus a joindre l'API sur ${API_BASE}.`) {
     super(503, "BACKEND_UNAVAILABLE", message)
@@ -419,11 +428,12 @@ async function apiFetchCore<T>(
 
   if (!res.ok) {
     const errData = data as { error?: { code?: string; message?: string } }
-    throw new ApiError(
-      res.status,
-      errData.error?.code ?? "UNKNOWN",
-      errData.error?.message ?? "An error occurred",
-    )
+    const code = errData.error?.code ?? "UNKNOWN"
+    const message = errData.error?.message ?? "An error occurred"
+    if (res.status === 403 && code === "SECOND_FACTOR_REQUIRED") {
+      throw new SecondFactorRequiredError(message)
+    }
+    throw new ApiError(res.status, code, message)
   }
 
   if (

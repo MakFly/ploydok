@@ -2,6 +2,7 @@
 import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query"
 import { apiFetch } from "./api"
 import type { ApiError } from "./api"
+import { notifyMutationError } from "./second-factor-toast"
 
 // ---------------------------------------------------------------------------
 // Types
@@ -67,6 +68,9 @@ export function useUpdateEnvVars(appId: string) {
     onSuccess: (freshVars) => {
       // Push the response directly into cache — avoids an extra GET round-trip.
       qc.setQueryData(envVarsQueryKey(appId), freshVars)
+    },
+    onError: (error) => {
+      notifyMutationError(error, "Env vars save failed")
     },
   })
 }
