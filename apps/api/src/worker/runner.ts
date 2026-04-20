@@ -37,6 +37,9 @@ import {
   runtimeContainerName,
   runtimeContainerNameCandidates,
 } from "../runtime-containers.js";
+import { ensureProjectNetwork, networksForApp } from "../projects.js";
+import { PLANS } from "@ploydok/shared";
+import type { PlanName } from "@ploydok/shared";
 
 // ---------------------------------------------------------------------------
 // Constants
@@ -253,6 +256,33 @@ async function getCurrentColor(db: Db, appId: string): Promise<ContainerColor> {
  * Errors during the stream reject the promise. Progress frames are published
  * to the runtime log channel so the user sees the pull advancing.
  */
+/**
+ * Resolve the proto `ResourceLimits` from an app row (Phase 1.C).
+ * Priority: explicit per-app columns (cpu_limit, mem_limit_bytes, pids_limit)
+ * override the plan default. `plan === 'custom'` with no explicit columns
+ * means "no enforcement" (returns undefined so the proto treats zeros as
+ * "unlimited").
+ */
+function resolveResourceLimits(appRow: {
+  plan: PlanName | string | null;
+  cpu_limit: number | null;
+  mem_limit_bytes: number | null;
+  pids_limit: number | null;
+}): { cpu: number; memoryBytes: number; pidsLimit: number } | undefined {
+  const planName = (appRow.plan ?? "custom") as PlanName;
+  const planLimits = PLANS[planName] ?? null;
+
+  const cpu = appRow.cpu_limit ?? planLimits?.cpu ?? 0;
+  const memMB = planLimits?.memMB ?? 0;
+  const memoryBytes = appRow.mem_limit_bytes ?? (memMB > 0 ? memMB * 1024 * 1024 : 0);
+  const pidsLimit = appRow.pids_limit ?? planLimits?.pids ?? 0;
+
+  if (cpu === 0 && memoryBytes === 0 && pidsLimit === 0) {
+    return undefined;
+  }
+  return { cpu, memoryBytes, pidsLimit };
+}
+
 async function pullImage(
   agent: InstanceType<typeof AgentClient>,
   image: string,
@@ -356,6 +386,11 @@ export async function runBlueGreen(opts: RunBlueGreenOptions): Promise<RunBlueGr
       healthcheck_timeout_s: apps.healthcheck_timeout_s,
       healthcheck_retries: apps.healthcheck_retries,
       healthcheck_start_period_s: apps.healthcheck_start_period_s,
+      plan: apps.plan,
+      cpu_limit: apps.cpu_limit,
+      mem_limit_bytes: apps.mem_limit_bytes,
+      pids_limit: apps.pids_limit,
+      project_id: apps.project_id,
       owner_id: projects.owner_id,
     })
     .from(apps)
@@ -398,6 +433,11 @@ export async function runBlueGreen(opts: RunBlueGreenOptions): Promise<RunBlueGr
     await pullImage(agent, imageRef, channel, opts.registryAuth);
     logBus.publish(channel, `[runner] image pulled`);
 
+    // 0b. Ensure per-project network + resolve quota limits (Phase 1.C).
+    const projectNetwork = await ensureProjectNetwork(db, appRow.project_id);
+    const networks = networksForApp(projectNetwork);
+    const resourceLimits = resolveResourceLimits(appRow);
+
     // 1. Create container.
     const createResp = await grpcUnary<ContainerCreateResponse>(
       agent.containerCreate.bind(agent),
@@ -411,12 +451,14 @@ export async function runBlueGreen(opts: RunBlueGreenOptions): Promise<RunBlueGr
           "ploydok.owner_id": appRow.owner_id,
           "ploydok.color": newColor,
         },
-        network: "ploydok-public",
-        networks: [],
+        // Multi-network: `networks` takes precedence; `network` kept empty
+        // so legacy single-string path is inert.
+        network: "",
+        networks,
         volumes: [],
         ports: [],
         restartPolicy: appRow.restart_policy,
-        resourceLimits: undefined,
+        resourceLimits,
         command: [],
         user: "",
       },
@@ -596,7 +638,8 @@ export async function rollbackApp(
   const agentSocket = opts?.agentSocketPath ?? DEFAULT_AGENT_SOCKET;
   const agent = createAgentClient(agentSocket);
 
-  // Load app healthcheck port for Caddy upstream + owner_id for labels.
+  // Load app healthcheck port for Caddy upstream + owner_id for labels
+  // + quotas + project_id (Phase 1.C).
   const appRows = await db
     .select({
       id: apps.id,
@@ -604,6 +647,11 @@ export async function rollbackApp(
       domain: apps.domain,
       restart_policy: apps.restart_policy,
       healthcheck_port: apps.healthcheck_port,
+      plan: apps.plan,
+      cpu_limit: apps.cpu_limit,
+      mem_limit_bytes: apps.mem_limit_bytes,
+      pids_limit: apps.pids_limit,
+      project_id: apps.project_id,
       owner_id: projects.owner_id,
     })
     .from(apps)
@@ -627,6 +675,10 @@ export async function rollbackApp(
     await pullImage(agent, previousBuild.image_tag, channel);
     logBus.publish(channel, `[runner] image pulled`);
 
+    const projectNetwork = await ensureProjectNetwork(db, appRow.project_id);
+    const networks = networksForApp(projectNetwork);
+    const resourceLimits = resolveResourceLimits(appRow);
+
     // Create + start rollback container.
     const createResp = await grpcUnary<ContainerCreateResponse>(
       agent.containerCreate.bind(agent),
@@ -641,12 +693,12 @@ export async function rollbackApp(
           "ploydok.color": rollbackColor,
           "ploydok.rollback": "1",
         },
-        network: "ploydok-public",
-        networks: [],
+        network: "",
+        networks,
         volumes: [],
         ports: [],
         restartPolicy: appRow.restart_policy,
-        resourceLimits: undefined,
+        resourceLimits,
         command: [],
         user: "",
       },

@@ -15,12 +15,13 @@
  */
 import path from "node:path";
 import { rm } from "node:fs/promises";
-import { eq } from "drizzle-orm";
-import { apps } from "@ploydok/db";
+import { and, eq, ne } from "drizzle-orm";
+import { apps, projects } from "@ploydok/db";
 import type { Db } from "@ploydok/db";
 import { env } from "../../env";
 import { workerLog as logger } from "../logger";
 import { CaddyClient } from "../../caddy/client.js";
+import { getSharedAgent } from "../../debug/singletons.js";
 import { runRegistryGc } from "./gc-registry.js";
 
 export interface DeleteAppOptions {
@@ -138,6 +139,57 @@ export async function handleDeleteApp(
       result.steps.buildArtifacts = { ok: false, error: errToString(err) };
       log.warn({ appId, err }, "build-artifacts cleanup failed (continuing)");
     }
+  }
+
+  // 4b. Per-project network cleanup (Phase 1.C).
+  //
+  // Before deleting the `apps` row we check whether this is the last app of
+  // its project. If so and the project has a network_name set, drop the
+  // Docker bridge network. Best-effort: failures are non-fatal.
+  try {
+    const [appRow] = await db
+      .select({ project_id: apps.project_id })
+      .from(apps)
+      .where(eq(apps.id, appId))
+      .limit(1);
+
+    if (appRow) {
+      const siblings = await db
+        .select({ id: apps.id })
+        .from(apps)
+        .where(and(eq(apps.project_id, appRow.project_id), ne(apps.id, appId)))
+        .limit(1);
+
+      if (siblings.length === 0) {
+        const [projRow] = await db
+          .select({ network_name: projects.network_name })
+          .from(projects)
+          .where(eq(projects.id, appRow.project_id))
+          .limit(1);
+
+        if (projRow?.network_name) {
+          try {
+            const agent = getSharedAgent();
+            await agent.networkRemove({ networkId: projRow.network_name });
+            await db
+              .update(projects)
+              .set({ network_name: null })
+              .where(eq(projects.id, appRow.project_id));
+            log.info(
+              { appId, projectId: appRow.project_id, network: projRow.network_name },
+              "project network removed (last app deleted)",
+            );
+          } catch (err) {
+            log.warn(
+              { appId, projectId: appRow.project_id, err },
+              "networkRemove failed (non-fatal)",
+            );
+          }
+        }
+      }
+    }
+  } catch (err) {
+    log.warn({ appId, err }, "project-network cleanup check failed (non-fatal)");
   }
 
   // 5. DB cascade: deleting the apps row removes builds/env_vars/domains

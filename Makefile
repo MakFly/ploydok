@@ -59,6 +59,7 @@ secrets-init:
 
 infra-up: secrets-init
 	@docker network create ploydok-public 2>/dev/null || true
+	@docker network create ploydok-ingress 2>/dev/null || true
 	docker compose --env-file apps/api/.env.local -f infra/docker-compose.yml up -d
 	@echo "Caddy admin   : http://127.0.0.1:2020/config/"
 	@echo "Registry v2   : http://127.0.0.1:5000/v2/"
@@ -69,6 +70,7 @@ infra-up: secrets-init
 infra-down:
 	-docker compose --env-file apps/api/.env.local -f infra/docker-compose.yml down --timeout 10
 	-docker network rm ploydok-public 2>/dev/null
+	-docker network rm ploydok-ingress 2>/dev/null
 
 infra-logs:
 	docker compose --env-file apps/api/.env.local -f infra/docker-compose.yml logs -f caddy

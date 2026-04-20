@@ -27,6 +27,8 @@ async function bootInfra(db: Db): Promise<void> {
     log.warn({ err }, "caddy reconcile failed (non-fatal)");
   }
 
+  // Legacy flat network (pre-Phase-1.C). Kept so existing apps still resolve
+  // until they are redeployed under per-project networks.
   try {
     await agent.networkCreate({ name: "ploydok-public", driver: "bridge", labels: {} });
     log.info("réseau ploydok-public créé");
@@ -35,6 +37,24 @@ async function bootInfra(db: Db): Promise<void> {
       log.info("réseau ploydok-public déjà existant");
     } else {
       log.warn({ err }, "networkCreate ploydok-public failed (non-fatal)");
+    }
+  }
+
+  // Phase 1.C ingress network — Caddy + every app container attach to this.
+  // Per-project private networks are created lazily by ensureProjectNetwork
+  // at first deploy.
+  try {
+    await agent.networkCreate({
+      name: "ploydok-ingress",
+      driver: "bridge",
+      labels: { "ploydok.kind": "ingress" },
+    });
+    log.info("réseau ploydok-ingress créé");
+  } catch (err) {
+    if (err instanceof AgentError && err.code === GrpcStatus.ALREADY_EXISTS) {
+      log.info("réseau ploydok-ingress déjà existant");
+    } else {
+      log.warn({ err }, "networkCreate ploydok-ingress failed (non-fatal)");
     }
   }
 }
