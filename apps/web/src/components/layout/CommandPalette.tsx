@@ -61,8 +61,8 @@ const NAV_ITEMS: Array<NavEntry> = [
   { id: "nav-settings", label: "Settings — Overview", icon: RiShieldCheckLine, to: "/settings" },
   { id: "nav-settings-security", label: "Settings — Security", icon: RiShieldCheckLine, to: "/settings/security" },
   { id: "nav-settings-git-providers", label: "Settings — Git providers", icon: RiGithubLine, to: "/settings/git-providers" },
-  { id: "nav-settings-github", label: "Settings — GitHub", icon: RiGithubLine, to: "/settings/github" },
-  { id: "nav-settings-gitlab", label: "Settings — GitLab", icon: RiGithubLine, to: "/settings/gitlab" },
+  { id: "nav-settings-github", label: "Settings — GitHub", icon: RiGithubLine, to: "/settings/git-providers/github" },
+  { id: "nav-settings-gitlab", label: "Settings — GitLab", icon: RiGithubLine, to: "/settings/git-providers/gitlab" },
 ]
 
 // ---------------------------------------------------------------------------

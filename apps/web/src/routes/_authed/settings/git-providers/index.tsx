@@ -9,17 +9,17 @@ import {
   RiGitlabFill,
 } from "@remixicon/react"
 import { cn } from "@workspace/ui/lib/utils"
-import { ShellPage } from "../../../components/layout/AppShell"
-import { SettingsTabs } from "../../../components/settings/SettingsTabs"
-import { useGitHubAppConfig } from "../../../lib/github"
-import { useGitLabConfig } from "../../../lib/gitlab"
+import { ShellPage } from "../../../../components/layout/AppShell"
+import { SettingsTabs } from "../../../../components/settings/SettingsTabs"
+import { useGitHubAppConfig } from "../../../../lib/github"
+import { useGitLabConfig } from "../../../../lib/gitlab"
 
-export const Route = createFileRoute("/_authed/settings/git-providers")({
-  component: GitProvidersPage,
+export const Route = createFileRoute("/_authed/settings/git-providers/")({
+  component: GitProvidersHub,
 })
 
 interface ProviderCardProps {
-  to: string
+  slug: "github" | "gitlab"
   name: string
   status: "configured" | "not_configured" | "loading"
   description: string
@@ -28,13 +28,13 @@ interface ProviderCardProps {
   note?: string
 }
 
-function GitProvidersPage(): React.JSX.Element {
+function GitProvidersHub(): React.JSX.Element {
   const github = useGitHubAppConfig()
   const gitlab = useGitLabConfig()
 
   const providers: ReadonlyArray<ProviderCardProps> = [
     {
-      to: "/settings/github",
+      slug: "github",
       name: "GitHub",
       description:
         "GitHub App — auto-deploy sur push, webhooks HMAC, accès par installation.",
@@ -48,7 +48,7 @@ function GitProvidersPage(): React.JSX.Element {
       ...(github.data?.slug ? { note: `App: ${github.data.slug}` } : {}),
     },
     {
-      to: "/settings/gitlab",
+      slug: "gitlab",
       name: "GitLab",
       description:
         "OAuth2 per-user — gitlab.com ou instance self-hosted ; webhook X-Gitlab-Token.",
@@ -74,7 +74,7 @@ function GitProvidersPage(): React.JSX.Element {
 
         <section aria-label="Providers" className="grid gap-3 md:grid-cols-2">
           {providers.map((p) => (
-            <ProviderCard key={p.to} {...p} />
+            <ProviderCard key={p.slug} {...p} />
           ))}
         </section>
       </div>
@@ -83,7 +83,7 @@ function GitProvidersPage(): React.JSX.Element {
 }
 
 function ProviderCard({
-  to,
+  slug,
   name,
   status,
   description,
@@ -93,7 +93,8 @@ function ProviderCard({
 }: ProviderCardProps): React.JSX.Element {
   return (
     <Link
-      to={to}
+      to="/settings/git-providers/$slug"
+      params={{ slug }}
       className="group flex flex-col gap-4 rounded-xl border border-border bg-card p-5 transition-colors hover:border-primary/40"
     >
       <div className="flex items-start gap-3">
