@@ -24,6 +24,7 @@ import { resolveRuntimeContainer } from "../runtime-containers";
 
 const GitProviderKindSchema = z.enum(["github", "gitlab", "image"]);
 const ImagePullPolicySchema = z.enum(["always", "if_not_present"]);
+const PlanSchema = z.enum(["nano", "small", "medium", "large", "custom"]);
 
 const CreateAppBody = z.object({
   name: z.string().min(1).max(64),
@@ -39,6 +40,11 @@ const CreateAppBody = z.object({
   imagePullPolicy: ImagePullPolicySchema.optional(),
   registryCredentialId: z.string().min(1).optional(),
   trackLatest: z.boolean().optional(),
+  // Quotas (Phase 1.C). `custom` disables enforcement.
+  plan: PlanSchema.optional(),
+  cpuLimit: z.number().positive().optional(),
+  memLimitMB: z.number().int().positive().optional(),
+  pidsLimit: z.number().int().positive().optional(),
   rootDir: z.string().optional(),
   dockerfilePath: z.string().optional(),
   installCommand: z.string().optional(),
@@ -324,6 +330,10 @@ export function createAppsRouter(db: Db): Hono {
       image_pull_policy: body.imagePullPolicy ?? null,
       registry_credential_id: body.registryCredentialId ?? null,
       track_latest: body.trackLatest ?? false,
+      plan: body.plan ?? "custom",
+      cpu_limit: body.cpuLimit ?? null,
+      mem_limit_bytes: body.memLimitMB ? body.memLimitMB * 1024 * 1024 : null,
+      pids_limit: body.pidsLimit ?? null,
       root_dir: body.rootDir ?? null,
       dockerfile_path: body.dockerfilePath ?? null,
       install_command: body.installCommand ?? null,
