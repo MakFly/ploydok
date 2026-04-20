@@ -1,8 +1,15 @@
 // SPDX-License-Identifier: AGPL-3.0-only
 import { GitBranchSchema, GitRepoSchema } from "@ploydok/shared";
-import type { GitBranch, GitProvider, GitRepo } from "@ploydok/shared";
+import type {
+  GitBranch,
+  GitProvider,
+  GitRepo,
+  ParsedPushEvent,
+  WebhookVerifyInput,
+} from "@ploydok/shared";
 import type { GitHubCache } from "./cache";
 import { getInstallationToken } from "./installation-tokens";
+import { verifySignature, type PushPayload } from "./webhook";
 
 // ---------------------------------------------------------------------------
 // Constants
@@ -154,5 +161,27 @@ export class GitHubProvider implements GitProvider {
 
   cloneUrlWithToken(fullName: string, token: string): string {
     return `https://x-access-token:${token}@github.com/${fullName}.git`;
+  }
+
+  verifyWebhookSignature(input: WebhookVerifyInput): boolean {
+    return verifySignature(
+      input.rawBody,
+      input.headers["x-hub-signature-256"] ?? null,
+      input.secret,
+    );
+  }
+
+  parseWebhookPushEvent(event: string, payload: unknown): ParsedPushEvent | null {
+    if (event !== "push") return null;
+    const push = payload as PushPayload;
+    if (!push.ref?.startsWith("refs/heads/") || !push.after) return null;
+    return {
+      provider: "github",
+      repoFullName: push.repository.full_name,
+      branch: push.ref.replace(/^refs\/heads\//, ""),
+      commitSha: push.after,
+      commitMessage: push.head_commit?.message ?? "",
+      authRef: push.installation?.id != null ? String(push.installation.id) : "",
+    };
   }
 }
