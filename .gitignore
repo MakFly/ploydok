@@ -53,3 +53,6 @@ target/
 # Caddy runtime data (created by Docker)
 infra/caddy/data/
 infra/caddy/config/
+
+# local git worktrees
+.claude/worktrees/
