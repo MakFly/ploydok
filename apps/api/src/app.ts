@@ -19,6 +19,7 @@ import { appsRouter } from "./routes/apps";
 import { appsEnvRouter } from "./routes/apps-env";
 import { appsDomainsRouter } from "./routes/apps-domains";
 import { githubRouter } from "./routes/github";
+import { gitlabRouter } from "./routes/gitlab";
 import { wsRouter } from "./routes/ws";
 import { wsExecRouter } from "./routes/apps-exec";
 import { eventsRouter } from "./routes/events";
@@ -149,6 +150,13 @@ app.use("*", async (c, next) => {
     return next();
   }
 
+  // /gitlab/webhook est authentifié par `X-Gitlab-Token` (shared secret) et
+  // /gitlab/callback est un redirect OAuth (depuis gitlab.com) — aucun des
+  // deux ne peut attacher le double-submit token.
+  if (c.req.path === "/gitlab/webhook" || c.req.path === "/gitlab/callback") {
+    return next();
+  }
+
   // /auth/dev-login is gated hard by NODE_ENV !== "prod" inside the handler
   // and by a loopback-Origin check. No CSRF cookie exists yet at first call.
   if (c.req.path === "/auth/dev-login" && env.NODE_ENV !== "prod") {
@@ -256,6 +264,14 @@ app.use("/github/app/config", requireAuth(db));
 app.use("/github/installations", requireAuth(db));
 app.use("/github/installations/*", requireAuth(db));
 app.route("/github", githubRouter);
+
+// GitLab provider routes — auth enforced per-endpoint.
+// /gitlab/webhook and /gitlab/callback are public (see CSRF exemptions above).
+app.use("/gitlab/config", requireAuth(db));
+app.use("/gitlab/connect", requireAuth(db));
+app.use("/gitlab/repos", requireAuth(db));
+app.use("/gitlab/repos/*", requireAuth(db));
+app.route("/gitlab", gitlabRouter);
 
 // WebSocket upgrade routes — auth is cookie-based, verified inside the handler.
 app.route("/ws", wsRouter);

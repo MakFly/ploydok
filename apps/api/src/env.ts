@@ -23,6 +23,11 @@ const schema = z.object({
     .url()
     .optional()
     .default("http://localhost:3335/github/app/callback"),
+  GITLAB_OAUTH_CALLBACK_URL: z
+    .string()
+    .url()
+    .optional()
+    .default("http://localhost:3335/gitlab/callback"),
   PLOYDOK_REGISTRY_URL: z.string().default("127.0.0.1:5000"),
   PLOYDOK_REGISTRY_PUSH_URL: z.string().default("registry:5000"),
   PLOYDOK_REGISTRY_USER: z.string().optional(),
@@ -53,6 +58,7 @@ const raw = schema.parse({
   SMTP_SECURE: Bun.env["SMTP_SECURE"],
   SMTP_FROM: Bun.env["SMTP_FROM"],
   GITHUB_APP_CALLBACK_URL: Bun.env["GITHUB_APP_CALLBACK_URL"],
+  GITLAB_OAUTH_CALLBACK_URL: Bun.env["GITLAB_OAUTH_CALLBACK_URL"],
   PLOYDOK_REGISTRY_URL: Bun.env["PLOYDOK_REGISTRY_URL"],
   PLOYDOK_REGISTRY_PUSH_URL: Bun.env["PLOYDOK_REGISTRY_PUSH_URL"],
   PLOYDOK_REGISTRY_USER: Bun.env["PLOYDOK_REGISTRY_USER"],
@@ -130,6 +136,7 @@ export const env = {
   SMTP_SECURE: raw.SMTP_SECURE,
   SMTP_FROM: raw.SMTP_FROM,
   GITHUB_APP_CALLBACK_URL: raw.GITHUB_APP_CALLBACK_URL,
+  GITLAB_OAUTH_CALLBACK_URL: raw.GITLAB_OAUTH_CALLBACK_URL,
   PLOYDOK_REGISTRY_URL: raw.PLOYDOK_REGISTRY_URL,
   PLOYDOK_REGISTRY_PUSH_URL: raw.PLOYDOK_REGISTRY_PUSH_URL,
   PLOYDOK_REGISTRY_USER: raw.PLOYDOK_REGISTRY_USER,
