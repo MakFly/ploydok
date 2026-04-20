@@ -22,7 +22,8 @@ import { resolveRuntimeContainer } from "../runtime-containers";
 // Validation schemas
 // ---------------------------------------------------------------------------
 
-const GitProviderKindSchema = z.literal("github");
+// 'image' (Docker image source) is added in Phase 1.B.
+const GitProviderKindSchema = z.enum(["github", "gitlab"]);
 
 const CreateAppBody = z.object({
   name: z.string().min(1).max(64),
@@ -31,6 +32,7 @@ const CreateAppBody = z.object({
   repoFullName: z.string().regex(/^[^/]+\/[^/]+$/),
   branch: z.string().min(1),
   installationId: z.string().regex(/^\d+$/).optional(),
+  gitlabProjectId: z.number().int().positive().optional(),
   rootDir: z.string().optional(),
   dockerfilePath: z.string().optional(),
   installCommand: z.string().optional(),
@@ -291,6 +293,7 @@ export function createAppsRouter(db: Db): Hono {
       repo_full_name: body.repoFullName,
       branch: body.branch,
       github_installation_id: body.installationId ?? null,
+      gitlab_project_id: body.gitlabProjectId ?? null,
       root_dir: body.rootDir ?? null,
       dockerfile_path: body.dockerfilePath ?? null,
       install_command: body.installCommand ?? null,
