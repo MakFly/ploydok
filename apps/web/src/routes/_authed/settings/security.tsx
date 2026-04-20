@@ -4,7 +4,6 @@ import {
   Link,
   Outlet,
   createFileRoute,
-  redirect,
   useRouterState,
 } from "@tanstack/react-router"
 import {
@@ -23,14 +22,6 @@ import { usePasskeys } from "../../../lib/passkeys"
 import { useSessions } from "../../../lib/sessions"
 
 export const Route = createFileRoute("/_authed/settings/security")({
-  beforeLoad: ({ location }) => {
-    if (
-      location.pathname === "/settings/security" ||
-      location.pathname === "/settings/security/"
-    ) {
-      throw redirect({ to: "/settings/security/passkeys" })
-    }
-  },
   component: SecurityLayout,
 })
 
