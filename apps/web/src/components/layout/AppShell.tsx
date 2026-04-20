@@ -526,6 +526,11 @@ interface MatchWithLoader {
   loaderData?: unknown
 }
 
+interface Crumb {
+  label: string
+  to?: string
+}
+
 function extractAppName(matches: ReadonlyArray<MatchWithLoader>): string | null {
   const appMatch = matches.find((m) => m.routeId === "/_authed/apps/$id")
   if (!appMatch) return null
@@ -533,36 +538,95 @@ function extractAppName(matches: ReadonlyArray<MatchWithLoader>): string | null 
   return data?.app?.name ?? null
 }
 
+// Static label map for known path segments. Order matters for nested trees.
+const SEGMENT_LABELS: Record<string, string> = {
+  dashboard: "Dashboard",
+  apps: "Apps",
+  monitoring: "Monitoring",
+  guide: "Guide",
+  settings: "Settings",
+  security: "Security",
+  passkeys: "Passkeys",
+  sessions: "Sessions",
+  registry: "Registry",
+  "git-providers": "Git providers",
+  github: "GitHub",
+  gitlab: "GitLab",
+  overview: "Overview",
+  logs: "Logs",
+  builds: "Builds",
+  deployments: "Deployments",
+  env: "Environment",
+  domains: "Domains",
+}
+
+function labelFor(segment: string): string {
+  return SEGMENT_LABELS[segment] ?? segment
+}
+
+function resolveCrumbs(
+  pathname: string,
+  matches: ReadonlyArray<MatchWithLoader>,
+): Array<Crumb> {
+  const segments = pathname.split("/").filter(Boolean)
+  if (segments.length === 0) return []
+
+  const crumbs: Array<Crumb> = []
+  let cursor = ""
+  for (let i = 0; i < segments.length; i++) {
+    const raw = segments[i] ?? ""
+    cursor += `/${raw}`
+    const isLast = i === segments.length - 1
+
+    // /apps/$id → substitute with app name (from loader) and keep /apps/$id/overview as target.
+    if (raw && segments[0] === "apps" && i === 1) {
+      const appName = extractAppName(matches) ?? raw
+      crumbs.push({
+        label: appName,
+        to: isLast ? undefined : `${cursor}/overview`,
+      })
+      continue
+    }
+
+    crumbs.push({
+      label: labelFor(raw),
+      to: isLast ? undefined : cursor,
+    })
+  }
+  return crumbs
+}
+
 function TopbarBreadcrumb(): React.JSX.Element | null {
   const matches = useMatches()
   const pathname = useRouterState({ select: (s) => s.location.pathname })
 
-  const appName = extractAppName(matches)
+  const crumbs = resolveCrumbs(pathname, matches)
+  if (crumbs.length === 0) return null
 
-  if (appName) {
-    return (
-      <nav aria-label="Breadcrumb" className="flex min-w-0 items-center gap-1.5 text-xs">
-        <Link
-          to="/apps"
-          className="text-muted-foreground transition-colors hover:text-foreground"
-        >
-          Apps
-        </Link>
-        <BreadcrumbSeparator />
-        <span className="truncate font-medium text-foreground">{appName}</span>
-      </nav>
-    )
-  }
-
-  if (pathname === "/apps" || pathname.startsWith("/apps?")) {
-    return (
-      <nav aria-label="Breadcrumb" className="flex items-center gap-1.5 text-xs">
-        <span className="font-medium text-foreground">Apps</span>
-      </nav>
-    )
-  }
-
-  return null
+  return (
+    <nav
+      aria-label="Breadcrumb"
+      className="flex min-w-0 items-center gap-1.5 text-xs"
+    >
+      {crumbs.map((c, idx) => (
+        <React.Fragment key={`${c.label}-${idx}`}>
+          {idx > 0 ? <BreadcrumbSeparator /> : null}
+          {c.to ? (
+            <Link
+              to={c.to}
+              className="truncate text-muted-foreground transition-colors hover:text-foreground"
+            >
+              {c.label}
+            </Link>
+          ) : (
+            <span className="truncate font-medium text-foreground">
+              {c.label}
+            </span>
+          )}
+        </React.Fragment>
+      ))}
+    </nav>
+  )
 }
 
 function BreadcrumbSeparator(): React.JSX.Element {
@@ -583,4 +647,4 @@ function BreadcrumbSeparator(): React.JSX.Element {
   )
 }
 
-export { extractAppName }
+export { extractAppName, resolveCrumbs }
