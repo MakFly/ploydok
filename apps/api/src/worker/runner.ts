@@ -87,6 +87,13 @@ export interface RunBlueGreenOptions {
    * stop. Lets callers signal "app live" to the UI without waiting 30s.
    */
   onLive?: (info: RunBlueGreenResult) => void | Promise<void>;
+  /**
+   * Optional registry credentials to pass to the agent for the pre-spawn
+   * image pull. Required for private source images (Phase 1.B Docker-image
+   * deploys); unused for locally-built images pulled from the Ploydok
+   * private registry (no auth in dev).
+   */
+  registryAuth?: { username: string; password: string };
 }
 
 export interface RunBlueGreenResult {
@@ -250,9 +257,10 @@ async function pullImage(
   agent: InstanceType<typeof AgentClient>,
   image: string,
   channel: string,
+  registryAuth?: { username: string; password: string },
 ): Promise<void> {
   return new Promise<void>((resolve, reject) => {
-    const stream = agent.imagePull({ image, registryAuth: undefined });
+    const stream = agent.imagePull({ image, registryAuth });
     let lastStatus = "";
     stream.on("data", (progress: { status?: string }) => {
       const s = progress?.status;
@@ -387,7 +395,7 @@ export async function runBlueGreen(opts: RunBlueGreenOptions): Promise<RunBlueGr
   try {
     // 0. Pull image — host daemon's cache is separate from the registry storage.
     logBus.publish(channel, `[runner] pulling image ${imageRef}`);
-    await pullImage(agent, imageRef, channel);
+    await pullImage(agent, imageRef, channel, opts.registryAuth);
     logBus.publish(channel, `[runner] image pulled`);
 
     // 1. Create container.

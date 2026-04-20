@@ -20,6 +20,7 @@ import { appsEnvRouter } from "./routes/apps-env";
 import { appsDomainsRouter } from "./routes/apps-domains";
 import { githubRouter } from "./routes/github";
 import { gitlabRouter } from "./routes/gitlab";
+import { registryCredentialsRouter } from "./routes/registry-credentials";
 import { wsRouter } from "./routes/ws";
 import { wsExecRouter } from "./routes/apps-exec";
 import { eventsRouter } from "./routes/events";
@@ -272,6 +273,11 @@ app.use("/gitlab/connect", requireAuth(db));
 app.use("/gitlab/repos", requireAuth(db));
 app.use("/gitlab/repos/*", requireAuth(db));
 app.route("/gitlab", gitlabRouter);
+
+// Registry credentials — all endpoints require auth.
+app.use("/registry/credentials", requireAuth(db));
+app.use("/registry/credentials/*", requireAuth(db));
+app.route("/registry/credentials", registryCredentialsRouter);
 
 // WebSocket upgrade routes — auth is cookie-based, verified inside the handler.
 app.route("/ws", wsRouter);

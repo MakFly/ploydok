@@ -12,7 +12,9 @@ import {
 } from "@ploydok/db/queries";
 import { cleanupQueue } from "../queues";
 import type { Db } from "@ploydok/db";
+import { getRegistryCredential } from "@ploydok/db/queries";
 import { env } from "../../env";
+import { decryptField } from "../../github/app-credentials";
 import { GitHubProvider } from "../../github/client";
 import { GitHubCache } from "../../github/cache";
 import {
@@ -61,6 +63,8 @@ interface AppForDeploy {
   start_command: string | null;
   build_method: string | null;
   restart_policy: string | null;
+  image_ref: string | null;
+  registry_credential_id: string | null;
   owner_id: string;
 }
 
@@ -87,6 +91,8 @@ async function getAppForDeploy(db: Db, appId: string): Promise<AppForDeploy> {
       start_command: apps.start_command,
       build_method: apps.build_method,
       restart_policy: apps.restart_policy,
+      image_ref: apps.image_ref,
+      registry_credential_id: apps.registry_credential_id,
       owner_id: projects.owner_id,
     })
     .from(apps)
@@ -110,6 +116,24 @@ async function getAppForDeploy(db: Db, appId: string): Promise<AppForDeploy> {
  *
  * Throws a descriptive error if no installation grants access to the repo.
  */
+/**
+ * Load + decrypt the registry credential attached to an image-source app.
+ * Returns null when the app has no credential (anonymous pull).
+ */
+async function loadRegistryAuthForApp(
+  db: Db,
+  app: AppForDeploy,
+): Promise<{ username: string; password: string } | null> {
+  if (!app.registry_credential_id) return null;
+  const row = await getRegistryCredential(db, app.owner_id, app.registry_credential_id);
+  if (!row) return null;
+  const password = await decryptField(
+    row.password_enc as Buffer,
+    row.password_nonce as Buffer,
+  );
+  return { username: row.username, password };
+}
+
 async function resolveInstallationTokenForApp(
   app: AppForDeploy,
 ): Promise<{ installationId: string; token: string }> {
@@ -171,7 +195,14 @@ export async function handleDeploy(
   // Resolve owner once — reused for all eventBus publishes below.
   const ownerId: string | null = app.owner_id ?? null;
 
-  if (!app.repo_full_name || !app.branch) {
+  // Phase 1.B: image-source apps skip clone + build. Validate their own shape
+  // early, then dispatch to the image deploy path below.
+  const isImageSource = app.git_provider === "image";
+  if (isImageSource) {
+    if (!app.image_ref) {
+      throw new Error(`App ${app.id} has git_provider='image' but no image_ref set`);
+    }
+  } else if (!app.repo_full_name || !app.branch) {
     throw new Error(`App ${app.id} is missing repo_full_name or branch — cannot deploy`);
   }
 
@@ -227,11 +258,78 @@ export async function handleDeploy(
   let finalPatch: { finishedAt: Date; errorMessage?: string; containerId?: string } = { finishedAt: new Date() };
 
   try {
+    // ── Phase 1.B: Docker-image source ──────────────────────────────────────
+    //
+    // When git_provider === 'image', skip clone + build entirely. The image
+    // reference is used directly; runBlueGreen's pre-spawn pullImage handles
+    // authentication via the registry credential associated with the app.
+    if (isImageSource) {
+      const imageRef = app.image_ref!;
+      const imageLog = (line: string) => {
+        log.debug({ buildId }, line);
+        logBus.publish(`build:${buildId}`, line);
+        logStream.write(line + "\n");
+      };
+      imageLog(`[deploy] image source: ${imageRef}`);
+      await updateBuildStatus(db, buildId, "running", { imageTag: imageRef });
+
+      if (ownerId) {
+        try {
+          eventBus.publish(`user:${ownerId}`, {
+            type: "deploy.status_change",
+            appId: app.id,
+            buildId,
+            message: "Image source prête",
+            data: { imageTag: imageRef },
+          });
+        } catch (pubErr) {
+          log.warn({ pubErr, buildId }, "eventBus publish (image source) failed (non-fatal)");
+        }
+      }
+
+      const registryAuth = await loadRegistryAuthForApp(db, app);
+
+      const runOpts: Parameters<typeof runBlueGreen>[0] = {
+        appId: app.id,
+        imageRef,
+        env: {},
+        db,
+      };
+      if (registryAuth) runOpts.registryAuth = registryAuth;
+      const { containerId } = await runBlueGreen(runOpts);
+      imageLog(`[deploy] container live: ${containerId}`);
+
+      finalPatch = { finishedAt: new Date(), containerId };
+
+      if (ownerId) {
+        try {
+          eventBus.publish(`user:${ownerId}`, {
+            type: "deploy.status_change",
+            appId: app.id,
+            buildId,
+            message: "Container live",
+            data: { containerId, status: "running" },
+          });
+        } catch (pubErr) {
+          log.warn({ pubErr, buildId }, "eventBus publish (image live) failed (non-fatal)");
+        }
+      }
+
+      finalStatus = "succeeded";
+      log.info({ buildId, imageRef }, "image deploy succeeded");
+      return;
+    }
+
+    // Past this point we know the app is a git source with repo+branch
+    // (validated above before the isImageSource branch returned).
+    const repoFullName = app.repo_full_name!;
+    const branchName = app.branch!;
+
     // 1. Clone
     const { installationId, token } = await resolveInstallationTokenForApp(app);
     const ghCache = new GitHubCache();
     const ghProvider = new GitHubProvider(ghCache);
-    const cloneUrl = ghProvider.cloneUrlWithToken(app.repo_full_name, token);
+    const cloneUrl = ghProvider.cloneUrlWithToken(repoFullName, token);
 
     log.info({ buildId, installationId }, "cloning repo");
     const { workspacePath, headSha } = await cloneRepo({
@@ -239,7 +337,7 @@ export async function handleDeploy(
       buildDir: env.PLOYDOK_BUILD_DIR,
       appId: app.id,
       buildId,
-      branch: app.branch,
+      branch: branchName,
     });
 
     // When the deploy was triggered without an explicit commit (manual deploy,

@@ -22,17 +22,23 @@ import { resolveRuntimeContainer } from "../runtime-containers";
 // Validation schemas
 // ---------------------------------------------------------------------------
 
-// 'image' (Docker image source) is added in Phase 1.B.
-const GitProviderKindSchema = z.enum(["github", "gitlab"]);
+const GitProviderKindSchema = z.enum(["github", "gitlab", "image"]);
+const ImagePullPolicySchema = z.enum(["always", "if_not_present"]);
 
 const CreateAppBody = z.object({
   name: z.string().min(1).max(64),
   projectId: z.string().min(1).optional(),
   gitProvider: GitProviderKindSchema,
-  repoFullName: z.string().regex(/^[^/]+\/[^/]+$/),
-  branch: z.string().min(1),
+  // repoFullName + branch are only required for git sources (github / gitlab).
+  repoFullName: z.string().regex(/^[^/]+\/[^/]+$/).optional(),
+  branch: z.string().min(1).optional(),
   installationId: z.string().regex(/^\d+$/).optional(),
   gitlabProjectId: z.number().int().positive().optional(),
+  // Image source (gitProvider === 'image') fields.
+  imageRef: z.string().min(1).optional(),
+  imagePullPolicy: ImagePullPolicySchema.optional(),
+  registryCredentialId: z.string().min(1).optional(),
+  trackLatest: z.boolean().optional(),
   rootDir: z.string().optional(),
   dockerfilePath: z.string().optional(),
   installCommand: z.string().optional(),
@@ -232,6 +238,26 @@ export function createAppsRouter(db: Db): Hono {
       return c.json({ error: { code: "VALIDATION_ERROR", message: String(err) } }, 400);
     }
 
+    // Per-source-type field requirements (Phase 1.A/1.B).
+    if (body.gitProvider === "image") {
+      if (!body.imageRef) {
+        return c.json(
+          { error: { code: "VALIDATION_ERROR", message: "imageRef is required for image source" } },
+          400,
+        );
+      }
+    } else if (!body.repoFullName || !body.branch) {
+      return c.json(
+        {
+          error: {
+            code: "VALIDATION_ERROR",
+            message: "repoFullName and branch are required for git sources",
+          },
+        },
+        400,
+      );
+    }
+
     const now = new Date();
 
     // 1. Resolve projectId: explicit → verify ownership; absent → find/create user's default project
@@ -290,10 +316,14 @@ export function createAppsRouter(db: Db): Hono {
       created_at: now,
       updated_at: now,
       git_provider: body.gitProvider,
-      repo_full_name: body.repoFullName,
-      branch: body.branch,
+      repo_full_name: body.repoFullName ?? null,
+      branch: body.branch ?? null,
       github_installation_id: body.installationId ?? null,
       gitlab_project_id: body.gitlabProjectId ?? null,
+      image_ref: body.imageRef ?? null,
+      image_pull_policy: body.imagePullPolicy ?? null,
+      registry_credential_id: body.registryCredentialId ?? null,
+      track_latest: body.trackLatest ?? false,
       root_dir: body.rootDir ?? null,
       dockerfile_path: body.dockerfilePath ?? null,
       install_command: body.installCommand ?? null,
