@@ -43,6 +43,7 @@ export const MeSchema = z.object({
   accessExpiresAt: z.number(), // unix seconds, when the current access token expires
   has_passkey_plus: z.boolean(), // >= 2 passkeys
   has_backup_codes: z.boolean(), // >= 1 non-consumed backup code
+  has_totp: z.boolean(), // verified TOTP enrolled
   needs_second_factor: z.boolean(),
 });
 export type Me = z.infer<typeof MeSchema>;

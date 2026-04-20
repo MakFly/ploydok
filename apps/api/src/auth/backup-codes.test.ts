@@ -1,61 +1,37 @@
 // SPDX-License-Identifier: AGPL-3.0-only
 import { describe, it, expect, beforeEach } from "bun:test";
 import { generate, consume, regenerate, countActive } from "./backup-codes";
-import { createDb } from "@ploydok/db";
 import { users } from "@ploydok/db";
+import type { Db } from "@ploydok/db";
 import { nanoid } from "nanoid";
+import { eq } from "drizzle-orm";
+import { makeTestDb, TEST_PG_URL } from "../test/db-helpers";
 
-// ---------------------------------------------------------------------------
-// In-memory SQLite DB for tests
-// ---------------------------------------------------------------------------
-
-function makeTestDb() {
-  const db = createDb(":memory:");
-  // Create minimal schema
-  db.run(`
-    CREATE TABLE IF NOT EXISTS users (
-      id TEXT PRIMARY KEY,
-      email TEXT NOT NULL UNIQUE,
-      display_name TEXT NOT NULL,
-      created_at INTEGER NOT NULL,
-      updated_at INTEGER NOT NULL,
-      recovery_token_hash TEXT,
-      recovery_expires_at INTEGER
-    )
-  `);
-  db.run(`
-    CREATE TABLE IF NOT EXISTS backup_codes (
-      id TEXT PRIMARY KEY,
-      user_id TEXT NOT NULL REFERENCES users(id) ON DELETE CASCADE,
-      code_hash TEXT NOT NULL,
-      consumed_at INTEGER,
-      created_at INTEGER NOT NULL
-    )
-  `);
-  return db;
-}
+const skip = !TEST_PG_URL;
+if (skip) console.log("[backup-codes.test] PLOYDOK_TEST_PG_URL not set — skipping");
 
 // ---------------------------------------------------------------------------
 // Tests
 // ---------------------------------------------------------------------------
 
-describe("backup-codes", () => {
-  let db: ReturnType<typeof makeTestDb>;
+describe.skipIf(skip)("backup-codes", () => {
+  let db: Db;
   let userId: string;
 
   beforeEach(async () => {
-    db = makeTestDb();
-    userId = nanoid();
+    const result = await makeTestDb();
+    db = result.db;
+    userId = `bc-${nanoid(6)}`;
     const now = new Date();
     await db.insert(users).values({
       id: userId,
-      email: `user-${userId}@test.com`,
+      email: `bc-${userId}@test.com`,
       display_name: "Test User",
       created_at: now,
       updated_at: now,
       recovery_token_hash: null,
       recovery_expires_at: null,
-    });
+    }).onConflictDoNothing();
   });
 
   it("generate returns 10 unique codes", async () => {

@@ -18,52 +18,22 @@
 import { describe, it, expect, test } from "bun:test";
 
 // We test through the Hono app directly (no real HTTP server needed)
-// but we need a real DB with schema. We use the helper from sessions.test.ts.
+// but we need a real DB with schema. Requires PLOYDOK_TEST_PG_URL.
 
 import { Hono } from "hono";
 import { requireAuth } from "./middleware";
 import { signAccessToken, ACCESS_COOKIE } from "./jwt";
-import { createDb } from "@ploydok/db";
 import { users } from "@ploydok/db";
+import type { Db } from "@ploydok/db";
 import { nanoid } from "nanoid";
+import { makeTestDb, TEST_PG_URL } from "../test/db-helpers";
 
-function makeFullTestDb() {
-  const db = createDb(":memory:");
-  db.run(`
-    CREATE TABLE IF NOT EXISTS users (
-      id TEXT PRIMARY KEY, email TEXT NOT NULL UNIQUE, display_name TEXT NOT NULL,
-      created_at INTEGER NOT NULL, updated_at INTEGER NOT NULL,
-      recovery_token_hash TEXT, recovery_expires_at INTEGER
-    )
-  `);
-  db.run(`
-    CREATE TABLE IF NOT EXISTS passkeys (
-      id TEXT PRIMARY KEY, user_id TEXT NOT NULL REFERENCES users(id) ON DELETE CASCADE,
-      credential_id TEXT NOT NULL UNIQUE, public_key BLOB NOT NULL,
-      counter INTEGER NOT NULL DEFAULT 0, transports TEXT NOT NULL DEFAULT '[]',
-      device_name TEXT, created_at INTEGER NOT NULL, last_used_at INTEGER NOT NULL
-    )
-  `);
-  db.run(`
-    CREATE TABLE IF NOT EXISTS backup_codes (
-      id TEXT PRIMARY KEY, user_id TEXT NOT NULL REFERENCES users(id) ON DELETE CASCADE,
-      code_hash TEXT NOT NULL, consumed_at INTEGER, created_at INTEGER NOT NULL
-    )
-  `);
-  db.run(`
-    CREATE TABLE IF NOT EXISTS sessions (
-      id TEXT PRIMARY KEY, user_id TEXT NOT NULL REFERENCES users(id) ON DELETE CASCADE,
-      refresh_token_hash TEXT NOT NULL, user_agent TEXT NOT NULL, ip TEXT NOT NULL,
-      created_at INTEGER NOT NULL, last_seen_at INTEGER NOT NULL,
-      revoked_at INTEGER, expires_at INTEGER NOT NULL
-    )
-  `);
-  return db;
-}
+const skip = !TEST_PG_URL;
+if (skip) console.log("[auth.e2e.test] PLOYDOK_TEST_PG_URL not set — skipping");
 
-describe("/me endpoint", () => {
+describe.skipIf(skip)("/me endpoint", () => {
   it("returns 401 without auth cookie", async () => {
-    const db = makeFullTestDb();
+    const { db } = await makeTestDb();
     const app = new Hono();
     app.get("/me", requireAuth(db), (c) => c.json({ ok: true }));
 
@@ -72,8 +42,8 @@ describe("/me endpoint", () => {
   });
 
   it("returns 200 with valid auth cookie and user in context", async () => {
-    const db = makeFullTestDb();
-    const userId = nanoid();
+    const { db } = await makeTestDb();
+    const userId = `e2e-${nanoid(6)}`;
     const now = new Date();
     await db.insert(users).values({
       id: userId,
@@ -83,7 +53,7 @@ describe("/me endpoint", () => {
       updated_at: now,
       recovery_token_hash: null,
       recovery_expires_at: null,
-    });
+    }).onConflictDoNothing();
 
     const token = await signAccessToken({ userId, email: `alice-${userId}@example.com`, sessionId: "sess" });
 
@@ -110,14 +80,4 @@ describe("/me endpoint", () => {
 test.skip("register → login → /me flow (requires WebAuthn mock, Sprint 6)", async () => {
   // TODO Sprint 6: Use a software authenticator (e.g., virtual-authenticator-js)
   // to exercise the full WebAuthn registration and authentication flow end-to-end.
-  // Steps:
-  // 1. GET /auth/register/options?email=...&display_name=...
-  // 2. Stub navigator.credentials.create() with the options
-  // 3. POST /auth/register/verify with the stubbed credential
-  // 4. GET /me — expect 200 with user data
-  // 5. POST /auth/logout
-  // 6. GET /auth/login/options?email=...
-  // 7. Stub navigator.credentials.get() with the options
-  // 8. POST /auth/login/verify
-  // 9. GET /me — expect 200
 });
