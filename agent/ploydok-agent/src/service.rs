@@ -206,29 +206,27 @@ impl Agent for AgentService {
                 Some(req.user.clone())
             },
             host_config: Some(host_config),
-            // Multi-network support: `networks` (repeated) takes precedence over
-            // the legacy single-string `network` field. Empty on both → Docker default.
+            // Attach only the first requested network at create time. Docker's
+            // create_container API silently drops extra EndpointsConfig entries
+            // across versions; subsequent networks are wired via connect_network
+            // below. Empty list → Docker default bridge.
             networking_config: {
                 use bollard::container::NetworkingConfig;
                 use bollard::models::EndpointSettings;
-                let names: Vec<&str> = if !req.networks.is_empty() {
-                    req.networks.iter().map(String::as_str).collect()
+                let first_network: Option<&str> = if !req.networks.is_empty() {
+                    Some(req.networks[0].as_str())
                 } else if !req.network.is_empty() {
-                    vec![req.network.as_str()]
+                    Some(req.network.as_str())
                 } else {
-                    vec![]
-                };
-                if names.is_empty() {
                     None
-                } else {
+                };
+                first_network.map(|name| {
                     let mut endpoints = HashMap::new();
-                    for name in names {
-                        endpoints.insert(name.to_string(), EndpointSettings::default());
-                    }
-                    Some(NetworkingConfig {
+                    endpoints.insert(name.to_string(), EndpointSettings::default());
+                    NetworkingConfig {
                         endpoints_config: endpoints,
-                    })
-                }
+                    }
+                })
             },
             ..Default::default()
         };
@@ -243,6 +241,25 @@ impl Agent for AgentService {
             .create_container(Some(options), config)
             .await
             .map_err(|e| bollard_err("create_container", e))?;
+
+        // Attach remaining networks explicitly. Required for cross-version
+        // Docker compatibility: create_container only honors a single entry
+        // in NetworkingConfig, so Caddy-reachable networks (e.g. ingress)
+        // never attached when passed alongside a project network.
+        if req.networks.len() > 1 {
+            use bollard::models::EndpointSettings;
+            use bollard::network::ConnectNetworkOptions;
+            for name in req.networks.iter().skip(1) {
+                let opts = ConnectNetworkOptions {
+                    container: result.id.clone(),
+                    endpoint_config: EndpointSettings::default(),
+                };
+                self.docker
+                    .connect_network(name, opts)
+                    .await
+                    .map_err(|e| bollard_err("connect_network", e))?;
+            }
+        }
 
         audit("container_create", &req.name, Ok(()));
         Ok(Response::new(ContainerCreateResponse {
