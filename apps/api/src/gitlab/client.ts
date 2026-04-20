@@ -1,6 +1,13 @@
 // SPDX-License-Identifier: AGPL-3.0-only
 import { GitBranchSchema, GitRepoSchema } from "@ploydok/shared";
-import type { GitBranch, GitProvider, GitRepo } from "@ploydok/shared";
+import type {
+  GitBranch,
+  GitProvider,
+  GitRepo,
+  ParsedPushEvent,
+  WebhookVerifyInput,
+} from "@ploydok/shared";
+import { verifyGitLabToken, type GitLabPushPayload } from "./webhook";
 
 // ---------------------------------------------------------------------------
 // GitLabProvider
@@ -82,6 +89,24 @@ export class GitLabProvider implements GitProvider {
   cloneUrlWithToken(fullName: string, token: string): string {
     const host = new URL(this.instanceUrl).host;
     return `https://oauth2:${token}@${host}/${fullName}.git`;
+  }
+
+  verifyWebhookSignature(input: WebhookVerifyInput): boolean {
+    return verifyGitLabToken(input.headers["x-gitlab-token"] ?? null, input.secret);
+  }
+
+  parseWebhookPushEvent(event: string, payload: unknown): ParsedPushEvent | null {
+    if (event !== "Push Hook") return null;
+    const push = payload as GitLabPushPayload;
+    if (push.object_kind !== "push") return null;
+    return {
+      provider: "gitlab",
+      repoFullName: push.project.path_with_namespace,
+      branch: push.ref.replace(/^refs\/heads\//, ""),
+      commitSha: push.checkout_sha,
+      commitMessage: push.commits?.[0]?.message ?? "",
+      authRef: String(push.user_id),
+    };
   }
 }
 

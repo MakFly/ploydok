@@ -33,6 +33,15 @@ export type GitBranch = z.infer<typeof GitBranchSchema>;
 // GitProvider interface
 // ---------------------------------------------------------------------------
 
+export interface WebhookVerifyInput {
+  /** Raw HTTP body exactly as received (not re-serialized). */
+  rawBody: string;
+  /** Lower-cased header map for provider-agnostic access. */
+  headers: Record<string, string>;
+  /** Shared secret configured on the app side. */
+  secret: string;
+}
+
 export interface GitProvider {
   kind: GitProviderKind;
   listRepos(
@@ -43,6 +52,16 @@ export interface GitProvider {
   listBranches(token: string, fullName: string): Promise<GitBranch[]>;
   /** Build a clone URL embedding the token (for `git clone`). */
   cloneUrlWithToken(fullName: string, token: string): string;
+  /** Constant-time signature/token verification for incoming webhooks. */
+  verifyWebhookSignature(input: WebhookVerifyInput): boolean;
+  /**
+   * Parse a verified webhook into the provider-agnostic push shape.
+   * Returns null for non-push events (pings, installation lifecycle, PRs, …).
+   */
+  parseWebhookPushEvent(
+    event: string,
+    payload: unknown,
+  ): ParsedPushEvent | null;
 }
 
 // ---------------------------------------------------------------------------
