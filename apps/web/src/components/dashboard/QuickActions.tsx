@@ -26,7 +26,11 @@ export function QuickActions({ isGitHubConnected, onCreateApp }: QuickActionsPro
 
         {!isGitHubConnected && (
           <Button size="sm" variant="outline" asChild>
-            <Link to="/settings/github" className="gap-1.5 inline-flex items-center">
+            <Link
+              to="/settings/git-providers/$slug"
+              params={{ slug: "github" }}
+              className="gap-1.5 inline-flex items-center"
+            >
               <GitHubIcon className="size-3.5" aria-hidden="true" />
               Connect GitHub
             </Link>

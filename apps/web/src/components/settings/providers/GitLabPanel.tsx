@@ -1,8 +1,6 @@
 // SPDX-License-Identifier: AGPL-3.0-only
 import * as React from "react"
-import { Link, createFileRoute } from "@tanstack/react-router"
 import {
-  RiArrowLeftLine,
   RiCheckboxCircleFill,
   RiExternalLinkLine,
   RiGitlabFill,
@@ -11,8 +9,6 @@ import {
 } from "@remixicon/react"
 import { Button } from "@workspace/ui/components/button"
 import { cn } from "@workspace/ui/lib/utils"
-import { ShellPage } from "../../../components/layout/AppShell"
-import { SettingsTabs } from "../../../components/settings/SettingsTabs"
 import {
   gitlabConnectUrl,
   useDeleteGitLabConfig,
@@ -21,11 +17,7 @@ import {
   useSaveGitLabConfig,
 } from "../../../lib/gitlab"
 
-export const Route = createFileRoute("/_authed/settings/gitlab")({
-  component: GitLabSettingsPage,
-})
-
-function GitLabSettingsPage(): React.JSX.Element {
+export function GitLabPanel(): React.JSX.Element {
   const { data: config, isLoading } = useGitLabConfig()
   const save = useSaveGitLabConfig()
   const del = useDeleteGitLabConfig()
@@ -38,59 +30,37 @@ function GitLabSettingsPage(): React.JSX.Element {
   const configured = Boolean(config?.configured)
 
   return (
-    <ShellPage
-      title="GitLab"
-      description="OAuth2 per-user. gitlab.com ou instance self-hosted. Webhook vérifié via X-Gitlab-Token."
-      eyebrow="Settings · Sources"
-    >
-      <div className="space-y-6">
-        <SettingsTabs />
+    <div className="space-y-6">
+      {justConnected ? (
+        <div className="flex items-center gap-2 rounded-lg border border-emerald-500/30 bg-emerald-500/10 p-3 text-xs text-emerald-700 dark:text-emerald-300">
+          <RiCheckboxCircleFill className="size-4" />
+          <span>Connexion GitLab réussie. Tu peux maintenant lister tes projets.</span>
+        </div>
+      ) : null}
 
-        <BackLink />
+      {isLoading ? (
+        <div className="rounded-xl border border-border bg-card p-5 text-xs text-muted-foreground">
+          Chargement…
+        </div>
+      ) : configured ? (
+        <ConfiguredState
+          config={config!}
+          onReset={() => del.mutate()}
+          onDisconnect={() => disconnect.mutate()}
+          resetPending={del.isPending}
+          disconnectPending={disconnect.isPending}
+        />
+      ) : (
+        <NotConfiguredForm
+          onSave={async (values) => {
+            await save.mutateAsync(values)
+          }}
+          pending={save.isPending}
+        />
+      )}
 
-        {justConnected ? (
-          <div className="flex items-center gap-2 rounded-lg border border-emerald-500/30 bg-emerald-500/10 p-3 text-xs text-emerald-700 dark:text-emerald-300">
-            <RiCheckboxCircleFill className="size-4" />
-            <span>Connexion GitLab réussie. Tu peux maintenant lister tes projets.</span>
-          </div>
-        ) : null}
-
-        {isLoading ? (
-          <div className="rounded-xl border border-border bg-card p-5 text-xs text-muted-foreground">
-            Chargement…
-          </div>
-        ) : configured ? (
-          <ConfiguredState
-            config={config!}
-            onReset={() => del.mutate()}
-            onDisconnect={() => disconnect.mutate()}
-            resetPending={del.isPending}
-            disconnectPending={disconnect.isPending}
-          />
-        ) : (
-          <NotConfiguredForm
-            onSave={async (values) => {
-              await save.mutateAsync(values)
-            }}
-            pending={save.isPending}
-          />
-        )}
-
-        <SetupHelp />
-      </div>
-    </ShellPage>
-  )
-}
-
-function BackLink(): React.JSX.Element {
-  return (
-    <Link
-      to="/settings/git-providers"
-      className="inline-flex items-center gap-1 text-xs text-muted-foreground transition-colors hover:text-foreground"
-    >
-      <RiArrowLeftLine className="size-3.5" />
-      Git providers
-    </Link>
+      <SetupHelp />
+    </div>
   )
 }
 
@@ -194,65 +164,63 @@ function ConfiguredState({
   disconnectPending: boolean
 }): React.JSX.Element {
   return (
-    <div className="space-y-4">
-      <section className="rounded-xl border border-border bg-card p-5 space-y-4">
-        <header className="flex items-center gap-3">
-          <div className="flex size-10 items-center justify-center rounded-md border border-border bg-background">
-            <RiGitlabFill className="size-5 text-[#fc6d26]" />
-          </div>
-          <div className="flex-1 min-w-0">
-            <div className="flex items-center gap-2">
-              <h2 className="font-heading text-base font-medium">GitLab configuré</h2>
-              <span className="inline-flex items-center gap-1 font-mono text-[10px] tracking-wide text-emerald-600 uppercase dark:text-emerald-400">
-                <RiCheckboxCircleFill className="size-3" />
-                Active
-              </span>
-            </div>
-            <p className="truncate font-mono text-[10px] tracking-wide text-muted-foreground">
-              {config.instance_url}
-            </p>
-          </div>
-        </header>
-
-        <dl className="grid gap-3 text-xs sm:grid-cols-2">
-          <div>
-            <dt className="font-mono text-[10px] tracking-wide text-muted-foreground uppercase">
-              Client ID
-            </dt>
-            <dd className="mt-0.5 font-mono text-xs">{config.client_id ?? "—"}</dd>
-          </div>
-          <div>
-            <dt className="font-mono text-[10px] tracking-wide text-muted-foreground uppercase">
-              Instance
-            </dt>
-            <dd className="mt-0.5 truncate font-mono text-xs">
-              {config.instance_url ?? "—"}
-            </dd>
-          </div>
-        </dl>
-
-        <div className="flex flex-wrap gap-2">
-          <Button asChild>
-            <a href={gitlabConnectUrl()}>
-              <RiLink className="size-3.5" />
-              Connecter mon compte
-            </a>
-          </Button>
-          <Button variant="outline" onClick={onDisconnect} disabled={disconnectPending}>
-            <RiLoopRightLine className={cn("size-3.5", disconnectPending && "animate-spin")} />
-            {disconnectPending ? "Déconnexion…" : "Révoquer mes tokens"}
-          </Button>
-          <Button
-            variant="ghost"
-            className="text-destructive hover:text-destructive"
-            onClick={onReset}
-            disabled={resetPending}
-          >
-            {resetPending ? "Suppression…" : "Supprimer la configuration"}
-          </Button>
+    <section className="rounded-xl border border-border bg-card p-5 space-y-4">
+      <header className="flex items-center gap-3">
+        <div className="flex size-10 items-center justify-center rounded-md border border-border bg-background">
+          <RiGitlabFill className="size-5 text-[#fc6d26]" />
         </div>
-      </section>
-    </div>
+        <div className="flex-1 min-w-0">
+          <div className="flex items-center gap-2">
+            <h2 className="font-heading text-base font-medium">GitLab configuré</h2>
+            <span className="inline-flex items-center gap-1 font-mono text-[10px] tracking-wide text-emerald-600 uppercase dark:text-emerald-400">
+              <RiCheckboxCircleFill className="size-3" />
+              Active
+            </span>
+          </div>
+          <p className="truncate font-mono text-[10px] tracking-wide text-muted-foreground">
+            {config.instance_url}
+          </p>
+        </div>
+      </header>
+
+      <dl className="grid gap-3 text-xs sm:grid-cols-2">
+        <div>
+          <dt className="font-mono text-[10px] tracking-wide text-muted-foreground uppercase">
+            Client ID
+          </dt>
+          <dd className="mt-0.5 font-mono text-xs">{config.client_id ?? "—"}</dd>
+        </div>
+        <div>
+          <dt className="font-mono text-[10px] tracking-wide text-muted-foreground uppercase">
+            Instance
+          </dt>
+          <dd className="mt-0.5 truncate font-mono text-xs">
+            {config.instance_url ?? "—"}
+          </dd>
+        </div>
+      </dl>
+
+      <div className="flex flex-wrap gap-2">
+        <Button asChild>
+          <a href={gitlabConnectUrl()}>
+            <RiLink className="size-3.5" />
+            Connecter mon compte
+          </a>
+        </Button>
+        <Button variant="outline" onClick={onDisconnect} disabled={disconnectPending}>
+          <RiLoopRightLine className={cn("size-3.5", disconnectPending && "animate-spin")} />
+          {disconnectPending ? "Déconnexion…" : "Révoquer mes tokens"}
+        </Button>
+        <Button
+          variant="ghost"
+          className="text-destructive hover:text-destructive"
+          onClick={onReset}
+          disabled={resetPending}
+        >
+          {resetPending ? "Suppression…" : "Supprimer la configuration"}
+        </Button>
+      </div>
+    </section>
   )
 }
 

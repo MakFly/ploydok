@@ -182,7 +182,7 @@ describe("GET /github/app/setup", () => {
     );
     expect(res.status).toBe(302);
     expect(res.headers.get("location")).toBe(
-      `${env.WEB_ORIGIN}/settings/github?installation_id=42&setup_action=install&installed=1`,
+      `${env.WEB_ORIGIN}/settings/git-providers/github?installation_id=42&setup_action=install&installed=1`,
     );
   });
 
@@ -198,7 +198,7 @@ describe("GET /github/app/setup", () => {
     );
     expect(res.status).toBe(302);
     expect(res.headers.get("location")).toBe(
-      `${env.WEB_ORIGIN}/settings/github?installation_id=42&setup_action=install&install_error=state_mismatch`,
+      `${env.WEB_ORIGIN}/settings/git-providers/github?installation_id=42&setup_action=install&install_error=state_mismatch`,
     );
   });
 });

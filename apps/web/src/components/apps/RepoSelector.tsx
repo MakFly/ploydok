@@ -37,7 +37,7 @@ export function RepoSelector({ selected, onSelect }: RepoSelectorProps): React.J
         <Button
           size="sm"
           variant="outline"
-          onClick={() => { window.location.href = "/settings/github"; }}
+          onClick={() => { window.location.href = "/settings/git-providers/github"; }}
         >
           Set up GitHub App
         </Button>

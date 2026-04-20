@@ -32,10 +32,7 @@ const TABS: ReadonlyArray<SettingsTab> = [
     to: "/settings/git-providers",
     label: "Git providers",
     icon: RiGitMergeLine,
-    matches: (p) =>
-      p.startsWith("/settings/git-providers") ||
-      p.startsWith("/settings/github") ||
-      p.startsWith("/settings/gitlab"),
+    matches: (p) => p.startsWith("/settings/git-providers"),
   },
 ]
 

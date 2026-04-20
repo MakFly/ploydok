@@ -235,7 +235,7 @@ gitlabRouter.get("/callback", async (c) => {
   });
 
   // Redirect back to the SPA settings page.
-  return c.redirect(`${env.WEB_ORIGIN}/settings/gitlab?connected=1`);
+  return c.redirect(`${env.WEB_ORIGIN}/settings/git-providers/gitlab?connected=1`);
 });
 
 // ---------------------------------------------------------------------------

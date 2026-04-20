@@ -1,195 +1,170 @@
 // SPDX-License-Identifier: AGPL-3.0-only
-import * as React from "react";
-import { createFileRoute } from "@tanstack/react-router";
-import { Button } from "@workspace/ui/components/button";
-import { ShellPage } from "../../../components/layout/AppShell";
-import { SettingsTabs } from "../../../components/settings/SettingsTabs";
+import * as React from "react"
+import { Button } from "@workspace/ui/components/button"
 import {
   useCreateGitHubApp,
   useGitHubAppConfig,
   useInstallations,
   useResetGitHubApp,
   useRevokeInstallation,
-} from "../../../lib/github";
-import type { AppInstallation } from "../../../lib/github";
+} from "../../../lib/github"
+import type { AppInstallation } from "../../../lib/github"
 
-export const Route = createFileRoute("/_authed/settings/github")({
-  component: GitHubSettingsPage,
-});
-
-function GitHubSettingsPage(): React.JSX.Element {
-  // Read ?app=created from the URL without validateSearch (avoids Link type errors)
+export function GitHubPanel(): React.JSX.Element {
   const appParam =
     typeof window !== "undefined"
       ? new URLSearchParams(window.location.search).get("app")
-      : null;
+      : null
 
-  const { data: appConfig, isLoading: appLoading } = useGitHubAppConfig();
-  const createApp = useCreateGitHubApp();
-  const resetApp = useResetGitHubApp();
-  const [resetError, setResetError] = React.useState<string | null>(null);
-  const [appSuccess, setAppSuccess] = React.useState<boolean>(appParam === "created");
+  const { data: appConfig, isLoading: appLoading } = useGitHubAppConfig()
+  const createApp = useCreateGitHubApp()
+  const resetApp = useResetGitHubApp()
+  const [resetError, setResetError] = React.useState<string | null>(null)
+  const [appSuccess, setAppSuccess] = React.useState<boolean>(appParam === "created")
 
   const handleCreateApp = async (): Promise<void> => {
     try {
-      const data = await createApp.mutateAsync();
-      // Build a hidden form and auto-submit it to GitHub
-      const form = document.createElement("form");
-      form.method = "POST";
-      form.action = data.post_url;
-      form.style.display = "none";
+      const data = await createApp.mutateAsync()
+      const form = document.createElement("form")
+      form.method = "POST"
+      form.action = data.post_url
+      form.style.display = "none"
 
-      const input = document.createElement("input");
-      input.type = "hidden";
-      input.name = "manifest";
-      input.value = JSON.stringify(data.manifest);
-      form.appendChild(input);
+      const input = document.createElement("input")
+      input.type = "hidden"
+      input.name = "manifest"
+      input.value = JSON.stringify(data.manifest)
+      form.appendChild(input)
 
-      document.body.appendChild(form);
-      form.submit();
+      document.body.appendChild(form)
+      form.submit()
     } catch {
       // createApp.error will be set by react-query
     }
-  };
+  }
 
   const handleResetApp = async (): Promise<void> => {
-    setResetError(null);
+    setResetError(null)
     try {
-      await resetApp.mutateAsync();
-      setAppSuccess(false);
+      await resetApp.mutateAsync()
+      setAppSuccess(false)
     } catch (err) {
-      setResetError(err instanceof Error ? err.message : "Failed to reset GitHub App");
+      setResetError(err instanceof Error ? err.message : "Failed to reset GitHub App")
     }
-  };
+  }
 
   return (
-    <ShellPage
-      title="GitHub"
-      description="Connect Ploydok to GitHub. Create the GitHub App once, then install it on any account or organization to grant access to repositories."
-      eyebrow="Settings · Integrations"
-    >
-      <div className="space-y-6">
-        <SettingsTabs />
-
-        {/* GitHub App section */}
-        <div>
-          <h2 className="text-base font-semibold">GitHub App</h2>
-          <p className="text-sm text-muted-foreground">
-            Create a GitHub App for your instance. Allows repo access across orgs without a personal token.
-          </p>
-        </div>
-
-        <div className="rounded-lg border border-border bg-card p-6 space-y-4">
-          {appSuccess && (
-            <p className="text-sm text-green-600 dark:text-green-400" role="status">
-              GitHub App created successfully.
-            </p>
-          )}
-          {appLoading ? (
-            <GitHubStatusSkeleton />
-          ) : appConfig?.configured ? (
-            <GitHubAppConfiguredState
-              name={appConfig.name!}
-              slug={appConfig.slug!}
-              installUrl={appConfig.install_url!}
-              isPending={resetApp.isPending}
-              onReset={() => void handleResetApp()}
-              error={resetError}
-            />
-          ) : (
-            <GitHubAppUnconfiguredState
-              isPending={createApp.isPending}
-              onCreate={() => void handleCreateApp()}
-              error={createApp.error?.message ?? null}
-            />
-          )}
-        </div>
-
-        {appConfig?.configured && <InstallationsCard />}
+    <div className="space-y-6">
+      <div>
+        <h2 className="text-base font-semibold">GitHub App</h2>
+        <p className="text-sm text-muted-foreground">
+          Create a GitHub App for your instance. Allows repo access across orgs without a personal token.
+        </p>
       </div>
-    </ShellPage>
-  );
+
+      <div className="rounded-lg border border-border bg-card p-6 space-y-4">
+        {appSuccess && (
+          <p className="text-sm text-green-600 dark:text-green-400" role="status">
+            GitHub App created successfully.
+          </p>
+        )}
+        {appLoading ? (
+          <GitHubStatusSkeleton />
+        ) : appConfig?.configured ? (
+          <GitHubAppConfiguredState
+            name={appConfig.name!}
+            slug={appConfig.slug!}
+            installUrl={appConfig.install_url!}
+            isPending={resetApp.isPending}
+            onReset={() => void handleResetApp()}
+            error={resetError}
+          />
+        ) : (
+          <GitHubAppUnconfiguredState
+            isPending={createApp.isPending}
+            onCreate={() => void handleCreateApp()}
+            error={createApp.error?.message ?? null}
+          />
+        )}
+      </div>
+
+      {appConfig?.configured && <InstallationsCard />}
+    </div>
+  )
 }
 
-// ---------------------------------------------------------------------------
-// Active installations (list + revoke)
-// ---------------------------------------------------------------------------
-
 function InstallationsCard(): React.JSX.Element {
-  const { data, isLoading, isFetching, error, refetch } = useInstallations();
-  const revoke = useRevokeInstallation();
-  const [pendingId, setPendingId] = React.useState<number | null>(null);
-  const [revokeError, setRevokeError] = React.useState<string | null>(null);
-  const [justInstalledId, setJustInstalledId] = React.useState<string | null>(null);
-  const [installError, setInstallError] = React.useState<string | null>(null);
+  const { data, isLoading, isFetching, error, refetch } = useInstallations()
+  const revoke = useRevokeInstallation()
+  const [pendingId, setPendingId] = React.useState<number | null>(null)
+  const [revokeError, setRevokeError] = React.useState<string | null>(null)
+  const [justInstalledId, setJustInstalledId] = React.useState<string | null>(null)
+  const [installError, setInstallError] = React.useState<string | null>(null)
 
-  // Return from GitHub install flow: the manifest declares `setup_url` so
-  // GitHub redirects back here with `?installation_id=X&setup_action=install`.
-  // We read those params once on mount, refetch the list, and clean the URL.
   React.useEffect(() => {
-    if (typeof window === "undefined") return;
-    const params = new URLSearchParams(window.location.search);
-    const installationId = params.get("installation_id");
-    const setupAction = params.get("setup_action");
-    const installed = params.get("installed");
-    const installErrorParam = params.get("install_error");
+    if (typeof window === "undefined") return
+    const params = new URLSearchParams(window.location.search)
+    const installationId = params.get("installation_id")
+    const setupAction = params.get("setup_action")
+    const installed = params.get("installed")
+    const installErrorParam = params.get("install_error")
 
     if (installErrorParam) {
       setInstallError(
         installErrorParam === "state_mismatch"
           ? "GitHub returned from installation with an invalid or expired state. Please retry."
           : "GitHub installation did not complete correctly. Please retry.",
-      );
+      )
     }
 
     if (!installationId || !setupAction) {
-      if (!installErrorParam) return;
-      params.delete("install_error");
-      const next = params.toString();
-      window.history.replaceState({}, "", `${window.location.pathname}${next ? `?${next}` : ""}`);
-      return;
+      if (!installErrorParam) return
+      params.delete("install_error")
+      const next = params.toString()
+      window.history.replaceState({}, "", `${window.location.pathname}${next ? `?${next}` : ""}`)
+      return
     }
 
-    setJustInstalledId(installationId);
-    setInstallError(null);
-    if (installed === "1") void refetch();
+    setJustInstalledId(installationId)
+    setInstallError(null)
+    if (installed === "1") void refetch()
 
-    // Clean the URL so a refresh doesn't re-trigger the banner.
-    params.delete("installation_id");
-    params.delete("setup_action");
-    params.delete("installed");
-    params.delete("install_error");
-    params.delete("state");
-    const next = params.toString();
-    window.history.replaceState({}, "", `${window.location.pathname}${next ? `?${next}` : ""}`);
+    params.delete("installation_id")
+    params.delete("setup_action")
+    params.delete("installed")
+    params.delete("install_error")
+    params.delete("state")
+    const next = params.toString()
+    window.history.replaceState({}, "", `${window.location.pathname}${next ? `?${next}` : ""}`)
 
-    const timer = setTimeout(() => setJustInstalledId(null), 6_000);
-    return () => clearTimeout(timer);
-  }, [refetch]);
+    const timer = setTimeout(() => setJustInstalledId(null), 6_000)
+    return () => clearTimeout(timer)
+  }, [refetch])
 
   const handleStartInstall = (url: string): void => {
-    if (typeof window === "undefined") return;
-    // Same-tab redirect: GitHub will bring the user back via setup_url after
-    // they finish selecting repositories — no polling or modal needed.
-    window.location.href = url;
-  };
+    if (typeof window === "undefined") return
+    window.location.href = url
+  }
 
   const handleRevoke = async (id: number, login: string): Promise<void> => {
-    setRevokeError(null);
-    if (typeof window !== "undefined" && !window.confirm(`Revoke Ploydok access from @${login}? You can reinstall from GitHub anytime.`)) {
-      return;
+    setRevokeError(null)
+    if (
+      typeof window !== "undefined" &&
+      !window.confirm(`Revoke Ploydok access from @${login}? You can reinstall from GitHub anytime.`)
+    ) {
+      return
     }
-    setPendingId(id);
+    setPendingId(id)
     try {
-      await revoke.mutateAsync(id);
+      await revoke.mutateAsync(id)
     } catch (err) {
-      setRevokeError(err instanceof Error ? err.message : "Failed to revoke installation");
+      setRevokeError(err instanceof Error ? err.message : "Failed to revoke installation")
     } finally {
-      setPendingId(null);
+      setPendingId(null)
     }
-  };
+  }
 
-  const installUrl = data?.installUrl ?? "";
+  const installUrl = data?.installUrl ?? ""
 
   return (
     <>
@@ -260,9 +235,8 @@ function InstallationsCard(): React.JSX.Element {
           </div>
         )}
       </div>
-
     </>
-  );
+  )
 }
 
 function InstallationRow({
@@ -270,17 +244,17 @@ function InstallationRow({
   isPending,
   onRevoke,
 }: {
-  installation: AppInstallation;
-  isPending: boolean;
-  onRevoke: () => void;
+  installation: AppInstallation
+  isPending: boolean
+  onRevoke: () => void
 }): React.JSX.Element {
-  const count = installation.repositoryCount;
+  const count = installation.repositoryCount
   const countLabel =
     count === null
       ? "unknown"
       : installation.repositorySelection === "all"
-      ? `all repositories`
-      : `${count} ${count === 1 ? "repository" : "repositories"}`;
+        ? `all repositories`
+        : `${count} ${count === 1 ? "repository" : "repositories"}`
 
   return (
     <li className="flex items-center gap-4 py-3 first:pt-0 last:pb-0">
@@ -312,15 +286,15 @@ function InstallationRow({
         {isPending ? "Revoking..." : "Revoke"}
       </Button>
     </li>
-  );
+  )
 }
 
 function InstallationsEmptyState({
   installUrl,
   onInstall,
 }: {
-  installUrl: string;
-  onInstall: () => void;
+  installUrl: string
+  onInstall: () => void
 }): React.JSX.Element {
   return (
     <div className="flex flex-col items-start gap-3">
@@ -333,12 +307,8 @@ function InstallationsEmptyState({
         </Button>
       )}
     </div>
-  );
+  )
 }
-
-// ---------------------------------------------------------------------------
-// Sub-components
-// ---------------------------------------------------------------------------
 
 function GitHubStatusSkeleton(): React.JSX.Element {
   return (
@@ -349,17 +319,13 @@ function GitHubStatusSkeleton(): React.JSX.Element {
         <div className="h-3 w-48 rounded bg-muted" />
       </div>
     </div>
-  );
+  )
 }
 
-// ---------------------------------------------------------------------------
-// GitHub App sub-components
-// ---------------------------------------------------------------------------
-
 interface GitHubAppUnconfiguredStateProps {
-  isPending: boolean;
-  onCreate: () => void;
-  error: string | null;
+  isPending: boolean
+  onCreate: () => void
+  error: string | null
 }
 
 function GitHubAppUnconfiguredState({
@@ -387,16 +353,16 @@ function GitHubAppUnconfiguredState({
         {isPending ? "Redirecting to GitHub..." : "Create GitHub App"}
       </Button>
     </div>
-  );
+  )
 }
 
 interface GitHubAppConfiguredStateProps {
-  name: string;
-  slug: string;
-  installUrl: string;
-  isPending: boolean;
-  onReset: () => void;
-  error: string | null;
+  name: string
+  slug: string
+  installUrl: string
+  isPending: boolean
+  onReset: () => void
+  error: string | null
 }
 
 function GitHubAppConfiguredState({
@@ -450,7 +416,7 @@ function GitHubAppConfiguredState({
         </Button>
       </div>
     </div>
-  );
+  )
 }
 
 function GitHubIcon({ className }: { className?: string }): React.JSX.Element {
@@ -464,5 +430,5 @@ function GitHubIcon({ className }: { className?: string }): React.JSX.Element {
     >
       <path d="M12 0C5.37 0 0 5.37 0 12c0 5.31 3.435 9.795 8.205 11.385.6.105.825-.255.825-.57 0-.285-.015-1.23-.015-2.235-3.015.555-3.795-.735-4.035-1.41-.135-.345-.72-1.41-1.23-1.695-.42-.225-1.02-.78-.015-.795.945-.015 1.62.87 1.845 1.23 1.08 1.815 2.805 1.305 3.495.99.105-.78.42-1.305.765-1.605-2.67-.3-5.46-1.335-5.46-5.925 0-1.305.465-2.385 1.23-3.225-.12-.3-.54-1.53.12-3.18 0 0 1.005-.315 3.3 1.23.96-.27 1.98-.405 3-.405s2.04.135 3 .405c2.295-1.56 3.3-1.23 3.3-1.23.66 1.65.24 2.88.12 3.18.765.84 1.23 1.905 1.23 3.225 0 4.605-2.805 5.625-5.475 5.925.435.375.81 1.095.81 2.22 0 1.605-.015 2.895-.015 3.3 0 .315.225.69.825.57A12.02 12.02 0 0 0 24 12c0-6.63-5.37-12-12-12z" />
     </svg>
-  );
+  )
 }

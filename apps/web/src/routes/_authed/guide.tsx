@@ -51,7 +51,7 @@ function GuidePage(): React.JSX.Element {
             title="1. Create the App"
             body="Use Settings > GitHub in Ploydok, then click Create GitHub App. Ploydok posts a manifest to GitHub."
             ctaLabel="Open GitHub settings"
-            to="/settings/github"
+            to="/settings/git-providers/$slug" params={{ slug: "github" }}
           />
           <QuickCard
             title="2. Install the App"
@@ -61,7 +61,7 @@ function GuidePage(): React.JSX.Element {
           />
           <QuickCard
             title="3. Confirm the return"
-            body="After Install, GitHub must return to /github/app/setup, then Ploydok must land back on /settings/github."
+            body="After Install, GitHub must return to /github/app/setup, then Ploydok must land back on /settings/git-providers/github."
             ctaLabel="Review expected URLs"
             to="#expected"
           />
@@ -95,7 +95,7 @@ function GuidePage(): React.JSX.Element {
           description="Ploydok creates a GitHub App manifest, GitHub converts it into a real app, then redirects back to Ploydok."
         >
           <ol className="space-y-3 text-sm leading-6 text-foreground">
-            <li>1. Open <Link to="/settings/github" className="text-primary underline-offset-2 hover:underline">Settings {"->"} GitHub</Link>.</li>
+            <li>1. Open <Link to="/settings/git-providers/$slug" params={{ slug: "github" }} className="text-primary underline-offset-2 hover:underline">Settings {"->"} GitHub</Link>.</li>
             <li>2. Click <strong>Create GitHub App</strong>.</li>
             <li>3. GitHub opens the App creation form with the manifest already injected.</li>
             <li>4. Confirm the creation on GitHub.</li>
@@ -103,7 +103,7 @@ function GuidePage(): React.JSX.Element {
           </ol>
 
           <Callout tone="neutral" title="Expected result">
-            You should land back on <code>/settings/github?app=created</code> with a green success state in Ploydok.
+            You should land back on <code>/settings/git-providers/github?app=created</code> with a green success state in Ploydok.
           </Callout>
 
           <CodeBlock
@@ -123,7 +123,7 @@ function GuidePage(): React.JSX.Element {
           description="The install button should not send you straight to a static GitHub URL anymore. It should go through the API start route first."
         >
           <ol className="space-y-3 text-sm leading-6 text-foreground">
-            <li>1. From <Link to="/settings/github" className="text-primary underline-offset-2 hover:underline">Settings {"->"} GitHub</Link>, click <strong>Install on GitHub</strong>.</li>
+            <li>1. From <Link to="/settings/git-providers/$slug" params={{ slug: "github" }} className="text-primary underline-offset-2 hover:underline">Settings {"->"} GitHub</Link>, click <strong>Install on GitHub</strong>.</li>
             <li>2. Ploydok redirects to <code>{installUrl}</code>.</li>
             <li>3. The API creates a signed state cookie, then redirects to GitHub <code>installations/new</code>.</li>
             <li>4. On GitHub, choose the target account or organization, then choose repository access.</li>
@@ -155,7 +155,7 @@ function GuidePage(): React.JSX.Element {
               "1. http://localhost:3335/github/installations/start",
               "2. https://github.com/apps/<slug>/installations/new?state=<signed-state>",
               "3. http://localhost:3335/github/app/setup?installation_id=...&setup_action=install&state=...",
-              "4. http://localhost:5173/settings/github?installation_id=...&setup_action=install&installed=1",
+              "4. http://localhost:5173/settings/git-providers/github?installation_id=...&setup_action=install&installed=1",
             ]}
           />
 
@@ -252,14 +252,19 @@ function QuickCard({
   body,
   ctaLabel,
   to,
+  params,
   href,
 }: {
   title: string;
   body: string;
   ctaLabel: string;
   to?: string;
+  params?: Record<string, string>;
   href?: string;
 }): React.JSX.Element {
+  const linkProps = to
+    ? ({ to, ...(params ? { params } : {}) } as Parameters<typeof Link>[0])
+    : null;
   return (
     <div className="rounded-2xl border border-border bg-card p-5 shadow-sm">
       <h2 className="text-base font-semibold">{title}</h2>
@@ -269,8 +274,8 @@ function QuickCard({
           <a href={to} className="text-sm font-medium text-primary underline-offset-2 hover:underline">
             {ctaLabel}
           </a>
-        ) : to ? (
-          <Link to={to} className="text-sm font-medium text-primary underline-offset-2 hover:underline">
+        ) : linkProps ? (
+          <Link {...linkProps} className="text-sm font-medium text-primary underline-offset-2 hover:underline">
             {ctaLabel}
           </Link>
         ) : href ? (

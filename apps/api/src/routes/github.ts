@@ -347,7 +347,7 @@ githubRouter.get("/app/setup", (c) => {
   else if (state || rawInstallStateCookie) params.set("install_error", "state_mismatch");
   const qs = params.toString();
   return c.redirect(
-    `${env.WEB_ORIGIN}/settings/github${qs ? `?${qs}` : ""}`,
+    `${env.WEB_ORIGIN}/settings/git-providers/github${qs ? `?${qs}` : ""}`,
     302,
   );
 });
@@ -460,7 +460,7 @@ githubRouter.get("/app/callback", async (c) => {
     webhook_secret_nonce: webhookSecretResult.nonce,
   });
 
-  return c.redirect(`${env.WEB_ORIGIN}/settings/github?app=created`, 302);
+  return c.redirect(`${env.WEB_ORIGIN}/settings/git-providers/github?app=created`, 302);
 });
 
 // ---------------------------------------------------------------------------

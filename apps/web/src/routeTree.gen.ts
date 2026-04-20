@@ -20,14 +20,13 @@ import { Route as AuthedDashboardRouteImport } from './routes/_authed/dashboard'
 import { Route as AuthedSettingsIndexRouteImport } from './routes/_authed/settings/index'
 import { Route as AuthedAppsIndexRouteImport } from './routes/_authed/apps/index'
 import { Route as AuthedSettingsSecurityRouteImport } from './routes/_authed/settings/security'
-import { Route as AuthedSettingsGitlabRouteImport } from './routes/_authed/settings/gitlab'
-import { Route as AuthedSettingsGithubRouteImport } from './routes/_authed/settings/github'
-import { Route as AuthedSettingsGitProvidersRouteImport } from './routes/_authed/settings/git-providers'
 import { Route as AuthedAppsIdRouteImport } from './routes/_authed/apps/$id'
+import { Route as AuthedSettingsGitProvidersIndexRouteImport } from './routes/_authed/settings/git-providers/index'
 import { Route as AuthedAppsIdIndexRouteImport } from './routes/_authed/apps/$id/index'
 import { Route as AuthedSettingsSecurityTotpRouteImport } from './routes/_authed/settings/security/totp'
 import { Route as AuthedSettingsSecuritySessionsRouteImport } from './routes/_authed/settings/security/sessions'
 import { Route as AuthedSettingsSecurityPasskeysRouteImport } from './routes/_authed/settings/security/passkeys'
+import { Route as AuthedSettingsGitProvidersSlugRouteImport } from './routes/_authed/settings/git-providers/$slug'
 import { Route as AuthedAppsIdShellRouteImport } from './routes/_authed/apps/$id/shell'
 import { Route as AuthedAppsIdSettingsRouteImport } from './routes/_authed/apps/$id/settings'
 import { Route as AuthedAppsIdOverviewRouteImport } from './routes/_authed/apps/$id/overview'
@@ -89,27 +88,17 @@ const AuthedSettingsSecurityRoute = AuthedSettingsSecurityRouteImport.update({
   path: '/settings/security',
   getParentRoute: () => AuthedRoute,
 } as any)
-const AuthedSettingsGitlabRoute = AuthedSettingsGitlabRouteImport.update({
-  id: '/settings/gitlab',
-  path: '/settings/gitlab',
-  getParentRoute: () => AuthedRoute,
-} as any)
-const AuthedSettingsGithubRoute = AuthedSettingsGithubRouteImport.update({
-  id: '/settings/github',
-  path: '/settings/github',
-  getParentRoute: () => AuthedRoute,
-} as any)
-const AuthedSettingsGitProvidersRoute =
-  AuthedSettingsGitProvidersRouteImport.update({
-    id: '/settings/git-providers',
-    path: '/settings/git-providers',
-    getParentRoute: () => AuthedRoute,
-  } as any)
 const AuthedAppsIdRoute = AuthedAppsIdRouteImport.update({
   id: '/apps/$id',
   path: '/apps/$id',
   getParentRoute: () => AuthedRoute,
 } as any)
+const AuthedSettingsGitProvidersIndexRoute =
+  AuthedSettingsGitProvidersIndexRouteImport.update({
+    id: '/settings/git-providers/',
+    path: '/settings/git-providers/',
+    getParentRoute: () => AuthedRoute,
+  } as any)
 const AuthedAppsIdIndexRoute = AuthedAppsIdIndexRouteImport.update({
   id: '/',
   path: '/',
@@ -132,6 +121,12 @@ const AuthedSettingsSecurityPasskeysRoute =
     id: '/passkeys',
     path: '/passkeys',
     getParentRoute: () => AuthedSettingsSecurityRoute,
+  } as any)
+const AuthedSettingsGitProvidersSlugRoute =
+  AuthedSettingsGitProvidersSlugRouteImport.update({
+    id: '/settings/git-providers/$slug',
+    path: '/settings/git-providers/$slug',
+    getParentRoute: () => AuthedRoute,
   } as any)
 const AuthedAppsIdShellRoute = AuthedAppsIdShellRouteImport.update({
   id: '/shell',
@@ -177,9 +172,6 @@ export interface FileRoutesByFullPath {
   '/login': typeof PublicLoginRoute
   '/register': typeof PublicRegisterRoute
   '/apps/$id': typeof AuthedAppsIdRouteWithChildren
-  '/settings/git-providers': typeof AuthedSettingsGitProvidersRoute
-  '/settings/github': typeof AuthedSettingsGithubRoute
-  '/settings/gitlab': typeof AuthedSettingsGitlabRoute
   '/settings/security': typeof AuthedSettingsSecurityRouteWithChildren
   '/apps/': typeof AuthedAppsIndexRoute
   '/settings/': typeof AuthedSettingsIndexRoute
@@ -190,10 +182,12 @@ export interface FileRoutesByFullPath {
   '/apps/$id/overview': typeof AuthedAppsIdOverviewRoute
   '/apps/$id/settings': typeof AuthedAppsIdSettingsRoute
   '/apps/$id/shell': typeof AuthedAppsIdShellRoute
+  '/settings/git-providers/$slug': typeof AuthedSettingsGitProvidersSlugRoute
   '/settings/security/passkeys': typeof AuthedSettingsSecurityPasskeysRoute
   '/settings/security/sessions': typeof AuthedSettingsSecuritySessionsRoute
   '/settings/security/totp': typeof AuthedSettingsSecurityTotpRoute
   '/apps/$id/': typeof AuthedAppsIdIndexRoute
+  '/settings/git-providers/': typeof AuthedSettingsGitProvidersIndexRoute
 }
 export interface FileRoutesByTo {
   '/': typeof PublicIndexRoute
@@ -202,9 +196,6 @@ export interface FileRoutesByTo {
   '/monitoring': typeof AuthedMonitoringRoute
   '/login': typeof PublicLoginRoute
   '/register': typeof PublicRegisterRoute
-  '/settings/git-providers': typeof AuthedSettingsGitProvidersRoute
-  '/settings/github': typeof AuthedSettingsGithubRoute
-  '/settings/gitlab': typeof AuthedSettingsGitlabRoute
   '/settings/security': typeof AuthedSettingsSecurityRouteWithChildren
   '/apps': typeof AuthedAppsIndexRoute
   '/settings': typeof AuthedSettingsIndexRoute
@@ -215,10 +206,12 @@ export interface FileRoutesByTo {
   '/apps/$id/overview': typeof AuthedAppsIdOverviewRoute
   '/apps/$id/settings': typeof AuthedAppsIdSettingsRoute
   '/apps/$id/shell': typeof AuthedAppsIdShellRoute
+  '/settings/git-providers/$slug': typeof AuthedSettingsGitProvidersSlugRoute
   '/settings/security/passkeys': typeof AuthedSettingsSecurityPasskeysRoute
   '/settings/security/sessions': typeof AuthedSettingsSecuritySessionsRoute
   '/settings/security/totp': typeof AuthedSettingsSecurityTotpRoute
   '/apps/$id': typeof AuthedAppsIdIndexRoute
+  '/settings/git-providers': typeof AuthedSettingsGitProvidersIndexRoute
 }
 export interface FileRoutesById {
   __root__: typeof rootRouteImport
@@ -231,9 +224,6 @@ export interface FileRoutesById {
   '/_public/register': typeof PublicRegisterRoute
   '/_public/': typeof PublicIndexRoute
   '/_authed/apps/$id': typeof AuthedAppsIdRouteWithChildren
-  '/_authed/settings/git-providers': typeof AuthedSettingsGitProvidersRoute
-  '/_authed/settings/github': typeof AuthedSettingsGithubRoute
-  '/_authed/settings/gitlab': typeof AuthedSettingsGitlabRoute
   '/_authed/settings/security': typeof AuthedSettingsSecurityRouteWithChildren
   '/_authed/apps/': typeof AuthedAppsIndexRoute
   '/_authed/settings/': typeof AuthedSettingsIndexRoute
@@ -244,10 +234,12 @@ export interface FileRoutesById {
   '/_authed/apps/$id/overview': typeof AuthedAppsIdOverviewRoute
   '/_authed/apps/$id/settings': typeof AuthedAppsIdSettingsRoute
   '/_authed/apps/$id/shell': typeof AuthedAppsIdShellRoute
+  '/_authed/settings/git-providers/$slug': typeof AuthedSettingsGitProvidersSlugRoute
   '/_authed/settings/security/passkeys': typeof AuthedSettingsSecurityPasskeysRoute
   '/_authed/settings/security/sessions': typeof AuthedSettingsSecuritySessionsRoute
   '/_authed/settings/security/totp': typeof AuthedSettingsSecurityTotpRoute
   '/_authed/apps/$id/': typeof AuthedAppsIdIndexRoute
+  '/_authed/settings/git-providers/': typeof AuthedSettingsGitProvidersIndexRoute
 }
 export interface FileRouteTypes {
   fileRoutesByFullPath: FileRoutesByFullPath
@@ -259,9 +251,6 @@ export interface FileRouteTypes {
     | '/login'
     | '/register'
     | '/apps/$id'
-    | '/settings/git-providers'
-    | '/settings/github'
-    | '/settings/gitlab'
     | '/settings/security'
     | '/apps/'
     | '/settings/'
@@ -272,10 +261,12 @@ export interface FileRouteTypes {
     | '/apps/$id/overview'
     | '/apps/$id/settings'
     | '/apps/$id/shell'
+    | '/settings/git-providers/$slug'
     | '/settings/security/passkeys'
     | '/settings/security/sessions'
     | '/settings/security/totp'
     | '/apps/$id/'
+    | '/settings/git-providers/'
   fileRoutesByTo: FileRoutesByTo
   to:
     | '/'
@@ -284,9 +275,6 @@ export interface FileRouteTypes {
     | '/monitoring'
     | '/login'
     | '/register'
-    | '/settings/git-providers'
-    | '/settings/github'
-    | '/settings/gitlab'
     | '/settings/security'
     | '/apps'
     | '/settings'
@@ -297,10 +285,12 @@ export interface FileRouteTypes {
     | '/apps/$id/overview'
     | '/apps/$id/settings'
     | '/apps/$id/shell'
+    | '/settings/git-providers/$slug'
     | '/settings/security/passkeys'
     | '/settings/security/sessions'
     | '/settings/security/totp'
     | '/apps/$id'
+    | '/settings/git-providers'
   id:
     | '__root__'
     | '/_authed'
@@ -312,9 +302,6 @@ export interface FileRouteTypes {
     | '/_public/register'
     | '/_public/'
     | '/_authed/apps/$id'
-    | '/_authed/settings/git-providers'
-    | '/_authed/settings/github'
-    | '/_authed/settings/gitlab'
     | '/_authed/settings/security'
     | '/_authed/apps/'
     | '/_authed/settings/'
@@ -325,10 +312,12 @@ export interface FileRouteTypes {
     | '/_authed/apps/$id/overview'
     | '/_authed/apps/$id/settings'
     | '/_authed/apps/$id/shell'
+    | '/_authed/settings/git-providers/$slug'
     | '/_authed/settings/security/passkeys'
     | '/_authed/settings/security/sessions'
     | '/_authed/settings/security/totp'
     | '/_authed/apps/$id/'
+    | '/_authed/settings/git-providers/'
   fileRoutesById: FileRoutesById
 }
 export interface RootRouteChildren {
@@ -415,32 +404,18 @@ declare module '@tanstack/react-router' {
       preLoaderRoute: typeof AuthedSettingsSecurityRouteImport
       parentRoute: typeof AuthedRoute
     }
-    '/_authed/settings/gitlab': {
-      id: '/_authed/settings/gitlab'
-      path: '/settings/gitlab'
-      fullPath: '/settings/gitlab'
-      preLoaderRoute: typeof AuthedSettingsGitlabRouteImport
-      parentRoute: typeof AuthedRoute
-    }
-    '/_authed/settings/github': {
-      id: '/_authed/settings/github'
-      path: '/settings/github'
-      fullPath: '/settings/github'
-      preLoaderRoute: typeof AuthedSettingsGithubRouteImport
-      parentRoute: typeof AuthedRoute
-    }
-    '/_authed/settings/git-providers': {
-      id: '/_authed/settings/git-providers'
-      path: '/settings/git-providers'
-      fullPath: '/settings/git-providers'
-      preLoaderRoute: typeof AuthedSettingsGitProvidersRouteImport
-      parentRoute: typeof AuthedRoute
-    }
     '/_authed/apps/$id': {
       id: '/_authed/apps/$id'
       path: '/apps/$id'
       fullPath: '/apps/$id'
       preLoaderRoute: typeof AuthedAppsIdRouteImport
+      parentRoute: typeof AuthedRoute
+    }
+    '/_authed/settings/git-providers/': {
+      id: '/_authed/settings/git-providers/'
+      path: '/settings/git-providers'
+      fullPath: '/settings/git-providers/'
+      preLoaderRoute: typeof AuthedSettingsGitProvidersIndexRouteImport
       parentRoute: typeof AuthedRoute
     }
     '/_authed/apps/$id/': {
@@ -470,6 +445,13 @@ declare module '@tanstack/react-router' {
       fullPath: '/settings/security/passkeys'
       preLoaderRoute: typeof AuthedSettingsSecurityPasskeysRouteImport
       parentRoute: typeof AuthedSettingsSecurityRoute
+    }
+    '/_authed/settings/git-providers/$slug': {
+      id: '/_authed/settings/git-providers/$slug'
+      path: '/settings/git-providers/$slug'
+      fullPath: '/settings/git-providers/$slug'
+      preLoaderRoute: typeof AuthedSettingsGitProvidersSlugRouteImport
+      parentRoute: typeof AuthedRoute
     }
     '/_authed/apps/$id/shell': {
       id: '/_authed/apps/$id/shell'
@@ -572,12 +554,11 @@ interface AuthedRouteChildren {
   AuthedGuideRoute: typeof AuthedGuideRoute
   AuthedMonitoringRoute: typeof AuthedMonitoringRoute
   AuthedAppsIdRoute: typeof AuthedAppsIdRouteWithChildren
-  AuthedSettingsGitProvidersRoute: typeof AuthedSettingsGitProvidersRoute
-  AuthedSettingsGithubRoute: typeof AuthedSettingsGithubRoute
-  AuthedSettingsGitlabRoute: typeof AuthedSettingsGitlabRoute
   AuthedSettingsSecurityRoute: typeof AuthedSettingsSecurityRouteWithChildren
   AuthedAppsIndexRoute: typeof AuthedAppsIndexRoute
   AuthedSettingsIndexRoute: typeof AuthedSettingsIndexRoute
+  AuthedSettingsGitProvidersSlugRoute: typeof AuthedSettingsGitProvidersSlugRoute
+  AuthedSettingsGitProvidersIndexRoute: typeof AuthedSettingsGitProvidersIndexRoute
 }
 
 const AuthedRouteChildren: AuthedRouteChildren = {
@@ -585,12 +566,11 @@ const AuthedRouteChildren: AuthedRouteChildren = {
   AuthedGuideRoute: AuthedGuideRoute,
   AuthedMonitoringRoute: AuthedMonitoringRoute,
   AuthedAppsIdRoute: AuthedAppsIdRouteWithChildren,
-  AuthedSettingsGitProvidersRoute: AuthedSettingsGitProvidersRoute,
-  AuthedSettingsGithubRoute: AuthedSettingsGithubRoute,
-  AuthedSettingsGitlabRoute: AuthedSettingsGitlabRoute,
   AuthedSettingsSecurityRoute: AuthedSettingsSecurityRouteWithChildren,
   AuthedAppsIndexRoute: AuthedAppsIndexRoute,
   AuthedSettingsIndexRoute: AuthedSettingsIndexRoute,
+  AuthedSettingsGitProvidersSlugRoute: AuthedSettingsGitProvidersSlugRoute,
+  AuthedSettingsGitProvidersIndexRoute: AuthedSettingsGitProvidersIndexRoute,
 }
 
 const AuthedRouteWithChildren =
@@ -618,12 +598,3 @@ const rootRouteChildren: RootRouteChildren = {
 export const routeTree = rootRouteImport
   ._addFileChildren(rootRouteChildren)
   ._addFileTypes<FileRouteTypes>()
-
-import type { getRouter } from './router.tsx'
-import type { createStart } from '@tanstack/react-start'
-declare module '@tanstack/react-start' {
-  interface Register {
-    ssr: true
-    router: Awaited<ReturnType<typeof getRouter>>
-  }
-}
