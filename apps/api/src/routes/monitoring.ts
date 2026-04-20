@@ -19,10 +19,14 @@ import { eventBus } from "../worker/event-bus"
 import { getSharedAgent } from "../debug/singletons"
 import {
   ContainerSnapshotSchema,
+  PLANS,
   type ContainerSnapshot,
   type ContainerStatus,
   type MonitoringOverview,
+  type PlanName,
 } from "@ploydok/shared"
+import { apps, projects } from "@ploydok/db"
+import { and, eq } from "drizzle-orm"
 import { resolveAppOwner } from "../queries/app-owner"
 import { createDb } from "@ploydok/db"
 import { env } from "../env"
@@ -130,6 +134,74 @@ monitoringRouter.get("/overview", async (c) => {
       503,
     )
   }
+})
+
+// ---------------------------------------------------------------------------
+// GET /fleet/quotas — aggregate declared quota usage across the caller's apps.
+//
+// For each app we use the plan limits when defined (PLANS[plan]); for apps in
+// `custom` plan we fall back to the explicit cpu_limit / mem_limit_bytes /
+// pids_limit columns (null means "no enforcement", counted as 0).
+// ---------------------------------------------------------------------------
+
+interface FleetQuotasResponse {
+  apps: number
+  running: number
+  cpu: { declared: number }
+  mem: { declared_bytes: number }
+  pids: { declared: number }
+}
+
+monitoringRouter.get("/fleet/quotas", async (c) => {
+  const user = c.get("user") as AuthUser | undefined
+  if (!user) {
+    return c.json(
+      { error: { code: "UNAUTHENTICATED", message: "Authentication required" } },
+      401,
+    )
+  }
+
+  const db = createDb(env.DATABASE_URL)
+  const rows = await db
+    .select({
+      status: apps.status,
+      plan: apps.plan,
+      cpu_limit: apps.cpu_limit,
+      mem_limit_bytes: apps.mem_limit_bytes,
+      pids_limit: apps.pids_limit,
+    })
+    .from(apps)
+    .innerJoin(projects, eq(apps.project_id, projects.id))
+    .where(and(eq(projects.owner_id, user.id)))
+
+  let cpuSum = 0
+  let memSum = 0
+  let pidsSum = 0
+  let running = 0
+
+  for (const r of rows) {
+    if (r.status === "running") running += 1
+    const plan = r.plan as PlanName
+    const limits = PLANS[plan]
+    if (limits) {
+      cpuSum += limits.cpu
+      memSum += limits.memMB * 1024 * 1024
+      pidsSum += limits.pids
+    } else {
+      cpuSum += r.cpu_limit ?? 0
+      memSum += r.mem_limit_bytes ?? 0
+      pidsSum += r.pids_limit ?? 0
+    }
+  }
+
+  const response: FleetQuotasResponse = {
+    apps: rows.length,
+    running,
+    cpu: { declared: Math.round(cpuSum * 1000) / 1000 },
+    mem: { declared_bytes: memSum },
+    pids: { declared: pidsSum },
+  }
+  return c.json(response)
 })
 
 // ---------------------------------------------------------------------------
