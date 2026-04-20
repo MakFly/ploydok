@@ -1,4 +1,4 @@
-.PHONY: help dev dev-agent db-migrate infra-up infra-down infra-logs build start test lint typecheck clean secrets-init
+.PHONY: help dev dev-agent db-migrate db-seed infra-up infra-down infra-logs build start test lint typecheck clean secrets-init dod
 
 # Ports locaux :
 #   API 3335 — Web 5173 — Caddy 8180/8543/2020 — Agent unix /tmp/ploydok-agent.sock
@@ -9,10 +9,12 @@ help:
 	@echo "  dev          - Lance web + api via turbo (http://localhost:5173 + :3335)"
 	@echo "  dev-agent    - Lance l'agent Rust (unix socket, insecure)"
 	@echo "  db-migrate   - Applique les migrations Postgres"
+	@echo "  db-seed      - Seed dev (user dev@ploydok.local + backup code DEVD-EVDE-VDEV)"
 	@echo "  secrets-init - Génère PLOYDOK_PG_PASSWORD + PLOYDOK_REDIS_PASSWORD dans .env.local"
 	@echo "  infra-up     - docker compose up (postgres + redis + caddy + buildkitd + registry)"
 	@echo "  infra-down   - cleanup infra"
 	@echo "  infra-logs   - tail logs Caddy"
+	@echo "  dod          - Lance les 11 specs Playwright DoD Sprint 3 (requiert infra + agent + dev up)"
 	@echo "  build/start/test/lint/typecheck/clean - délégués à turbo"
 
 dev:
@@ -93,3 +95,25 @@ typecheck:
 clean:
 	bunx turbo clean || true
 	rm -rf apps/web/.vite apps/web/dist apps/api/dist .turbo */.turbo **/*/.turbo 2>/dev/null || true
+
+# Exécute les 11 specs Playwright DoD Sprint 3 contre l'infra réelle.
+# Régénère docs/sprints/sprint-3-DoD.md à la fin avec les statuts + mesures.
+dod:
+	@echo "┌─ Pré-requis avant make dod ────────────────────────────────────┐"
+	@echo "│ 1. make infra-up       → postgres/redis/caddy/buildkit/registry│"
+	@echo "│ 2. make dev-agent      → dans un autre shell (daemon Rust)     │"
+	@echo "│ 3. make dev            → dans un autre shell (web + api)       │"
+	@echo "│ 4. make db-seed        → 1× (dev@ploydok.local + backup code)  │"
+	@echo "│ 5. GitHub App installée sur le compte de test                  │"
+	@echo "│    (via /settings/github dans l'UI web)                        │"
+	@echo "└────────────────────────────────────────────────────────────────┘"
+	@echo ""
+	@echo "Durée : ~5-15 min selon vitesse BuildKit + réseau GitHub."
+	@echo "Logs détaillés : test-results/dod-*/"
+	@echo ""
+	PLOYDOK_E2E_REAL=1 bun scripts/run-dod.ts
+
+# Seed dev DB : user dev@ploydok.local + project + backup code fixe (DEVD-EVDE-VDEV).
+# Utilisé par `make dod` pour skipper l'export des creds.
+db-seed:
+	bun --cwd packages/db run seed
