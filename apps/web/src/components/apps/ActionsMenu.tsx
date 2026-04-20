@@ -20,13 +20,14 @@ import {
   AlertDialogTitle,
 } from "@workspace/ui/components/alert-dialog"
 import { useBuilds } from "../../lib/apps"
-import type { AppDetail } from "../../lib/apps"
 import {
-  useStopApp,
+  useDeleteApp,
   useRestartApp,
   useRollbackApp,
-  useDeleteApp,
+  useStopApp,
 } from "../../lib/apps-mutations"
+import { useMe } from "../../lib/auth"
+import type { AppDetail } from "../../lib/apps"
 import type { Build } from "@ploydok/shared"
 
 // ---------------------------------------------------------------------------
@@ -55,6 +56,11 @@ export function ActionsMenu({ app }: ActionsMenuProps): React.JSX.Element {
   const rollback = useRollbackApp(app.id)
   const deleteApp = useDeleteApp(app.id)
   const { data: builds } = useBuilds(app.id)
+  const { data: me } = useMe()
+  const needs2FA = Boolean(me?.needs_second_factor)
+  const lockTitle = needs2FA
+    ? "Configurez un second facteur pour débloquer cette action."
+    : undefined
 
   const succeededBuilds = React.useMemo(
     () => (builds ?? []).filter((b: Build) => b.status === "succeeded").slice(0, 10),
@@ -131,22 +137,41 @@ export function ActionsMenu({ app }: ActionsMenuProps): React.JSX.Element {
           </Button>
         </DropdownMenuTrigger>
         <DropdownMenuContent align="end">
-          <DropdownMenuItem onClick={() => openDialogFor("restart")}>
+          <DropdownMenuItem
+            onClick={() => openDialogFor("restart")}
+            disabled={needs2FA}
+            title={lockTitle}
+          >
             Restart
           </DropdownMenuItem>
-          <DropdownMenuItem onClick={() => openDialogFor("stop")}>
+          <DropdownMenuItem
+            onClick={() => openDialogFor("stop")}
+            disabled={needs2FA}
+            title={lockTitle}
+          >
             Stop
           </DropdownMenuItem>
-          <DropdownMenuItem onClick={() => openDialogFor("rollback")}>
+          <DropdownMenuItem
+            onClick={() => openDialogFor("rollback")}
+            disabled={needs2FA}
+            title={lockTitle}
+          >
             Rollback
           </DropdownMenuItem>
           <DropdownMenuSeparator />
           <DropdownMenuItem
             className="text-destructive focus:text-destructive"
             onClick={() => openDialogFor("delete")}
+            disabled={needs2FA}
+            title={lockTitle}
           >
             Delete app
           </DropdownMenuItem>
+          {needs2FA ? (
+            <p className="px-2 pt-1 pb-0.5 text-[10px] text-muted-foreground leading-tight">
+              Second facteur requis — configurez-le depuis Settings → Security.
+            </p>
+          ) : null}
         </DropdownMenuContent>
       </DropdownMenu>
 

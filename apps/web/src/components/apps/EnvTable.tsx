@@ -27,6 +27,8 @@ export interface EnvTableProps {
   serverVars: Array<EnvVar>
   isSaving: boolean
   onSave: (vars: Array<EnvVarPatch>) => void
+  /** When set, Save is disabled with this tooltip (e.g. 2FA required). */
+  lockReason?: string
 }
 
 // ---------------------------------------------------------------------------
@@ -83,7 +85,7 @@ interface ImportDialogState {
   filename: string
 }
 
-export function EnvTable({ serverVars, isSaving, onSave }: EnvTableProps): React.JSX.Element {
+export function EnvTable({ serverVars, isSaving, onSave, lockReason }: EnvTableProps): React.JSX.Element {
   const [rows, setRows] = React.useState<Array<EditableVar>>(() => initEditable(serverVars))
   const [revealAll, setRevealAll] = React.useState(false)
   const [monacoDialog, setMonacoDialog] = React.useState<MonacoDialogState>({
@@ -354,8 +356,9 @@ export function EnvTable({ serverVars, isSaving, onSave }: EnvTableProps): React
           <Button
             type="button"
             size="sm"
-            disabled={!diff || isSaving || hasKeyErrors}
+            disabled={!diff || isSaving || hasKeyErrors || Boolean(lockReason)}
             onClick={handleSave}
+            title={lockReason}
           >
             {isSaving ? "Saving…" : "Save"}
           </Button>

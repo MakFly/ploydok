@@ -37,6 +37,8 @@ export interface DomainsTableProps {
   onAdd: (hostname: string) => void
   onDelete: (domainId: string) => void
   onRecheck: (domainId: string) => void
+  /** When set, add/delete are disabled with this tooltip (e.g. 2FA required). */
+  lockReason?: string
 }
 
 // ---------------------------------------------------------------------------
@@ -76,9 +78,10 @@ function TlsBadge({ status }: { status: Domain["tlsStatus"] }): React.JSX.Elemen
 interface AddDomainRowProps {
   isAdding: boolean
   onAdd: (hostname: string) => void
+  lockReason?: string
 }
 
-function AddDomainRow({ isAdding, onAdd }: AddDomainRowProps): React.JSX.Element {
+function AddDomainRow({ isAdding, onAdd, lockReason }: AddDomainRowProps): React.JSX.Element {
   const [value, setValue] = React.useState("")
   const [error, setError] = React.useState<string | undefined>()
 
@@ -117,7 +120,8 @@ function AddDomainRow({ isAdding, onAdd }: AddDomainRowProps): React.JSX.Element
               placeholder="app.example.com"
               aria-label="New hostname"
               className="h-8 w-full rounded-md border border-input bg-background px-3 text-sm placeholder:text-muted-foreground focus-visible:outline-none focus-visible:ring-1 focus-visible:ring-ring disabled:opacity-50"
-              disabled={isAdding}
+              disabled={isAdding || Boolean(lockReason)}
+              title={lockReason}
             />
             {error && <p className="text-[11px] text-destructive">{error}</p>}
           </div>
@@ -125,8 +129,9 @@ function AddDomainRow({ isAdding, onAdd }: AddDomainRowProps): React.JSX.Element
             type="submit"
             size="sm"
             variant="outline"
-            disabled={isAdding || !value.trim()}
+            disabled={isAdding || !value.trim() || Boolean(lockReason)}
             className="shrink-0"
+            title={lockReason}
           >
             {isAdding ? (
               <span className="flex items-center gap-1.5">
@@ -156,6 +161,7 @@ export function DomainsTable({
   onAdd,
   onDelete,
   onRecheck,
+  lockReason,
 }: DomainsTableProps): React.JSX.Element {
   return (
     <div className="w-full overflow-hidden rounded-lg border border-border">
@@ -219,13 +225,14 @@ export function DomainsTable({
                       domainId={domain.id}
                       isDeleting={isDeleting}
                       onDelete={onDelete}
+                      lockReason={lockReason}
                     />
                   </div>
                 </td>
               </tr>
             ))
           )}
-          <AddDomainRow isAdding={isAdding} onAdd={onAdd} />
+          <AddDomainRow isAdding={isAdding} onAdd={onAdd} lockReason={lockReason} />
         </tbody>
       </table>
     </div>
@@ -268,6 +275,7 @@ interface DeleteDomainButtonProps {
   domainId: string
   isDeleting: boolean
   onDelete: (domainId: string) => void
+  lockReason?: string
 }
 
 function DeleteDomainButton({
@@ -275,6 +283,7 @@ function DeleteDomainButton({
   domainId,
   isDeleting,
   onDelete,
+  lockReason,
 }: DeleteDomainButtonProps): React.JSX.Element {
   return (
     <AlertDialog>
@@ -283,8 +292,8 @@ function DeleteDomainButton({
           size="sm"
           variant="ghost"
           className="h-7 px-2 text-xs text-destructive hover:bg-destructive/10 hover:text-destructive"
-          disabled={isDeleting}
-          title={`Remove ${hostname}`}
+          disabled={isDeleting || Boolean(lockReason)}
+          title={lockReason ?? `Remove ${hostname}`}
         >
           <TrashIcon className="size-3.5" />
           <span className="sr-only">Delete</span>

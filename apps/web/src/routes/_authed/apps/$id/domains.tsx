@@ -3,6 +3,7 @@ import * as React from "react"
 import { createFileRoute } from "@tanstack/react-router"
 import { useAddDomain, useDeleteDomain, useDomains, useRecheckDomain } from "../../../../lib/apps-domains"
 import { DomainsTable } from "../../../../components/apps/DomainsTable"
+import { useMe } from "../../../../lib/auth"
 
 // ---------------------------------------------------------------------------
 // Route
@@ -23,6 +24,10 @@ function AppDomainsTab(): React.JSX.Element {
   const { mutate: addDomain, isPending: isAdding } = useAddDomain(appId)
   const { mutate: deleteDomain, isPending: isDeleting } = useDeleteDomain(appId)
   const { mutate: recheckDomain, isPending: isRechecking } = useRecheckDomain(appId)
+  const { data: me } = useMe()
+  const lockReason = me?.needs_second_factor
+    ? "Configurez un second facteur pour modifier les domaines."
+    : undefined
 
   if (isError) {
     return (
@@ -55,6 +60,7 @@ function AppDomainsTab(): React.JSX.Element {
         onAdd={(hostname) => addDomain({ hostname })}
         onDelete={(domainId) => deleteDomain({ domainId })}
         onRecheck={(domainId) => recheckDomain({ domainId })}
+        lockReason={lockReason}
       />
 
       <p className="px-1 text-[11px] text-muted-foreground">

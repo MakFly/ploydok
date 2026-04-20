@@ -11,8 +11,8 @@ import {
   RiFingerprintLine,
   RiKey2Line,
   RiMacbookLine,
-  RiShieldKeyholeLine,
   RiShieldCheckLine,
+  RiShieldKeyholeLine,
 } from "@remixicon/react"
 import { cn } from "@workspace/ui/lib/utils"
 import { ShellPage } from "../../../components/layout/AppShell"
@@ -45,10 +45,12 @@ function SecurityLayout(): React.JSX.Element {
   const passkeyCount = passkeys?.length ?? 0
   const otherSessions = sessions?.filter((s) => !s.is_current).length ?? 0
   const hasBackupCodes = me?.has_backup_codes ?? false
+  const hasTotp = me?.has_totp ?? false
 
   const passkeyStatus: PostureStatus =
     passkeyCount >= 2 ? "strong" : passkeyCount === 1 ? "fair" : "weak"
   const backupStatus: PostureStatus = hasBackupCodes ? "strong" : "weak"
+  const totpStatus: PostureStatus = hasTotp ? "strong" : "weak"
   const sessionStatus: PostureStatus =
     otherSessions === 0 ? "strong" : otherSessions <= 2 ? "fair" : "weak"
 
@@ -68,6 +70,16 @@ function SecurityLayout(): React.JSX.Element {
       status: passkeyStatus,
       icon: RiFingerprintLine,
       to: "/settings/security/passkeys",
+    },
+    {
+      label: "Authenticator app (TOTP)",
+      verdict: hasTotp ? "Enabled" : "Not configured",
+      hint: hasTotp
+        ? "A rotating 6-digit code from your authenticator app is enrolled."
+        : "Enroll TOTP to satisfy the second-factor requirement.",
+      status: totpStatus,
+      icon: RiShieldCheckLine,
+      to: "/settings/security/totp",
     },
     {
       label: "Backup codes",

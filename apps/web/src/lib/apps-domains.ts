@@ -2,6 +2,7 @@
 import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query"
 import { apiFetch } from "./api"
 import type { ApiError } from "./api"
+import { notifyMutationError } from "./second-factor-toast"
 import { toast } from "sonner"
 
 // ---------------------------------------------------------------------------
@@ -69,7 +70,7 @@ export function useAddDomain(appId: string) {
       void qc.invalidateQueries({ queryKey: domainsQueryKey(appId) })
     },
     onError: (error) => {
-      toast.error(error.message)
+      notifyMutationError(error, "Add domain failed")
     },
   })
 }
@@ -89,6 +90,9 @@ export function useDeleteDomain(appId: string) {
     },
     onSuccess: () => {
       void qc.invalidateQueries({ queryKey: domainsQueryKey(appId) })
+    },
+    onError: (error) => {
+      notifyMutationError(error, "Delete domain failed")
     },
   })
 }
