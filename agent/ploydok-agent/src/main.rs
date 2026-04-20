@@ -47,8 +47,8 @@ async fn main() -> anyhow::Result<()> {
         .init();
 
     // ── Socket path ──────────────────────────────────────────────────────────
-    let socket_path = std::env::var("PLOYDOK_AGENT_SOCKET")
-        .unwrap_or_else(|_| DEFAULT_SOCKET.to_string());
+    let socket_path =
+        std::env::var("PLOYDOK_AGENT_SOCKET").unwrap_or_else(|_| DEFAULT_SOCKET.to_string());
     let socket_path = Path::new(&socket_path);
 
     // Create parent directory if it doesn't exist.
@@ -92,17 +92,15 @@ async fn main() -> anyhow::Result<()> {
         .unwrap_or(false);
 
     if insecure {
-        warn!(
-            "⚠️  mTLS DÉSACTIVÉ (PLOYDOK_AGENT_INSECURE=1) — NE JAMAIS UTILISER EN PRODUCTION"
-        );
+        warn!("⚠️  mTLS DÉSACTIVÉ (PLOYDOK_AGENT_INSECURE=1) — NE JAMAIS UTILISER EN PRODUCTION");
         Server::builder()
             .add_service(svc)
             .serve_with_incoming(stream)
             .await?;
     } else {
         // ── PKI bootstrap ─────────────────────────────────────────────────────
-        let pki_dir = std::env::var("PLOYDOK_AGENT_PKI_DIR")
-            .unwrap_or_else(|_| DEFAULT_PKI_DIR.to_string());
+        let pki_dir =
+            std::env::var("PLOYDOK_AGENT_PKI_DIR").unwrap_or_else(|_| DEFAULT_PKI_DIR.to_string());
 
         let pki = pki::ensure_pki(&pki_dir)?;
 

@@ -269,6 +269,58 @@ message PingContainerResponse {
 }
 
 // ─────────────────────────────────────────────────────────────────────────────
+// ContainerExec (bidirectional streaming)
+// ─────────────────────────────────────────────────────────────────────────────
+
+// Multiplexed frame for the ContainerExec bidi stream.
+// Client sends: ExecStart (first), then stdin / resize frames.
+// Server sends: ExecReady, then stdout / stderr / exit frames.
+message ExecFrame {
+  oneof payload {
+    ExecStart  start  = 1;
+    bytes      stdin  = 2;
+    bytes      stdout = 3;
+    bytes      stderr = 4;
+    ExecResize resize = 5;
+    ExecExit   exit   = 6;
+    ExecReady  ready  = 7;
+  }
+}
+
+// First frame sent by the client — initialises the exec session.
+message ExecStart {
+  // Container name or id — must match the ploydok-* allowlist.
+  string container_id = 1;
+  // Command to run inside the container (e.g. ["/bin/sh"]).
+  repeated string cmd = 2;
+  // Allocate a pseudo-TTY.
+  bool tty = 3;
+  // Initial terminal width in columns.
+  uint32 cols = 4;
+  // Initial terminal height in rows.
+  uint32 rows = 5;
+  // Run as this user (e.g. "1000:1000"). Empty → image default.
+  string user = 6;
+}
+
+// Sent by the client to resize the terminal window.
+message ExecResize {
+  uint32 cols = 1;
+  uint32 rows = 2;
+}
+
+// Sent by the server when the exec'd process exits.
+message ExecExit {
+  int32 code = 1;
+}
+
+// Sent by the server once the exec session is ready (after create+start).
+message ExecReady {
+  // Docker exec id — useful for debugging / correlation.
+  string exec_id = 1;
+}
+
+// ─────────────────────────────────────────────────────────────────────────────
 // Service definition
 // ─────────────────────────────────────────────────────────────────────────────
 
@@ -294,4 +346,7 @@ service Agent {
   // Monitoring (snapshot + ad-hoc ping)
   rpc ListContainers  (ListContainersRequest)   returns (ListContainersResponse);
   rpc PingContainer   (PingContainerRequest)    returns (PingContainerResponse);
+
+  // Interactive shell (bidi streaming)
+  rpc ContainerExec   (stream ExecFrame)        returns (stream ExecFrame);
 }

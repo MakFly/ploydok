@@ -10,7 +10,7 @@ use std::path::Path;
 
 use ploydok_proto::agent::{
     ContainerCreateRequest, ContainerRemoveRequest, ContainerStartRequest, ContainerStopRequest,
-    ImageBuildRequest, ImagePullRequest, NetworkCreateRequest, NetworkRemoveRequest,
+    ExecStart, ImageBuildRequest, ImagePullRequest, NetworkCreateRequest, NetworkRemoveRequest,
 };
 use serde::{Deserialize, Serialize};
 use tonic::Status;
@@ -33,6 +33,7 @@ pub trait Validator: Send + Sync + 'static {
     fn validate_image_build(&self, req: &ImageBuildRequest) -> ValidatorResult;
     fn validate_network_create(&self, req: &NetworkCreateRequest) -> ValidatorResult;
     fn validate_network_remove(&self, req: &NetworkRemoveRequest) -> ValidatorResult;
+    fn validate_container_exec(&self, req: &ExecStart) -> ValidatorResult;
 }
 
 // ─────────────────────────────────────────────────────────────────────────────
@@ -69,6 +70,9 @@ impl Validator for PermissiveValidator {
         Ok(())
     }
     fn validate_network_remove(&self, _req: &NetworkRemoveRequest) -> ValidatorResult {
+        Ok(())
+    }
+    fn validate_container_exec(&self, _req: &ExecStart) -> ValidatorResult {
         Ok(())
     }
 }
@@ -178,8 +182,7 @@ impl StrictValidator {
 
 /// Build a denied `Status` with a JSON-encoded rule detail in the message.
 fn deny(code: tonic::Code, rule: &str, detail: impl Serialize) -> Box<Status> {
-    let detail_json =
-        serde_json::to_string(&detail).unwrap_or_else(|_| "{}".to_string());
+    let detail_json = serde_json::to_string(&detail).unwrap_or_else(|_| "{}".to_string());
     let msg = format!("Requête refusée — règle: {rule} — {detail_json}");
     tracing::warn!(rule = rule, detail = %detail_json, "validator: accès refusé");
     Box::new(Status::new(code, msg))
@@ -233,8 +236,8 @@ impl Validator for StrictValidator {
     fn validate_container_create(&self, req: &ContainerCreateRequest) -> ValidatorResult {
         // 1. Name: must match ^ploydok-[a-z0-9][a-z0-9-]{0,62}$
         {
-            let name_re = regex_lite::Regex::new(r"^ploydok-[a-z0-9][a-z0-9-]{0,62}$")
-                .expect("static regex");
+            let name_re =
+                regex_lite::Regex::new(r"^ploydok-[a-z0-9][a-z0-9-]{0,62}$").expect("static regex");
             if !name_re.is_match(&req.name) {
                 return Err(deny(
                     tonic::Code::InvalidArgument,
@@ -307,7 +310,9 @@ impl Validator for StrictValidator {
         }
 
         // 6. User: must not be root/0 if specified.
-        if !req.user.is_empty() && (req.user == "root" || req.user == "0" || req.user.starts_with("0:")) {
+        if !req.user.is_empty()
+            && (req.user == "root" || req.user == "0" || req.user.starts_with("0:"))
+        {
             return Err(deny(
                 tonic::Code::PermissionDenied,
                 "user_root_forbidden",
@@ -478,6 +483,70 @@ impl Validator for StrictValidator {
                 serde_json::json!({ "network_id": &req.network_id }),
             ));
         }
+        Ok(())
+    }
+
+    fn validate_container_exec(&self, req: &ExecStart) -> ValidatorResult {
+        // 1. container_id: non-empty; if a name (not sha256/short-id), must start with ploydok-.
+        if req.container_id.is_empty() {
+            return Err(deny(
+                tonic::Code::InvalidArgument,
+                "container_id_empty",
+                serde_json::json!({ "container_id": "" }),
+            ));
+        }
+        if !req.container_id.starts_with("sha256:")
+            && !looks_like_short_id(&req.container_id)
+            && !req.container_id.starts_with("ploydok-")
+        {
+            return Err(deny(
+                tonic::Code::PermissionDenied,
+                "container_name_prefix",
+                serde_json::json!({ "container_id": &req.container_id }),
+            ));
+        }
+
+        // 2. cmd: at least one element; cmd[0] must be an allowed shell binary.
+        if req.cmd.is_empty() {
+            return Err(deny(
+                tonic::Code::InvalidArgument,
+                "exec_cmd_empty",
+                serde_json::json!({ "cmd": serde_json::Value::Array(vec![]) }),
+            ));
+        }
+        const ALLOWED_SHELLS: &[&str] = &["/bin/sh", "/bin/bash", "sh", "bash"];
+        if !ALLOWED_SHELLS.contains(&req.cmd[0].as_str()) {
+            return Err(deny(
+                tonic::Code::PermissionDenied,
+                "exec_cmd_not_allowed",
+                serde_json::json!({
+                    "cmd0": &req.cmd[0],
+                    "allowed": ALLOWED_SHELLS
+                }),
+            ));
+        }
+
+        // 3. user: max 32 chars, alphanumeric + ":" (uid:gid or name).
+        if !req.user.is_empty() {
+            if req.user.len() > 32 {
+                return Err(deny(
+                    tonic::Code::InvalidArgument,
+                    "exec_user_too_long",
+                    serde_json::json!({ "user": &req.user, "max_len": 32 }),
+                ));
+            }
+            if !req.user.chars().all(|c| c.is_alphanumeric() || c == ':') {
+                return Err(deny(
+                    tonic::Code::InvalidArgument,
+                    "exec_user_invalid_chars",
+                    serde_json::json!({
+                        "user": &req.user,
+                        "allowed_chars": "alphanumeric and ':'"
+                    }),
+                ));
+            }
+        }
+
         Ok(())
     }
 }

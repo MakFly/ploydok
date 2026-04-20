@@ -4,7 +4,7 @@
 //
 // Tests unitaires sur StrictValidator directement (pas de bollard nécessaire).
 
-use ploydok_agent::validator::{StrictValidator, ValidatorConfig, Validator};
+use ploydok_agent::validator::{StrictValidator, Validator, ValidatorConfig};
 use ploydok_proto::agent::{
     ContainerCreateRequest, ImageBuildRequest, ImagePullRequest, NetworkCreateRequest,
     ResourceLimits, VolumeMount,

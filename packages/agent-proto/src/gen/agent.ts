@@ -10,9 +10,11 @@ import {
   type CallOptions,
   type ChannelCredentials,
   Client,
+  type ClientDuplexStream,
   type ClientOptions,
   type ClientReadableStream,
   type ClientUnaryCall,
+  type handleBidiStreamingCall,
   type handleServerStreamingCall,
   type handleUnaryCall,
   makeGenericClientConstructor,
@@ -271,6 +273,54 @@ export interface PingContainerResponse {
   latencyMs: number;
   /** empty if ok */
   error: string;
+}
+
+/**
+ * Multiplexed frame for the ContainerExec bidi stream.
+ * Client sends: ExecStart (first), then stdin / resize frames.
+ * Server sends: ExecReady, then stdout / stderr / exit frames.
+ */
+export interface ExecFrame {
+  start?: ExecStart | undefined;
+  stdin?: Uint8Array | undefined;
+  stdout?: Uint8Array | undefined;
+  stderr?: Uint8Array | undefined;
+  resize?: ExecResize | undefined;
+  exit?: ExecExit | undefined;
+  ready?: ExecReady | undefined;
+}
+
+/** First frame sent by the client — initialises the exec session. */
+export interface ExecStart {
+  /** Container name or id — must match the ploydok-* allowlist. */
+  containerId: string;
+  /** Command to run inside the container (e.g. ["/bin/sh"]). */
+  cmd: string[];
+  /** Allocate a pseudo-TTY. */
+  tty: boolean;
+  /** Initial terminal width in columns. */
+  cols: number;
+  /** Initial terminal height in rows. */
+  rows: number;
+  /** Run as this user (e.g. "1000:1000"). Empty → image default. */
+  user: string;
+}
+
+/** Sent by the client to resize the terminal window. */
+export interface ExecResize {
+  cols: number;
+  rows: number;
+}
+
+/** Sent by the server when the exec'd process exits. */
+export interface ExecExit {
+  code: number;
+}
+
+/** Sent by the server once the exec session is ready (after create+start). */
+export interface ExecReady {
+  /** Docker exec id — useful for debugging / correlation. */
+  execId: string;
 }
 
 function createBaseVolumeMount(): VolumeMount {
@@ -3546,6 +3596,518 @@ export const PingContainerResponse: MessageFns<PingContainerResponse> = {
   },
 };
 
+function createBaseExecFrame(): ExecFrame {
+  return {
+    start: undefined,
+    stdin: undefined,
+    stdout: undefined,
+    stderr: undefined,
+    resize: undefined,
+    exit: undefined,
+    ready: undefined,
+  };
+}
+
+export const ExecFrame: MessageFns<ExecFrame> = {
+  encode(message: ExecFrame, writer: BinaryWriter = new BinaryWriter()): BinaryWriter {
+    if (message.start !== undefined) {
+      ExecStart.encode(message.start, writer.uint32(10).fork()).join();
+    }
+    if (message.stdin !== undefined) {
+      writer.uint32(18).bytes(message.stdin);
+    }
+    if (message.stdout !== undefined) {
+      writer.uint32(26).bytes(message.stdout);
+    }
+    if (message.stderr !== undefined) {
+      writer.uint32(34).bytes(message.stderr);
+    }
+    if (message.resize !== undefined) {
+      ExecResize.encode(message.resize, writer.uint32(42).fork()).join();
+    }
+    if (message.exit !== undefined) {
+      ExecExit.encode(message.exit, writer.uint32(50).fork()).join();
+    }
+    if (message.ready !== undefined) {
+      ExecReady.encode(message.ready, writer.uint32(58).fork()).join();
+    }
+    return writer;
+  },
+
+  decode(input: BinaryReader | Uint8Array, length?: number): ExecFrame {
+    const reader = input instanceof BinaryReader ? input : new BinaryReader(input);
+    const end = length === undefined ? reader.len : reader.pos + length;
+    const message = createBaseExecFrame();
+    while (reader.pos < end) {
+      const tag = reader.uint32();
+      switch (tag >>> 3) {
+        case 1: {
+          if (tag !== 10) {
+            break;
+          }
+
+          message.start = ExecStart.decode(reader, reader.uint32());
+          continue;
+        }
+        case 2: {
+          if (tag !== 18) {
+            break;
+          }
+
+          message.stdin = reader.bytes();
+          continue;
+        }
+        case 3: {
+          if (tag !== 26) {
+            break;
+          }
+
+          message.stdout = reader.bytes();
+          continue;
+        }
+        case 4: {
+          if (tag !== 34) {
+            break;
+          }
+
+          message.stderr = reader.bytes();
+          continue;
+        }
+        case 5: {
+          if (tag !== 42) {
+            break;
+          }
+
+          message.resize = ExecResize.decode(reader, reader.uint32());
+          continue;
+        }
+        case 6: {
+          if (tag !== 50) {
+            break;
+          }
+
+          message.exit = ExecExit.decode(reader, reader.uint32());
+          continue;
+        }
+        case 7: {
+          if (tag !== 58) {
+            break;
+          }
+
+          message.ready = ExecReady.decode(reader, reader.uint32());
+          continue;
+        }
+      }
+      if ((tag & 7) === 4 || tag === 0) {
+        break;
+      }
+      reader.skip(tag & 7);
+    }
+    return message;
+  },
+
+  fromJSON(object: any): ExecFrame {
+    return {
+      start: isSet(object.start) ? ExecStart.fromJSON(object.start) : undefined,
+      stdin: isSet(object.stdin) ? bytesFromBase64(object.stdin) : undefined,
+      stdout: isSet(object.stdout) ? bytesFromBase64(object.stdout) : undefined,
+      stderr: isSet(object.stderr) ? bytesFromBase64(object.stderr) : undefined,
+      resize: isSet(object.resize) ? ExecResize.fromJSON(object.resize) : undefined,
+      exit: isSet(object.exit) ? ExecExit.fromJSON(object.exit) : undefined,
+      ready: isSet(object.ready) ? ExecReady.fromJSON(object.ready) : undefined,
+    };
+  },
+
+  toJSON(message: ExecFrame): unknown {
+    const obj: any = {};
+    if (message.start !== undefined) {
+      obj.start = ExecStart.toJSON(message.start);
+    }
+    if (message.stdin !== undefined) {
+      obj.stdin = base64FromBytes(message.stdin);
+    }
+    if (message.stdout !== undefined) {
+      obj.stdout = base64FromBytes(message.stdout);
+    }
+    if (message.stderr !== undefined) {
+      obj.stderr = base64FromBytes(message.stderr);
+    }
+    if (message.resize !== undefined) {
+      obj.resize = ExecResize.toJSON(message.resize);
+    }
+    if (message.exit !== undefined) {
+      obj.exit = ExecExit.toJSON(message.exit);
+    }
+    if (message.ready !== undefined) {
+      obj.ready = ExecReady.toJSON(message.ready);
+    }
+    return obj;
+  },
+
+  create(base?: DeepPartial<ExecFrame>): ExecFrame {
+    return ExecFrame.fromPartial(base ?? {});
+  },
+  fromPartial(object: DeepPartial<ExecFrame>): ExecFrame {
+    const message = createBaseExecFrame();
+    message.start = (object.start !== undefined && object.start !== null)
+      ? ExecStart.fromPartial(object.start)
+      : undefined;
+    message.stdin = object.stdin ?? undefined;
+    message.stdout = object.stdout ?? undefined;
+    message.stderr = object.stderr ?? undefined;
+    message.resize = (object.resize !== undefined && object.resize !== null)
+      ? ExecResize.fromPartial(object.resize)
+      : undefined;
+    message.exit = (object.exit !== undefined && object.exit !== null) ? ExecExit.fromPartial(object.exit) : undefined;
+    message.ready = (object.ready !== undefined && object.ready !== null)
+      ? ExecReady.fromPartial(object.ready)
+      : undefined;
+    return message;
+  },
+};
+
+function createBaseExecStart(): ExecStart {
+  return { containerId: "", cmd: [], tty: false, cols: 0, rows: 0, user: "" };
+}
+
+export const ExecStart: MessageFns<ExecStart> = {
+  encode(message: ExecStart, writer: BinaryWriter = new BinaryWriter()): BinaryWriter {
+    if (message.containerId !== "") {
+      writer.uint32(10).string(message.containerId);
+    }
+    for (const v of message.cmd) {
+      writer.uint32(18).string(v!);
+    }
+    if (message.tty !== false) {
+      writer.uint32(24).bool(message.tty);
+    }
+    if (message.cols !== 0) {
+      writer.uint32(32).uint32(message.cols);
+    }
+    if (message.rows !== 0) {
+      writer.uint32(40).uint32(message.rows);
+    }
+    if (message.user !== "") {
+      writer.uint32(50).string(message.user);
+    }
+    return writer;
+  },
+
+  decode(input: BinaryReader | Uint8Array, length?: number): ExecStart {
+    const reader = input instanceof BinaryReader ? input : new BinaryReader(input);
+    const end = length === undefined ? reader.len : reader.pos + length;
+    const message = createBaseExecStart();
+    while (reader.pos < end) {
+      const tag = reader.uint32();
+      switch (tag >>> 3) {
+        case 1: {
+          if (tag !== 10) {
+            break;
+          }
+
+          message.containerId = reader.string();
+          continue;
+        }
+        case 2: {
+          if (tag !== 18) {
+            break;
+          }
+
+          message.cmd.push(reader.string());
+          continue;
+        }
+        case 3: {
+          if (tag !== 24) {
+            break;
+          }
+
+          message.tty = reader.bool();
+          continue;
+        }
+        case 4: {
+          if (tag !== 32) {
+            break;
+          }
+
+          message.cols = reader.uint32();
+          continue;
+        }
+        case 5: {
+          if (tag !== 40) {
+            break;
+          }
+
+          message.rows = reader.uint32();
+          continue;
+        }
+        case 6: {
+          if (tag !== 50) {
+            break;
+          }
+
+          message.user = reader.string();
+          continue;
+        }
+      }
+      if ((tag & 7) === 4 || tag === 0) {
+        break;
+      }
+      reader.skip(tag & 7);
+    }
+    return message;
+  },
+
+  fromJSON(object: any): ExecStart {
+    return {
+      containerId: isSet(object.containerId)
+        ? globalThis.String(object.containerId)
+        : isSet(object.container_id)
+        ? globalThis.String(object.container_id)
+        : "",
+      cmd: globalThis.Array.isArray(object?.cmd) ? object.cmd.map((e: any) => globalThis.String(e)) : [],
+      tty: isSet(object.tty) ? globalThis.Boolean(object.tty) : false,
+      cols: isSet(object.cols) ? globalThis.Number(object.cols) : 0,
+      rows: isSet(object.rows) ? globalThis.Number(object.rows) : 0,
+      user: isSet(object.user) ? globalThis.String(object.user) : "",
+    };
+  },
+
+  toJSON(message: ExecStart): unknown {
+    const obj: any = {};
+    if (message.containerId !== "") {
+      obj.containerId = message.containerId;
+    }
+    if (message.cmd?.length) {
+      obj.cmd = message.cmd;
+    }
+    if (message.tty !== false) {
+      obj.tty = message.tty;
+    }
+    if (message.cols !== 0) {
+      obj.cols = Math.round(message.cols);
+    }
+    if (message.rows !== 0) {
+      obj.rows = Math.round(message.rows);
+    }
+    if (message.user !== "") {
+      obj.user = message.user;
+    }
+    return obj;
+  },
+
+  create(base?: DeepPartial<ExecStart>): ExecStart {
+    return ExecStart.fromPartial(base ?? {});
+  },
+  fromPartial(object: DeepPartial<ExecStart>): ExecStart {
+    const message = createBaseExecStart();
+    message.containerId = object.containerId ?? "";
+    message.cmd = object.cmd?.map((e) => e) || [];
+    message.tty = object.tty ?? false;
+    message.cols = object.cols ?? 0;
+    message.rows = object.rows ?? 0;
+    message.user = object.user ?? "";
+    return message;
+  },
+};
+
+function createBaseExecResize(): ExecResize {
+  return { cols: 0, rows: 0 };
+}
+
+export const ExecResize: MessageFns<ExecResize> = {
+  encode(message: ExecResize, writer: BinaryWriter = new BinaryWriter()): BinaryWriter {
+    if (message.cols !== 0) {
+      writer.uint32(8).uint32(message.cols);
+    }
+    if (message.rows !== 0) {
+      writer.uint32(16).uint32(message.rows);
+    }
+    return writer;
+  },
+
+  decode(input: BinaryReader | Uint8Array, length?: number): ExecResize {
+    const reader = input instanceof BinaryReader ? input : new BinaryReader(input);
+    const end = length === undefined ? reader.len : reader.pos + length;
+    const message = createBaseExecResize();
+    while (reader.pos < end) {
+      const tag = reader.uint32();
+      switch (tag >>> 3) {
+        case 1: {
+          if (tag !== 8) {
+            break;
+          }
+
+          message.cols = reader.uint32();
+          continue;
+        }
+        case 2: {
+          if (tag !== 16) {
+            break;
+          }
+
+          message.rows = reader.uint32();
+          continue;
+        }
+      }
+      if ((tag & 7) === 4 || tag === 0) {
+        break;
+      }
+      reader.skip(tag & 7);
+    }
+    return message;
+  },
+
+  fromJSON(object: any): ExecResize {
+    return {
+      cols: isSet(object.cols) ? globalThis.Number(object.cols) : 0,
+      rows: isSet(object.rows) ? globalThis.Number(object.rows) : 0,
+    };
+  },
+
+  toJSON(message: ExecResize): unknown {
+    const obj: any = {};
+    if (message.cols !== 0) {
+      obj.cols = Math.round(message.cols);
+    }
+    if (message.rows !== 0) {
+      obj.rows = Math.round(message.rows);
+    }
+    return obj;
+  },
+
+  create(base?: DeepPartial<ExecResize>): ExecResize {
+    return ExecResize.fromPartial(base ?? {});
+  },
+  fromPartial(object: DeepPartial<ExecResize>): ExecResize {
+    const message = createBaseExecResize();
+    message.cols = object.cols ?? 0;
+    message.rows = object.rows ?? 0;
+    return message;
+  },
+};
+
+function createBaseExecExit(): ExecExit {
+  return { code: 0 };
+}
+
+export const ExecExit: MessageFns<ExecExit> = {
+  encode(message: ExecExit, writer: BinaryWriter = new BinaryWriter()): BinaryWriter {
+    if (message.code !== 0) {
+      writer.uint32(8).int32(message.code);
+    }
+    return writer;
+  },
+
+  decode(input: BinaryReader | Uint8Array, length?: number): ExecExit {
+    const reader = input instanceof BinaryReader ? input : new BinaryReader(input);
+    const end = length === undefined ? reader.len : reader.pos + length;
+    const message = createBaseExecExit();
+    while (reader.pos < end) {
+      const tag = reader.uint32();
+      switch (tag >>> 3) {
+        case 1: {
+          if (tag !== 8) {
+            break;
+          }
+
+          message.code = reader.int32();
+          continue;
+        }
+      }
+      if ((tag & 7) === 4 || tag === 0) {
+        break;
+      }
+      reader.skip(tag & 7);
+    }
+    return message;
+  },
+
+  fromJSON(object: any): ExecExit {
+    return { code: isSet(object.code) ? globalThis.Number(object.code) : 0 };
+  },
+
+  toJSON(message: ExecExit): unknown {
+    const obj: any = {};
+    if (message.code !== 0) {
+      obj.code = Math.round(message.code);
+    }
+    return obj;
+  },
+
+  create(base?: DeepPartial<ExecExit>): ExecExit {
+    return ExecExit.fromPartial(base ?? {});
+  },
+  fromPartial(object: DeepPartial<ExecExit>): ExecExit {
+    const message = createBaseExecExit();
+    message.code = object.code ?? 0;
+    return message;
+  },
+};
+
+function createBaseExecReady(): ExecReady {
+  return { execId: "" };
+}
+
+export const ExecReady: MessageFns<ExecReady> = {
+  encode(message: ExecReady, writer: BinaryWriter = new BinaryWriter()): BinaryWriter {
+    if (message.execId !== "") {
+      writer.uint32(10).string(message.execId);
+    }
+    return writer;
+  },
+
+  decode(input: BinaryReader | Uint8Array, length?: number): ExecReady {
+    const reader = input instanceof BinaryReader ? input : new BinaryReader(input);
+    const end = length === undefined ? reader.len : reader.pos + length;
+    const message = createBaseExecReady();
+    while (reader.pos < end) {
+      const tag = reader.uint32();
+      switch (tag >>> 3) {
+        case 1: {
+          if (tag !== 10) {
+            break;
+          }
+
+          message.execId = reader.string();
+          continue;
+        }
+      }
+      if ((tag & 7) === 4 || tag === 0) {
+        break;
+      }
+      reader.skip(tag & 7);
+    }
+    return message;
+  },
+
+  fromJSON(object: any): ExecReady {
+    return {
+      execId: isSet(object.execId)
+        ? globalThis.String(object.execId)
+        : isSet(object.exec_id)
+        ? globalThis.String(object.exec_id)
+        : "",
+    };
+  },
+
+  toJSON(message: ExecReady): unknown {
+    const obj: any = {};
+    if (message.execId !== "") {
+      obj.execId = message.execId;
+    }
+    return obj;
+  },
+
+  create(base?: DeepPartial<ExecReady>): ExecReady {
+    return ExecReady.fromPartial(base ?? {});
+  },
+  fromPartial(object: DeepPartial<ExecReady>): ExecReady {
+    const message = createBaseExecReady();
+    message.execId = object.execId ?? "";
+    return message;
+  },
+};
+
 export type AgentService = typeof AgentService;
 export const AgentService = {
   /** Container lifecycle */
@@ -3674,6 +4236,16 @@ export const AgentService = {
       Buffer.from(PingContainerResponse.encode(value).finish()),
     responseDeserialize: (value: Buffer): PingContainerResponse => PingContainerResponse.decode(value),
   },
+  /** Interactive shell (bidi streaming) */
+  containerExec: {
+    path: "/ploydok.agent.v1.Agent/ContainerExec" as const,
+    requestStream: true as const,
+    responseStream: true as const,
+    requestSerialize: (value: ExecFrame): Buffer => Buffer.from(ExecFrame.encode(value).finish()),
+    requestDeserialize: (value: Buffer): ExecFrame => ExecFrame.decode(value),
+    responseSerialize: (value: ExecFrame): Buffer => Buffer.from(ExecFrame.encode(value).finish()),
+    responseDeserialize: (value: Buffer): ExecFrame => ExecFrame.decode(value),
+  },
 } as const;
 
 export interface AgentServer extends UntypedServiceImplementation {
@@ -3694,6 +4266,8 @@ export interface AgentServer extends UntypedServiceImplementation {
   /** Monitoring (snapshot + ad-hoc ping) */
   listContainers: handleUnaryCall<ListContainersRequest, ListContainersResponse>;
   pingContainer: handleUnaryCall<PingContainerRequest, PingContainerResponse>;
+  /** Interactive shell (bidi streaming) */
+  containerExec: handleBidiStreamingCall<ExecFrame, ExecFrame>;
 }
 
 export interface AgentClient extends Client {
@@ -3846,6 +4420,10 @@ export interface AgentClient extends Client {
     options: Partial<CallOptions>,
     callback: (error: ServiceError | null, response: PingContainerResponse) => void,
   ): ClientUnaryCall;
+  /** Interactive shell (bidi streaming) */
+  containerExec(): ClientDuplexStream<ExecFrame, ExecFrame>;
+  containerExec(options: Partial<CallOptions>): ClientDuplexStream<ExecFrame, ExecFrame>;
+  containerExec(metadata: Metadata, options?: Partial<CallOptions>): ClientDuplexStream<ExecFrame, ExecFrame>;
 }
 
 export const AgentClient = makeGenericClientConstructor(AgentService, "ploydok.agent.v1.Agent") as unknown as {

@@ -99,13 +99,19 @@ impl Monitor {
         // Collecte en parallèle : chaque container fait inspect + stats en
         // concurrence. Sans ça, 3 containers × ~2s (stream 2 frames) = 6s
         // sérialisé > interval 2s → les snapshots restent à 0 plusieurs cycles.
-        let futures = containers.into_iter().map(|c| self.build_snapshot(c, now_ms));
-        let snapshots = futures::future::join_all(futures).await;
+        let futures = containers
+            .into_iter()
+            .map(|c| self.build_snapshot(c, now_ms));
+        let snapshots: Vec<Snapshot> = futures::future::join_all(futures)
+            .await
+            .into_iter()
+            .flatten()
+            .collect();
 
         let mut cache = self.cache.write().await;
-        for snap in snapshots.into_iter().flatten() {
-            cache.insert(snap.id.clone(), snap);
-        }
+        // Replace (not merge) so containers that have been `docker rm`'d
+        // disappear from the snapshot — sinon ils restent "tracked" à vie.
+        apply_snapshots(&mut cache, snapshots);
     }
 
     async fn build_snapshot(
@@ -161,7 +167,11 @@ impl Monitor {
                             now_s.saturating_sub(started)
                         })
                         .unwrap_or(0);
-                    let up = if status == "running" || status == "unhealthy" { up } else { 0 };
+                    let up = if status == "running" || status == "unhealthy" {
+                        up
+                    } else {
+                        0
+                    };
                     (rc, up)
                 }
                 Err(e) => {
@@ -171,8 +181,7 @@ impl Monitor {
             };
 
             // Sample stats (2 frames espacées pour avoir un cpu_delta non-nul).
-            let (cpu_pct, mem_bytes, mem_limit_bytes) =
-                sample_stats(&self.docker, &id).await;
+            let (cpu_pct, mem_bytes, mem_limit_bytes) = sample_stats(&self.docker, &id).await;
 
             // Preserve existing ping result if present.
             let last_pong = {
@@ -342,9 +351,7 @@ async fn sample_stats(docker: &bollard::Docker, id: &str) -> (f64, u64, u64) {
                 // Fallback cgroup v2 rootless : `usage` peut être None, lire
                 // anon + file depuis la variante V2 comme proxy.
                 .or_else(|| match stats.memory_stats.stats {
-                    Some(bollard::container::MemoryStatsStats::V2(v2)) => {
-                        Some(v2.anon + v2.file)
-                    }
+                    Some(bollard::container::MemoryStatsStats::V2(v2)) => Some(v2.anon + v2.file),
                     _ => None,
                 })
                 .unwrap_or(0);
@@ -392,12 +399,13 @@ fn parse_iso8601_to_unix_secs(s: &str) -> Option<u64> {
     let doe = yoe * 365 + yoe / 4 - yoe / 100 + doy;
     let days_since_epoch: i64 = era as i64 * 146_097 + doe as i64 - 719_468;
 
-    let secs = days_since_epoch * 86_400
-        + hour as i64 * 3_600
-        + min as i64 * 60
-        + sec as i64;
+    let secs = days_since_epoch * 86_400 + hour as i64 * 3_600 + min as i64 * 60 + sec as i64;
 
-    if secs < 0 { None } else { Some(secs as u64) }
+    if secs < 0 {
+        None
+    } else {
+        Some(secs as u64)
+    }
 }
 
 /// Compute CPU usage percentage (0–100 × num_cpus) from a bollard Stats snapshot.
@@ -493,4 +501,63 @@ fn unix_now_ms() -> u64 {
         .duration_since(UNIX_EPOCH)
         .unwrap_or_default()
         .as_millis() as u64
+}
+
+/// Replace the cache contents with the given snapshots, keyed by container id.
+/// Clearing first ensures that containers which disappeared from the Docker
+/// listing (e.g. `docker rm`'d after a blue-green swap) are evicted instead of
+/// lingering in the monitoring overview forever.
+pub(crate) fn apply_snapshots(cache: &mut HashMap<String, Snapshot>, snapshots: Vec<Snapshot>) {
+    cache.clear();
+    for snap in snapshots {
+        cache.insert(snap.id.clone(), snap);
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    fn snap(id: &str) -> Snapshot {
+        Snapshot {
+            id: id.to_string(),
+            name: format!("ploydok-app-{id}"),
+            image: "registry.local/app:sha".to_string(),
+            status: "running".to_string(),
+            uptime_s: 1,
+            cpu_pct: 0.0,
+            mem_bytes: 0,
+            mem_limit_bytes: 0,
+            restart_count: 0,
+            kind: "app".to_string(),
+            app_id: "app-1".to_string(),
+            color: "blue".to_string(),
+            last_pong: None,
+            last_seen_ms: 0,
+        }
+    }
+
+    #[test]
+    fn apply_snapshots_evicts_removed_containers() {
+        let mut cache: HashMap<String, Snapshot> = HashMap::new();
+        apply_snapshots(&mut cache, vec![snap("blue"), snap("green")]);
+        assert_eq!(cache.len(), 2);
+
+        // Next poll sees only "green" — "blue" was docker-rm'd after a
+        // blue-green swap. It must disappear from the cache.
+        apply_snapshots(&mut cache, vec![snap("green")]);
+        assert_eq!(cache.len(), 1);
+        assert!(cache.contains_key("green"));
+        assert!(!cache.contains_key("blue"));
+    }
+
+    #[test]
+    fn apply_snapshots_empty_listing_clears_cache() {
+        let mut cache: HashMap<String, Snapshot> = HashMap::new();
+        apply_snapshots(&mut cache, vec![snap("blue")]);
+        assert_eq!(cache.len(), 1);
+
+        apply_snapshots(&mut cache, vec![]);
+        assert!(cache.is_empty());
+    }
 }
