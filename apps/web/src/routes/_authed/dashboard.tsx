@@ -18,6 +18,7 @@ import {
 import { CreateAppModal } from "../../components/apps/CreateAppModal"
 import { ShellPage, ShellPanel } from "../../components/layout/AppShell"
 import { AppStatusBadge } from "../../components/apps/AppStatusBadge"
+import { resolveRuntimeAppStatus, selectAppSnapshot } from "../../lib/app-runtime"
 import { useApps, useRecentBuildsAcrossApps } from "../../lib/apps"
 import { useGitHubAppConfig } from "../../lib/github"
 import { useMonitoring } from "../../lib/monitoring"
@@ -32,14 +33,21 @@ function DashboardPage(): React.JSX.Element {
   const [modalOpen, setModalOpen] = React.useState(false)
   const { data: apps = [], isLoading: appsLoading, error: appsError } = useApps()
   const { builds: recentBuilds, isLoading: buildsLoading } = useRecentBuildsAcrossApps(apps, 6)
-  const { data: appConfig } = useGitHubAppConfig()
-  const { data: monitoring } = useMonitoring()
-
-  const runningApps = apps.filter((app) => app.status === "running").length
-  const failedApps = apps.filter((app) => app.status === "failed").length
-  const latestBuild = recentBuilds.at(0)
-
+  const { data: appConfig, isLoading: appConfigLoading } = useGitHubAppConfig()
+  const { data: monitoring, isLoading: monitoringLoading } = useMonitoring()
   const containers = monitoring?.containers ?? []
+  const appsWithRuntimeStatus = React.useMemo(
+    () =>
+      apps.map((app) => ({
+        ...app,
+        runtimeStatus: resolveRuntimeAppStatus(app.status, selectAppSnapshot(containers, app.id)),
+      })),
+    [apps, containers],
+  )
+
+  const runningApps = appsWithRuntimeStatus.filter((app) => app.runtimeStatus === "running").length
+  const failedApps = appsWithRuntimeStatus.filter((app) => app.runtimeStatus === "failed").length
+  const latestBuild = recentBuilds.at(0)
   const runningContainers = containers.filter((c) => c.status === "running").length
 
   return (
@@ -53,7 +61,7 @@ function DashboardPage(): React.JSX.Element {
       actions={
         <>
           <Button variant="outline" size="sm" asChild>
-            <Link to="/settings/git-providers">
+            <Link to="/settings/git-providers/$slug" params={{ slug: "github" }}>
               <RiGithubFill className="size-4" />
               GitHub setup
             </Link>
@@ -69,18 +77,20 @@ function DashboardPage(): React.JSX.Element {
         <StatCard
           icon={<RiAppsLine className="size-4" />}
           label="Applications"
-          value={appsLoading ? "—" : String(apps.length)}
-          hint={appsLoading ? "Syncing…" : `${runningApps} running`}
+          value={String(apps.length)}
+          hint={`${runningApps} running`}
+          loading={appsLoading}
         />
         <StatCard
           icon={<RiPlayCircleLine className="size-4" />}
           label="Runtime"
-          value={monitoring ? String(runningContainers) : "—"}
+          value={String(runningContainers)}
           hint={
             monitoring
               ? `${containers.length} container${containers.length === 1 ? "" : "s"} tracked`
               : "Agent offline"
           }
+          loading={monitoringLoading}
           tone={monitoring?.error ? "warning" : "default"}
         />
         <StatCard
@@ -88,6 +98,7 @@ function DashboardPage(): React.JSX.Element {
           label="Last deploy"
           value={latestBuild ? relativeTime(latestBuild.createdAt) : "Never"}
           hint={latestBuild ? `${latestBuild.appName} · ${latestBuild.status}` : "No deployments yet"}
+          loading={buildsLoading}
           tone={latestBuild?.status === "failed" ? "danger" : "default"}
         />
         <StatCard
@@ -95,6 +106,7 @@ function DashboardPage(): React.JSX.Element {
           label="GitHub App"
           value={appConfig?.configured ? "Connected" : "Not configured"}
           hint={appConfig?.configured ? appConfig.name ?? "Installed" : "Install to deploy from repos"}
+          loading={appConfigLoading}
           tone={appConfig?.configured ? "success" : "warning"}
         />
       </div>
@@ -125,9 +137,9 @@ function DashboardPage(): React.JSX.Element {
         >
           {appsLoading ? (
             <AppRowsSkeleton />
-          ) : apps.length > 0 ? (
+          ) : appsWithRuntimeStatus.length > 0 ? (
             <div className="divide-y divide-border">
-              {apps.slice(0, 6).map((app) => (
+              {appsWithRuntimeStatus.slice(0, 6).map((app) => (
                 <AppRow key={app.id} app={app} />
               ))}
             </div>
@@ -175,12 +187,14 @@ function StatCard({
   label,
   value,
   hint,
+  loading = false,
   tone = "default",
 }: {
   icon: React.ReactNode
   label: string
   value: string
   hint: string
+  loading?: boolean
   tone?: StatTone
 }): React.JSX.Element {
   const accent =
@@ -198,8 +212,17 @@ function StatCard({
         {icon}
         <span className="text-xs font-medium uppercase tracking-wide">{label}</span>
       </div>
-      <p className="mt-2 text-xl font-semibold tracking-tight text-foreground">{value}</p>
-      <p className="mt-0.5 text-xs text-muted-foreground truncate">{hint}</p>
+      {loading ? (
+        <div className="mt-2 animate-pulse space-y-2" aria-hidden="true">
+          <div className="h-7 w-16 rounded bg-muted" />
+          <div className="h-3 w-28 rounded bg-muted" />
+        </div>
+      ) : (
+        <>
+          <p className="mt-2 text-xl font-semibold tracking-tight text-foreground">{value}</p>
+          <p className="mt-0.5 text-xs text-muted-foreground truncate">{hint}</p>
+        </>
+      )}
     </div>
   )
 }
@@ -208,7 +231,11 @@ function StatCard({
 // AppRow — dense list item (Dokploy-style).
 // ---------------------------------------------------------------------------
 
-function AppRow({ app }: { app: AppListItem }): React.JSX.Element {
+function AppRow({
+  app,
+}: {
+  app: AppListItem & { runtimeStatus: AppListItem["status"] }
+}): React.JSX.Element {
   return (
     <Link
       to="/apps/$id/overview"
@@ -232,7 +259,7 @@ function AppRow({ app }: { app: AppListItem }): React.JSX.Element {
           )}
         </p>
       </div>
-      <AppStatusBadge status={app.status} />
+      <AppStatusBadge status={app.runtimeStatus} />
       <RiArrowRightLine className="size-4 text-muted-foreground/40 transition-colors group-hover:text-muted-foreground" />
     </Link>
   )
@@ -278,7 +305,7 @@ function EmptyApps({
           </Button>
         ) : (
           <Button size="sm" variant="outline" asChild>
-            <Link to="/settings/git-providers">
+            <Link to="/settings/git-providers/$slug" params={{ slug: "github" }}>
               <RiGithubFill className="size-4" />
               Connect GitHub
             </Link>

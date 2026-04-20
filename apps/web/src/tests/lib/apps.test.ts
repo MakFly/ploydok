@@ -5,7 +5,9 @@
  */
 import { describe, expect, it } from "bun:test"
 import { applyAppStatus, getEventAppStatus, normalizeAppDetail } from "../../lib/apps"
+import { resolveRuntimeAppStatus, selectAppSnapshot } from "../../lib/app-runtime"
 import type { RawAppDetail } from "../../lib/apps"
+import type { ContainerSnapshot } from "@ploydok/shared"
 
 // ---------------------------------------------------------------------------
 // Helpers
@@ -166,6 +168,58 @@ describe("app status event helpers", () => {
     const patched = applyAppStatus(normalized, "building")
     expect(patched?.status).toBe("building")
     expect(patched?.name).toBe("demo")
+  })
+})
+
+describe("app runtime status helpers", () => {
+  function makeSnapshot(
+    overrides: Partial<ContainerSnapshot> = {},
+  ): ContainerSnapshot {
+    return {
+      id: "ctr-1",
+      name: "app-1",
+      image: "ploydok/app:latest",
+      status: "running",
+      uptime_s: 10,
+      cpu_pct: 1,
+      mem_bytes: 1024,
+      mem_limit_bytes: 2048,
+      restart_count: 0,
+      kind: "app",
+      app_id: "app-1",
+      last_seen_ms: 1000,
+      ...overrides,
+    }
+  }
+
+  it("prefers the highest-priority snapshot for one app", () => {
+    const selected = selectAppSnapshot(
+      [
+        makeSnapshot({ id: "stopped", status: "stopped", last_seen_ms: 2000 }),
+        makeSnapshot({ id: "running", status: "running", last_seen_ms: 1000 }),
+      ],
+      "app-1",
+    )
+    expect(selected?.id).toBe("running")
+  })
+
+  it("downgrades running to stopped when monitoring has no app container", () => {
+    expect(resolveRuntimeAppStatus("running", null)).toBe("stopped")
+  })
+
+  it("downgrades running to stopped when the selected container is stopped", () => {
+    expect(resolveRuntimeAppStatus("running", makeSnapshot({ status: "stopped" }))).toBe("stopped")
+  })
+
+  it("maps a starting container to restarting for badge consistency", () => {
+    expect(resolveRuntimeAppStatus("running", makeSnapshot({ status: "starting" }))).toBe(
+      "restarting",
+    )
+  })
+
+  it("keeps build-phase statuses untouched", () => {
+    expect(resolveRuntimeAppStatus("building", null)).toBe("building")
+    expect(resolveRuntimeAppStatus("pending", makeSnapshot({ status: "running" }))).toBe("pending")
   })
 })
 

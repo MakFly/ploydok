@@ -2,6 +2,8 @@
 import * as React from "react";
 import { Link } from "@tanstack/react-router";
 import { AppStatusBadge } from "../apps/AppStatusBadge";
+import { resolveRuntimeAppStatus, selectAppSnapshot } from "../../lib/app-runtime";
+import { useMonitoring } from "../../lib/monitoring";
 import type { AppListItem } from "../../lib/apps";
 
 // ---------------------------------------------------------------------------
@@ -15,6 +17,9 @@ interface AppsGridProps {
 }
 
 export function AppsGrid({ apps, isLoading, onCreateApp }: AppsGridProps): React.JSX.Element {
+  const { data: monitoring } = useMonitoring();
+  const containers = monitoring?.containers ?? [];
+
   if (isLoading) {
     return <AppsGridSkeleton />;
   }
@@ -25,6 +30,10 @@ export function AppsGrid({ apps, isLoading, onCreateApp }: AppsGridProps): React
 
   // Sort by updatedAt desc, take 6
   const recent = [...apps]
+    .map((app) => ({
+      ...app,
+      runtimeStatus: resolveRuntimeAppStatus(app.status, selectAppSnapshot(containers, app.id)),
+    }))
     .sort((a, b) => b.updatedAt - a.updatedAt)
     .slice(0, 6);
 
@@ -46,7 +55,11 @@ export function AppsGrid({ apps, isLoading, onCreateApp }: AppsGridProps): React
 // AppMiniCard
 // ---------------------------------------------------------------------------
 
-function AppMiniCard({ app }: { app: AppListItem }): React.JSX.Element {
+function AppMiniCard({
+  app,
+}: {
+  app: AppListItem & { runtimeStatus: AppListItem["status"] }
+}): React.JSX.Element {
   return (
     <Link
       to="/apps/$id/overview"
@@ -62,7 +75,7 @@ function AppMiniCard({ app }: { app: AppListItem }): React.JSX.Element {
             </p>
           )}
         </div>
-        <AppStatusBadge status={app.status} />
+        <AppStatusBadge status={app.runtimeStatus} />
       </div>
       {app.branch && (
         <div className="flex items-center gap-1 text-xs text-muted-foreground">
