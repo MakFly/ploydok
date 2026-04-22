@@ -282,4 +282,55 @@ describe("CaddyClient", () => {
     );
     expect(callCount).toBe(2);
   });
+
+  // -------------------------------------------------------------------------
+  // DNS-01 TLS policy
+  // -------------------------------------------------------------------------
+
+  test("buildDns01TlsPolicy renders correct Caddy JSON shape", () => {
+    const policy = client.buildDns01TlsPolicy("app.example.com", "cloudflare", {
+      api_token: "tok123",
+      zone_id: "zone-abc",
+    });
+
+    expect(policy).toEqual({
+      subjects: ["app.example.com"],
+      issuers: [
+        {
+          module: "acme",
+          challenges: {
+            dns: {
+              provider: {
+                name: "cloudflare",
+                api_token: "tok123",
+                zone_id: "zone-abc",
+              },
+            },
+          },
+        },
+      ],
+    });
+  });
+
+  test("upsertDns01TlsPolicy PUTs updated policies list", async () => {
+    const calls: MockRequest[] = [];
+    const existingConfig: CaddyConfig = {
+      apps: { http: { servers: { srv0: { listen: [":80"], routes: [] } } } },
+    };
+
+    handler = (req) => {
+      calls.push(req);
+      if (req.method === "GET") return { status: 200, body: existingConfig };
+      if (req.method === "PUT") return { status: 200, body: null };
+      return { status: 405, body: null };
+    };
+
+    await client.upsertDns01TlsPolicy("app.example.com", "cloudflare", { api_token: "tok" });
+
+    const put = calls.find((c) => c.method === "PUT");
+    expect(put?.path).toBe("/config/apps/tls/automation/policies");
+    const policies = put?.body as Array<Record<string, unknown>>;
+    expect(Array.isArray(policies)).toBe(true);
+    expect(policies[0]?.["subjects"]).toEqual(["app.example.com"]);
+  });
 });

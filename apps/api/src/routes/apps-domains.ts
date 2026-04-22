@@ -1,6 +1,7 @@
 // SPDX-License-Identifier: AGPL-3.0-only
 import { Hono } from "hono"
 import { z } from "zod"
+import { randomBytes } from "node:crypto"
 import { createDb } from "@ploydok/db"
 import type { Db } from "@ploydok/db"
 import { env } from "../env"
@@ -11,9 +12,11 @@ import {
   deleteDomain,
   getDomain,
   updateDomainTlsStatus,
+  updateDomainDns01,
   getDomainByHostname,
 } from "../queries/domains"
 import { CaddyClient } from "../caddy/client"
+import { domainVerifyQueue } from "../worker/queues"
 import { childLogger } from "../logger"
 import type { AuthUser } from "../auth/middleware"
 import { requireSecondFactor } from "../auth/middleware"
@@ -41,12 +44,22 @@ const log = childLogger("domains")
 // Validation schemas
 // ---------------------------------------------------------------------------
 
+const Dns01ProviderEnum = z.enum(["cloudflare", "route53", "ovh", "digitalocean"])
+
 const AddDomainBody = z.object({
   hostname: z
     .string()
     .min(4, "Hostname too short")
     .max(255, "Hostname too long")
     .regex(HOSTNAME_REGEX, "Invalid hostname format (e.g. app.example.com)"),
+  tls_mode: z.enum(["http01", "dns01"]).optional().default("http01"),
+  dns01_provider: Dns01ProviderEnum.optional(),
+  wildcard: z.boolean().optional().default(false),
+})
+
+const SwitchTlsModeBody = z.object({
+  tls_mode: z.enum(["http01", "dns01"]),
+  dns01_provider: Dns01ProviderEnum.optional(),
 })
 
 // ---------------------------------------------------------------------------
@@ -61,12 +74,21 @@ function serializeDomain(row: {
   id: string
   hostname: string
   tls_status: string
+  tls_mode?: string | null
+  dns01_provider?: string | null
+  verify_token?: string | null
+  verify_error?: string | null
   created_at: Date | null
 }) {
   return {
     id: row.id,
     hostname: row.hostname,
     tlsStatus: row.tls_status,
+    tlsMode: row.tls_mode ?? "http01",
+    dns01Provider: row.dns01_provider ?? null,
+    // expose verify_token so user can set the TXT record
+    verifyToken: row.verify_token ?? null,
+    verifyError: row.verify_error ?? null,
     createdAt: row.created_at?.toISOString() ?? null,
   }
 }
@@ -202,6 +224,13 @@ export function createAppsDomainsRouter(db: Db): Hono {
       return c.json({ error: { code: "VALIDATION_ERROR", message: String(err) } }, 400)
     }
 
+    if (body.tls_mode === "dns01" && !body.dns01_provider) {
+      return c.json(
+        { error: { code: "VALIDATION_ERROR", message: "dns01_provider is required when tls_mode=dns01" } },
+        400,
+      )
+    }
+
     const hostname = body.hostname.toLowerCase()
 
     // Global uniqueness check — one hostname can only belong to one app.
@@ -213,10 +242,22 @@ export function createAppsDomainsRouter(db: Db): Hono {
       )
     }
 
-    const row = await addDomain(db, appId, hostname)
+    const verifyToken = randomBytes(16).toString("hex")
+    const row = await addDomain(db, appId, hostname, {
+      tls_mode: body.tls_mode,
+      dns01_provider: body.dns01_provider ?? null,
+      verify_token: verifyToken,
+    })
 
     // Best-effort Caddy registration — must not block the response.
     void tryCaddyAddDomain(appId, row.id, hostname)
+
+    // Enqueue DNS verification job
+    await domainVerifyQueue.add(
+      "domain.verify",
+      { domainId: row.id, appId },
+      { jobId: `verify-${row.id}-0` },
+    )
 
     return c.json({ domain: serializeDomain(row) }, 201)
   })
@@ -269,6 +310,61 @@ export function createAppsDomainsRouter(db: Db): Hono {
 
     const newStatus = await tryCaddyCheckTls(domainId)
     const updated = await updateDomainTlsStatus(db, domainId, newStatus)
+
+    return c.json({ domain: serializeDomain(updated ?? domain) })
+  })
+
+  // -------------------------------------------------------------------------
+  // POST /:id/domains/:domainId/tls/mode — Switch TLS provisioning mode
+  // -------------------------------------------------------------------------
+
+  router.post("/:id/domains/:domainId/tls/mode", async (c) => {
+    const user = getUser(c)
+    const appId = c.req.param("id")!
+    const domainId = c.req.param("domainId")!
+
+    const app = await getAppForUser(db, appId, user.id)
+    if (!app) {
+      return c.json({ error: { code: "NOT_FOUND", message: "App not found" } }, 404)
+    }
+
+    const domain = await getDomain(db, domainId)
+    if (!domain || domain.app_id !== appId) {
+      return c.json({ error: { code: "NOT_FOUND", message: "Domain not found" } }, 404)
+    }
+
+    let body: z.infer<typeof SwitchTlsModeBody>
+    try {
+      body = SwitchTlsModeBody.parse(await c.req.json())
+    } catch (err) {
+      return c.json({ error: { code: "VALIDATION_ERROR", message: String(err) } }, 400)
+    }
+
+    if (body.tls_mode === "dns01" && !body.dns01_provider) {
+      return c.json(
+        {
+          error: {
+            code: "VALIDATION_ERROR",
+            message: `no dns01 credentials for ${body.dns01_provider ?? "unknown"} — dns01_provider required`,
+          },
+        },
+        400,
+      )
+    }
+
+    const updated = await updateDomainDns01(db, domainId, {
+      tls_mode: body.tls_mode,
+      dns01_provider: body.dns01_provider ?? null,
+    })
+
+    // Re-enqueue verification on mode switch
+    if (updated) {
+      await domainVerifyQueue.add(
+        "domain.verify",
+        { domainId, appId },
+        { jobId: `verify-${domainId}-switch-${Date.now()}` },
+      )
+    }
 
     return c.json({ domain: serializeDomain(updated ?? domain) })
   })

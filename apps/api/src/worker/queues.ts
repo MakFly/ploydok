@@ -17,4 +17,13 @@ export const gcQueue = new Queue("gc.registry", { connection })
 export const cleanupQueue = new Queue("cleanup.build", { connection })
 export const appDeleteQueue = new Queue("app.delete", { connection })
 
-export type QueueName = "deploy" | "gc.registry" | "cleanup.build" | "app.delete"
+const domainVerifyDefaults = {
+  removeOnComplete: 50,
+  removeOnFail: 200,
+  // Poll every 30s, max 20 attempts = 10 min window
+  attempts: 20,
+  backoff: { type: "fixed" as const, delay: 30_000 },
+}
+export const domainVerifyQueue = new Queue("domain.verify", { connection, defaultJobOptions: domainVerifyDefaults })
+
+export type QueueName = "deploy" | "gc.registry" | "cleanup.build" | "app.delete" | "domain.verify"

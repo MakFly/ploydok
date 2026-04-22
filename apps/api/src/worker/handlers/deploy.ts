@@ -33,6 +33,7 @@ import { classifyAgentError, FatalDeployError } from "../errors";
 import { createRedis } from "@ploydok/db";
 import { postCommitStatusForApp } from "../../providers/commit-status";
 import { dispatch } from "../../notify/index";
+import { buildEnvForDeploy } from "../../secrets/resolver";
 
 // Shared Redis client for commit status dedup (singleton per worker process).
 const redis = createRedis(env.REDIS_URL);
@@ -325,11 +326,12 @@ export async function handleDeploy(
       }
 
       const registryAuth = await loadRegistryAuthForApp(db, app);
+      const secretEnv = await buildEnvForDeploy(db, app.id, "prod");
 
       const runOpts: Parameters<typeof runBlueGreen>[0] = {
         appId: app.id,
         imageRef,
-        env: {},
+        env: secretEnv,
         db,
       };
       if (registryAuth) runOpts.registryAuth = registryAuth;
@@ -549,12 +551,13 @@ export async function handleDeploy(
     // 4. Blue-green deploy — spawn container, healthcheck, Caddy swap.
     // runBlueGreen internally updates apps.container_id + apps.status = 'running'.
     onLog("[deploy] starting blue-green runner");
+    const runtimeSecretEnv = await buildEnvForDeploy(db, app.id, "prod");
     let containerId: string;
     try {
       ({ containerId } = await runBlueGreen({
         appId: app.id,
         imageRef,
-        env: {},
+        env: runtimeSecretEnv,
         db,
       }));
     } catch (runErr) {
