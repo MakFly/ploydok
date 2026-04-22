@@ -6,7 +6,7 @@
  * without DOM rendering — consistent with the repo's test style.
  *
  * Covers:
- *  - SECOND_FACTOR_REQUIRED branch: correct title + CTA to passkeys settings
+ *  - SECOND_FACTOR_REQUIRED branch: correct title + CTA to passkey settings
  *  - Generic error branches: 401, 403, 404, 5xx, unknown
  */
 import { describe, expect, it } from "bun:test"
@@ -40,7 +40,7 @@ function isSecondFactorRequired(input: ApiErrorStateInput): boolean {
 
 /** Returns the CTA link target when in SECOND_FACTOR_REQUIRED mode. */
 function secondFactorCtaTarget(): string {
-  return "/settings/security/passkeys"
+  return "/settings/security/passkey"
 }
 
 /** Returns the CTA label when in SECOND_FACTOR_REQUIRED mode. */
@@ -59,19 +59,25 @@ function secondFactorMessage(): string {
 
 describe("ApiErrorState — SECOND_FACTOR_REQUIRED branch", () => {
   it("titleForStatus returns 'Second factor required' for SECOND_FACTOR_REQUIRED code", () => {
-    expect(titleForStatus("SECOND_FACTOR_REQUIRED")).toBe("Second factor required")
+    expect(titleForStatus("SECOND_FACTOR_REQUIRED")).toBe(
+      "Second factor required"
+    )
   })
 
   it("isSecondFactorRequired returns true when code is SECOND_FACTOR_REQUIRED", () => {
-    expect(isSecondFactorRequired({ code: "SECOND_FACTOR_REQUIRED" })).toBe(true)
+    expect(isSecondFactorRequired({ code: "SECOND_FACTOR_REQUIRED" })).toBe(
+      true
+    )
   })
 
   it("isSecondFactorRequired returns true regardless of status", () => {
-    expect(isSecondFactorRequired({ code: "SECOND_FACTOR_REQUIRED", status: 403 })).toBe(true)
+    expect(
+      isSecondFactorRequired({ code: "SECOND_FACTOR_REQUIRED", status: 403 })
+    ).toBe(true)
   })
 
-  it("CTA points to /settings/security/passkeys", () => {
-    expect(secondFactorCtaTarget()).toBe("/settings/security/passkeys")
+  it("CTA points to /settings/security/passkey", () => {
+    expect(secondFactorCtaTarget()).toBe("/settings/security/passkey")
   })
 
   it("CTA label is 'Configurer'", () => {
@@ -119,7 +125,9 @@ describe("ApiErrorState — generic error titles", () => {
   })
 
   it("SECOND_FACTOR_REQUIRED does NOT trigger generic 403 title even if status=403", () => {
-    expect(titleForStatus("SECOND_FACTOR_REQUIRED", 403)).toBe("Second factor required")
+    expect(titleForStatus("SECOND_FACTOR_REQUIRED", 403)).toBe(
+      "Second factor required"
+    )
   })
 
   it("isSecondFactorRequired returns false for generic 403", () => {

@@ -41,6 +41,8 @@ function startMockServer(impl: Partial<AgentServer>): Promise<{ server: grpc.Ser
       imageBuild: (call) => { call.end(); },
       networkCreate: (_call, cb) => cb({ code: grpc.status.UNIMPLEMENTED, details: "non implémenté", name: "Error", message: "non implémenté", metadata: new grpc.Metadata() }, null),
       networkRemove: (_call, cb) => cb({ code: grpc.status.UNIMPLEMENTED, details: "non implémenté", name: "Error", message: "non implémenté", metadata: new grpc.Metadata() }, null),
+      networkConnect: (_call, cb) => cb({ code: grpc.status.UNIMPLEMENTED, details: "non implémenté", name: "Error", message: "non implémenté", metadata: new grpc.Metadata() }, null),
+      networkDisconnect: (_call, cb) => cb({ code: grpc.status.UNIMPLEMENTED, details: "non implémenté", name: "Error", message: "non implémenté", metadata: new grpc.Metadata() }, null),
       listContainers: (_call, cb) => cb({ code: grpc.status.UNIMPLEMENTED, details: "non implémenté", name: "Error", message: "non implémenté", metadata: new grpc.Metadata() }, null),
       pingContainer: (_call, cb) => cb({ code: grpc.status.UNIMPLEMENTED, details: "non implémenté", name: "Error", message: "non implémenté", metadata: new grpc.Metadata() }, null),
       containerExec: (call) => { call.end(); },

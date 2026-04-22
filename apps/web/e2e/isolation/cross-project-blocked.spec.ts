@@ -18,7 +18,7 @@
  */
 import { spawnSync } from "node:child_process";
 import { expect, test } from "@playwright/test";
-import { API_URL, apiLogin } from "../helpers/auth";
+import { API_URL, apiLoginWithCsrf } from "../helpers/auth";
 
 // ---------------------------------------------------------------------------
 // Gate + env
@@ -48,14 +48,23 @@ function docker(args: string[]): { stdout: string; stderr: string; status: numbe
   };
 }
 
+interface AuthCtx {
+  cookie: string;
+  csrfToken: string;
+}
+
 async function createImageApp(
-  cookies: string,
+  auth: AuthCtx,
   projectId: string,
   name: string,
 ): Promise<CreatedApp> {
   const res = await fetch(`${API_URL}/apps`, {
     method: "POST",
-    headers: { "Content-Type": "application/json", cookie: cookies },
+    headers: {
+      "Content-Type": "application/json",
+      cookie: auth.cookie,
+      "x-csrf-token": auth.csrfToken,
+    },
     body: JSON.stringify({
       name,
       projectId,
@@ -63,24 +72,34 @@ async function createImageApp(
       imageRef: "nginx:alpine",
       imagePullPolicy: "if_not_present",
       plan: "nano",
+      healthcheck: { port: 80, path: "/" },
     }),
   });
   if (!res.ok) {
     throw new Error(`createImageApp(${name}) failed: ${res.status} ${await res.text()}`);
   }
-  const data = (await res.json()) as { id: string; slug: string; name: string };
+  const data = (await res.json()) as { app: { id: string; slug: string; name: string } };
+  const appData = data.app;
+  // Mirror `runtimeContainerName` in `apps/api/src/runtime-containers.ts`:
+  // `ploydok-app-<slug>-<shortId>-<color>`, shortId = first 8 chars of the
+  // sanitized appId. First deploy is always blue.
+  const shortId = appData.id
+    .toLowerCase()
+    .replace(/[^a-z0-9-]+/g, "-")
+    .replace(/^-+/, "")
+    .slice(0, 8);
   return {
-    id: data.id,
-    slug: data.slug,
-    name: data.name,
-    containerName: `ploydok-app-${data.slug}`,
+    id: appData.id,
+    slug: appData.slug,
+    name: appData.name,
+    containerName: `ploydok-app-${appData.slug}-${shortId}-blue`,
   };
 }
 
-async function deploy(cookies: string, appId: string): Promise<void> {
+async function deploy(auth: AuthCtx, appId: string): Promise<void> {
   const res = await fetch(`${API_URL}/apps/${appId}/deploy`, {
     method: "POST",
-    headers: { cookie: cookies },
+    headers: { cookie: auth.cookie, "x-csrf-token": auth.csrfToken },
   });
   if (!res.ok) {
     throw new Error(`deploy(${appId}) failed: ${res.status} ${await res.text()}`);
@@ -88,7 +107,7 @@ async function deploy(cookies: string, appId: string): Promise<void> {
 }
 
 async function waitForStatus(
-  cookies: string,
+  auth: AuthCtx,
   appId: string,
   target: "running",
   timeoutMs: number,
@@ -96,7 +115,7 @@ async function waitForStatus(
   const deadline = Date.now() + timeoutMs;
   while (Date.now() < deadline) {
     const res = await fetch(`${API_URL}/apps/${appId}`, {
-      headers: { cookie: cookies },
+      headers: { cookie: auth.cookie },
     });
     if (res.ok) {
       const data = (await res.json()) as { app: { status: string } };
@@ -110,11 +129,11 @@ async function waitForStatus(
   throw new Error(`App ${appId} did not reach '${target}' within ${timeoutMs}ms`);
 }
 
-async function cleanup(cookies: string, appId: string | null): Promise<void> {
+async function cleanup(auth: AuthCtx, appId: string | null): Promise<void> {
   if (!appId) return;
   await fetch(`${API_URL}/apps/${appId}`, {
     method: "DELETE",
-    headers: { cookie: cookies },
+    headers: { cookie: auth.cookie, "x-csrf-token": auth.csrfToken },
   }).catch(() => {
     /* best-effort */
   });
@@ -133,28 +152,28 @@ test.describe("sprint-3bis — cross-project network isolation", () => {
     "requires E2E_TEST_PROJECT_A_ID and E2E_TEST_PROJECT_B_ID",
   );
 
-  let cookies: string;
+  let auth: AuthCtx;
   let appA: CreatedApp | null = null;
   let appB: CreatedApp | null = null;
 
   test.beforeAll(async () => {
-    cookies = await apiLogin();
+    auth = await apiLoginWithCsrf();
   });
 
   test.afterAll(async () => {
-    await cleanup(cookies, appA?.id ?? null);
-    await cleanup(cookies, appB?.id ?? null);
+    await cleanup(auth, appA?.id ?? null);
+    await cleanup(auth, appB?.id ?? null);
   });
 
   test("app-A cannot reach app-B over the Docker network", async () => {
     const suffix = Date.now().toString(36);
-    appA = await createImageApp(cookies, PROJECT_A!, `iso-a-${suffix}`);
-    appB = await createImageApp(cookies, PROJECT_B!, `iso-b-${suffix}`);
+    appA = await createImageApp(auth, PROJECT_A!, `iso-a-${suffix}`);
+    appB = await createImageApp(auth, PROJECT_B!, `iso-b-${suffix}`);
 
-    await deploy(cookies, appA.id);
-    await deploy(cookies, appB.id);
-    await waitForStatus(cookies, appA.id, "running", 120_000);
-    await waitForStatus(cookies, appB.id, "running", 120_000);
+    await deploy(auth, appA.id);
+    await deploy(auth, appB.id);
+    await waitForStatus(auth, appA.id, "running", 120_000);
+    await waitForStatus(auth, appB.id, "running", 120_000);
 
     // DNS: wget should fail to resolve app-B from inside app-A (different
     // project networks + different ingress aliases).

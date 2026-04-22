@@ -15,6 +15,27 @@
       "when": 1776676840695,
       "tag": "0001_sprint3bis_foundation",
       "breakpoints": true
+    },
+    {
+      "idx": 2,
+      "version": "7",
+      "when": 1776790811771,
+      "tag": "0002_clumsy_doctor_faustus",
+      "breakpoints": true
+    },
+    {
+      "idx": 3,
+      "version": "7",
+      "when": 1776792405430,
+      "tag": "0003_same_ben_parker",
+      "breakpoints": true
+    },
+    {
+      "idx": 4,
+      "version": "7",
+      "when": 1776846512205,
+      "tag": "0004_worried_kate_bishop",
+      "breakpoints": true
     }
   ]
 }

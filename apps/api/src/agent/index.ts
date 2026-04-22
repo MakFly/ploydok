@@ -2,7 +2,7 @@
 export { Agent } from "./wrapper.js";
 export { createAgentClient } from "./client.js";
 export type { AgentClientOptions } from "./client.js";
-export { AgentError, toAgentError, GrpcStatus } from "./errors.js";
+export { AgentError, toAgentError, GrpcStatus, isAlreadyExists, isNotFound } from "./errors.js";
 
 // Types utiles réexportés depuis le proto
 export type {
@@ -17,6 +17,8 @@ export type {
   ImageBuildRequest,
   NetworkCreateRequest,
   NetworkRemoveRequest,
+  NetworkConnectRequest,
+  NetworkDisconnectRequest,
   // Responses
   ContainerCreateResponse,
   ContainerStartResponse,
@@ -24,6 +26,8 @@ export type {
   ContainerRemoveResponse,
   NetworkCreateResponse,
   NetworkRemoveResponse,
+  NetworkConnectResponse,
+  NetworkDisconnectResponse,
   // Stream frames
   LogLine,
   StatsFrame,

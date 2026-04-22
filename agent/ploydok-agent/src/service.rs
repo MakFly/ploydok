@@ -17,7 +17,8 @@ use bollard::container::{
 use bollard::exec::{CreateExecOptions, ResizeExecOptions, StartExecOptions, StartExecResults};
 use bollard::image::{BuildImageOptions, CreateImageOptions};
 use bollard::models::{HostConfig, PortBinding, RestartPolicy, RestartPolicyNameEnum};
-use bollard::network::CreateNetworkOptions;
+use bollard::models::EndpointSettings;
+use bollard::network::{ConnectNetworkOptions, CreateNetworkOptions, DisconnectNetworkOptions};
 use futures::StreamExt;
 use tokio::io::AsyncWriteExt;
 use tokio::sync::mpsc;
@@ -30,9 +31,10 @@ use ploydok_proto::agent::{
     ContainerCreateResponse, ContainerLogsRequest, ContainerRemoveRequest, ContainerRemoveResponse,
     ContainerStartRequest, ContainerStartResponse, ContainerStatsRequest, ContainerStopRequest,
     ContainerStopResponse, ExecFrame, ImageBuildRequest, ImagePullRequest, ListContainersRequest,
-    ListContainersResponse, LogLine, NetworkCreateRequest, NetworkCreateResponse,
-    NetworkRemoveRequest, NetworkRemoveResponse, PingContainerRequest, PingContainerResponse,
-    PullProgress, StatsFrame,
+    ListContainersResponse, LogLine, NetworkConnectRequest, NetworkConnectResponse,
+    NetworkCreateRequest, NetworkCreateResponse, NetworkDisconnectRequest,
+    NetworkDisconnectResponse, NetworkRemoveRequest, NetworkRemoveResponse, PingContainerRequest,
+    PingContainerResponse, PullProgress, StatsFrame,
 };
 
 use crate::audit::audit;
@@ -49,8 +51,32 @@ use monitor::Monitor;
 // Helpers
 // ─────────────────────────────────────────────────────────────────────────────
 
-/// Map a bollard error to a tonic `Status::internal` and log it.
+/// Map a bollard error to a tonic `Status` and log it.
+///
+/// Docker returns HTTP status codes via `DockerResponseServerError` — map them
+/// to the appropriate gRPC status so clients can react idempotently:
+///   - 404 → `NotFound`      (remove a container that's already gone, etc.)
+///   - 409 → `AlreadyExists` (create_network when it already exists, etc.)
+/// Everything else falls back to `Internal`.
 fn bollard_err(context: &str, err: bollard::errors::Error) -> Status {
+    if let bollard::errors::Error::DockerResponseServerError {
+        status_code,
+        ref message,
+    } = err
+    {
+        let detail = format!("{context}: {message}");
+        match status_code {
+            404 => {
+                tracing::debug!(context = context, status = status_code, "docker 404 → NotFound");
+                return Status::not_found(detail);
+            }
+            409 => {
+                tracing::debug!(context = context, status = status_code, "docker 409 → AlreadyExists");
+                return Status::already_exists(detail);
+            }
+            _ => {}
+        }
+    }
     tracing::error!(context = context, error = %err, "bollard error");
     Status::internal(format!("{context}: {err}"))
 }
@@ -684,6 +710,72 @@ impl Agent for AgentService {
 
         audit("network_remove", &req.network_id, Ok(()));
         Ok(Response::new(NetworkRemoveResponse {}))
+    }
+
+    // ── NetworkConnect ───────────────────────────────────────────────────────
+
+    async fn network_connect(
+        &self,
+        request: Request<NetworkConnectRequest>,
+    ) -> Result<Response<NetworkConnectResponse>, Status> {
+        let req = request.into_inner();
+        audit(
+            "network_connect",
+            &format!("{}→{}", req.container_id, req.network_id),
+            Ok(()),
+        );
+        self.validator
+            .validate_network_connect(&req)
+            .map_err(|e| *e)?;
+
+        let endpoint_config = EndpointSettings {
+            aliases: if req.aliases.is_empty() {
+                None
+            } else {
+                Some(req.aliases.clone())
+            },
+            ..Default::default()
+        };
+        let opts = ConnectNetworkOptions {
+            container: req.container_id.clone(),
+            endpoint_config,
+        };
+
+        self.docker
+            .connect_network(&req.network_id, opts)
+            .await
+            .map_err(|e| bollard_err("connect_network", e))?;
+
+        Ok(Response::new(NetworkConnectResponse {}))
+    }
+
+    // ── NetworkDisconnect ────────────────────────────────────────────────────
+
+    async fn network_disconnect(
+        &self,
+        request: Request<NetworkDisconnectRequest>,
+    ) -> Result<Response<NetworkDisconnectResponse>, Status> {
+        let req = request.into_inner();
+        audit(
+            "network_disconnect",
+            &format!("{}→{}", req.container_id, req.network_id),
+            Ok(()),
+        );
+        self.validator
+            .validate_network_disconnect(&req)
+            .map_err(|e| *e)?;
+
+        let opts = DisconnectNetworkOptions {
+            container: req.container_id.clone(),
+            force: req.force,
+        };
+
+        self.docker
+            .disconnect_network(&req.network_id, opts)
+            .await
+            .map_err(|e| bollard_err("disconnect_network", e))?;
+
+        Ok(Response::new(NetworkDisconnectResponse {}))
     }
 
     // ── ListContainers (monitoring snapshot) ─────────────────────────────────

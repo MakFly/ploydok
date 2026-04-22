@@ -4,12 +4,14 @@ networks:
   ploydok:
     driver: bridge
     external: false
-  # Legacy flat network (pre-Phase-1.C). Still attached to Caddy + BuildKit so
-  # apps deployed before per-project isolation keep resolving.
+  # Legacy flat network (pre-Phase-1.C). Still attached to BuildKit so image
+  # pushes to the registry keep working.
   ploydok-public:
     external: true
-  # Phase 1.C ingress network: every app container is attached here so Caddy
-  # can reach them by name. Created externally by the API at boot.
+  # Pre-Phase-1.D shared ingress. Kept external for the one-shot migration
+  # script (`scripts/migrate-network-isolation.ts`) to detach lingering app
+  # containers. New apps are NEVER attached here — each project owns its own
+  # network and Caddy joins dynamically via the agent's NetworkConnect RPC.
   ploydok-ingress:
     external: true
 
@@ -44,7 +46,6 @@ services:
     networks:
       - ploydok
       - ploydok-public
-      - ploydok-ingress
 
   buildkitd:
     image: moby/buildkit:v0.29.0-rootless

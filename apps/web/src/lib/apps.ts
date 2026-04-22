@@ -41,6 +41,13 @@ export interface AppDetail extends AppListItem {
   healthcheckTimeoutS?: number | null
   healthcheckRetries?: number | null
   healthcheckStartPeriodS?: number | null
+  // Auto-deploy + webhook settings (sprint 3.1.1)
+  autoDeployEnabled?: boolean
+  postCommitStatus?: boolean
+  coalescePushes?: boolean
+  deployOnTag?: boolean
+  tagPattern?: string | null
+  webhookSecret?: boolean
   // Last 10 builds included in GET /apps/:id response
   builds?: Array<Build>
 }
@@ -102,6 +109,11 @@ export type AppSettingsPatch = Partial<
     | "restartPolicy"
     | "healthcheckPath"
     | "healthcheckPort"
+    | "autoDeployEnabled"
+    | "postCommitStatus"
+    | "coalescePushes"
+    | "deployOnTag"
+    | "tagPattern"
   >
 >
 

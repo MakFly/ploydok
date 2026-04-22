@@ -1,6 +1,6 @@
 // SPDX-License-Identifier: AGPL-3.0-only
 import { Hono } from "hono";
-import { createHmac, randomBytes } from "node:crypto";
+import { createHash, createHmac, randomBytes } from "node:crypto";
 import { createDb } from "@ploydok/db";
 import {
   deleteGitHubAppConfig,
@@ -14,6 +14,8 @@ import { GitHubCache } from "../github/cache";
 import { GitHubProvider } from "../github/client";
 import { listAppInstallations, revokeAppInstallation } from "../github/installation-tokens";
 import { handleWebhook, verifySignature } from "../github/webhook";
+import { findRecentByPayloadHash, insertDelivery } from "../webhooks/deliveries";
+import { githubWebhookRateLimit } from "../webhooks/rate-limiters";
 import { env } from "../env";
 
 // ---------------------------------------------------------------------------
@@ -500,7 +502,7 @@ githubRouter.delete("/app/config", async (c) => {
 // Authenticity is verified via HMAC-SHA256 signature on the raw body.
 // ---------------------------------------------------------------------------
 
-githubRouter.post("/webhook", async (c) => {
+githubRouter.post("/webhook", githubWebhookRateLimit, async (c) => {
   const config = await getGitHubAppConfig(db);
   if (!config) {
     return c.json({ error: "app not configured" }, 503);
@@ -508,7 +510,20 @@ githubRouter.post("/webhook", async (c) => {
 
   // Read raw body before any parsing
   const body = await c.req.text();
+  const rawBodyBuffer = Buffer.from(body, "utf-8");
   const signature = c.req.header("x-hub-signature-256") ?? null;
+  const event = c.req.header("x-github-event") ?? "unknown";
+  const deliveryId = c.req.header("x-github-delivery") ?? "unknown";
+
+  // Compute payload hash for dedup and audit (SHA-256 of raw body)
+  const payloadHash = createHash("sha256").update(rawBodyBuffer).digest("hex");
+
+  // Dedup: if we already processed this exact payload in the last 60s, skip
+  const existing = await findRecentByPayloadHash(db, payloadHash);
+  if (existing) {
+    log.debug({ deliveryId, payloadHash }, "duplicate payload — dedup skip");
+    return c.json({ ok: true, dedup: true });
+  }
 
   // Decrypt webhook secret. Empty string = App was created without a webhook
   // (manifest without hook_attributes, typical of loopback dev setups).
@@ -523,11 +538,22 @@ githubRouter.post("/webhook", async (c) => {
 
   if (!verifySignature(body, signature, webhookSecret)) {
     log.warn({ signature: signature?.slice(0, 20) }, "webhook signature rejected");
+    // Record invalid signature delivery before rejecting
+    await insertDelivery(
+      db,
+      {
+        provider: "github",
+        delivery_external_id: deliveryId,
+        event,
+        signature_valid: false,
+        decision: "invalid_signature",
+        decision_reason: "HMAC-SHA256 mismatch",
+        payload_hash: payloadHash,
+      },
+      rawBodyBuffer,
+    ).catch((err) => log.warn({ err }, "insertDelivery(invalid_signature) failed"));
     return c.json({ error: "invalid signature" }, 401);
   }
-
-  const event = c.req.header("x-github-event") ?? "unknown";
-  const deliveryId = c.req.header("x-github-delivery") ?? "unknown";
 
   let payload: unknown;
   try {
@@ -538,7 +564,7 @@ githubRouter.post("/webhook", async (c) => {
 
   // Respond 200 quickly — process async to avoid GitHub timeout (10s)
   queueMicrotask(() =>
-    handleWebhook(db, event, payload, deliveryId).catch((err) =>
+    handleWebhook(db, event, payload, deliveryId, { payloadHash, rawBodyBuffer }).catch((err) =>
       log.error({ err, event, deliveryId }, "webhook handler failed"),
     ),
   );

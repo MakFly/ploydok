@@ -67,7 +67,7 @@ function GitProvidersHub(): React.JSX.Element {
     <ShellPage
       title="Git providers"
       description="Connecte les services d'hébergement Git pour déployer depuis un repo à chaque push."
-      eyebrow="Settings · Sources"
+      
     >
       <div className="space-y-6">
         <SettingsTabs />

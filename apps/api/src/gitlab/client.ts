@@ -1,6 +1,7 @@
 // SPDX-License-Identifier: AGPL-3.0-only
 import { GitBranchSchema, GitRepoSchema } from "@ploydok/shared";
 import type {
+  CommitStatusInput,
   GitBranch,
   GitProvider,
   GitRepo,
@@ -107,6 +108,33 @@ export class GitLabProvider implements GitProvider {
       commitMessage: push.commits?.[0]?.message ?? "",
       authRef: String(push.user_id),
     };
+  }
+
+  async postCommitStatus(input: CommitStatusInput): Promise<void> {
+    const { owner, repo, sha, state, context, targetUrl, description, token } = input;
+    // GitLab uses path_with_namespace as project identifier
+    const fullName = `${owner}/${repo}`;
+    const encoded = encodeURIComponent(fullName);
+
+    // Map generic states to GitLab-specific states
+    const gitlabState =
+      state === "pending" ? "pending"
+      : state === "success" ? "success"
+      : "failed";
+
+    const params = new URLSearchParams({ state: gitlabState, name: context });
+    if (targetUrl) params.set("target_url", targetUrl);
+    if (description) params.set("description", description);
+
+    const url = `${this.apiBase}/projects/${encoded}/statuses/${sha}?${params.toString()}`;
+    const res = await fetch(url, {
+      method: "POST",
+      headers: this.headers(token),
+    });
+
+    if (!res.ok) {
+      throw new Error(`GitLab commit status POST returned ${res.status} for ${sha}`);
+    }
   }
 }
 

@@ -7,3 +7,4 @@ export * from './apps';
 export * from './git-providers';
 export * from './monitoring';
 export * from './plans';
+export * from './notifications';

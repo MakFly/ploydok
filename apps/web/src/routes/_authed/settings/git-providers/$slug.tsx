@@ -62,7 +62,7 @@ function ProviderDashboard(): React.JSX.Element {
     <ShellPage
       title={provider.title}
       description={provider.description}
-      eyebrow="Settings · Git providers"
+      
     >
       <div className="space-y-6">
         <SettingsTabs />

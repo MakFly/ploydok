@@ -5,7 +5,7 @@ import { migrate } from 'drizzle-orm/postgres-js/migrator';
 import { join } from 'node:path';
 import bcrypt from 'bcryptjs';
 import { createDb } from './client';
-import { users, projects, backup_codes } from './schema';
+import { users, projects, backup_codes, totp_secrets } from './schema';
 
 // Dev-only fixed backup code used by scripts/run-dod.ts default login.
 // Safe to commit: only works on local seed data. Never valid in prod.
@@ -56,13 +56,48 @@ await db.insert(projects).values({
   created_at: now,
 }).onConflictDoNothing();
 
-const codeHash = await bcrypt.hash(DEV_BACKUP_CODE, 10);
-await db.insert(backup_codes).values({
-  id: 'dev-backup-0001',
-  user_id: 'dev-user-0001',
-  code_hash: codeHash,
-  consumed_at: null,
+// Second project — required by isolation e2e (cross-project-blocked) to
+// verify two projects of the SAME owner get isolated Docker networks.
+await db.insert(projects).values({
+  id: 'dev-project-0002',
+  owner_id: 'dev-user-0001',
+  name: 'Isolation',
+  slug: 'isolation',
   created_at: now,
 }).onConflictDoNothing();
 
-console.log(`Seed complete: 1 user + 1 project + 1 backup code (dev@ploydok.local / ${DEV_BACKUP_CODE})`);
+const codeHash = await bcrypt.hash(DEV_BACKUP_CODE, 10);
+// Idempotent: `make db-seed` restores the backup code to its unconsumed state
+// so e2e suites can re-run without regenerating the user.
+await db
+  .insert(backup_codes)
+  .values({
+    id: 'dev-backup-0001',
+    user_id: 'dev-user-0001',
+    code_hash: codeHash,
+    consumed_at: null,
+    created_at: now,
+  })
+  .onConflictDoUpdate({
+    target: backup_codes.id,
+    set: { code_hash: codeHash, consumed_at: null },
+  });
+
+// Pre-verified TOTP row so `requireSecondFactor` passes AFTER the backup code
+// has been consumed by apiLogin(). Ciphertext is a placeholder — the verified_at
+// flag is what the guard actually checks (it never reads the secret in e2e).
+await db
+  .insert(totp_secrets)
+  .values({
+    id: 'dev-totp-0001',
+    user_id: 'dev-user-0001',
+    secret_encrypted: 'seed-placeholder-never-used',
+    verified_at: now,
+    created_at: now,
+  })
+  .onConflictDoUpdate({
+    target: totp_secrets.user_id,
+    set: { verified_at: now },
+  });
+
+console.log(`Seed complete: 1 user + 2 projects + 1 backup code + TOTP verified (dev@ploydok.local / ${DEV_BACKUP_CODE})`);

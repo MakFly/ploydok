@@ -11,11 +11,13 @@ export interface BreadcrumbItem {
 }
 
 export function extractAppName(
-  matches: ReadonlyArray<MatchWithLoader>,
+  matches: ReadonlyArray<MatchWithLoader>
 ): string | null {
   const appMatch = matches.find((m) => m.routeId === "/_authed/apps/$id")
   if (!appMatch) return null
-  const data = appMatch.loaderData as { app?: { name?: string | null } } | undefined
+  const data = appMatch.loaderData as
+    | { app?: { name?: string | null } }
+    | undefined
   return data?.app?.name ?? null
 }
 
@@ -34,7 +36,7 @@ function humanizeSegment(segment: string): string {
 
 export function resolveTopbarBreadcrumb(
   pathname: string,
-  appName: string | null,
+  appName: string | null
 ): Array<BreadcrumbItem> {
   const normalized = normalizePathname(pathname)
 
@@ -56,12 +58,16 @@ export function resolveTopbarBreadcrumb(
 
   if (normalized.startsWith("/settings/")) {
     const segments = normalized.split("/").filter(Boolean).slice(1)
-    const items: Array<BreadcrumbItem> = [{ label: "Settings", to: "/settings" }]
+    const items: Array<BreadcrumbItem> = [
+      { label: "Settings", to: "/settings" },
+    ]
 
     if (segments[0] === "security") {
       items.push({ label: "Security", to: "/settings/security" })
       const securityLabels: Record<string, string> = {
+        passkey: "Passkeys",
         passkeys: "Passkeys",
+        posture: "Posture",
         sessions: "Sessions",
         totp: "TOTP",
       }

@@ -90,7 +90,6 @@ describe("handleDeploy", () => {
     // --- Mock DB queries ---
     const insertBuildSpy = spyOn(dbQueries, "insertBuild").mockResolvedValue(fakeBuild("bld-1", "pending") as any);
     const updateBuildStatusSpy = spyOn(dbQueries, "updateBuildStatus").mockResolvedValue(fakeBuild("bld-1", "running") as any);
-    const enqueueJobSpy = spyOn(dbQueries, "enqueueJob").mockResolvedValue({} as any);
 
     // --- Mock git ---
     const cloneRepoSpy = spyOn(gitMod, "cloneRepo").mockResolvedValue({
@@ -120,7 +119,6 @@ describe("handleDeploy", () => {
     // To test the error path properly, we need a db with working insert/update.
     const insertBuildSpy = spyOn(dbQueries, "insertBuild").mockResolvedValue(fakeBuild("bld-err", "pending") as any);
     const updateBuildStatusSpy = spyOn(dbQueries, "updateBuildStatus").mockResolvedValue(fakeBuild("bld-err", "failed") as any);
-    const enqueueJobSpy = spyOn(dbQueries, "enqueueJob").mockResolvedValue({} as any);
 
     spyOn(gitMod, "cloneRepo").mockRejectedValue(new Error("git clone failed (128): not found"));
 
@@ -247,7 +245,6 @@ describe.skipIf(skipIntegration)("handleDeploy — log archiving", () => {
       onLog?.("Step 3/3 : RUN bun install");
     });
     spyOn(registryMod, "gcKeepLast").mockResolvedValue([]);
-    spyOn(dbQueries, "enqueueJob").mockResolvedValue({} as any);
     // Mock runBlueGreen so the log archiving test doesn't need a running agent.
     spyOn(runnerMod, "runBlueGreen").mockResolvedValue({ containerId: "cont-log-1", color: "blue" });
 
@@ -311,7 +308,6 @@ describe.skipIf(skipIntegration)("handleDeploy — log archiving", () => {
     ] as any);
     spyOn(installTokensMod, "getInstallationToken").mockResolvedValue("fake-token");
     spyOn(gitMod, "cloneRepo").mockRejectedValue(new Error("git clone failed: timeout"));
-    spyOn(dbQueries, "enqueueJob").mockResolvedValue({} as any);
 
     const { handleDeploy } = await import("./deploy");
     const job = makeJob({ appId: "app-log-2" });
@@ -391,7 +387,6 @@ describe.skipIf(skipIntegration)("handleDeploy — blue-green", () => {
     spyOn(registryMod, "diskGuard").mockResolvedValue(undefined);
     spyOn(nixpacksMod, "nixpacksBuild").mockResolvedValue(undefined);
     spyOn(registryMod, "gcKeepLast").mockResolvedValue([]);
-    spyOn(dbQueries, "enqueueJob").mockResolvedValue({} as any);
   });
 
   it("calls runBlueGreen after push, updates build containerId, publishes Container live event", async () => {

@@ -10,7 +10,8 @@ use std::path::Path;
 
 use ploydok_proto::agent::{
     ContainerCreateRequest, ContainerRemoveRequest, ContainerStartRequest, ContainerStopRequest,
-    ExecStart, ImageBuildRequest, ImagePullRequest, NetworkCreateRequest, NetworkRemoveRequest,
+    ExecStart, ImageBuildRequest, ImagePullRequest, NetworkConnectRequest, NetworkCreateRequest,
+    NetworkDisconnectRequest, NetworkRemoveRequest,
 };
 use serde::{Deserialize, Serialize};
 use tonic::Status;
@@ -33,6 +34,8 @@ pub trait Validator: Send + Sync + 'static {
     fn validate_image_build(&self, req: &ImageBuildRequest) -> ValidatorResult;
     fn validate_network_create(&self, req: &NetworkCreateRequest) -> ValidatorResult;
     fn validate_network_remove(&self, req: &NetworkRemoveRequest) -> ValidatorResult;
+    fn validate_network_connect(&self, req: &NetworkConnectRequest) -> ValidatorResult;
+    fn validate_network_disconnect(&self, req: &NetworkDisconnectRequest) -> ValidatorResult;
     fn validate_container_exec(&self, req: &ExecStart) -> ValidatorResult;
 }
 
@@ -70,6 +73,12 @@ impl Validator for PermissiveValidator {
         Ok(())
     }
     fn validate_network_remove(&self, _req: &NetworkRemoveRequest) -> ValidatorResult {
+        Ok(())
+    }
+    fn validate_network_connect(&self, _req: &NetworkConnectRequest) -> ValidatorResult {
+        Ok(())
+    }
+    fn validate_network_disconnect(&self, _req: &NetworkDisconnectRequest) -> ValidatorResult {
         Ok(())
     }
     fn validate_container_exec(&self, _req: &ExecStart) -> ValidatorResult {
@@ -492,6 +501,56 @@ impl Validator for StrictValidator {
                 tonic::Code::PermissionDenied,
                 "network_name_prefix",
                 serde_json::json!({ "network_id": &req.network_id }),
+            ));
+        }
+        Ok(())
+    }
+
+    fn validate_network_connect(&self, req: &NetworkConnectRequest) -> ValidatorResult {
+        if req.network_id.is_empty() {
+            return Err(deny(
+                tonic::Code::InvalidArgument,
+                "network_id_empty",
+                serde_json::json!({ "network_id": "" }),
+            ));
+        }
+        if !looks_like_network_id(&req.network_id) && !req.network_id.starts_with("ploydok-") {
+            return Err(deny(
+                tonic::Code::PermissionDenied,
+                "network_name_prefix",
+                serde_json::json!({ "network_id": &req.network_id, "expected_prefix": "ploydok-" }),
+            ));
+        }
+        if req.container_id.is_empty() {
+            return Err(deny(
+                tonic::Code::InvalidArgument,
+                "container_id_empty",
+                serde_json::json!({ "container_id": "" }),
+            ));
+        }
+        Ok(())
+    }
+
+    fn validate_network_disconnect(&self, req: &NetworkDisconnectRequest) -> ValidatorResult {
+        if req.network_id.is_empty() {
+            return Err(deny(
+                tonic::Code::InvalidArgument,
+                "network_id_empty",
+                serde_json::json!({ "network_id": "" }),
+            ));
+        }
+        if !looks_like_network_id(&req.network_id) && !req.network_id.starts_with("ploydok-") {
+            return Err(deny(
+                tonic::Code::PermissionDenied,
+                "network_name_prefix",
+                serde_json::json!({ "network_id": &req.network_id, "expected_prefix": "ploydok-" }),
+            ));
+        }
+        if req.container_id.is_empty() {
+            return Err(deny(
+                tonic::Code::InvalidArgument,
+                "container_id_empty",
+                serde_json::json!({ "container_id": "" }),
             ));
         }
         Ok(())
