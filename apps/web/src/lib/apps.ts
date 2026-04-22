@@ -12,6 +12,7 @@ import { toast } from "sonner"
 
 export interface AppListItem {
   id: string
+  projectId?: string
   name: string
   slug: string
   status: AppStatus

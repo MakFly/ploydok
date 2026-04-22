@@ -312,6 +312,67 @@ describe("CaddyClient", () => {
     });
   });
 
+  // -------------------------------------------------------------------------
+  // buildHandlers — middleware combination snapshots
+  // -------------------------------------------------------------------------
+
+  test("buildHandlers with no middlewares returns only reverse_proxy", () => {
+    const handlers = client.buildHandlers("localhost:3001")
+    expect(handlers).toHaveLength(1)
+    expect(handlers[0]).toMatchObject({ handler: "reverse_proxy", upstreams: [{ dial: "localhost:3001" }] })
+  })
+
+  test("buildHandlers with basicAuth prepends authentication handler", () => {
+    const handlers = client.buildHandlers("localhost:3001", {
+      basicAuth: { user: "admin", pass_hash: "$2b$10$abc" },
+    })
+    expect(handlers).toHaveLength(2)
+    expect(handlers[0]).toMatchObject({ handler: "authentication" })
+    expect(handlers[1]).toMatchObject({ handler: "reverse_proxy" })
+  })
+
+  test("buildHandlers with rateLimit prepends rate_limit handler first", () => {
+    const handlers = client.buildHandlers("localhost:3001", {
+      rateLimit: { rps: 50 },
+    })
+    expect(handlers).toHaveLength(2)
+    expect(handlers[0]).toMatchObject({
+      handler: "rate_limit",
+      rate_limits: { default: { max_events: 50, window: "1s" } },
+    })
+    expect(handlers[1]).toMatchObject({ handler: "reverse_proxy" })
+  })
+
+  test("buildHandlers with ipAllowlist prepends subroute handler", () => {
+    const handlers = client.buildHandlers("localhost:3001", {
+      ipAllowlist: ["10.0.0.0/8"],
+    })
+    expect(handlers).toHaveLength(2)
+    expect(handlers[0]).toMatchObject({ handler: "subroute" })
+    expect(handlers[1]).toMatchObject({ handler: "reverse_proxy" })
+  })
+
+  test("buildHandlers combined: order is rate_limit → subroute → auth → proxy", () => {
+    const handlers = client.buildHandlers("localhost:3001", {
+      rateLimit: { rps: 10 },
+      ipAllowlist: ["192.168.0.0/24"],
+      basicAuth: { user: "u", pass_hash: "h" },
+    })
+    expect(handlers).toHaveLength(4)
+    expect(handlers[0]).toMatchObject({ handler: "rate_limit" })
+    expect(handlers[1]).toMatchObject({ handler: "subroute" })
+    expect(handlers[2]).toMatchObject({ handler: "authentication" })
+    expect(handlers[3]).toMatchObject({ handler: "reverse_proxy" })
+  })
+
+  test("buildHandlers with rateLimit=0 skips rate_limit handler", () => {
+    const handlers = client.buildHandlers("localhost:3001", {
+      rateLimit: { rps: 0 },
+    })
+    expect(handlers).toHaveLength(1)
+    expect(handlers[0]).toMatchObject({ handler: "reverse_proxy" })
+  })
+
   test("upsertDns01TlsPolicy PUTs updated policies list", async () => {
     const calls: MockRequest[] = [];
     const existingConfig: CaddyConfig = {

@@ -1,0 +1,20 @@
+kind: mongo
+image: mongo:7
+plans:
+  small:
+    cpu: 0.5
+    mem_mb: 512
+  medium:
+    cpu: 1.0
+    mem_mb: 2048
+  large:
+    cpu: 2.0
+    mem_mb: 8192
+volume_path: /data/db
+port: 27017
+healthcheck: mongosh --eval "db.adminCommand('ping')"
+env:
+  MONGO_INITDB_ROOT_USERNAME: ploydok
+  MONGO_INITDB_ROOT_PASSWORD: "@generated(32)"
+  MONGO_INITDB_DATABASE: app
+connection_string: "mongodb://{user}:{password}@{host}:{port}/{database}?authSource=admin"

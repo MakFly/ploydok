@@ -1,0 +1,20 @@
+kind: redis
+image: redis:7-alpine
+plans:
+  small:
+    cpu: 0.25
+    mem_mb: 256
+  medium:
+    cpu: 0.5
+    mem_mb: 1024
+  large:
+    cpu: 1.0
+    mem_mb: 4096
+volume_path: /data
+port: 6379
+healthcheck: redis-cli ping
+env: {}
+args:
+  - "--requirepass"
+  - "@generated(32)"
+connection_string: "redis://:{password}@{host}:{port}"

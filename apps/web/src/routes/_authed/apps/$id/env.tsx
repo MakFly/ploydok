@@ -8,7 +8,9 @@ import { SecretsTable } from "../../../../components/secrets/SecretsTable"
 import { AddSecretDialog } from "../../../../components/secrets/AddSecretDialog"
 import { RevealSecretDialog } from "../../../../components/secrets/RevealSecretDialog"
 import { ImportEnvDialog } from "../../../../components/secrets/ImportEnvDialog"
+import { LinkDatabaseDialog } from "../../../../components/databases/LinkDatabaseDialog"
 import { useSecrets } from "../../../../lib/secrets"
+import { useApp } from "../../../../lib/apps"
 import type { SecretScope } from "../../../../lib/secrets"
 
 // ---------------------------------------------------------------------------
@@ -30,8 +32,10 @@ function AppEnvTab(): React.JSX.Element {
   const [activeScope, setActiveScope] = React.useState<SecretScope>("shared")
   const [showAdd, setShowAdd] = React.useState(false)
   const [showImport, setShowImport] = React.useState(false)
+  const [showLinkDb, setShowLinkDb] = React.useState(false)
   const [revealTarget, setRevealTarget] = React.useState<{ key: string; scope: SecretScope } | null>(null)
 
+  const { data: app } = useApp(appId)
   const { data: secrets, isLoading, isError } = useSecrets(appId, activeScope)
 
   function handleReveal(key: string, scope: SecretScope) {
@@ -65,9 +69,8 @@ function AppEnvTab(): React.JSX.Element {
           <Button
             variant="outline"
             size="sm"
-            disabled
-            title="Coming in Wave 3"
-            className="gap-1.5 opacity-60"
+            onClick={() => setShowLinkDb(true)}
+            className="gap-1.5"
           >
             <RiDatabase2Line className="size-3.5" />
             Link database
@@ -126,6 +129,15 @@ function AppEnvTab(): React.JSX.Element {
         scope={revealTarget?.scope ?? null}
         onClose={() => setRevealTarget(null)}
       />
+
+      {app?.projectId && (
+        <LinkDatabaseDialog
+          open={showLinkDb}
+          appId={appId}
+          projectId={app.projectId}
+          onClose={() => setShowLinkDb(false)}
+        />
+      )}
     </div>
   )
 }

@@ -27,6 +27,9 @@ import { eventsRouter } from "./routes/events";
 import { monitoringRouter, startMonitoringLoop } from "./routes/monitoring";
 import { notificationsRouter } from "./routes/notifications"
 import { secretsRouter } from "./routes/secrets";
+import { createDatabasesRouter } from "./routes/databases";
+import { createAppsDatabasesLinkRouter } from "./routes/apps-databases-link";
+import { appsProtectionRouter } from "./routes/apps-protection";
 
 const httpLog = childLogger("http");
 const errorLog = childLogger("error");
@@ -263,6 +266,7 @@ app.route("/debug", debugRouter);
 app.use("/apps/*", requireAuth(db));
 app.route("/apps", appsEnvRouter);
 app.route("/apps", appsDomainsRouter);
+app.route("/apps", appsProtectionRouter);
 app.route("/apps", appsRouter);
 
 // GitHub App routes — auth enforced per-endpoint inside the router.
@@ -309,6 +313,15 @@ app.route("/notifications", notificationsRouter)
 // Secrets — all endpoints require auth. Mounted before /apps to avoid shadowing.
 app.use("/apps/*/secrets*", requireAuth(db))
 app.route("/apps", secretsRouter)
+
+// Databases — all endpoints require auth.
+app.use("/databases/*", requireAuth(db))
+app.use("/databases", requireAuth(db))
+app.route("/databases", createDatabasesRouter(db))
+
+// Apps ↔ Databases link routes
+app.use("/apps/*/databases/*", requireAuth(db))
+app.route("/apps", createAppsDatabasesLinkRouter(db))
 
 // /me — requires auth
 app.get("/me", requireAuth(db), async (c) => {

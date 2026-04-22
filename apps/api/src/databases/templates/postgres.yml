@@ -1,0 +1,20 @@
+kind: postgres
+image: postgres:16-alpine
+plans:
+  small:
+    cpu: 0.5
+    mem_mb: 512
+  medium:
+    cpu: 1.0
+    mem_mb: 2048
+  large:
+    cpu: 2.0
+    mem_mb: 8192
+volume_path: /var/lib/postgresql/data
+port: 5432
+healthcheck: pg_isready -U $POSTGRES_USER
+env:
+  POSTGRES_USER: ploydok
+  POSTGRES_DB: app
+  POSTGRES_PASSWORD: "@generated(32)"
+connection_string: "postgres://{user}:{password}@{host}:{port}/{database}"

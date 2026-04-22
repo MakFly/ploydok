@@ -18,10 +18,12 @@ import { Route as AuthedMonitoringRouteImport } from './routes/_authed/monitorin
 import { Route as AuthedGuideRouteImport } from './routes/_authed/guide'
 import { Route as AuthedDashboardRouteImport } from './routes/_authed/dashboard'
 import { Route as AuthedSettingsIndexRouteImport } from './routes/_authed/settings/index'
+import { Route as AuthedDatabasesIndexRouteImport } from './routes/_authed/databases/index'
 import { Route as AuthedAppsIndexRouteImport } from './routes/_authed/apps/index'
 import { Route as AuthedSettingsSecurityRouteImport } from './routes/_authed/settings/security'
 import { Route as AuthedSettingsRegistryRouteImport } from './routes/_authed/settings/registry'
 import { Route as AuthedSettingsNotificationsRouteImport } from './routes/_authed/settings/notifications'
+import { Route as AuthedDatabasesIdRouteImport } from './routes/_authed/databases/$id'
 import { Route as AuthedAppsIdRouteImport } from './routes/_authed/apps/$id'
 import { Route as AuthedSettingsSecurityIndexRouteImport } from './routes/_authed/settings/security/index'
 import { Route as AuthedSettingsGitProvidersIndexRouteImport } from './routes/_authed/settings/git-providers/index'
@@ -42,6 +44,7 @@ import { Route as AuthedAppsIdDeploymentsRouteImport } from './routes/_authed/ap
 import { Route as AuthedAppsIdSettingsIndexRouteImport } from './routes/_authed/apps/$id/settings/index'
 import { Route as AuthedAppsIdSettingsWebhooksRouteImport } from './routes/_authed/apps/$id/settings/webhooks'
 import { Route as AuthedAppsIdSettingsWebhookSecretRouteImport } from './routes/_authed/apps/$id/settings/webhook-secret'
+import { Route as AuthedAppsIdSettingsProtectionRouteImport } from './routes/_authed/apps/$id/settings/protection'
 import { Route as AuthedAppsIdSettingsNotificationsRouteImport } from './routes/_authed/apps/$id/settings/notifications'
 
 const PublicRoute = PublicRouteImport.update({
@@ -87,6 +90,11 @@ const AuthedSettingsIndexRoute = AuthedSettingsIndexRouteImport.update({
   path: '/settings/',
   getParentRoute: () => AuthedRoute,
 } as any)
+const AuthedDatabasesIndexRoute = AuthedDatabasesIndexRouteImport.update({
+  id: '/databases/',
+  path: '/databases/',
+  getParentRoute: () => AuthedRoute,
+} as any)
 const AuthedAppsIndexRoute = AuthedAppsIndexRouteImport.update({
   id: '/apps/',
   path: '/apps/',
@@ -108,6 +116,11 @@ const AuthedSettingsNotificationsRoute =
     path: '/settings/notifications',
     getParentRoute: () => AuthedRoute,
   } as any)
+const AuthedDatabasesIdRoute = AuthedDatabasesIdRouteImport.update({
+  id: '/databases/$id',
+  path: '/databases/$id',
+  getParentRoute: () => AuthedRoute,
+} as any)
 const AuthedAppsIdRoute = AuthedAppsIdRouteImport.update({
   id: '/apps/$id',
   path: '/apps/$id',
@@ -219,6 +232,12 @@ const AuthedAppsIdSettingsWebhookSecretRoute =
     path: '/webhook-secret',
     getParentRoute: () => AuthedAppsIdSettingsRoute,
   } as any)
+const AuthedAppsIdSettingsProtectionRoute =
+  AuthedAppsIdSettingsProtectionRouteImport.update({
+    id: '/protection',
+    path: '/protection',
+    getParentRoute: () => AuthedAppsIdSettingsRoute,
+  } as any)
 const AuthedAppsIdSettingsNotificationsRoute =
   AuthedAppsIdSettingsNotificationsRouteImport.update({
     id: '/notifications',
@@ -234,10 +253,12 @@ export interface FileRoutesByFullPath {
   '/login': typeof PublicLoginRoute
   '/register': typeof PublicRegisterRoute
   '/apps/$id': typeof AuthedAppsIdRouteWithChildren
+  '/databases/$id': typeof AuthedDatabasesIdRoute
   '/settings/notifications': typeof AuthedSettingsNotificationsRoute
   '/settings/registry': typeof AuthedSettingsRegistryRoute
   '/settings/security': typeof AuthedSettingsSecurityRouteWithChildren
   '/apps/': typeof AuthedAppsIndexRoute
+  '/databases/': typeof AuthedDatabasesIndexRoute
   '/settings/': typeof AuthedSettingsIndexRoute
   '/apps/$id/deployments': typeof AuthedAppsIdDeploymentsRoute
   '/apps/$id/domains': typeof AuthedAppsIdDomainsRoute
@@ -256,6 +277,7 @@ export interface FileRoutesByFullPath {
   '/settings/git-providers/': typeof AuthedSettingsGitProvidersIndexRoute
   '/settings/security/': typeof AuthedSettingsSecurityIndexRoute
   '/apps/$id/settings/notifications': typeof AuthedAppsIdSettingsNotificationsRoute
+  '/apps/$id/settings/protection': typeof AuthedAppsIdSettingsProtectionRoute
   '/apps/$id/settings/webhook-secret': typeof AuthedAppsIdSettingsWebhookSecretRoute
   '/apps/$id/settings/webhooks': typeof AuthedAppsIdSettingsWebhooksRoute
   '/apps/$id/settings/': typeof AuthedAppsIdSettingsIndexRoute
@@ -267,9 +289,11 @@ export interface FileRoutesByTo {
   '/monitoring': typeof AuthedMonitoringRoute
   '/login': typeof PublicLoginRoute
   '/register': typeof PublicRegisterRoute
+  '/databases/$id': typeof AuthedDatabasesIdRoute
   '/settings/notifications': typeof AuthedSettingsNotificationsRoute
   '/settings/registry': typeof AuthedSettingsRegistryRoute
   '/apps': typeof AuthedAppsIndexRoute
+  '/databases': typeof AuthedDatabasesIndexRoute
   '/settings': typeof AuthedSettingsIndexRoute
   '/apps/$id/deployments': typeof AuthedAppsIdDeploymentsRoute
   '/apps/$id/domains': typeof AuthedAppsIdDomainsRoute
@@ -287,6 +311,7 @@ export interface FileRoutesByTo {
   '/settings/git-providers': typeof AuthedSettingsGitProvidersIndexRoute
   '/settings/security': typeof AuthedSettingsSecurityIndexRoute
   '/apps/$id/settings/notifications': typeof AuthedAppsIdSettingsNotificationsRoute
+  '/apps/$id/settings/protection': typeof AuthedAppsIdSettingsProtectionRoute
   '/apps/$id/settings/webhook-secret': typeof AuthedAppsIdSettingsWebhookSecretRoute
   '/apps/$id/settings/webhooks': typeof AuthedAppsIdSettingsWebhooksRoute
   '/apps/$id/settings': typeof AuthedAppsIdSettingsIndexRoute
@@ -302,10 +327,12 @@ export interface FileRoutesById {
   '/_public/register': typeof PublicRegisterRoute
   '/_public/': typeof PublicIndexRoute
   '/_authed/apps/$id': typeof AuthedAppsIdRouteWithChildren
+  '/_authed/databases/$id': typeof AuthedDatabasesIdRoute
   '/_authed/settings/notifications': typeof AuthedSettingsNotificationsRoute
   '/_authed/settings/registry': typeof AuthedSettingsRegistryRoute
   '/_authed/settings/security': typeof AuthedSettingsSecurityRouteWithChildren
   '/_authed/apps/': typeof AuthedAppsIndexRoute
+  '/_authed/databases/': typeof AuthedDatabasesIndexRoute
   '/_authed/settings/': typeof AuthedSettingsIndexRoute
   '/_authed/apps/$id/deployments': typeof AuthedAppsIdDeploymentsRoute
   '/_authed/apps/$id/domains': typeof AuthedAppsIdDomainsRoute
@@ -324,6 +351,7 @@ export interface FileRoutesById {
   '/_authed/settings/git-providers/': typeof AuthedSettingsGitProvidersIndexRoute
   '/_authed/settings/security/': typeof AuthedSettingsSecurityIndexRoute
   '/_authed/apps/$id/settings/notifications': typeof AuthedAppsIdSettingsNotificationsRoute
+  '/_authed/apps/$id/settings/protection': typeof AuthedAppsIdSettingsProtectionRoute
   '/_authed/apps/$id/settings/webhook-secret': typeof AuthedAppsIdSettingsWebhookSecretRoute
   '/_authed/apps/$id/settings/webhooks': typeof AuthedAppsIdSettingsWebhooksRoute
   '/_authed/apps/$id/settings/': typeof AuthedAppsIdSettingsIndexRoute
@@ -338,10 +366,12 @@ export interface FileRouteTypes {
     | '/login'
     | '/register'
     | '/apps/$id'
+    | '/databases/$id'
     | '/settings/notifications'
     | '/settings/registry'
     | '/settings/security'
     | '/apps/'
+    | '/databases/'
     | '/settings/'
     | '/apps/$id/deployments'
     | '/apps/$id/domains'
@@ -360,6 +390,7 @@ export interface FileRouteTypes {
     | '/settings/git-providers/'
     | '/settings/security/'
     | '/apps/$id/settings/notifications'
+    | '/apps/$id/settings/protection'
     | '/apps/$id/settings/webhook-secret'
     | '/apps/$id/settings/webhooks'
     | '/apps/$id/settings/'
@@ -371,9 +402,11 @@ export interface FileRouteTypes {
     | '/monitoring'
     | '/login'
     | '/register'
+    | '/databases/$id'
     | '/settings/notifications'
     | '/settings/registry'
     | '/apps'
+    | '/databases'
     | '/settings'
     | '/apps/$id/deployments'
     | '/apps/$id/domains'
@@ -391,6 +424,7 @@ export interface FileRouteTypes {
     | '/settings/git-providers'
     | '/settings/security'
     | '/apps/$id/settings/notifications'
+    | '/apps/$id/settings/protection'
     | '/apps/$id/settings/webhook-secret'
     | '/apps/$id/settings/webhooks'
     | '/apps/$id/settings'
@@ -405,10 +439,12 @@ export interface FileRouteTypes {
     | '/_public/register'
     | '/_public/'
     | '/_authed/apps/$id'
+    | '/_authed/databases/$id'
     | '/_authed/settings/notifications'
     | '/_authed/settings/registry'
     | '/_authed/settings/security'
     | '/_authed/apps/'
+    | '/_authed/databases/'
     | '/_authed/settings/'
     | '/_authed/apps/$id/deployments'
     | '/_authed/apps/$id/domains'
@@ -427,6 +463,7 @@ export interface FileRouteTypes {
     | '/_authed/settings/git-providers/'
     | '/_authed/settings/security/'
     | '/_authed/apps/$id/settings/notifications'
+    | '/_authed/apps/$id/settings/protection'
     | '/_authed/apps/$id/settings/webhook-secret'
     | '/_authed/apps/$id/settings/webhooks'
     | '/_authed/apps/$id/settings/'
@@ -502,6 +539,13 @@ declare module '@tanstack/react-router' {
       preLoaderRoute: typeof AuthedSettingsIndexRouteImport
       parentRoute: typeof AuthedRoute
     }
+    '/_authed/databases/': {
+      id: '/_authed/databases/'
+      path: '/databases'
+      fullPath: '/databases/'
+      preLoaderRoute: typeof AuthedDatabasesIndexRouteImport
+      parentRoute: typeof AuthedRoute
+    }
     '/_authed/apps/': {
       id: '/_authed/apps/'
       path: '/apps'
@@ -528,6 +572,13 @@ declare module '@tanstack/react-router' {
       path: '/settings/notifications'
       fullPath: '/settings/notifications'
       preLoaderRoute: typeof AuthedSettingsNotificationsRouteImport
+      parentRoute: typeof AuthedRoute
+    }
+    '/_authed/databases/$id': {
+      id: '/_authed/databases/$id'
+      path: '/databases/$id'
+      fullPath: '/databases/$id'
+      preLoaderRoute: typeof AuthedDatabasesIdRouteImport
       parentRoute: typeof AuthedRoute
     }
     '/_authed/apps/$id': {
@@ -670,6 +721,13 @@ declare module '@tanstack/react-router' {
       preLoaderRoute: typeof AuthedAppsIdSettingsWebhookSecretRouteImport
       parentRoute: typeof AuthedAppsIdSettingsRoute
     }
+    '/_authed/apps/$id/settings/protection': {
+      id: '/_authed/apps/$id/settings/protection'
+      path: '/protection'
+      fullPath: '/apps/$id/settings/protection'
+      preLoaderRoute: typeof AuthedAppsIdSettingsProtectionRouteImport
+      parentRoute: typeof AuthedAppsIdSettingsRoute
+    }
     '/_authed/apps/$id/settings/notifications': {
       id: '/_authed/apps/$id/settings/notifications'
       path: '/notifications'
@@ -682,6 +740,7 @@ declare module '@tanstack/react-router' {
 
 interface AuthedAppsIdSettingsRouteChildren {
   AuthedAppsIdSettingsNotificationsRoute: typeof AuthedAppsIdSettingsNotificationsRoute
+  AuthedAppsIdSettingsProtectionRoute: typeof AuthedAppsIdSettingsProtectionRoute
   AuthedAppsIdSettingsWebhookSecretRoute: typeof AuthedAppsIdSettingsWebhookSecretRoute
   AuthedAppsIdSettingsWebhooksRoute: typeof AuthedAppsIdSettingsWebhooksRoute
   AuthedAppsIdSettingsIndexRoute: typeof AuthedAppsIdSettingsIndexRoute
@@ -690,6 +749,7 @@ interface AuthedAppsIdSettingsRouteChildren {
 const AuthedAppsIdSettingsRouteChildren: AuthedAppsIdSettingsRouteChildren = {
   AuthedAppsIdSettingsNotificationsRoute:
     AuthedAppsIdSettingsNotificationsRoute,
+  AuthedAppsIdSettingsProtectionRoute: AuthedAppsIdSettingsProtectionRoute,
   AuthedAppsIdSettingsWebhookSecretRoute:
     AuthedAppsIdSettingsWebhookSecretRoute,
   AuthedAppsIdSettingsWebhooksRoute: AuthedAppsIdSettingsWebhooksRoute,
@@ -754,10 +814,12 @@ interface AuthedRouteChildren {
   AuthedGuideRoute: typeof AuthedGuideRoute
   AuthedMonitoringRoute: typeof AuthedMonitoringRoute
   AuthedAppsIdRoute: typeof AuthedAppsIdRouteWithChildren
+  AuthedDatabasesIdRoute: typeof AuthedDatabasesIdRoute
   AuthedSettingsNotificationsRoute: typeof AuthedSettingsNotificationsRoute
   AuthedSettingsRegistryRoute: typeof AuthedSettingsRegistryRoute
   AuthedSettingsSecurityRoute: typeof AuthedSettingsSecurityRouteWithChildren
   AuthedAppsIndexRoute: typeof AuthedAppsIndexRoute
+  AuthedDatabasesIndexRoute: typeof AuthedDatabasesIndexRoute
   AuthedSettingsIndexRoute: typeof AuthedSettingsIndexRoute
   AuthedSettingsGitProvidersSlugRoute: typeof AuthedSettingsGitProvidersSlugRoute
   AuthedSettingsGitProvidersIndexRoute: typeof AuthedSettingsGitProvidersIndexRoute
@@ -768,10 +830,12 @@ const AuthedRouteChildren: AuthedRouteChildren = {
   AuthedGuideRoute: AuthedGuideRoute,
   AuthedMonitoringRoute: AuthedMonitoringRoute,
   AuthedAppsIdRoute: AuthedAppsIdRouteWithChildren,
+  AuthedDatabasesIdRoute: AuthedDatabasesIdRoute,
   AuthedSettingsNotificationsRoute: AuthedSettingsNotificationsRoute,
   AuthedSettingsRegistryRoute: AuthedSettingsRegistryRoute,
   AuthedSettingsSecurityRoute: AuthedSettingsSecurityRouteWithChildren,
   AuthedAppsIndexRoute: AuthedAppsIndexRoute,
+  AuthedDatabasesIndexRoute: AuthedDatabasesIndexRoute,
   AuthedSettingsIndexRoute: AuthedSettingsIndexRoute,
   AuthedSettingsGitProvidersSlugRoute: AuthedSettingsGitProvidersSlugRoute,
   AuthedSettingsGitProvidersIndexRoute: AuthedSettingsGitProvidersIndexRoute,
