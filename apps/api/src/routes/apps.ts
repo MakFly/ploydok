@@ -72,6 +72,10 @@ const PatchAppBody = CreateAppBody.omit({ name: true, projectId: true })
     post_commit_status: z.boolean().optional(),
     coalesce_pushes: z.boolean().optional(),
     deploy_on_tag: z.boolean().optional(),
+    // Deploy hooks (Wave 5)
+    hooksPreDeploy: z.string().nullable().optional(),
+    hooksPostDeploy: z.string().nullable().optional(),
+    hooksTimeoutS: z.number().int().min(10).max(3600).optional(),
     // tag_pattern must be a valid regex when provided
     tag_pattern: z
       .string()
@@ -181,6 +185,10 @@ function serializeApp(row: AppRow) {
       retries: row.healthcheck_retries,
       startPeriodS: row.healthcheck_start_period_s,
     },
+    // Deploy hooks (Wave 5)
+    hooksPreDeploy: row.hooks_pre_deploy ?? null,
+    hooksPostDeploy: row.hooks_post_deploy ?? null,
+    hooksTimeoutS: row.hooks_timeout_s ?? 300,
     createdAt: row.created_at instanceof Date ? row.created_at.toISOString() : row.created_at,
     updatedAt: row.updated_at instanceof Date ? row.updated_at.toISOString() : row.updated_at,
   };
@@ -228,6 +236,7 @@ type BuildRow = {
   container_id: string | null;
   commit_sha: string | null;
   commit_message: string | null;
+  post_deploy_error: string | null;
   started_at: Date | null;
   finished_at: Date | null;
   created_at: Date | null;
@@ -243,6 +252,7 @@ function serializeBuild(row: BuildRow) {
     containerId: row.container_id,
     commitSha: row.commit_sha,
     commitMessage: row.commit_message,
+    postDeployError: row.post_deploy_error ?? null,
     startedAt: row.started_at instanceof Date ? row.started_at.getTime() : row.started_at,
     finishedAt: row.finished_at instanceof Date ? row.finished_at.getTime() : row.finished_at,
     createdAt: row.created_at instanceof Date ? row.created_at.getTime() : row.created_at,
@@ -468,6 +478,11 @@ export function createAppsRouter(db: Db): Hono {
     if (body.coalesce_pushes !== undefined) patch.coalesce_pushes = body.coalesce_pushes;
     if (body.deploy_on_tag !== undefined) patch.deploy_on_tag = body.deploy_on_tag;
     if (body.tag_pattern !== undefined) patch.tag_pattern = body.tag_pattern;
+
+    // Deploy hooks (Wave 5)
+    if ("hooksPreDeploy" in body && body.hooksPreDeploy !== undefined) patch.hooks_pre_deploy = body.hooksPreDeploy;
+    if ("hooksPostDeploy" in body && body.hooksPostDeploy !== undefined) patch.hooks_post_deploy = body.hooksPostDeploy;
+    if ("hooksTimeoutS" in body && body.hooksTimeoutS !== undefined) patch.hooks_timeout_s = body.hooksTimeoutS;
 
     if (body.healthcheck !== undefined) {
       const hc = body.healthcheck;

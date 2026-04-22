@@ -31,8 +31,18 @@ const BUILD_STATUS_CLASS: Record<BuildStatus, string> = {
   pending: "bg-muted text-muted-foreground",
   running: "bg-blue-500/10 text-blue-600 dark:text-blue-400",
   succeeded: "bg-green-500/10 text-green-600 dark:text-green-400",
+  succeeded_with_warning: "bg-amber-500/10 text-amber-600 dark:text-amber-400",
   failed: "bg-destructive/10 text-destructive",
   cancelled: "bg-muted text-muted-foreground",
+}
+
+const BUILD_STATUS_LABEL: Record<BuildStatus, string> = {
+  pending: "Pending",
+  running: "Running",
+  succeeded: "Succeeded",
+  succeeded_with_warning: "Succeeded (warning)",
+  failed: "Failed",
+  cancelled: "Cancelled",
 }
 
 const IN_PROGRESS_STATUSES: ReadonlySet<BuildStatus> = new Set(["pending", "running"])
@@ -77,7 +87,7 @@ interface RowActionsProps {
 }
 
 function RowActions({ build, onSelectBuild, onRollback }: RowActionsProps): React.JSX.Element {
-  const canRollback = build.status === "succeeded"
+  const canRollback = build.status === "succeeded" || build.status === "succeeded_with_warning"
 
   return (
     <DropdownMenu>
@@ -176,17 +186,20 @@ function makeColumns(
       cell: ({ row }) => {
         const status = row.original.status
         const inProgress = IN_PROGRESS_STATUSES.has(status)
+        const isWarning = status === "succeeded_with_warning"
+        const postDeployError = row.original.postDeployError
         return (
           <span
             className={[
               "inline-flex items-center gap-1.5 rounded-full px-2 py-0.5 text-xs font-medium",
               BUILD_STATUS_CLASS[status],
             ].join(" ")}
+            title={isWarning && postDeployError ? `Post-deploy hook failed: ${postDeployError}` : undefined}
           >
             {inProgress && (
               <RiLoader4Line className="size-3 animate-spin" aria-hidden="true" />
             )}
-            {status}
+            {BUILD_STATUS_LABEL[status] ?? status}
           </span>
         )
       },

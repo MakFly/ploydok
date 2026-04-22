@@ -34,6 +34,8 @@ import { createRedis } from "@ploydok/db";
 import { postCommitStatusForApp } from "../../providers/commit-status";
 import { dispatch } from "../../notify/index";
 import { buildEnvForDeploy } from "../../secrets/resolver";
+import { runPreDeployHook, runPostDeployHook } from "../hooks";
+import { getSharedAgent } from "../../debug/singletons";
 
 // Shared Redis client for commit status dedup (singleton per worker process).
 const redis = createRedis(env.REDIS_URL);
@@ -76,6 +78,9 @@ interface AppForDeploy {
   registry_credential_id: string | null;
   owner_id: string;
   post_commit_status: boolean;
+  hooks_pre_deploy: string | null;
+  hooks_post_deploy: string | null;
+  hooks_timeout_s: number | null;
 }
 
 /**
@@ -105,6 +110,9 @@ async function getAppForDeploy(db: Db, appId: string): Promise<AppForDeploy> {
       registry_credential_id: apps.registry_credential_id,
       owner_id: projects.owner_id,
       post_commit_status: apps.post_commit_status,
+      hooks_pre_deploy: apps.hooks_pre_deploy,
+      hooks_post_deploy: apps.hooks_post_deploy,
+      hooks_timeout_s: apps.hooks_timeout_s,
     })
     .from(apps)
     .innerJoin(projects, eq(apps.project_id, projects.id))
@@ -287,8 +295,8 @@ export async function handleDeploy(
   const logStream = fs.createWriteStream(logPath, { flags: "a" });
 
   // Track final outcome so the finally block can write log_path once.
-  let finalStatus: "succeeded" | "failed" = "succeeded";
-  let finalPatch: { finishedAt: Date; errorMessage?: string; containerId?: string } = { finishedAt: new Date() };
+  let finalStatus: "succeeded" | "succeeded_with_warning" | "failed" = "succeeded";
+  let finalPatch: { finishedAt: Date; errorMessage?: string; containerId?: string; postDeployError?: string } = { finishedAt: new Date() };
   // Resolved commit sha (updated once clone resolves HEAD, used for commit status)
   let resolvedCommitShaFinal: string | null = payload.commitSha ?? null;
   // Commit status state to post on failure: FatalDeployError → failure, unknown → error
@@ -328,6 +336,25 @@ export async function handleDeploy(
       const registryAuth = await loadRegistryAuthForApp(db, app);
       const secretEnv = await buildEnvForDeploy(db, app.id, "prod");
 
+      // Pre-deploy hook (image source path)
+      if (app.hooks_pre_deploy) {
+        imageLog("[deploy] running pre-deploy hook");
+        const hookCtx = {
+          db,
+          agent: getSharedAgent(),
+          appId: app.id,
+          projectId: app.project_id,
+          imageRef,
+          env: secretEnv,
+          buildId,
+        };
+        try {
+          await runPreDeployHook(hookCtx, app.hooks_pre_deploy, app.hooks_timeout_s ?? 300);
+        } catch (hookErr) {
+          throw classifyAgentError(hookErr);
+        }
+      }
+
       const runOpts: Parameters<typeof runBlueGreen>[0] = {
         appId: app.id,
         imageRef,
@@ -343,7 +370,34 @@ export async function handleDeploy(
       }
       imageLog(`[deploy] container live: ${containerId}`);
 
-      finalPatch = { finishedAt: new Date(), containerId };
+      // Post-deploy hook (image source path) — non-fatal on failure
+      if (app.hooks_post_deploy) {
+        imageLog("[deploy] running post-deploy hook");
+        const postHookCtx = {
+          db,
+          agent: getSharedAgent(),
+          appId: app.id,
+          projectId: app.project_id,
+          imageRef,
+          env: secretEnv,
+          buildId,
+        };
+        const postResult = await runPostDeployHook(
+          postHookCtx,
+          app.hooks_post_deploy,
+          app.hooks_timeout_s ?? 300,
+        );
+        if (!postResult.ok) {
+          imageLog(`[deploy] post-deploy hook failed (non-fatal): ${postResult.error ?? "unknown"}`);
+          finalStatus = "succeeded_with_warning";
+          finalPatch = { finishedAt: new Date(), containerId, ...(postResult.error ? { postDeployError: postResult.error.slice(0, 500) } : {}) };
+          log.warn({ buildId, err: postResult.error }, "post-deploy hook failed (succeeded_with_warning)");
+        }
+      }
+
+      if (finalStatus !== "succeeded_with_warning") {
+        finalPatch = { finishedAt: new Date(), containerId };
+      }
 
       if (ownerId) {
         try {
@@ -359,8 +413,10 @@ export async function handleDeploy(
         }
       }
 
-      finalStatus = "succeeded";
-      log.info({ buildId, imageRef }, "image deploy succeeded");
+      if (finalStatus !== "succeeded_with_warning") {
+        finalStatus = "succeeded";
+      }
+      log.info({ buildId, imageRef, finalStatus }, "image deploy completed");
       return;
     }
 
@@ -552,6 +608,26 @@ export async function handleDeploy(
     // runBlueGreen internally updates apps.container_id + apps.status = 'running'.
     onLog("[deploy] starting blue-green runner");
     const runtimeSecretEnv = await buildEnvForDeploy(db, app.id, "prod");
+
+    // Pre-deploy hook (git source path)
+    if (app.hooks_pre_deploy) {
+      onLog("[deploy] running pre-deploy hook");
+      const preHookCtx = {
+        db,
+        agent: getSharedAgent(),
+        appId: app.id,
+        projectId: app.project_id,
+        imageRef,
+        env: runtimeSecretEnv,
+        buildId,
+      };
+      try {
+        await runPreDeployHook(preHookCtx, app.hooks_pre_deploy, app.hooks_timeout_s ?? 300);
+      } catch (hookErr) {
+        throw classifyAgentError(hookErr);
+      }
+    }
+
     let containerId: string;
     try {
       ({ containerId } = await runBlueGreen({
@@ -565,8 +641,35 @@ export async function handleDeploy(
     }
     onLog(`[deploy] container live: ${containerId}`);
 
+    // Post-deploy hook (git source path) — non-fatal on failure
+    if (app.hooks_post_deploy) {
+      onLog("[deploy] running post-deploy hook");
+      const postHookCtx = {
+        db,
+        agent: getSharedAgent(),
+        appId: app.id,
+        projectId: app.project_id,
+        imageRef,
+        env: runtimeSecretEnv,
+        buildId,
+      };
+      const postResult = await runPostDeployHook(
+        postHookCtx,
+        app.hooks_post_deploy,
+        app.hooks_timeout_s ?? 300,
+      );
+      if (!postResult.ok) {
+        onLog(`[deploy] post-deploy hook failed (non-fatal): ${postResult.error ?? "unknown"}`);
+        finalStatus = "succeeded_with_warning";
+        finalPatch = { finishedAt: new Date(), containerId, ...(postResult.error ? { postDeployError: postResult.error.slice(0, 500) } : {}) };
+        log.warn({ buildId, err: postResult.error }, "post-deploy hook failed (succeeded_with_warning)");
+      }
+    }
+
     // Persist containerId into the build record via finalPatch (written once in finally).
-    finalPatch = { finishedAt: new Date(), containerId };
+    if (finalStatus !== "succeeded_with_warning") {
+      finalPatch = { finishedAt: new Date(), containerId };
+    }
 
     // Notify: container is live.
     if (ownerId) {
@@ -584,9 +687,12 @@ export async function handleDeploy(
     }
 
     // 5. Mark succeeded (log_path + terminal event written in finally)
-    finalStatus = "succeeded";
+    // Note: finalStatus may already be "succeeded_with_warning" if post-deploy hook failed
+    if (finalStatus !== "succeeded_with_warning") {
+      finalStatus = "succeeded";
+    }
 
-    log.info({ buildId }, "deploy succeeded");
+    log.info({ buildId, finalStatus }, "deploy completed");
 
     // 6. Best-effort auto-prune: keep registry tidy after every success.
     //    Honours image protection (running container + latest succeeded build
@@ -625,12 +731,13 @@ export async function handleDeploy(
     await updateBuildStatus(db, buildId, finalStatus, {
       ...finalPatch,
       logPath,
+      ...(finalPatch.postDeployError !== undefined && { postDeployError: finalPatch.postDeployError }),
     });
 
     // Commit status — success / failure / error (best-effort, non-fatal)
     if (resolvedCommitShaFinal) {
       const durationMs = Date.now() - deployStartMs;
-      const statusState = finalStatus === "succeeded" ? "success" : commitStatusErrorState;
+      const statusState = (finalStatus === "succeeded" || finalStatus === "succeeded_with_warning") ? "success" : commitStatusErrorState;
       postCommitStatusForApp(db, redis, app, {
         sha: resolvedCommitShaFinal,
         state: statusState,
@@ -645,10 +752,12 @@ export async function handleDeploy(
       const terminal =
         finalStatus === "succeeded"
           ? { type: "build.succeeded" as const, message: "Build réussi" }
-          : {
-              type: "build.failed" as const,
-              message: `Build échoué: ${(finalPatch.errorMessage ?? "").slice(0, 200)}`,
-            };
+          : finalStatus === "succeeded_with_warning"
+            ? { type: "build.succeeded" as const, message: "Build réussi (post-deploy hook en échec)" }
+            : {
+                type: "build.failed" as const,
+                message: `Build échoué: ${(finalPatch.errorMessage ?? "").slice(0, 200)}`,
+              };
       try {
         eventBus.publish(`user:${ownerId}`, {
           type: terminal.type,
@@ -664,7 +773,7 @@ export async function handleDeploy(
     // Notification dispatch — build/deploy outcome
     if (ownerId) {
       const durationMs = Date.now() - deployStartMs
-      const notifyEvent = finalStatus === "succeeded" ? "deploy.succeeded" : "deploy.failed"
+      const notifyEvent = (finalStatus === "succeeded" || finalStatus === "succeeded_with_warning") ? "deploy.succeeded" : "deploy.failed"
       dispatch(db, redis, notifyEvent, {
         appId: app.id,
         appName: app.name,

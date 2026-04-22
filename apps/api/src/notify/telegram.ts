@@ -13,6 +13,7 @@ const EVENT_EMOJI: Record<NotificationEvent, string> = {
   "deploy.succeeded": "🚀",
   "deploy.failed": "💥",
   "webhook.rotated": "🔑",
+  "db.rotated": "🔐",
 }
 
 // Telegram HTML parse_mode allows a small tag subset. We escape &, <, > on any

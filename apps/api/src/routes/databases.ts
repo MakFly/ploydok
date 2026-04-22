@@ -8,6 +8,7 @@ import type { Db } from "@ploydok/db"
 import { env } from "../env"
 import { requireTotpVerified } from "../auth/second-factor"
 import { spawnDatabase, getConnectionString } from "../databases/spawner"
+import { rotatePassword, RotationInProgressError, RotationFailedError } from "../databases/rotation"
 import { getSharedAgent } from "../debug/singletons"
 import { childLogger } from "../logger"
 import type { AuthUser } from "../auth/middleware"
@@ -133,6 +134,7 @@ export function createDatabasesRouter(db: Db): Hono<any, any, any> {
       host: row.host,
       port: row.port,
       rotation_schedule: row.rotation_schedule,
+      rotation_in_progress: row.rotation_in_progress,
       password_rotated_at: row.password_rotated_at,
       created_at: row.created_at,
       linked_apps: links,
@@ -154,6 +156,41 @@ export function createDatabasesRouter(db: Db): Hono<any, any, any> {
       return c.json({ connection_string: connectionString })
     } catch {
       return c.json({ error: { code: "UNAVAILABLE", message: "Connection string not available" } }, 503)
+    }
+  })
+
+  // POST /databases/:id/rotate — TOTP required, triggers password rotation
+  router.post("/:id/rotate", totpMiddleware, async (c) => {
+    const user = getUser(c)
+    const dbId = c.req.param("id")
+
+    const row = await getDbForUser(db, dbId!, user.id)
+    if (!row) {
+      return c.json({ error: { code: "NOT_FOUND", message: "Database not found" } }, 404)
+    }
+
+    try {
+      const result = await rotatePassword(db, row.id, { reason: "manual" })
+      log.info({ dbId: row.id, userId: user.id, appsRedeployed: result.appsRedeployed }, "manual rotation triggered")
+      return c.json({
+        ok: true,
+        rotatedAt: result.rotatedAt.toISOString(),
+        appsRedeployed: result.appsRedeployed,
+      })
+    } catch (err) {
+      if (err instanceof RotationInProgressError) {
+        return c.json({ error: { code: "CONFLICT", message: "Rotation already in progress" } }, 409)
+      }
+      if (err instanceof RotationFailedError) {
+        log.error({ err, dbId: row.id }, "rotation failed — rolled back")
+        return c.json(
+          { error: { code: "ROTATION_FAILED", message: "Rotation failed — rolled back to previous password" } },
+          500,
+        )
+      }
+      const msg = err instanceof Error ? err.message : String(err)
+      log.error({ err, dbId: row.id }, "unexpected rotation error")
+      return c.json({ error: { code: "INTERNAL", message: msg } }, 500)
     }
   })
 

@@ -30,6 +30,7 @@ const STATUS_DOT: Record<BuildStatus, string> = {
   pending: "bg-muted-foreground",
   running: "bg-blue-500 animate-pulse",
   succeeded: "bg-green-500",
+  succeeded_with_warning: "bg-amber-500",
   failed: "bg-destructive",
   cancelled: "bg-muted-foreground",
 };
@@ -38,6 +39,7 @@ const STATUS_TEXT: Record<BuildStatus, string> = {
   pending: "text-muted-foreground",
   running: "text-blue-600 dark:text-blue-400",
   succeeded: "text-green-600 dark:text-green-400",
+  succeeded_with_warning: "text-amber-600 dark:text-amber-400",
   failed: "text-destructive",
   cancelled: "text-muted-foreground",
 };

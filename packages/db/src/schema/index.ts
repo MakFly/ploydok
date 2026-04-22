@@ -26,3 +26,5 @@ export { webhook_deliveries } from './webhook-deliveries';
 export { notification_channels } from './notification-channels';
 export { tls_certificates } from './tls_certificates';
 export type { TlsCertRow, TlsCertInsert } from './tls_certificates';
+export { password_history } from './password_history';
+export type { PasswordHistoryRow, PasswordHistoryInsert } from './password_history';

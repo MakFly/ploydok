@@ -1,9 +1,9 @@
 // SPDX-License-Identifier: AGPL-3.0-only
-import { and, desc, eq, lt, ne } from 'drizzle-orm';
+import { and, desc, eq, inArray, lt, ne } from 'drizzle-orm';
 import type { Db } from '../client';
 import { builds } from '../schema';
 
-type BuildStatus = 'pending' | 'running' | 'succeeded' | 'failed' | 'cancelled';
+type BuildStatus = 'pending' | 'running' | 'succeeded' | 'succeeded_with_warning' | 'failed' | 'cancelled';
 type BuildMethod = 'docker' | 'nixpacks';
 
 interface InsertBuildInput {
@@ -20,6 +20,7 @@ interface UpdateBuildPatch {
   startedAt?: Date;
   finishedAt?: Date;
   errorMessage?: string;
+  postDeployError?: string;
   logPath?: string;
   commitSha?: string;
   commitMessage?: string;
@@ -55,6 +56,7 @@ export async function updateBuildStatus(
       ...(patch?.startedAt !== undefined && { started_at: patch.startedAt }),
       ...(patch?.finishedAt !== undefined && { finished_at: patch.finishedAt }),
       ...(patch?.errorMessage !== undefined && { error_message: patch.errorMessage }),
+      ...(patch?.postDeployError !== undefined && { post_deploy_error: patch.postDeployError }),
       ...(patch?.logPath !== undefined && { log_path: patch.logPath }),
       ...(patch?.commitSha !== undefined && { commit_sha: patch.commitSha }),
       ...(patch?.commitMessage !== undefined && { commit_message: patch.commitMessage }),
@@ -84,6 +86,8 @@ export async function getLastSucceededBuild(
   beforeBuildId?: string,
 ) {
   // If beforeBuildId is given we need the created_at of that build first
+  const succeededStatuses = ['succeeded', 'succeeded_with_warning'] as const;
+
   if (beforeBuildId) {
     const ref = await getBuildById(db, beforeBuildId);
     if (!ref) return null;
@@ -96,7 +100,7 @@ export async function getLastSucceededBuild(
       .where(
         and(
           eq(builds.app_id, appId),
-          eq(builds.status, 'succeeded'),
+          inArray(builds.status, succeededStatuses),
           ne(builds.id, beforeBuildId),
           lt(builds.created_at, ref.created_at as Date),
         ),
@@ -113,7 +117,7 @@ export async function getLastSucceededBuild(
       .where(
         and(
           eq(builds.app_id, appId),
-          eq(builds.status, 'succeeded'),
+          inArray(builds.status, succeededStatuses),
           ne(builds.id, beforeBuildId),
         ),
       )
@@ -125,7 +129,7 @@ export async function getLastSucceededBuild(
   const rows = await db
     .select()
     .from(builds)
-    .where(and(eq(builds.app_id, appId), eq(builds.status, 'succeeded')))
+    .where(and(eq(builds.app_id, appId), inArray(builds.status, succeededStatuses)))
     .orderBy(desc(builds.created_at))
     .limit(1);
   return rows[0] ?? null;

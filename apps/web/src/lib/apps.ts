@@ -49,6 +49,10 @@ export interface AppDetail extends AppListItem {
   deployOnTag?: boolean
   tagPattern?: string | null
   webhookSecret?: boolean
+  // Deploy hooks (Wave 5)
+  hooksPreDeploy?: string | null
+  hooksPostDeploy?: string | null
+  hooksTimeoutS?: number | null
   // Last 10 builds included in GET /apps/:id response
   builds?: Array<Build>
 }
@@ -115,6 +119,9 @@ export type AppSettingsPatch = Partial<
     | "coalescePushes"
     | "deployOnTag"
     | "tagPattern"
+    | "hooksPreDeploy"
+    | "hooksPostDeploy"
+    | "hooksTimeoutS"
   >
 >
 

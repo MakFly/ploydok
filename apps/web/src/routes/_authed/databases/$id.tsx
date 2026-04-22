@@ -6,6 +6,7 @@ import { Button } from "@workspace/ui/components/button"
 import { ShellPage } from "../../../components/layout/AppShell"
 import { useDatabase, useDeleteDatabase } from "../../../lib/databases"
 import { RevealConnectionDialog } from "../../../components/databases/RevealConnectionDialog"
+import { RotationPanel } from "../../../components/databases/RotationPanel"
 
 export const Route = createFileRoute("/_authed/databases/$id")({
   component: DatabaseDetailPage,
@@ -13,7 +14,7 @@ export const Route = createFileRoute("/_authed/databases/$id")({
 
 function DatabaseDetailPage(): React.JSX.Element {
   const { id } = Route.useParams()
-  const { data: db, isLoading, error } = useDatabase(id)
+  const { data: db, isLoading, error, refetch } = useDatabase(id)
   const [revealOpen, setRevealOpen] = React.useState(false)
   const [confirmDelete, setConfirmDelete] = React.useState(false)
   const { mutate: deleteDb, isPending: isDeleting } = useDeleteDatabase()
@@ -69,6 +70,11 @@ function DatabaseDetailPage(): React.JSX.Element {
             </div>
           </div>
         </div>
+
+        <RotationPanel
+          db={db}
+          onScheduleChange={() => void refetch()}
+        />
 
         {db.linked_apps && db.linked_apps.length > 0 && (
           <div className="border rounded-lg p-4 flex flex-col gap-2">
