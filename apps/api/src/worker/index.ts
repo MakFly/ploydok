@@ -16,6 +16,7 @@ import { runRegistryGc, startRegistryGcCron, stopRegistryGcCron } from "./handle
 import { startPurgeWebhookSecretsCron, stopPurgeWebhookSecretsCron } from "./jobs/purge-old-webhook-secrets"
 import { startCertExpiryCheckCron, stopCertExpiryCheckCron } from "./jobs/cert-expiry-check"
 import { startRotateDatabasesCron, stopRotateDatabasesCron } from "./jobs/rotate-databases"
+import { startBackupDatabasesCron, stopBackupDatabasesCron } from "./jobs/backup-databases"
 
 // ---------------------------------------------------------------------------
 // Types
@@ -134,6 +135,7 @@ export function startWorker(
   startPurgeWebhookSecretsCron(db)
   startCertExpiryCheckCron(db)
   startRotateDatabasesCron(db)
+  startBackupDatabasesCron(db)
 
   const abortHandler = () => stop()
   opts?.signal?.addEventListener("abort", abortHandler)
@@ -143,6 +145,7 @@ export function startWorker(
     stopPurgeWebhookSecretsCron()
     stopCertExpiryCheckCron()
     stopRotateDatabasesCron()
+    stopBackupDatabasesCron()
     Promise.all(workers.map((w) => w.close())).catch((err) => {
       logger.error({ err }, "error closing BullMQ workers")
     })

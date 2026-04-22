@@ -359,6 +359,44 @@ message ExecReady {
 }
 
 // ─────────────────────────────────────────────────────────────────────────────
+// DumpDatabase / RestoreDatabase
+// ─────────────────────────────────────────────────────────────────────────────
+
+message DumpRequest {
+  // Container id or name of the database container.
+  string container_id = 1;
+  // "postgres" | "redis" | "mongo"
+  string kind = 2;
+  // age public-key recipient (e.g. "age1..."). Empty → no encryption.
+  string age_recipient = 3;
+}
+
+// Each chunk carries raw dump bytes (possibly age-encrypted).
+message DumpChunk {
+  bytes data = 1;
+}
+
+message RestoreChunk {
+  oneof payload {
+    // First frame sent by the client — must arrive before any data frames.
+    RestoreHeader header = 1;
+    bytes data = 2;
+  }
+}
+
+message RestoreHeader {
+  string container_id = 1;
+  string kind = 2;
+  // age private-key identity used to decrypt the stream. Empty → plain stream.
+  string age_identity = 3;
+}
+
+message RestoreResult {
+  bool ok = 1;
+  string error = 2;
+}
+
+// ─────────────────────────────────────────────────────────────────────────────
 // Service definition
 // ─────────────────────────────────────────────────────────────────────────────
 
@@ -389,4 +427,8 @@ service Agent {
 
   // Interactive shell (bidi streaming)
   rpc ContainerExec   (stream ExecFrame)        returns (stream ExecFrame);
+
+  // Database backup / restore (streaming)
+  rpc DumpDatabase    (DumpRequest)             returns (stream DumpChunk);
+  rpc RestoreDatabase (stream RestoreChunk)     returns (RestoreResult);
 }

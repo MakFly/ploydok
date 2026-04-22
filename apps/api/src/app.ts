@@ -28,6 +28,7 @@ import { monitoringRouter, startMonitoringLoop } from "./routes/monitoring";
 import { notificationsRouter } from "./routes/notifications"
 import { secretsRouter } from "./routes/secrets";
 import { createDatabasesRouter } from "./routes/databases";
+import { createBackupsRouter } from "./routes/backups";
 import { createAppsDatabasesLinkRouter } from "./routes/apps-databases-link";
 import { appsProtectionRouter } from "./routes/apps-protection";
 
@@ -318,6 +319,14 @@ app.route("/apps", secretsRouter)
 app.use("/databases/*", requireAuth(db))
 app.use("/databases", requireAuth(db))
 app.route("/databases", createDatabasesRouter(db))
+
+// Backups — all endpoints require auth.
+app.use("/databases/*/backups*", requireAuth(db))
+app.use("/databases/*/backup-config*", requireAuth(db))
+app.use("/databases/*/backup-now*", requireAuth(db))
+app.use("/databases/*/restore*", requireAuth(db))
+app.use("/backups/*", requireAuth(db))
+app.route("/", createBackupsRouter(db))
 
 // Apps ↔ Databases link routes
 app.use("/apps/*/databases/*", requireAuth(db))

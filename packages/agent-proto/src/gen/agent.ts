@@ -14,7 +14,9 @@ import {
   type ClientOptions,
   type ClientReadableStream,
   type ClientUnaryCall,
+  type ClientWritableStream,
   type handleBidiStreamingCall,
+  type handleClientStreamingCall,
   type handleServerStreamingCall,
   type handleUnaryCall,
   makeGenericClientConstructor,
@@ -368,6 +370,38 @@ export interface ExecExit {
 export interface ExecReady {
   /** Docker exec id — useful for debugging / correlation. */
   execId: string;
+}
+
+export interface DumpRequest {
+  /** Container id or name of the database container. */
+  containerId: string;
+  /** "postgres" | "redis" | "mongo" */
+  kind: string;
+  /** age public-key recipient (e.g. "age1..."). Empty → no encryption. */
+  ageRecipient: string;
+}
+
+/** Each chunk carries raw dump bytes (possibly age-encrypted). */
+export interface DumpChunk {
+  data: Uint8Array;
+}
+
+export interface RestoreChunk {
+  /** First frame sent by the client — must arrive before any data frames. */
+  header?: RestoreHeader | undefined;
+  data?: Uint8Array | undefined;
+}
+
+export interface RestoreHeader {
+  containerId: string;
+  kind: string;
+  /** age private-key identity used to decrypt the stream. Empty → plain stream. */
+  ageIdentity: string;
+}
+
+export interface RestoreResult {
+  ok: boolean;
+  error: string;
 }
 
 function createBaseVolumeMount(): VolumeMount {
@@ -4580,6 +4614,418 @@ export const ExecReady: MessageFns<ExecReady> = {
   },
 };
 
+function createBaseDumpRequest(): DumpRequest {
+  return { containerId: "", kind: "", ageRecipient: "" };
+}
+
+export const DumpRequest: MessageFns<DumpRequest> = {
+  encode(message: DumpRequest, writer: BinaryWriter = new BinaryWriter()): BinaryWriter {
+    if (message.containerId !== "") {
+      writer.uint32(10).string(message.containerId);
+    }
+    if (message.kind !== "") {
+      writer.uint32(18).string(message.kind);
+    }
+    if (message.ageRecipient !== "") {
+      writer.uint32(26).string(message.ageRecipient);
+    }
+    return writer;
+  },
+
+  decode(input: BinaryReader | Uint8Array, length?: number): DumpRequest {
+    const reader = input instanceof BinaryReader ? input : new BinaryReader(input);
+    const end = length === undefined ? reader.len : reader.pos + length;
+    const message = createBaseDumpRequest();
+    while (reader.pos < end) {
+      const tag = reader.uint32();
+      switch (tag >>> 3) {
+        case 1: {
+          if (tag !== 10) {
+            break;
+          }
+
+          message.containerId = reader.string();
+          continue;
+        }
+        case 2: {
+          if (tag !== 18) {
+            break;
+          }
+
+          message.kind = reader.string();
+          continue;
+        }
+        case 3: {
+          if (tag !== 26) {
+            break;
+          }
+
+          message.ageRecipient = reader.string();
+          continue;
+        }
+      }
+      if ((tag & 7) === 4 || tag === 0) {
+        break;
+      }
+      reader.skip(tag & 7);
+    }
+    return message;
+  },
+
+  fromJSON(object: any): DumpRequest {
+    return {
+      containerId: isSet(object.containerId)
+        ? globalThis.String(object.containerId)
+        : isSet(object.container_id)
+        ? globalThis.String(object.container_id)
+        : "",
+      kind: isSet(object.kind) ? globalThis.String(object.kind) : "",
+      ageRecipient: isSet(object.ageRecipient)
+        ? globalThis.String(object.ageRecipient)
+        : isSet(object.age_recipient)
+        ? globalThis.String(object.age_recipient)
+        : "",
+    };
+  },
+
+  toJSON(message: DumpRequest): unknown {
+    const obj: any = {};
+    if (message.containerId !== "") {
+      obj.containerId = message.containerId;
+    }
+    if (message.kind !== "") {
+      obj.kind = message.kind;
+    }
+    if (message.ageRecipient !== "") {
+      obj.ageRecipient = message.ageRecipient;
+    }
+    return obj;
+  },
+
+  create(base?: DeepPartial<DumpRequest>): DumpRequest {
+    return DumpRequest.fromPartial(base ?? {});
+  },
+  fromPartial(object: DeepPartial<DumpRequest>): DumpRequest {
+    const message = createBaseDumpRequest();
+    message.containerId = object.containerId ?? "";
+    message.kind = object.kind ?? "";
+    message.ageRecipient = object.ageRecipient ?? "";
+    return message;
+  },
+};
+
+function createBaseDumpChunk(): DumpChunk {
+  return { data: new Uint8Array(0) };
+}
+
+export const DumpChunk: MessageFns<DumpChunk> = {
+  encode(message: DumpChunk, writer: BinaryWriter = new BinaryWriter()): BinaryWriter {
+    if (message.data.length !== 0) {
+      writer.uint32(10).bytes(message.data);
+    }
+    return writer;
+  },
+
+  decode(input: BinaryReader | Uint8Array, length?: number): DumpChunk {
+    const reader = input instanceof BinaryReader ? input : new BinaryReader(input);
+    const end = length === undefined ? reader.len : reader.pos + length;
+    const message = createBaseDumpChunk();
+    while (reader.pos < end) {
+      const tag = reader.uint32();
+      switch (tag >>> 3) {
+        case 1: {
+          if (tag !== 10) {
+            break;
+          }
+
+          message.data = reader.bytes();
+          continue;
+        }
+      }
+      if ((tag & 7) === 4 || tag === 0) {
+        break;
+      }
+      reader.skip(tag & 7);
+    }
+    return message;
+  },
+
+  fromJSON(object: any): DumpChunk {
+    return { data: isSet(object.data) ? bytesFromBase64(object.data) : new Uint8Array(0) };
+  },
+
+  toJSON(message: DumpChunk): unknown {
+    const obj: any = {};
+    if (message.data.length !== 0) {
+      obj.data = base64FromBytes(message.data);
+    }
+    return obj;
+  },
+
+  create(base?: DeepPartial<DumpChunk>): DumpChunk {
+    return DumpChunk.fromPartial(base ?? {});
+  },
+  fromPartial(object: DeepPartial<DumpChunk>): DumpChunk {
+    const message = createBaseDumpChunk();
+    message.data = object.data ?? new Uint8Array(0);
+    return message;
+  },
+};
+
+function createBaseRestoreChunk(): RestoreChunk {
+  return { header: undefined, data: undefined };
+}
+
+export const RestoreChunk: MessageFns<RestoreChunk> = {
+  encode(message: RestoreChunk, writer: BinaryWriter = new BinaryWriter()): BinaryWriter {
+    if (message.header !== undefined) {
+      RestoreHeader.encode(message.header, writer.uint32(10).fork()).join();
+    }
+    if (message.data !== undefined) {
+      writer.uint32(18).bytes(message.data);
+    }
+    return writer;
+  },
+
+  decode(input: BinaryReader | Uint8Array, length?: number): RestoreChunk {
+    const reader = input instanceof BinaryReader ? input : new BinaryReader(input);
+    const end = length === undefined ? reader.len : reader.pos + length;
+    const message = createBaseRestoreChunk();
+    while (reader.pos < end) {
+      const tag = reader.uint32();
+      switch (tag >>> 3) {
+        case 1: {
+          if (tag !== 10) {
+            break;
+          }
+
+          message.header = RestoreHeader.decode(reader, reader.uint32());
+          continue;
+        }
+        case 2: {
+          if (tag !== 18) {
+            break;
+          }
+
+          message.data = reader.bytes();
+          continue;
+        }
+      }
+      if ((tag & 7) === 4 || tag === 0) {
+        break;
+      }
+      reader.skip(tag & 7);
+    }
+    return message;
+  },
+
+  fromJSON(object: any): RestoreChunk {
+    return {
+      header: isSet(object.header) ? RestoreHeader.fromJSON(object.header) : undefined,
+      data: isSet(object.data) ? bytesFromBase64(object.data) : undefined,
+    };
+  },
+
+  toJSON(message: RestoreChunk): unknown {
+    const obj: any = {};
+    if (message.header !== undefined) {
+      obj.header = RestoreHeader.toJSON(message.header);
+    }
+    if (message.data !== undefined) {
+      obj.data = base64FromBytes(message.data);
+    }
+    return obj;
+  },
+
+  create(base?: DeepPartial<RestoreChunk>): RestoreChunk {
+    return RestoreChunk.fromPartial(base ?? {});
+  },
+  fromPartial(object: DeepPartial<RestoreChunk>): RestoreChunk {
+    const message = createBaseRestoreChunk();
+    message.header = (object.header !== undefined && object.header !== null)
+      ? RestoreHeader.fromPartial(object.header)
+      : undefined;
+    message.data = object.data ?? undefined;
+    return message;
+  },
+};
+
+function createBaseRestoreHeader(): RestoreHeader {
+  return { containerId: "", kind: "", ageIdentity: "" };
+}
+
+export const RestoreHeader: MessageFns<RestoreHeader> = {
+  encode(message: RestoreHeader, writer: BinaryWriter = new BinaryWriter()): BinaryWriter {
+    if (message.containerId !== "") {
+      writer.uint32(10).string(message.containerId);
+    }
+    if (message.kind !== "") {
+      writer.uint32(18).string(message.kind);
+    }
+    if (message.ageIdentity !== "") {
+      writer.uint32(26).string(message.ageIdentity);
+    }
+    return writer;
+  },
+
+  decode(input: BinaryReader | Uint8Array, length?: number): RestoreHeader {
+    const reader = input instanceof BinaryReader ? input : new BinaryReader(input);
+    const end = length === undefined ? reader.len : reader.pos + length;
+    const message = createBaseRestoreHeader();
+    while (reader.pos < end) {
+      const tag = reader.uint32();
+      switch (tag >>> 3) {
+        case 1: {
+          if (tag !== 10) {
+            break;
+          }
+
+          message.containerId = reader.string();
+          continue;
+        }
+        case 2: {
+          if (tag !== 18) {
+            break;
+          }
+
+          message.kind = reader.string();
+          continue;
+        }
+        case 3: {
+          if (tag !== 26) {
+            break;
+          }
+
+          message.ageIdentity = reader.string();
+          continue;
+        }
+      }
+      if ((tag & 7) === 4 || tag === 0) {
+        break;
+      }
+      reader.skip(tag & 7);
+    }
+    return message;
+  },
+
+  fromJSON(object: any): RestoreHeader {
+    return {
+      containerId: isSet(object.containerId)
+        ? globalThis.String(object.containerId)
+        : isSet(object.container_id)
+        ? globalThis.String(object.container_id)
+        : "",
+      kind: isSet(object.kind) ? globalThis.String(object.kind) : "",
+      ageIdentity: isSet(object.ageIdentity)
+        ? globalThis.String(object.ageIdentity)
+        : isSet(object.age_identity)
+        ? globalThis.String(object.age_identity)
+        : "",
+    };
+  },
+
+  toJSON(message: RestoreHeader): unknown {
+    const obj: any = {};
+    if (message.containerId !== "") {
+      obj.containerId = message.containerId;
+    }
+    if (message.kind !== "") {
+      obj.kind = message.kind;
+    }
+    if (message.ageIdentity !== "") {
+      obj.ageIdentity = message.ageIdentity;
+    }
+    return obj;
+  },
+
+  create(base?: DeepPartial<RestoreHeader>): RestoreHeader {
+    return RestoreHeader.fromPartial(base ?? {});
+  },
+  fromPartial(object: DeepPartial<RestoreHeader>): RestoreHeader {
+    const message = createBaseRestoreHeader();
+    message.containerId = object.containerId ?? "";
+    message.kind = object.kind ?? "";
+    message.ageIdentity = object.ageIdentity ?? "";
+    return message;
+  },
+};
+
+function createBaseRestoreResult(): RestoreResult {
+  return { ok: false, error: "" };
+}
+
+export const RestoreResult: MessageFns<RestoreResult> = {
+  encode(message: RestoreResult, writer: BinaryWriter = new BinaryWriter()): BinaryWriter {
+    if (message.ok !== false) {
+      writer.uint32(8).bool(message.ok);
+    }
+    if (message.error !== "") {
+      writer.uint32(18).string(message.error);
+    }
+    return writer;
+  },
+
+  decode(input: BinaryReader | Uint8Array, length?: number): RestoreResult {
+    const reader = input instanceof BinaryReader ? input : new BinaryReader(input);
+    const end = length === undefined ? reader.len : reader.pos + length;
+    const message = createBaseRestoreResult();
+    while (reader.pos < end) {
+      const tag = reader.uint32();
+      switch (tag >>> 3) {
+        case 1: {
+          if (tag !== 8) {
+            break;
+          }
+
+          message.ok = reader.bool();
+          continue;
+        }
+        case 2: {
+          if (tag !== 18) {
+            break;
+          }
+
+          message.error = reader.string();
+          continue;
+        }
+      }
+      if ((tag & 7) === 4 || tag === 0) {
+        break;
+      }
+      reader.skip(tag & 7);
+    }
+    return message;
+  },
+
+  fromJSON(object: any): RestoreResult {
+    return {
+      ok: isSet(object.ok) ? globalThis.Boolean(object.ok) : false,
+      error: isSet(object.error) ? globalThis.String(object.error) : "",
+    };
+  },
+
+  toJSON(message: RestoreResult): unknown {
+    const obj: any = {};
+    if (message.ok !== false) {
+      obj.ok = message.ok;
+    }
+    if (message.error !== "") {
+      obj.error = message.error;
+    }
+    return obj;
+  },
+
+  create(base?: DeepPartial<RestoreResult>): RestoreResult {
+    return RestoreResult.fromPartial(base ?? {});
+  },
+  fromPartial(object: DeepPartial<RestoreResult>): RestoreResult {
+    const message = createBaseRestoreResult();
+    message.ok = object.ok ?? false;
+    message.error = object.error ?? "";
+    return message;
+  },
+};
+
 export type AgentService = typeof AgentService;
 export const AgentService = {
   /** Container lifecycle */
@@ -4740,6 +5186,25 @@ export const AgentService = {
     responseSerialize: (value: ExecFrame): Buffer => Buffer.from(ExecFrame.encode(value).finish()),
     responseDeserialize: (value: Buffer): ExecFrame => ExecFrame.decode(value),
   },
+  /** Database backup / restore (streaming) */
+  dumpDatabase: {
+    path: "/ploydok.agent.v1.Agent/DumpDatabase" as const,
+    requestStream: false as const,
+    responseStream: true as const,
+    requestSerialize: (value: DumpRequest): Buffer => Buffer.from(DumpRequest.encode(value).finish()),
+    requestDeserialize: (value: Buffer): DumpRequest => DumpRequest.decode(value),
+    responseSerialize: (value: DumpChunk): Buffer => Buffer.from(DumpChunk.encode(value).finish()),
+    responseDeserialize: (value: Buffer): DumpChunk => DumpChunk.decode(value),
+  },
+  restoreDatabase: {
+    path: "/ploydok.agent.v1.Agent/RestoreDatabase" as const,
+    requestStream: true as const,
+    responseStream: false as const,
+    requestSerialize: (value: RestoreChunk): Buffer => Buffer.from(RestoreChunk.encode(value).finish()),
+    requestDeserialize: (value: Buffer): RestoreChunk => RestoreChunk.decode(value),
+    responseSerialize: (value: RestoreResult): Buffer => Buffer.from(RestoreResult.encode(value).finish()),
+    responseDeserialize: (value: Buffer): RestoreResult => RestoreResult.decode(value),
+  },
 } as const;
 
 export interface AgentServer extends UntypedServiceImplementation {
@@ -4764,6 +5229,9 @@ export interface AgentServer extends UntypedServiceImplementation {
   pingContainer: handleUnaryCall<PingContainerRequest, PingContainerResponse>;
   /** Interactive shell (bidi streaming) */
   containerExec: handleBidiStreamingCall<ExecFrame, ExecFrame>;
+  /** Database backup / restore (streaming) */
+  dumpDatabase: handleServerStreamingCall<DumpRequest, DumpChunk>;
+  restoreDatabase: handleClientStreamingCall<RestoreChunk, RestoreResult>;
 }
 
 export interface AgentClient extends Client {
@@ -4950,6 +5418,29 @@ export interface AgentClient extends Client {
   containerExec(): ClientDuplexStream<ExecFrame, ExecFrame>;
   containerExec(options: Partial<CallOptions>): ClientDuplexStream<ExecFrame, ExecFrame>;
   containerExec(metadata: Metadata, options?: Partial<CallOptions>): ClientDuplexStream<ExecFrame, ExecFrame>;
+  /** Database backup / restore (streaming) */
+  dumpDatabase(request: DumpRequest, options?: Partial<CallOptions>): ClientReadableStream<DumpChunk>;
+  dumpDatabase(
+    request: DumpRequest,
+    metadata?: Metadata,
+    options?: Partial<CallOptions>,
+  ): ClientReadableStream<DumpChunk>;
+  restoreDatabase(
+    callback: (error: ServiceError | null, response: RestoreResult) => void,
+  ): ClientWritableStream<RestoreChunk>;
+  restoreDatabase(
+    metadata: Metadata,
+    callback: (error: ServiceError | null, response: RestoreResult) => void,
+  ): ClientWritableStream<RestoreChunk>;
+  restoreDatabase(
+    options: Partial<CallOptions>,
+    callback: (error: ServiceError | null, response: RestoreResult) => void,
+  ): ClientWritableStream<RestoreChunk>;
+  restoreDatabase(
+    metadata: Metadata,
+    options: Partial<CallOptions>,
+    callback: (error: ServiceError | null, response: RestoreResult) => void,
+  ): ClientWritableStream<RestoreChunk>;
 }
 
 export const AgentClient = makeGenericClientConstructor(AgentService, "ploydok.agent.v1.Agent") as unknown as {
