@@ -96,8 +96,12 @@ Ploydok a un **moteur solide** (build, blue-green, agent Rust, auth) mais manque
 
 ## 🔜 Prochaine session — pistes à reprendre
 
-- [ ] Démarrer (ou terminer) le **Sprint 3.1.1** en priorité : notifications Discord/Slack/Email + Deliveries UI + commit status — c'est le gap le plus visible côté UX quotidienne.
-- [ ] Préparer le **Sprint 4** : choisir la stack DB one-click (templates Docker vs opérateur custom), benchmark Coolify/Dokploy sur la provisioning DB→app (ENV auto-injectés, backup schedule).
-- [ ] Décider du positionnement **volumes persistants** : inclure dans Sprint 4 ou repousser v1.1 ? (bloquant pour toute app stateful → recommander Sprint 4).
-- [ ] Valider la stratégie **TLS wildcard DNS-01** : Caddy supporte nativement Cloudflare/OVH/Route53 via modules — confirmer les providers prioritaires.
-- [ ] Archiver ce rapport dans `docs/audits/` comme baseline t=0 pour re-mesurer la conformité à chaque fin de sprint.
+- [x] Démarrer (ou terminer) le **Sprint 3.1.1** en priorité : notifications Discord/Slack/Email + Deliveries UI + commit status — livré ✅ (commit `eee35db` — 2026-04-22).
+- [x] Préparer le **Sprint 4** : choisir la stack DB one-click (templates Docker vs opérateur custom), benchmark Coolify/Dokploy sur la provisioning DB→app (ENV auto-injectés, backup schedule) — livré ✅ (commits c0c838d / 5131d6330 / 185fb9f / cff0991 — 2026-04-22).
+- [x] Décider du positionnement **volumes persistants** : inclure dans Sprint 4 — livré ✅ (volumes nommés `ploydok-db-<id>` dans spawner.ts — W3).
+- [x] Valider la stratégie **TLS wildcard DNS-01** : livré ✅ — 4 providers (Cloudflare / Route53 / OVH / DigitalOcean) via modules Caddy xcaddy — W2+W4.
+- [x] Archiver ce rapport dans `docs/audits/` — fait (ce fichier).
+
+**Mise à jour verdict conformité post-Sprint 4 : ~65 %** (vs 42 % baseline au moment de cet audit).
+
+Les gaps fermés par Sprint 4 : DB one-click + backups S3/R2, wildcard DNS-01 + cert manuel, protection Caddy 3 middlewares, deploy hooks, rotation DB orchestrée zero-downtime, env vars scopes 4 niveaux.
