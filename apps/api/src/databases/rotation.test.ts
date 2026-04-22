@@ -23,10 +23,14 @@ mock.module("../worker/queues", () => ({
   },
 }))
 
-// Mock notify dispatch
-mock.module("../notify/index", () => ({
-  dispatch: mock(() => Promise.resolve()),
-}))
+// Note: we intentionally do NOT mock.module("../notify/index") here.
+// `mock.module` is global to the Bun test runtime — mocking the notify
+// module here would leak into notify/dispatcher.test.ts and replace the
+// real `dispatch` function with a no-op, causing its filter/dedup assertions
+// to fail in the full suite. rotation.ts already wraps `dispatch()` in a
+// try/catch (dispatch failure is non-fatal), and the real `dispatch`
+// short-circuits cleanly when the DB stub doesn't return channels — so we
+// let it run against the fake DB without mocking.
 
 // Mock createRedis
 mock.module("@ploydok/db", () => ({
