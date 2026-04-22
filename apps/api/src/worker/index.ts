@@ -10,6 +10,8 @@ import { handleDeploy } from "./handlers/deploy"
 import { FatalDeployError } from "./errors"
 import { handleDeleteApp } from "./handlers/delete-app"
 import type { DeleteAppOptions } from "./handlers/delete-app"
+import { handleDomainVerify } from "./handlers/domain-verify"
+import type { DomainVerifyPayload } from "./handlers/domain-verify"
 import { runRegistryGc, startRegistryGcCron, stopRegistryGcCron } from "./handlers/gc-registry"
 import { startPurgeWebhookSecretsCron, stopPurgeWebhookSecretsCron } from "./jobs/purge-old-webhook-secrets"
 
@@ -105,6 +107,17 @@ export function startWorker(
         logger.info({ jobId: job.id, ...res }, "app.delete done")
       },
       { connection, concurrency: 1 },
+    ),
+
+    new Worker(
+      "domain.verify",
+      async (job) => {
+        logger.info({ jobId: job.id }, "domain.verify job started")
+        const payload = job.data as DomainVerifyPayload
+        await handleDomainVerify(db, payload)
+        logger.info({ jobId: job.id, domainId: payload.domainId }, "domain.verify done")
+      },
+      { connection, concurrency: 5 },
     ),
   ]
 

@@ -1,0 +1,71 @@
+// SPDX-License-Identifier: AGPL-3.0-only
+import * as React from "react"
+import { RiDeleteBinLine, RiEyeLine } from "@remixicon/react"
+import { Button } from "@workspace/ui/components/button"
+import { Badge } from "@workspace/ui/components/badge"
+import { useDeleteSecret } from "../../lib/secrets"
+import type { SecretMeta, SecretScope } from "../../lib/secrets"
+
+interface SecretsTableProps {
+  appId: string
+  scope: SecretScope
+  secrets: SecretMeta[]
+  onReveal: (key: string, scope: SecretScope) => void
+}
+
+export function SecretsTable({ appId, scope, secrets, onReveal }: SecretsTableProps): React.JSX.Element {
+  const { mutate: deleteSecret, isPending: isDeleting } = useDeleteSecret(appId)
+
+  if (secrets.length === 0) {
+    return (
+      <div className="flex flex-col items-center justify-center rounded-lg border border-dashed py-10 text-center">
+        <p className="text-sm text-muted-foreground">No secrets for scope <Badge variant="outline">{scope}</Badge></p>
+      </div>
+    )
+  }
+
+  return (
+    <div className="overflow-hidden rounded-lg border border-border">
+      <table className="w-full text-sm">
+        <thead>
+          <tr className="border-b border-border bg-muted/40">
+            <th className="px-4 py-2.5 text-left font-medium text-muted-foreground">Key</th>
+            <th className="px-4 py-2.5 text-left font-medium text-muted-foreground">Updated</th>
+            <th className="px-4 py-2.5 text-right font-medium text-muted-foreground">Actions</th>
+          </tr>
+        </thead>
+        <tbody className="divide-y divide-border">
+          {secrets.map((secret) => (
+            <tr key={`${secret.key}-${secret.scope}`} className="hover:bg-muted/20">
+              <td className="px-4 py-3 font-mono text-xs">{secret.key}</td>
+              <td className="px-4 py-3 text-muted-foreground text-xs">
+                {secret.updated_at ? new Date(secret.updated_at).toLocaleDateString() : "—"}
+              </td>
+              <td className="px-4 py-3">
+                <div className="flex items-center justify-end gap-2">
+                  <Button
+                    variant="ghost"
+                    size="icon"
+                    onClick={() => onReveal(secret.key, secret.scope)}
+                    title="Reveal value"
+                  >
+                    <RiEyeLine className="size-4" />
+                  </Button>
+                  <Button
+                    variant="ghost"
+                    size="icon"
+                    onClick={() => deleteSecret({ key: secret.key, scope })}
+                    disabled={isDeleting}
+                    title="Delete secret"
+                  >
+                    <RiDeleteBinLine className="size-4 text-destructive" />
+                  </Button>
+                </div>
+              </td>
+            </tr>
+          ))}
+        </tbody>
+      </table>
+    </div>
+  )
+}

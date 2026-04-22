@@ -1,10 +1,15 @@
 // SPDX-License-Identifier: AGPL-3.0-only
 import * as React from "react"
 import { createFileRoute } from "@tanstack/react-router"
-import { EnvTable } from "../../../../components/apps/EnvTable"
-import { useEnvVars, useUpdateEnvVars } from "../../../../lib/apps-env"
-import { useMe } from "../../../../lib/auth"
-import type { EnvVarPatch } from "../../../../lib/apps-env"
+import { RiUploadLine, RiAddLine, RiDatabase2Line } from "@remixicon/react"
+import { Button } from "@workspace/ui/components/button"
+import { Tabs, TabsContent, TabsList, TabsTrigger } from "@workspace/ui/components/tabs"
+import { SecretsTable } from "../../../../components/secrets/SecretsTable"
+import { AddSecretDialog } from "../../../../components/secrets/AddSecretDialog"
+import { RevealSecretDialog } from "../../../../components/secrets/RevealSecretDialog"
+import { ImportEnvDialog } from "../../../../components/secrets/ImportEnvDialog"
+import { useSecrets } from "../../../../lib/secrets"
+import type { SecretScope } from "../../../../lib/secrets"
 
 // ---------------------------------------------------------------------------
 // Route
@@ -18,101 +23,128 @@ export const Route = createFileRoute("/_authed/apps/$id/env")({
 // AppEnvTab
 // ---------------------------------------------------------------------------
 
+const SCOPES: SecretScope[] = ["shared", "prod", "preview", "dev"]
+
 function AppEnvTab(): React.JSX.Element {
   const { id: appId } = Route.useParams()
+  const [activeScope, setActiveScope] = React.useState<SecretScope>("shared")
+  const [showAdd, setShowAdd] = React.useState(false)
+  const [showImport, setShowImport] = React.useState(false)
+  const [revealTarget, setRevealTarget] = React.useState<{ key: string; scope: SecretScope } | null>(null)
 
-  const { data: serverVars, isLoading, isError } = useEnvVars(appId)
-  const { mutate: updateEnvVars, isPending: isSaving } = useUpdateEnvVars(appId)
-  const { data: me } = useMe()
-  const lockReason = me?.needs_second_factor
-    ? "Configurez un second facteur pour modifier les variables d'environnement."
-    : undefined
+  const { data: secrets, isLoading, isError } = useSecrets(appId, activeScope)
 
-  function handleSave(vars: Array<EnvVarPatch>) {
-    updateEnvVars(vars)
+  function handleReveal(key: string, scope: SecretScope) {
+    setRevealTarget({ key, scope })
   }
 
-  if (isLoading) {
-    return <EnvSkeleton />
-  }
-
-  if (isError || !serverVars) {
+  if (isError) {
     return (
       <div className="flex flex-col items-center justify-center rounded-lg border border-dashed border-destructive/40 bg-destructive/5 py-12 text-center">
-        <p className="text-sm font-medium text-destructive">Failed to load environment variables</p>
-        <p className="mt-1 text-xs text-muted-foreground">
-          Check your connection and try refreshing.
-        </p>
+        <p className="text-sm font-medium text-destructive">Failed to load secrets</p>
+        <p className="mt-1 text-xs text-muted-foreground">Check your connection and try refreshing.</p>
       </div>
     )
   }
 
   return (
-    <div className="mx-auto w-full max-w-5xl space-y-3 py-6">
-      <EnvTable
-        serverVars={serverVars}
-        isSaving={isSaving}
-        onSave={handleSave}
-        lockReason={lockReason}
+    <div className="mx-auto w-full max-w-5xl space-y-4 py-6">
+      {/* Toolbar */}
+      <div className="flex items-center justify-between gap-3">
+        <h2 className="text-sm font-medium text-muted-foreground">Encrypted secrets — AES-256-GCM at rest</h2>
+        <div className="flex items-center gap-2">
+          <Button
+            variant="outline"
+            size="sm"
+            onClick={() => setShowImport(true)}
+            className="gap-1.5"
+          >
+            <RiUploadLine className="size-3.5" />
+            Import .env
+          </Button>
+          <Button
+            variant="outline"
+            size="sm"
+            disabled
+            title="Coming in Wave 3"
+            className="gap-1.5 opacity-60"
+          >
+            <RiDatabase2Line className="size-3.5" />
+            Link database
+          </Button>
+          <Button size="sm" onClick={() => setShowAdd(true)} className="gap-1.5">
+            <RiAddLine className="size-3.5" />
+            Add secret
+          </Button>
+        </div>
+      </div>
+
+      {/* Scope tabs */}
+      <Tabs value={activeScope} onValueChange={(v) => setActiveScope(v as SecretScope)}>
+        <TabsList>
+          {SCOPES.map((s) => (
+            <TabsTrigger key={s} value={s}>
+              {s}
+            </TabsTrigger>
+          ))}
+        </TabsList>
+
+        {SCOPES.map((s) => (
+          <TabsContent key={s} value={s}>
+            {isLoading ? (
+              <SecretsSkeleton />
+            ) : (
+              <SecretsTable
+                appId={appId}
+                scope={s}
+                secrets={secrets ?? []}
+                onReveal={handleReveal}
+              />
+            )}
+          </TabsContent>
+        ))}
+      </Tabs>
+
+      {/* Dialogs */}
+      <AddSecretDialog
+        appId={appId}
+        open={showAdd}
+        defaultScope={activeScope}
+        onOpenChange={setShowAdd}
       />
 
-      <p className="px-1 text-[11px] text-muted-foreground">
-        Changes apply on the next deployment.{" "}
-        <span className="font-medium text-amber-600 dark:text-amber-400">
-          Secret values are stored in plain text in this MVP
-        </span>{" "}
-        — encrypt-at-rest is planned for a future release.
-      </p>
+      <ImportEnvDialog
+        appId={appId}
+        open={showImport}
+        defaultScope={activeScope}
+        onOpenChange={setShowImport}
+      />
+
+      <RevealSecretDialog
+        appId={appId}
+        secretKey={revealTarget?.key ?? null}
+        scope={revealTarget?.scope ?? null}
+        onClose={() => setRevealTarget(null)}
+      />
     </div>
   )
 }
 
-function EnvSkeleton(): React.JSX.Element {
+function SecretsSkeleton(): React.JSX.Element {
   return (
-    <div
-      className="mx-auto w-full max-w-5xl space-y-4 py-6"
-      aria-busy="true"
-      aria-label="Loading environment variables"
-    >
-      <div className="flex items-center justify-between gap-3">
-        <div className="h-4 w-44 rounded bg-muted animate-pulse" />
-        <div className="h-7 w-16 rounded-md bg-muted animate-pulse" />
-      </div>
-      <div className="overflow-hidden rounded-xl border border-border">
-        <div className="grid grid-cols-[minmax(200px,1.1fr)_minmax(260px,2fr)_auto_auto_auto] gap-0 border-b border-border bg-muted/40 px-4 py-2.5 text-[11px] font-medium uppercase tracking-wide text-muted-foreground">
-          <span>Key</span>
-          <span>Value</span>
-          <span className="px-3">Secret</span>
-          <span />
-          <span />
-        </div>
-        <div className="divide-y divide-border animate-pulse">
-          {Array.from({ length: 4 }).map((_, i) => (
-            <div
-              key={i}
-              className="grid grid-cols-[minmax(200px,1.1fr)_minmax(260px,2fr)_auto_auto_auto] items-center gap-0 px-4 py-3"
-            >
-              <div className="pr-2">
-                <div className="h-6 w-32 rounded border border-border bg-muted" />
-              </div>
-              <div className="pr-2">
-                <div className="h-6 w-full rounded border border-border bg-muted" />
-              </div>
-              <div className="px-2">
-                <div className="h-4 w-7 rounded-full bg-muted" />
-              </div>
-              <div className="flex justify-center">
-                <div className="size-5 rounded bg-muted" />
-              </div>
-              <div className="flex justify-center">
-                <div className="size-5 rounded bg-muted" />
-              </div>
+    <div className="overflow-hidden rounded-lg border border-border animate-pulse">
+      <div className="border-b border-border bg-muted/40 px-4 py-2.5" />
+      <div className="divide-y divide-border">
+        {Array.from({ length: 3 }).map((_, i) => (
+          <div key={i} className="flex items-center gap-4 px-4 py-3">
+            <div className="h-4 w-40 rounded bg-muted" />
+            <div className="h-4 w-24 rounded bg-muted" />
+            <div className="ml-auto flex gap-2">
+              <div className="size-7 rounded bg-muted" />
+              <div className="size-7 rounded bg-muted" />
             </div>
-          ))}
-        </div>
-        <div className="border-t border-border px-3 py-2">
-          <div className="h-4 w-28 rounded bg-muted animate-pulse" />
-        </div>
+          </div>
+        ))}
       </div>
     </div>
   )

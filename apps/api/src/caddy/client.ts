@@ -1,5 +1,5 @@
 // SPDX-License-Identifier: AGPL-3.0-only
-import type { CaddyConfig, CaddyRoute } from "./types.js";
+import type { CaddyConfig, CaddyRoute, CaddyTlsOptions } from "./types.js";
 
 export class CaddyClient {
   private readonly baseUrl: string;
@@ -31,16 +31,24 @@ export class CaddyClient {
     host,
     upstream,
     appId,
+    tls,
   }: {
     host: string;
     upstream: string;
     appId: string;
+    tls?: CaddyTlsOptions;
   }): Promise<void> {
     const routeId = `ploydok-${appId}`;
 
     // Idempotent : garantit que la structure srv0 existe avant PATCH/POST.
     // Sans ça, Caddy renvoie "invalid traversal path" au premier upsert.
     await this.ensureBootstrap();
+
+    // When DNS-01 is requested, register the TLS automation policy in Caddy
+    // so the ACME client uses the DNS challenge for this hostname.
+    if (tls?.mode === "dns01" && tls.provider) {
+      await this.upsertDns01TlsPolicy(host, tls.provider, tls.providerConfig ?? {})
+    }
 
     const route: CaddyRoute = {
       "@id": routeId,
@@ -224,6 +232,72 @@ export class CaddyClient {
       { http: { servers: { srv0 } } },
       "apps",
     );
+  }
+
+  /**
+   * Upsert a Caddy TLS automation policy for a hostname to use DNS-01 challenge.
+   * Idempotent: replaces an existing policy for the same subject if present.
+   */
+  async upsertDns01TlsPolicy(
+    hostname: string,
+    provider: string,
+    providerConfig: Record<string, string>,
+  ): Promise<void> {
+    const config = await this.getConfig()
+    const existingPolicies = config.apps?.tls?.automation?.policies ?? []
+
+    // Remove any existing policy for this exact hostname to avoid duplicates
+    const filtered = existingPolicies.filter(
+      (p) => !(p.subjects?.length === 1 && p.subjects[0] === hostname),
+    )
+
+    const newPolicy = {
+      subjects: [hostname],
+      issuers: [
+        {
+          module: "acme",
+          challenges: {
+            dns: {
+              provider: {
+                name: provider,
+                ...providerConfig,
+              },
+            },
+          },
+        },
+      ],
+    }
+
+    const updatedPolicies = [...filtered, newPolicy]
+
+    // Ensure apps.tls path exists then PUT policies
+    await this.putOrFail("/config/apps/tls/automation/policies", updatedPolicies, "tls.automation.policies")
+  }
+
+  /**
+   * Build a snapshot of the DNS-01 Caddy TLS policy for a hostname (for testing).
+   */
+  buildDns01TlsPolicy(
+    hostname: string,
+    provider: string,
+    providerConfig: Record<string, string>,
+  ): object {
+    return {
+      subjects: [hostname],
+      issuers: [
+        {
+          module: "acme",
+          challenges: {
+            dns: {
+              provider: {
+                name: provider,
+                ...providerConfig,
+              },
+            },
+          },
+        },
+      ],
+    }
   }
 
   private async putOrFail(path: string, body: unknown, label: string): Promise<void> {

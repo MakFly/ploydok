@@ -25,7 +25,8 @@ import { wsRouter } from "./routes/ws";
 import { wsExecRouter } from "./routes/apps-exec";
 import { eventsRouter } from "./routes/events";
 import { monitoringRouter, startMonitoringLoop } from "./routes/monitoring";
-import { notificationsRouter } from "./routes/notifications";
+import { notificationsRouter } from "./routes/notifications"
+import { secretsRouter } from "./routes/secrets";
 
 const httpLog = childLogger("http");
 const errorLog = childLogger("error");
@@ -304,6 +305,10 @@ if (env.NODE_ENV !== "test") {
 // Notifications channels — all endpoints require auth.
 app.use("/notifications/*", requireAuth(db))
 app.route("/notifications", notificationsRouter)
+
+// Secrets — all endpoints require auth. Mounted before /apps to avoid shadowing.
+app.use("/apps/*/secrets*", requireAuth(db))
+app.route("/apps", secretsRouter)
 
 // /me — requires auth
 app.get("/me", requireAuth(db), async (c) => {

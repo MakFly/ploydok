@@ -11,6 +11,13 @@ import type { DomainRow } from "@ploydok/db"
 export type { DomainRow }
 
 export type TlsStatus = "pending" | "issued" | "failed"
+export type TlsMode = "http01" | "dns01"
+
+export interface DomainCreateOptions {
+  tls_mode?: TlsMode
+  dns01_provider?: string | null
+  verify_token?: string | null
+}
 
 // ---------------------------------------------------------------------------
 // listDomainsForApp
@@ -71,6 +78,7 @@ export async function addDomain(
   db: Db,
   appId: string,
   hostname: string,
+  opts: DomainCreateOptions = {},
 ): Promise<DomainRow> {
   const now = new Date()
   const id = nanoid()
@@ -80,6 +88,9 @@ export async function addDomain(
     app_id: appId,
     hostname,
     tls_status: "pending",
+    tls_mode: opts.tls_mode ?? "http01",
+    dns01_provider: opts.dns01_provider ?? null,
+    verify_token: opts.verify_token ?? null,
     created_at: now,
     updated_at: now,
   })
@@ -116,6 +127,29 @@ export async function updateDomainTlsStatus(
   await db
     .update(domains)
     .set({ tls_status: status, updated_at: now })
+    .where(eq(domains.id, domainId))
+
+  return getDomain(db, domainId)
+}
+
+// ---------------------------------------------------------------------------
+// updateDomainDns01
+// ---------------------------------------------------------------------------
+
+export async function updateDomainDns01(
+  db: Db,
+  domainId: string,
+  opts: { tls_mode: TlsMode; dns01_provider: string | null },
+): Promise<DomainRow | null> {
+  const now = new Date()
+  await db
+    .update(domains)
+    .set({
+      tls_mode: opts.tls_mode,
+      dns01_provider: opts.dns01_provider,
+      tls_status: "pending",
+      updated_at: now,
+    })
     .where(eq(domains.id, domainId))
 
   return getDomain(db, domainId)

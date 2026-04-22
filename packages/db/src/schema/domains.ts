@@ -14,6 +14,16 @@ export const domains = pgTable(
     tls_status: text("tls_status", { enum: ["pending", "issued", "failed"] })
       .notNull()
       .default("pending"),
+    // TLS provisioning mode: http01 (default) or dns01 (wildcard support)
+    tls_mode: text("tls_mode", { enum: ["http01", "dns01"] })
+      .notNull()
+      .default("http01"),
+    // DNS-01 provider (cloudflare | route53 | ovh | digitalocean), null for http01
+    dns01_provider: text("dns01_provider"),
+    // Random hex token stored in _ploydok-verify.<hostname> TXT record
+    verify_token: text("verify_token"),
+    // Last verification error message
+    verify_error: text("verify_error"),
     created_at: timestamp("created_at", { withTimezone: true, mode: "date" })
       .notNull()
       .$defaultFn(() => new Date()),
@@ -30,3 +40,5 @@ export const domains = pgTable(
 
 export type DomainRow = typeof domains.$inferSelect
 export type DomainInsert = typeof domains.$inferInsert
+export type TlsMode = "http01" | "dns01"
+export type Dns01Provider = "cloudflare" | "route53" | "ovh" | "digitalocean"
