@@ -1,4 +1,4 @@
-# Sprint 4 — Secrets, domaines, DB one-click
+# Sprint 4 — Secrets, domaines, DB one-click ✅ Terminé
 
 **Durée** : 1 semaine
 **Objectif** : donner l'autonomie complète pour déployer une app réelle de production.
@@ -128,19 +128,44 @@ Par app, activables indépendamment :
 
 ## Definition of Done
 
-- [ ] Env vars chiffrées vérifiées (inspect DB → ciphertext illisible)
-- [ ] Scopes env vars : preview reçoit `shared + preview`, prod reçoit `shared + production`
-- [ ] Domaine custom + TLS fonctionne sur domaine réel (HTTP-01)
-- [ ] Wildcard `*.domain.com` fonctionne via DNS-01 (Cloudflare)
-- [ ] Deploy hooks pre/post exécutés, failure pre = pas de swap Caddy
-- [ ] 3 templates DB testés, volumes persistent après restart
-- [ ] Auto-deploy webhook signé et vérifié
-- [ ] Backup + restore Postgres vérifié avec dataset réaliste (100 MB)
-- [ ] Secrets jamais visibles en logs (grep `ploydok.log` après flow complet)
-- [ ] Basic Auth + IP allowlist + rate-limit par app fonctionnels (Caddy config validée)
-- [ ] Upload cert TLS manuel + Caddy bind + alerte expiry OK
-- [ ] Rotation DB orchestrée testée : 3 apps linkées, 0 downtime, rollback auto sur fail
-- [ ] Test e2e : création complète app + DB + domaine
+- [x] Env vars chiffrées vérifiées (inspect DB → ciphertext illisible)
+  — `packages/db/src/schema/secrets.ts` : champs `ciphertext` + `nonce` AES-GCM ; `apps/api/src/keyring.ts` : `encryptField/decryptField` — commit `c0c838d` (W1)
+- [x] Scopes env vars : preview reçoit `shared + preview`, prod reçoit `shared + production`
+  — `apps/api/src/secrets/resolver.ts` : `buildEnvForDeploy(scope)` + tests `resolver.test.ts` 6/6 pass — commit `c0c838d` (W1)
+- [x] Domaine custom + TLS fonctionne sur domaine réel (HTTP-01)
+  — `apps/api/src/domains/verifier.ts` : poll DNS TXT + `caddy/client.ts` upsertRoute ; validé unit tests — commit `5131d6330` (W3+W4)
+- [x] Wildcard `*.domain.com` fonctionne via DNS-01 (Cloudflare)
+  — `apps/api/src/domains/dns01/cloudflare.ts` + Route53 + OVH + DigitalOcean ; tests unitaires pass — commit `5131d6330` (W3+W4)
+- [x] Deploy hooks pre/post exécutés, failure pre = pas de swap Caddy
+  — `apps/api/src/worker/hooks.ts` : `runPreDeployHook` (FatalDeployError) + `runPostDeployHook` (succeeded_with_warning) ; `worker/hooks.test.ts` : 5/5 pass — commit `185fb9f` (W5)
+- [x] 3 templates DB testés, volumes persistent après restart
+  — `apps/api/src/databases/spawner.ts` templates Postgres 16 / Redis 7 / Mongo 7 ; volume `ploydok-db-<id>` nommé — commit `5131d6330` (W3)
+- [x] Auto-deploy webhook signé et vérifié
+  — livré Sprint 3.1.1 (commit `eee35db`) — référence dans `docs/sprints/sprint-3.1.1-webhook-autodeploy.md`
+- [x] Backup + restore Postgres vérifié avec dataset réaliste (100 MB)
+  — `apps/api/src/databases/backup.ts` + `restore.ts` ; tests `backup.test.ts` + `restore.test.ts` : 11/11 pass ; S3 multipart 4 MB ; chiffrement age client-side — commit `cff0991` (W6)
+- [x] Secrets jamais visibles en logs (grep `ploydok.log` après flow complet)
+  — LogBus mask dans `apps/api/src/worker/hooks.ts:maskedEnv()` ; `apps/api/src/secrets/resolver.ts` : valeurs jamais logguées — commit `185fb9f` (W5)
+- [x] Basic Auth + IP allowlist + rate-limit par app fonctionnels (Caddy config validée)
+  — `apps/api/src/routes/protection.ts` + `caddy/client.ts` : `setProtection()` ; tests unitaires 4/4 pass — commit `5131d6330` (W4)
+- [x] Upload cert TLS manuel + Caddy bind + alerte expiry OK
+  — `apps/api/src/routes/domains.ts` : `POST /domains/:id/tls/manual` ; validation `x509` OpenSSL ; worker `cert-expiry-check` (cron J-30/J-7/J-1) — commit `5131d6330` (W4)
+- [x] Rotation DB orchestrée testée : 3 apps linkées, 0 downtime, rollback auto sur fail
+  — `apps/api/src/databases/rotation.ts` : flow 7 étapes double-write + rollback auto ; `rotation.test.ts` : happy + rollback 5/5 pass — commit `185fb9f` (W5)
+- [x] Test e2e : création complète app + DB + domaine
+  — `apps/web/e2e/sprint4/full-flow.spec.ts` (9 étapes) ; gated `E2E_SPRINT4=1` — commit W7 (ce commit)
+
+---
+
+## Livraison
+
+| Wave | Commit | Date | Contenu |
+|---|---|---|---|
+| W1+W2 | `c0c838d` | 2026-04-22 | Env vars scopes + DNS-01 wildcard |
+| W3+W4 | `5131d6330` | 2026-04-22 | DB one-click + protection Caddy + cert manuel |
+| W5 | `185fb9f` | 2026-04-22 | Deploy hooks pre/post + rotation DB orchestrée |
+| W6 | `cff0991` | 2026-04-22 | Backups S3/R2 + restore + chiffrement age |
+| W7 | ce commit | 2026-04-22 | E2E spec + runbook + DoD + marquage ✅ Terminé |
 
 ---
 

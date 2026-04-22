@@ -1,5 +1,7 @@
 # PLAN — Sprint 4 : Secrets, domaines, DB one-click
 
+> ✅ Terminé 2026-04-22
+
 > Plan d'implémentation détaillé pour `docs/sprints/sprint-4-secrets-domaines-db.md`.
 > Écrit 2026-04-22 après clôture du sprint 3.1.1.
 > Objectif : livrer l'autonomie complète pour déployer une app de prod réelle (env scopées, wildcard TLS, DB managées, protection apps, backups).
@@ -521,11 +523,11 @@ Manuel (infra up + dev up) :
 - [x] Sprint 3.1.1 mergé, `✅ Terminé` dans `docs/sprints/README.md`.
 - [x] Audit conformité Dokploy/Coolify référence (baseline 42 %, cible post-sprint-4 ≈ 65 %).
 - [x] Briques existantes auditées : `secrets`, `domains`, `encryptField`, Caddy client, agent RPC, notify dispatcher.
-- [ ] **Décision `age`** : binary system (recommandé) vs lib JS. → locker avant W6.
-- [ ] **Décision Caddy custom Dockerfile** `xcaddy` → bloquant W4. Action : valider aujourd'hui, intégrer dans W2.C.
-- [ ] **Clé user pour backup** : UX onboarding unique vs per-DB ? → locker avant W6.
-- [ ] **Providers DNS-01 prioritaires** : Cloudflare + Route53 v1 minimum, OVH + DO v1.1 ?
-- [ ] **Rotation schedule par défaut** : 90 j (spec actuelle) vs manual opt-in ?
+- [x] **Décision `age`** : binary system (recommandé) vs lib JS. → Décision prise : binary system (agent Rust `docker exec age`). W6 livré.
+- [x] **Décision Caddy custom Dockerfile** `xcaddy` → bloquant W4. Action : validé, intégré dans `infra/caddy/Dockerfile`. W4 livré.
+- [x] **Clé user pour backup** : UX onboarding unique vs per-DB ? → Décision : per-DB (clé publique par config backup). Clé privée jamais stockée serveur.
+- [x] **Providers DNS-01 prioritaires** : Cloudflare + Route53 v1 minimum, OVH + DO v1.1 → Livré les 4 en v1 (W2).
+- [x] **Rotation schedule par défaut** : 90 j (spec actuelle) vs manual opt-in ? → 90 j par défaut, opt-out possible. Livré W5.
 
 ---
 
