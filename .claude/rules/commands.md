@@ -4,8 +4,10 @@
 
 | Service | Port / socket |
 |---|---|
-| API (Hono) | `http://localhost:4000` |
+| API (Hono) | `http://localhost:3335` |
 | Web (Vite/TanStack Start) | `http://localhost:5173` |
+| Postgres | `127.0.0.1:5434` (container `ploydok-postgres`) |
+| Redis | `127.0.0.1:6381` (container `ploydok-redis`) |
 | Caddy data | `8180` (http) / `8543` (https) |
 | Caddy admin | `http://127.0.0.1:2020/config/` |
 | BuildKit | `docker-container://ploydok-buildkitd` |
@@ -19,17 +21,19 @@
 - **Proposer** la commande à taper (ex. : « relance `make dev` dans un autre shell »).
 - **Lancer** des one-shots : `bun test`, `bun run typecheck`, `bun run lint`, `make db-migrate`, `curl` contre un serveur déjà up.
 
-Si une vérif nécessite que le serveur tourne, d'abord **demander** si API:4000 / Web:5173 est up — ne pas le démarrer soi-même.
+Si une vérif nécessite que le serveur tourne, d'abord **demander** si API:3335 / Web:5173 est up — ne pas le démarrer soi-même.
 
 ## Makefile (source de vérité pour le dev)
 
 ```bash
-make dev           # turbo dev → web:5173 + api:4000
+make dev           # turbo dev → web:5173 + api:3335
 make dev-agent     # agent Rust (insecure, socket /tmp/ploydok-agent.sock)
-make db-migrate    # drizzle-kit migrate sur ./ploydok.db
-make infra-up      # docker compose : caddy + buildkitd + registry
+make db-migrate    # drizzle-kit migrate sur Postgres (DATABASE_URL de .env.local)
+make secrets-init  # génère PLOYDOK_PG_PASSWORD/REDIS + DATABASE_URL/REDIS_URL dans .env.local
+make infra-up      # docker compose : postgres + redis + caddy + buildkitd + registry
 make infra-down    # cleanup infra
 make infra-logs    # tail logs caddy
+make dod           # lance les 11 specs Playwright DoD Sprint 3 (requiert infra + agent + dev up)
 make build | test | lint | typecheck | clean
 ```
 

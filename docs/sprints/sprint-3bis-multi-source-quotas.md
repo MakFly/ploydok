@@ -1,6 +1,17 @@
-# Sprint 3bis — Multi-source deploy & Ressource quotas ✅ Code · ⏳ e2e
+# Sprint 3bis — Multi-source deploy & Ressource quotas ✅ Code · ⏳ e2e GitLab (standby)
 
-> **Statut : CODE TERMINÉ** — audit 2026-04-20.
+> **Feature phare** : isolation réseau cross-project « zero-trust by default ».
+> Apps de projets différents ne partagent **aucun** réseau Docker — Caddy est
+> attaché dynamiquement à chaque project-network via la nouvelle RPC gRPC
+> `NetworkConnect`/`NetworkDisconnect` côté agent Rust. Validation par pentest
+> automatisé `e2e/isolation/cross-project-blocked.spec.ts` (rouge avant,
+> vert après) + contre-test `same-project-allowed.spec.ts` qui garantit que
+> les apps d'un même projet restent mutuellement joignables. Voir
+> `/home/kev/.claude/plans/propose-un-plan-permettant-jazzy-knuth.md` pour
+> l'architecture. Dokploy (isolation absente) et Coolify (isolation opt-in
+> via Destinations UI) sont tous deux dépassés.
+
+> **Statut : CODE TERMINÉ** — audit 2026-04-21.
 > ✅ GitLab adapter (`apps/api/src/gitlab/`), deploy from image (inline dans `deploy.ts:261`),
 > registry credentials chiffrées, quotas par plan (`packages/shared/src/plans.ts` + proto `pids_limit` +
 > bollard `HostConfig.pids_limit`), network isolation per-project (`projects.network_name` +
@@ -11,8 +22,15 @@
 > `GitLabProvider`, registre singleton `apps/api/src/providers/index.ts` + détection
 > auto via headers HTTP. Specs e2e `apps/web/e2e/providers/{deploy-image,deploy-gitlab}.spec.ts`
 > ajoutées (gate `PLOYDOK_FULL_INFRA=1` → CI vert par défaut).
-> **Reste à exécuter** : les 2 nouvelles specs e2e (nécessitent OAuth GitLab configuré + agent + infra up).
+> ✅ Test OOM validé 2026-04-21 : container `--memory=64m` tentant `stress --vm-bytes 128M`
+> → `OOMKilled=true`, exit 1, les 2 apps `-green` voisines (`ploydok-3gfa0pcc`, `nextjs-9hnxlbq0`)
+> restent `healthy`, pas d'impact instance. Preuve cgroup enforcement correct.
+>
+> **Focus actuel : GitHub.** GitLab est **en standby** — le code est livré et fonctionnel, mais on
+> ne dépense plus de cycles dessus (ni OAuth setup, ni e2e). On y reviendra après 3.1.1.
 > **Hors-scope assumé** : Gitea (retiré délibérément).
+> **Reste à exécuter quand GitLab sortira du standby** : spec `deploy-gitlab.spec.ts`
+> (nécessite OAuth GitLab configuré + agent + infra up).
 
 **Durée** : 1 semaine
 **Objectif** : élargir les sources de déploiement (GitLab, Gitea, Docker image) + enforcer des quotas ressources par app.
@@ -107,14 +125,15 @@ v1.0 ne peut sortir avec uniquement GitHub — la cible self-hosters utilise mas
 
 ## Definition of Done
 
-- [ ] 3 adapters Git (GitHub, GitLab, Gitea) interchangeables via interface
-- [ ] Webhook signature vérifiée pour chaque provider
-- [ ] Deploy from image fonctionne (public + privé registry)
-- [ ] Quotas appliqués et vérifiés via `docker inspect`
-- [ ] Test OOM : container killé, instance stable
-- [ ] UI switch provider clair, pas de regression GitHub Sprint 3
-- [ ] Tests e2e : 1 scénario par provider + 1 image deploy
-- [ ] Network isolation : test pentest inter-projets → connexion refusée
+- [x] 2 adapters Git (GitHub, GitLab) interchangeables via interface `GitProvider` — Gitea hors-scope, GitLab en standby
+- [x] Webhook signature vérifiée pour GitHub + GitLab (`verifyWebhookSignature` dans chaque provider)
+- [x] Deploy from image fonctionne (public + privé registry, inline `apps/api/src/agent/deploy.ts:261`)
+- [x] Quotas appliqués et vérifiés via `docker inspect` (bollard `HostConfig.Memory/NanoCPUs/PidsLimit`)
+- [x] Test OOM : container killé, instance stable — validé 2026-04-21 (`OOMKilled=true` à 64MB/128MB, apps voisines `healthy`)
+- [x] UI switch provider clair, pas de regression GitHub Sprint 3
+- [x] Network isolation : test pentest inter-projets → connexion refusée (`e2e/isolation/cross-project-blocked.spec.ts` + `same-project-allowed.spec.ts`)
+- [x] Tests e2e GitHub + image deploy (`e2e/providers/deploy-image.spec.ts`, flow GitHub couvert sprint 3)
+- [ ] Test e2e GitLab (`e2e/providers/deploy-gitlab.spec.ts`) — **standby**, à exécuter quand GitLab sort du standby
 
 ---
 

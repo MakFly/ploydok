@@ -23,7 +23,7 @@ Tous verts ⇒ passage possible aux e2e.
 ## E2E (Playwright)
 
 - Config : `apps/web/playwright.config.ts`. Specs : `apps/web/e2e/`.
-- `workers: 1`, `fullyParallel: false` — l'auth + la DB SQLite partagée ne tolèrent pas le parallélisme.
+- `workers: 1`, `fullyParallel: false` — l'auth + la DB Postgres partagée ne tolèrent pas le parallélisme.
 - Pré-requis : `make dev` tourne **et** `make infra-up` si le test touche Caddy/BuildKit/Registry.
 - Specs Sprint-3 qui spawn des containers : timeout `180_000` ms par `describe`, pas global.
 - Lancer : `bun --cwd apps/web exec playwright test` (ajouter `--ui` pour debug).
@@ -31,6 +31,21 @@ Tous verts ⇒ passage possible aux e2e.
 ## E2E API (server.e2e.test.ts)
 
 - `apps/api/src/server.e2e.test.ts` et `apps/api/src/auth/auth.e2e.test.ts` démarrent un vrai serveur Hono sur un port random — garder isolé du runner unit pour ne pas fuiter.
+
+## Cleanup containers e2e — obligatoire
+
+Les specs Playwright qui spawn des containers (`deploy-image.spec.ts`, `cross-project-blocked.spec.ts`, `same-project-allowed.spec.ts`, etc.) laissent derrière elles des `ploydok-app-e2e-*` et `ploydok-app-iso-*` dans Docker (le blue/green switch n'est pas déclenché en test, donc le slot `-blue` reste debout).
+
+À la fin de toute session qui a lancé des e2e (`make dod`, `playwright test`, spec ad-hoc), **toujours** purger :
+
+```bash
+docker ps -a --filter "name=ploydok-app-e2e-" --filter "name=ploydok-app-iso-" -q | xargs -r docker rm -f
+```
+
+Règles :
+- Ne jamais toucher aux containers `ploydok-app-*-green` sans suffixe `e2e-` / `iso-` — ce sont de vraies apps déployées.
+- Si on ajoute une nouvelle spec qui spawn un container, préfixer le nom par `e2e-` ou `iso-` pour qu'il soit capturé par le filtre ci-dessus.
+- Idéalement câbler le cleanup dans un `afterAll` / `test.afterEach` de la spec, mais le purge manuel reste le filet de sécurité.
 
 ## SPDX
 

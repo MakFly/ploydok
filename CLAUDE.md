@@ -8,6 +8,15 @@ This file is the repo-level agent guide for Codex-style coding agents. Keep it f
 - If a deeper `AGENTS.md` exists in a subdirectory, the deeper file takes precedence for files under that subtree.
 - Direct user or system instructions override this file.
 
+## Roadmap — suivre le plan par sprint
+
+- La roadmap v1.0 est décrite dans `docs/sprints/README.md`. Elle est **la source de vérité** : toute décision de prio/scope passe par là.
+- **Toujours travailler dans l'ordre des sprints**. Quand le sprint N est mergé (code + DoD validée e2e), attaquer N+1 ; ne pas piocher dans N+2 ou post-v1 "parce que c'est cool".
+- Avant de démarrer un sprint, relire son fichier `docs/sprints/sprint-<N>-*.md` (scope, DoD, risques) + le `PLAN-sprint-<N>.md` dans `docs/plans/` s'il existe.
+- Si un besoin utilisateur sort de la roadmap : proposer d'abord de l'insérer dans le sprint courant ou futur (avec mise à jour des .md), pas de travailler hors-plan silencieusement.
+- Hors-scope explicites (marqués "Non-couvert" dans un sprint) : ne pas les commencer sans que l'utilisateur déplace la feature dans un sprint actif.
+- Statuts possibles dans `docs/sprints/README.md` : `✅ Terminé`, `✅ Code · ⏳ e2e`, `⚠️ Partiel`, `⏳ À faire`. Mettre à jour la colonne Statut + le titre H1 du fichier sprint à chaque transition réelle (preuve concrète : test vert, commit mergé).
+
 ## Repository Shape
 
 - Monorepo layout:
@@ -46,7 +55,7 @@ This file is the repo-level agent guide for Codex-style coding agents. Keep it f
 ## Local Environment Facts
 
 - Reserved local ports:
-  - API: `4000`
+  - API: `3335`
   - Web: `5173`
   - Caddy: `8180`, `8543`, `2020`
 - Agent socket: `/tmp/ploydok-agent.sock`

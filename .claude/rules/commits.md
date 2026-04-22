@@ -40,7 +40,7 @@ bun run typecheck && bun run lint && bun test && bun run check:spdx
 - **Jamais** push sur `main` en force. Pour n'importe quelle branche : demander.
 - **Jamais** skip hooks (`--no-verify`, `--no-gpg-sign`) — investiguer la cause du fail.
 - **Jamais** amender un commit déjà poussé.
-- **Jamais** `git add -A` / `git add .` — lister les fichiers (risque de commiter `.env.local`, `ploydok.db`, `test-results/`).
+- **Jamais** `git add -A` / `git add .` — lister les fichiers (risque de commiter `.env.local`, `test-results/`, dumps Postgres).
 
 ## PR
 
