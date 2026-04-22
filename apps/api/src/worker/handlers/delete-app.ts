@@ -21,6 +21,7 @@ import type { Db } from "@ploydok/db";
 import { env } from "../../env";
 import { workerLog as logger } from "../logger";
 import { CaddyClient } from "../../caddy/client.js";
+import { detachCaddyFromProjectNetwork } from "../../caddy/attachment.js";
 import { getSharedAgent } from "../../debug/singletons.js";
 import { runRegistryGc } from "./gc-registry.js";
 
@@ -170,6 +171,9 @@ export async function handleDeleteApp(
         if (projRow?.network_name) {
           try {
             const agent = getSharedAgent();
+            // Caddy must leave the project network before Docker accepts to
+            // delete it (`network_remove` fails 403 while endpoints remain).
+            await detachCaddyFromProjectNetwork(agent, projRow.network_name);
             await agent.networkRemove({ networkId: projRow.network_name });
             await db
               .update(projects)

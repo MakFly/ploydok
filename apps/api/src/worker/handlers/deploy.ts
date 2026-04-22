@@ -8,7 +8,6 @@ import { apps, projects } from "@ploydok/db";
 import {
   insertBuild,
   updateBuildStatus,
-  enqueueJob,
 } from "@ploydok/db/queries";
 import { cleanupQueue } from "../queues";
 import type { Db } from "@ploydok/db";
@@ -26,10 +25,17 @@ import { detectBuildMethod } from "../detect";
 import { buildImage } from "../buildkit";
 import { logBus } from "../log-bus";
 import { nixpacksBuild } from "../nixpacks";
-import { diskGuard, gcKeepLast } from "../registry";
+import { diskGuard, gcKeepLast, tagManifest } from "../registry";
 import { workerLog } from "../logger"
 import { eventBus } from "../event-bus";
 import { runBlueGreen } from "../runner";
+import { classifyAgentError, FatalDeployError } from "../errors";
+import { createRedis } from "@ploydok/db";
+import { postCommitStatusForApp } from "../../providers/commit-status";
+import { dispatch } from "../../notify/index";
+
+// Shared Redis client for commit status dedup (singleton per worker process).
+const redis = createRedis(env.REDIS_URL);
 
 // ---------------------------------------------------------------------------
 // Types
@@ -40,6 +46,8 @@ const DeployPayloadSchema = z.object({
   appId: z.string(),
   commitSha: z.string().nullish(),
   commitMessage: z.string().nullish(),
+  kind: z.enum(["tag"]).optional(),
+  tag: z.string().optional(),
 });
 
 // ---------------------------------------------------------------------------
@@ -66,6 +74,7 @@ interface AppForDeploy {
   image_ref: string | null;
   registry_credential_id: string | null;
   owner_id: string;
+  post_commit_status: boolean;
 }
 
 /**
@@ -94,6 +103,7 @@ async function getAppForDeploy(db: Db, appId: string): Promise<AppForDeploy> {
       image_ref: apps.image_ref,
       registry_credential_id: apps.registry_credential_id,
       owner_id: projects.owner_id,
+      post_commit_status: apps.post_commit_status,
     })
     .from(apps)
     .innerJoin(projects, eq(apps.project_id, projects.id))
@@ -200,10 +210,10 @@ export async function handleDeploy(
   const isImageSource = app.git_provider === "image";
   if (isImageSource) {
     if (!app.image_ref) {
-      throw new Error(`App ${app.id} has git_provider='image' but no image_ref set`);
+      throw new FatalDeployError(`App ${app.id} has git_provider='image' but no image_ref set`);
     }
   } else if (!app.repo_full_name || !app.branch) {
-    throw new Error(`App ${app.id} is missing repo_full_name or branch — cannot deploy`);
+    throw new FatalDeployError(`App ${app.id} is missing repo_full_name or branch — cannot deploy`);
   }
 
   // Create build record.
@@ -245,7 +255,29 @@ export async function handleDeploy(
     log.warn({ buildId, appId: app.id }, "no owner found — skipping build.started publish")
   }
 
+  // Notification dispatch — build.started
+  if (ownerId) {
+    dispatch(db, redis, "build.started", {
+      appId: app.id,
+      appName: app.name,
+      commitSha: payload.commitSha ?? null,
+      buildId,
+    }, { userId: ownerId, projectId: app.project_id }).catch((err) =>
+      log.warn({ err, buildId }, "dispatch build.started failed (non-fatal)"),
+    )
+  }
+
   log.info({ buildId }, "deploy started");
+
+  // Commit status — pending (best-effort, non-fatal)
+  if (payload.commitSha) {
+    postCommitStatusForApp(db, redis, app, {
+      sha: payload.commitSha,
+      state: "pending",
+      description: "Build en cours",
+      buildId,
+    }).catch((err) => log.warn({ err, buildId }, "postCommitStatus(pending) failed (non-fatal)"))
+  }
 
   // Create log file stream for this build.
   const logDir = path.join(env.PLOYDOK_BUILD_DIR, app.id);
@@ -256,6 +288,11 @@ export async function handleDeploy(
   // Track final outcome so the finally block can write log_path once.
   let finalStatus: "succeeded" | "failed" = "succeeded";
   let finalPatch: { finishedAt: Date; errorMessage?: string; containerId?: string } = { finishedAt: new Date() };
+  // Resolved commit sha (updated once clone resolves HEAD, used for commit status)
+  let resolvedCommitShaFinal: string | null = payload.commitSha ?? null;
+  // Commit status state to post on failure: FatalDeployError → failure, unknown → error
+  let commitStatusErrorState: "failure" | "error" = "error";
+  const deployStartMs = Date.now();
 
   try {
     // ── Phase 1.B: Docker-image source ──────────────────────────────────────
@@ -296,7 +333,12 @@ export async function handleDeploy(
         db,
       };
       if (registryAuth) runOpts.registryAuth = registryAuth;
-      const { containerId } = await runBlueGreen(runOpts);
+      let containerId: string;
+      try {
+        ({ containerId } = await runBlueGreen(runOpts));
+      } catch (runErr) {
+        throw classifyAgentError(runErr);
+      }
       imageLog(`[deploy] container live: ${containerId}`);
 
       finalPatch = { finishedAt: new Date(), containerId };
@@ -332,13 +374,19 @@ export async function handleDeploy(
     const cloneUrl = ghProvider.cloneUrlWithToken(repoFullName, token);
 
     log.info({ buildId, installationId }, "cloning repo");
-    const { workspacePath, headSha } = await cloneRepo({
-      repoCloneUrl: cloneUrl,
-      buildDir: env.PLOYDOK_BUILD_DIR,
-      appId: app.id,
-      buildId,
-      branch: branchName,
-    });
+    let cloneResult: Awaited<ReturnType<typeof cloneRepo>>;
+    try {
+      cloneResult = await cloneRepo({
+        repoCloneUrl: cloneUrl,
+        buildDir: env.PLOYDOK_BUILD_DIR,
+        appId: app.id,
+        buildId,
+        branch: branchName,
+      });
+    } catch (cloneErr) {
+      throw classifyAgentError(cloneErr);
+    }
+    const { workspacePath, headSha } = cloneResult;
 
     // When the deploy was triggered without an explicit commit (manual deploy,
     // initial create), persist the actual HEAD sha so the UI can show it.
@@ -346,6 +394,8 @@ export async function handleDeploy(
     if (resolvedCommitSha && payload.commitSha == null) {
       await updateBuildStatus(db, buildId, "running", { commitSha: resolvedCommitSha });
     }
+    // Capture for finally block commit status hooks
+    resolvedCommitShaFinal = resolvedCommitSha;
 
     // 2. Detect build method
     const detected = await detectBuildMethod({
@@ -402,16 +452,28 @@ export async function handleDeploy(
       const cacheDir = path.join(env.PLOYDOK_BUILD_DIR, app.id, ".buildkit-cache");
 
       log.info({ buildId, imageRef, pushRef }, "starting BuildKit build");
-      const { imageDigest, durationMs } = await buildImage({
-        contextDir,
-        dockerfile: dockerfileAbs,
-        imageRef: pushRef,
-        cacheDir,
-        onLog,
-      });
+      let imageDigest: string, durationMs: number;
+      try {
+        ({ imageDigest, durationMs } = await buildImage({
+          contextDir,
+          dockerfile: dockerfileAbs,
+          imageRef: pushRef,
+          cacheDir,
+          onLog,
+        }));
+      } catch (buildErr) {
+        throw classifyAgentError(buildErr);
+      }
 
       log.info({ buildId, imageRef, imageDigest, durationMs }, "BuildKit build + push done");
       await updateBuildStatus(db, buildId, "running", { imageTag: imageRef });
+
+      // If this is a tag deploy, also push the image under the git tag name.
+      if (payload.kind === "tag" && payload.tag) {
+        await tagManifest(repo, commitSha, payload.tag).catch((tagErr) => {
+          log.warn({ tagErr, buildId, tag: payload.tag }, "tag manifest push failed (non-fatal)")
+        })
+      }
 
       // Notify: image pushed (BuildKit path)
       if (ownerId) {
@@ -436,21 +498,32 @@ export async function handleDeploy(
       // Nixpacks path
       const nixpacksCache = path.join(env.PLOYDOK_BUILD_DIR, app.id, ".nixpacks-cache");
       log.info({ buildId, imageRef, pushRef }, "starting nixpacks build");
-      await nixpacksBuild({
-        workspacePath,
-        tag: pushRef,
-        cacheKey: app.id,
-        cacheDir: nixpacksCache,
-        dockerCacheRef: `${pushRegistry}/${repo}:cache`,
-        ...(app.root_dir !== null && { rootDir: app.root_dir }),
-        ...(app.install_command !== null && { installCmd: app.install_command }),
-        ...(app.build_command !== null && { buildCmd: app.build_command }),
-        ...(app.start_command !== null && { startCmd: app.start_command }),
-        onLog,
-      });
+      try {
+        await nixpacksBuild({
+          workspacePath,
+          tag: pushRef,
+          cacheKey: app.id,
+          cacheDir: nixpacksCache,
+          dockerCacheRef: `${pushRegistry}/${repo}:cache`,
+          ...(app.root_dir !== null && { rootDir: app.root_dir }),
+          ...(app.install_command !== null && { installCmd: app.install_command }),
+          ...(app.build_command !== null && { buildCmd: app.build_command }),
+          ...(app.start_command !== null && { startCmd: app.start_command }),
+          onLog,
+        });
+      } catch (nixErr) {
+        throw classifyAgentError(nixErr);
+      }
 
       log.info({ buildId, imageRef }, "nixpacks build + push done");
       await updateBuildStatus(db, buildId, "running", { imageTag: imageRef });
+
+      // If this is a tag deploy, also push the image under the git tag name.
+      if (payload.kind === "tag" && payload.tag) {
+        await tagManifest(repo, commitSha, payload.tag).catch((tagErr) => {
+          log.warn({ tagErr, buildId, tag: payload.tag }, "tag manifest push failed (non-fatal)")
+        })
+      }
 
       // Notify: image pushed (nixpacks path)
       if (ownerId) {
@@ -476,12 +549,17 @@ export async function handleDeploy(
     // 4. Blue-green deploy — spawn container, healthcheck, Caddy swap.
     // runBlueGreen internally updates apps.container_id + apps.status = 'running'.
     onLog("[deploy] starting blue-green runner");
-    const { containerId } = await runBlueGreen({
-      appId: app.id,
-      imageRef,
-      env: {},
-      db,
-    });
+    let containerId: string;
+    try {
+      ({ containerId } = await runBlueGreen({
+        appId: app.id,
+        imageRef,
+        env: {},
+        db,
+      }));
+    } catch (runErr) {
+      throw classifyAgentError(runErr);
+    }
     onLog(`[deploy] container live: ${containerId}`);
 
     // Persist containerId into the build record via finalPatch (written once in finally).
@@ -523,6 +601,7 @@ export async function handleDeploy(
 
     finalStatus = "failed";
     finalPatch = { finishedAt: new Date(), errorMessage: msg };
+    commitStatusErrorState = err instanceof FatalDeployError ? "failure" : "error";
 
     // If a previous deploy had put the app in "running", a failed redeploy
     // must NOT overwrite that — blue-green keeps the old container alive.
@@ -544,6 +623,18 @@ export async function handleDeploy(
       ...finalPatch,
       logPath,
     });
+
+    // Commit status — success / failure / error (best-effort, non-fatal)
+    if (resolvedCommitShaFinal) {
+      const durationMs = Date.now() - deployStartMs;
+      const statusState = finalStatus === "succeeded" ? "success" : commitStatusErrorState;
+      postCommitStatusForApp(db, redis, app, {
+        sha: resolvedCommitShaFinal,
+        state: statusState,
+        buildId,
+        durationMs,
+      }).catch((err) => log.warn({ err, buildId }, `postCommitStatus(${statusState}) failed (non-fatal)`))
+    }
 
     // Publish terminal event AFTER the DB commit so any React Query
     // invalidation triggered by the event fetches the final status.
@@ -567,13 +658,23 @@ export async function handleDeploy(
       }
     }
 
-    // Enqueue async workspace cleanup — fire-and-forget (legacy audit + BullMQ).
-    enqueueJob(db, {
-      type: "cleanup.build",
-      payload: { appId: payload.appId, buildId },
-    }).catch((enqErr) => {
-      log.warn({ enqErr, buildId }, "failed to enqueue cleanup.build job");
-    });
+    // Notification dispatch — build/deploy outcome
+    if (ownerId) {
+      const durationMs = Date.now() - deployStartMs
+      const notifyEvent = finalStatus === "succeeded" ? "deploy.succeeded" : "deploy.failed"
+      dispatch(db, redis, notifyEvent, {
+        appId: app.id,
+        appName: app.name,
+        commitSha: resolvedCommitShaFinal,
+        buildId,
+        durationMs,
+        errorMessage: finalPatch.errorMessage?.slice(0, 500) ?? null,
+      }, { userId: ownerId, projectId: app.project_id }).catch((err) =>
+        log.warn({ err, buildId }, `dispatch ${notifyEvent} failed (non-fatal)`),
+      )
+    }
+
+    // Fire-and-forget: enqueue async workspace cleanup via BullMQ.
     cleanupQueue.add("cleanup.build", { appId: payload.appId, buildId }).catch((enqErr) => {
       log.warn({ enqErr, buildId }, "failed to push cleanup.build to BullMQ");
     });

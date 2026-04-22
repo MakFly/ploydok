@@ -1,7 +1,13 @@
 // SPDX-License-Identifier: AGPL-3.0-only
-import { pgTable, text, timestamp, integer, boolean, real, bigint } from 'drizzle-orm/pg-core';
+import { pgTable, text, timestamp, integer, boolean, real, bigint, customType } from 'drizzle-orm/pg-core';
 import { projects } from './projects';
 import { registry_credentials } from './registry_credentials';
+
+const bytea = customType<{ data: Buffer; notNull: false; default: false }>({
+  dataType() {
+    return 'bytea'
+  },
+})
 
 export const apps = pgTable('apps', {
   id: text('id').primaryKey(),
@@ -63,6 +69,16 @@ export const apps = pgTable('apps', {
   cpu_limit: real('cpu_limit'),
   mem_limit_bytes: bigint('mem_limit_bytes', { mode: 'number' }),
   pids_limit: integer('pids_limit'),
+  // Webhook / auto-deploy settings
+  auto_deploy_enabled: boolean('auto_deploy_enabled').notNull().default(true),
+  post_commit_status: boolean('post_commit_status').notNull().default(true),
+  coalesce_pushes: boolean('coalesce_pushes').notNull().default(true),
+  deploy_on_tag: boolean('deploy_on_tag').notNull().default(false),
+  tag_pattern: text('tag_pattern'),
+  // Per-app webhook secret (encrypted, distinct from the GitHub App global secret)
+  webhook_secret: bytea('webhook_secret'),
+  webhook_secret_old: bytea('webhook_secret_old'),
+  webhook_secret_old_expires_at: timestamp('webhook_secret_old_expires_at', { withTimezone: true, mode: 'date' }),
   // Timestamps
   created_at: timestamp('created_at', { withTimezone: true, mode: 'date' }).notNull().$defaultFn(() => new Date()),
   updated_at: timestamp('updated_at', { withTimezone: true, mode: 'date' }).notNull().$defaultFn(() => new Date()),

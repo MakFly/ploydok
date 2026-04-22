@@ -15,7 +15,7 @@
  * Gate: PLOYDOK_FULL_INFRA=1 (agent + registry + caddy required).
  */
 import { expect, test } from "@playwright/test";
-import { API_URL, loginWithBackupCode } from "../helpers/auth";
+import { API_URL, apiLoginWithCsrf } from "../helpers/auth";
 
 const FULL_INFRA = process.env.PLOYDOK_FULL_INFRA === "1";
 const PROJECT_ID = process.env.E2E_TEST_PROJECT_ID;
@@ -58,21 +58,25 @@ test.describe("Sprint 3bis — deploy from Docker image", () => {
 
   test.setTimeout(DEPLOY_TIMEOUT_MS + 30_000);
 
-  test("nginx:alpine image → container running + HTTP 200", async ({ page, context }) => {
-    await loginWithBackupCode(page);
-    const cookies = (await context.cookies())
-      .map((c) => `${c.name}=${c.value}`)
-      .join("; ");
+  test("nginx:alpine image → container running + HTTP 200", async () => {
+    const { cookie: cookies, csrfToken } = await apiLoginWithCsrf();
 
     const createRes = await fetch(`${API_URL}/apps`, {
       method: "POST",
-      headers: { cookie: cookies, "Content-Type": "application/json" },
+      headers: {
+        cookie: cookies,
+        "x-csrf-token": csrfToken,
+        "Content-Type": "application/json",
+      },
       body: JSON.stringify({
         name: `e2e-image-${Date.now()}`,
         projectId: PROJECT_ID,
         gitProvider: "image",
         imageRef: "nginx:alpine",
         imagePullPolicy: "if_not_present",
+        // nginx:alpine serves on port 80 — override the default 3000 so the
+        // runner's healthcheck can actually succeed.
+        healthcheck: { port: 80, path: "/" },
       }),
     });
     expect(createRes.ok, `POST /apps failed: ${createRes.status}`).toBe(true);
@@ -81,10 +85,12 @@ test.describe("Sprint 3bis — deploy from Docker image", () => {
     const running = await waitForStatus(app.id, "running", cookies, DEPLOY_TIMEOUT_MS);
     expect(running.domain, "app should expose a domain").toBeTruthy();
 
-    const resp = await page.request.get(`https://${running.domain}`, {
-      ignoreHTTPSErrors: true,
-      maxRedirects: 0,
+    // Hit Caddy on loopback with the app's Host header — avoids depending on
+    // *.demo.ploydok.local DNS resolution (not configured on every dev host).
+    const resp = await fetch(`http://127.0.0.1:8180/`, {
+      headers: { host: running.domain! },
+      redirect: "manual",
     });
-    expect([200, 301, 302, 308]).toContain(resp.status());
+    expect([200, 301, 302, 308]).toContain(resp.status);
   });
 });

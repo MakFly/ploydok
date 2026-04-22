@@ -31,7 +31,7 @@ function RegistryPage(): React.JSX.Element {
     <ShellPage
       title="Registry credentials"
       description="Authentification pour tirer des images depuis un registre Docker privé (Docker Hub, GHCR, GitLab, registry.example.com…)."
-      eyebrow="Settings · Sources"
+      
       actions={
         !showForm ? (
           <Button size="sm" onClick={() => setShowForm(true)}>

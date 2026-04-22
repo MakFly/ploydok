@@ -32,7 +32,9 @@ describe("resolveTopbarBreadcrumb", () => {
   })
 
   it("builds the nested git provider breadcrumb", () => {
-    expect(resolveTopbarBreadcrumb("/settings/git-providers/github", null)).toEqual([
+    expect(
+      resolveTopbarBreadcrumb("/settings/git-providers/github", null)
+    ).toEqual([
       { label: "Settings", to: "/settings" },
       { label: "Git providers", to: "/settings/git-providers" },
       { label: "GitHub" },
@@ -40,15 +42,29 @@ describe("resolveTopbarBreadcrumb", () => {
   })
 
   it("builds the nested security breadcrumb", () => {
-    expect(resolveTopbarBreadcrumb("/settings/security/passkeys", null)).toEqual([
-      { label: "Settings", to: "/settings" },
-      { label: "Security", to: "/settings/security" },
-      { label: "Passkeys" },
-    ])
+    expect(resolveTopbarBreadcrumb("/settings/security/passkey", null)).toEqual(
+      [
+        { label: "Settings", to: "/settings" },
+        { label: "Security", to: "/settings/security" },
+        { label: "Passkeys" },
+      ]
+    )
+  })
+
+  it("builds the posture security breadcrumb", () => {
+    expect(resolveTopbarBreadcrumb("/settings/security/posture", null)).toEqual(
+      [
+        { label: "Settings", to: "/settings" },
+        { label: "Security", to: "/settings/security" },
+        { label: "Posture" },
+      ]
+    )
   })
 
   it("builds the app breadcrumb with the dynamic app name", () => {
-    expect(resolveTopbarBreadcrumb("/apps/app-123/settings", "Billing API")).toEqual([
+    expect(
+      resolveTopbarBreadcrumb("/apps/app-123/settings", "Billing API")
+    ).toEqual([
       { label: "Apps", to: "/apps" },
       { label: "Billing API", to: "/apps/app-123/overview" },
       { label: "Settings" },
@@ -56,7 +72,9 @@ describe("resolveTopbarBreadcrumb", () => {
   })
 
   it("treats the app overview route as the current page", () => {
-    expect(resolveTopbarBreadcrumb("/apps/app-123/overview", "Billing API")).toEqual([
+    expect(
+      resolveTopbarBreadcrumb("/apps/app-123/overview", "Billing API")
+    ).toEqual([
       { label: "Apps", to: "/apps" },
       { label: "Billing API", to: "/apps/app-123/overview" },
       { label: "Overview" },

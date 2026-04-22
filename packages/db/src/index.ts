@@ -2,3 +2,4 @@
 export * from './schema';
 export { createDb, createRedis } from './client';
 export type { Db } from './client';
+export type { Redis } from 'ioredis';

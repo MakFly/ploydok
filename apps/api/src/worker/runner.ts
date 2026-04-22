@@ -38,6 +38,8 @@ import {
   runtimeContainerNameCandidates,
 } from "../runtime-containers.js";
 import { ensureProjectNetwork, networksForApp } from "../projects.js";
+import { ensureCaddyOnProjectNetwork } from "../caddy/attachment.js";
+import { getSharedAgent } from "../debug/singletons.js";
 import { PLANS } from "@ploydok/shared";
 import type { PlanName } from "@ploydok/shared";
 
@@ -433,8 +435,12 @@ export async function runBlueGreen(opts: RunBlueGreenOptions): Promise<RunBlueGr
     await pullImage(agent, imageRef, channel, opts.registryAuth);
     logBus.publish(channel, `[runner] image pulled`);
 
-    // 0b. Ensure per-project network + resolve quota limits (Phase 1.C).
+    // 0b. Ensure per-project network + attach Caddy to it + resolve quota limits.
+    // Zero-trust invariant: the app container only ever lives on its project
+    // network. Caddy is attached dynamically so external ingress still works,
+    // but other projects' apps share NO network with this one.
     const projectNetwork = await ensureProjectNetwork(db, appRow.project_id);
+    await ensureCaddyOnProjectNetwork(getSharedAgent(), projectNetwork);
     const networks = networksForApp(projectNetwork);
     const resourceLimits = resolveResourceLimits(appRow);
 
@@ -676,6 +682,7 @@ export async function rollbackApp(
     logBus.publish(channel, `[runner] image pulled`);
 
     const projectNetwork = await ensureProjectNetwork(db, appRow.project_id);
+    await ensureCaddyOnProjectNetwork(getSharedAgent(), projectNetwork);
     const networks = networksForApp(projectNetwork);
     const resourceLimits = resolveResourceLimits(appRow);
 

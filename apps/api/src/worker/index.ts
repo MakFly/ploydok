@@ -1,15 +1,17 @@
 // SPDX-License-Identifier: AGPL-3.0-only
 import { rm } from "node:fs/promises"
 import path from "node:path"
-import { Worker } from "bullmq"
+import { Worker, UnrecoverableError } from "bullmq"
 import { createRedis } from "@ploydok/db"
 import type { Db } from "@ploydok/db"
 import { env } from "../env"
 import { workerLog as logger } from "./logger"
 import { handleDeploy } from "./handlers/deploy"
+import { FatalDeployError } from "./errors"
 import { handleDeleteApp } from "./handlers/delete-app"
 import type { DeleteAppOptions } from "./handlers/delete-app"
 import { runRegistryGc, startRegistryGcCron, stopRegistryGcCron } from "./handlers/gc-registry"
+import { startPurgeWebhookSecretsCron, stopPurgeWebhookSecretsCron } from "./jobs/purge-old-webhook-secrets"
 
 // ---------------------------------------------------------------------------
 // Types
@@ -43,13 +45,30 @@ export function startWorker(
     new Worker(
       "deploy",
       async (job) => {
-        logger.info({ jobId: job.id, name: job.name }, "deploy job started")
-        await handleDeploy(db, {
-          id: job.id ?? "",
-          payload: JSON.stringify(job.data),
-          attempts: job.attemptsMade + 1,
-          max_attempts: (job.opts.attempts ?? 1),
-        })
+        const attempt = job.attemptsMade + 1
+        const maxAttempts = job.opts.attempts ?? 1
+        logger.info({ jobId: job.id, name: job.name, attempt, maxAttempts }, "deploy job started")
+        try {
+          await handleDeploy(db, {
+            id: job.id ?? "",
+            payload: JSON.stringify(job.data),
+            attempts: attempt,
+            max_attempts: maxAttempts,
+          })
+        } catch (err) {
+          if (err instanceof FatalDeployError) {
+            logger.error(
+              { jobId: job.id, err, kind: "fatal", attempt, maxAttempts },
+              "deploy.failed kind=fatal — skipping retries",
+            )
+            throw new UnrecoverableError(err.message)
+          }
+          logger.warn(
+            { jobId: job.id, err, kind: "transient", attempt, maxAttempts },
+            "deploy.failed kind=transient — will retry",
+          )
+          throw err
+        }
       },
       { connection, concurrency: 1 },
     ),
@@ -97,12 +116,14 @@ export function startWorker(
   }
 
   startRegistryGcCron({ gcOptions: { db } })
+  startPurgeWebhookSecretsCron(db)
 
   const abortHandler = () => stop()
   opts?.signal?.addEventListener("abort", abortHandler)
 
   function stop() {
     stopRegistryGcCron()
+    stopPurgeWebhookSecretsCron()
     Promise.all(workers.map((w) => w.close())).catch((err) => {
       logger.error({ err }, "error closing BullMQ workers")
     })

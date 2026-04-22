@@ -42,6 +42,17 @@ export interface WebhookVerifyInput {
   secret: string;
 }
 
+export interface CommitStatusInput {
+  owner: string
+  repo: string
+  sha: string
+  state: "pending" | "success" | "failure" | "error"
+  context: string
+  targetUrl?: string
+  description?: string
+  token: string
+}
+
 export interface GitProvider {
   kind: GitProviderKind;
   listRepos(
@@ -62,6 +73,8 @@ export interface GitProvider {
     event: string,
     payload: unknown,
   ): ParsedPushEvent | null;
+  /** Post a commit status (check) to the provider. */
+  postCommitStatus(input: CommitStatusInput): Promise<void>;
 }
 
 // ---------------------------------------------------------------------------
@@ -71,6 +84,8 @@ export interface GitProvider {
 export const ParsedPushEventSchema = z.object({
   provider: z.enum(['github', 'gitlab']),
   repoFullName: z.string(),
+  /** Raw git ref (e.g. refs/heads/main, refs/tags/v1.0.0). */
+  ref: z.string().optional(),
   branch: z.string(),
   commitSha: z.string(),
   commitMessage: z.string(),

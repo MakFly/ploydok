@@ -2,6 +2,5 @@
 export * from "./builds";
 export * from "./github_app";
 export * from "./gitlab";
-export * from "./jobs";
 export * from "./registry_credentials";
 export * from "./users";

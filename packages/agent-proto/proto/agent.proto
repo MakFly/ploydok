@@ -230,6 +230,29 @@ message NetworkRemoveRequest {
 
 message NetworkRemoveResponse {}
 
+// Connect an existing container to an existing network.
+// Idempotent: returns ALREADY_EXISTS if the container is already connected.
+message NetworkConnectRequest {
+  string network_id = 1;
+  string container_id = 2;
+  // Optional DNS aliases exposed on this network for the container.
+  repeated string aliases = 3;
+}
+
+message NetworkConnectResponse {}
+
+// Disconnect a container from a network.
+// Idempotent: returns NOT_FOUND if either the container is not on the network
+// or the network/container no longer exists.
+message NetworkDisconnectRequest {
+  string network_id = 1;
+  string container_id = 2;
+  // Force disconnect even if the container is running.
+  bool force = 3;
+}
+
+message NetworkDisconnectResponse {}
+
 // ─────────────────────────────────────────────────────────────────────────────
 // Monitoring
 // ─────────────────────────────────────────────────────────────────────────────
@@ -355,8 +378,10 @@ service Agent {
   rpc ImageBuild      (ImageBuildRequest)       returns (stream BuildProgress);
 
   // Networking
-  rpc NetworkCreate   (NetworkCreateRequest)    returns (NetworkCreateResponse);
-  rpc NetworkRemove   (NetworkRemoveRequest)    returns (NetworkRemoveResponse);
+  rpc NetworkCreate     (NetworkCreateRequest)      returns (NetworkCreateResponse);
+  rpc NetworkRemove     (NetworkRemoveRequest)      returns (NetworkRemoveResponse);
+  rpc NetworkConnect    (NetworkConnectRequest)     returns (NetworkConnectResponse);
+  rpc NetworkDisconnect (NetworkDisconnectRequest)  returns (NetworkDisconnectResponse);
 
   // Monitoring (snapshot + ad-hoc ping)
   rpc ListContainers  (ListContainersRequest)   returns (ListContainersResponse);

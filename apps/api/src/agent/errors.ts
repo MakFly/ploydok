@@ -74,3 +74,32 @@ export function toAgentError(err: unknown): AgentError {
 }
 
 export { GrpcStatus };
+
+/**
+ * True if `err` indicates the resource already existed (Docker 409 / gRPC
+ * ALREADY_EXISTS). Also matches older agent binaries that mapped the Docker
+ * 409 to INTERNAL with a textual "already exists" detail — keeps upgrades
+ * idempotent without requiring a lock-step rebuild.
+ */
+export function isAlreadyExists(err: unknown): boolean {
+  if (!(err instanceof AgentError)) return false;
+  if (err.code === GrpcStatus.ALREADY_EXISTS) return true;
+  if (err.code === GrpcStatus.INTERNAL && /already exists/i.test(err.details)) return true;
+  return false;
+}
+
+/**
+ * True if `err` indicates the target resource does not exist (Docker 404 /
+ * gRPC NOT_FOUND). Same legacy fallback as `isAlreadyExists`.
+ */
+export function isNotFound(err: unknown): boolean {
+  if (!(err instanceof AgentError)) return false;
+  if (err.code === GrpcStatus.NOT_FOUND) return true;
+  if (
+    err.code === GrpcStatus.INTERNAL &&
+    /no such|not found|is not connected/i.test(err.details)
+  ) {
+    return true;
+  }
+  return false;
+}

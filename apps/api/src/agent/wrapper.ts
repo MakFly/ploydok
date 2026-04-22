@@ -24,6 +24,10 @@ import type {
   NetworkCreateResponse,
   NetworkRemoveRequest,
   NetworkRemoveResponse,
+  NetworkConnectRequest,
+  NetworkConnectResponse,
+  NetworkDisconnectRequest,
+  NetworkDisconnectResponse,
   ListContainersRequest,
   ListContainersResponse,
   PingContainerRequest,
@@ -211,6 +215,33 @@ export class Agent {
     log.debug({ networkId: req.networkId }, "networkRemove");
     return callUnary(
       (r, m, opts, cb) => this.client.networkRemove(r, m, opts, cb),
+      req,
+      timeoutMs,
+    );
+  }
+
+  networkConnect(req: NetworkConnectRequest, timeoutMs?: number): Promise<NetworkConnectResponse> {
+    log.debug(
+      { networkId: req.networkId, containerId: req.containerId, aliases: req.aliases },
+      "networkConnect",
+    );
+    return callUnary(
+      (r, m, opts, cb) => this.client.networkConnect(r, m, opts, cb),
+      req,
+      timeoutMs,
+    );
+  }
+
+  networkDisconnect(
+    req: NetworkDisconnectRequest,
+    timeoutMs?: number,
+  ): Promise<NetworkDisconnectResponse> {
+    log.debug(
+      { networkId: req.networkId, containerId: req.containerId, force: req.force },
+      "networkDisconnect",
+    );
+    return callUnary(
+      (r, m, opts, cb) => this.client.networkDisconnect(r, m, opts, cb),
       req,
       timeoutMs,
     );

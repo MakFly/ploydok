@@ -162,6 +162,42 @@ export async function deleteDigest(
 }
 
 /**
+ * Re-tag an existing manifest: copies the manifest from `srcTag` to `dstTag`
+ * within the same repository using the Registry HTTP API v2.
+ * No-op if srcTag does not exist.
+ */
+export async function tagManifest(
+  repo: string,
+  srcTag: string,
+  dstTag: string,
+): Promise<void> {
+  const acceptHeader = [
+    "application/vnd.docker.distribution.manifest.v2+json",
+    "application/vnd.oci.image.manifest.v1+json",
+  ].join(", ")
+
+  const getRes = await registryFetch(`${repo}/manifests/${srcTag}`, {
+    headers: { Accept: acceptHeader },
+  })
+  if (getRes.status === 404) return
+  if (!getRes.ok) {
+    throw new Error(`registry tagManifest GET failed (${getRes.status}): ${await getRes.text()}`)
+  }
+
+  const rawBody = await getRes.text()
+  const contentType = getRes.headers.get("Content-Type") ?? "application/vnd.docker.distribution.manifest.v2+json"
+
+  const putRes = await registryFetch(`${repo}/manifests/${dstTag}`, {
+    method: "PUT",
+    headers: { "Content-Type": contentType, ...authHeaders() },
+    body: rawBody,
+  })
+  if (!putRes.ok) {
+    throw new Error(`registry tagManifest PUT failed (${putRes.status}): ${await putRes.text()}`)
+  }
+}
+
+/**
  * Garbage-collect a repository by keeping only the `n` most recently created
  * images and deleting the rest.
  *

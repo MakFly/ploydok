@@ -24,7 +24,15 @@ export function normalizeRuntimeContainerSlug(slug: string): string {
 }
 
 export function runtimeContainerShortId(appId: string): string {
-  return appId.toLowerCase().slice(0, 8)
+  // Nanoid's default alphabet includes `_`, which the agent validator rejects
+  // (container_name_prefix regex `^ploydok-[a-z0-9][a-z0-9-]{0,62}$`). Strip
+  // any character outside `[a-z0-9-]` before slicing so the 8-char prefix is
+  // always a valid Docker name component.
+  return appId
+    .toLowerCase()
+    .replace(/[^a-z0-9-]+/g, "-")
+    .replace(/^-+/, "")
+    .slice(0, 8)
 }
 
 export function runtimeContainerName(

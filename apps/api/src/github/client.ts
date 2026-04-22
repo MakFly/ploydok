@@ -1,6 +1,7 @@
 // SPDX-License-Identifier: AGPL-3.0-only
 import { GitBranchSchema, GitRepoSchema } from "@ploydok/shared";
 import type {
+  CommitStatusInput,
   GitBranch,
   GitProvider,
   GitRepo,
@@ -183,5 +184,25 @@ export class GitHubProvider implements GitProvider {
       commitMessage: push.head_commit?.message ?? "",
       authRef: push.installation?.id != null ? String(push.installation.id) : "",
     };
+  }
+
+  async postCommitStatus(input: CommitStatusInput): Promise<void> {
+    const { owner, repo, sha, state, context, targetUrl, description, token } = input;
+    const url = `${GH_API}/repos/${owner}/${repo}/statuses/${sha}`;
+    const body: Record<string, string> = { state, context };
+    if (targetUrl) body["target_url"] = targetUrl;
+    if (description) body["description"] = description;
+
+    const res = await fetch(url, {
+      method: "POST",
+      headers: { ...ghHeaders(token), "Content-Type": "application/json" },
+      body: JSON.stringify(body),
+    });
+
+    // 422 = commit doesn't exist yet — no point retrying
+    if (res.status === 422) return;
+    if (!res.ok) {
+      throw new Error(`GitHub commit status POST returned ${res.status} for ${sha}`);
+    }
   }
 }

@@ -1,6 +1,6 @@
 // SPDX-License-Identifier: AGPL-3.0-only
 import { Hono } from "hono";
-import { createHmac, randomBytes } from "node:crypto";
+import { createHash, createHmac, randomBytes } from "node:crypto";
 import { createDb } from "@ploydok/db";
 import {
   deleteGitLabConfig,
@@ -13,6 +13,8 @@ import {
 import { decryptField, encryptField } from "../github/app-credentials";
 import { GitLabProvider } from "../gitlab/client";
 import { handleGitLabWebhook, verifyGitLabToken } from "../gitlab/webhook";
+import { findRecentByPayloadHash, insertDelivery } from "../webhooks/deliveries";
+import { gitlabWebhookRateLimit } from "../webhooks/rate-limiters";
 import { childLogger } from "../logger";
 import { env } from "../env";
 import type { AuthUser } from "../auth/middleware";
@@ -310,13 +312,25 @@ gitlabRouter.get("/repos/:fullName{.+}/branches", async (c) => {
 // Webhook receiver — GitLab sends `X-Gitlab-Token` header (plain shared secret).
 // ---------------------------------------------------------------------------
 
-gitlabRouter.post("/webhook", async (c) => {
+gitlabRouter.post("/webhook", gitlabWebhookRateLimit, async (c) => {
   const cfg = await getGitLabConfig(db);
   if (!cfg) return c.json({ error: "gitlab_not_configured" }, 503);
 
   const body = await c.req.text();
+  const rawBodyBuffer = Buffer.from(body, "utf-8");
   const token = c.req.header("x-gitlab-token") ?? null;
   const event = c.req.header("x-gitlab-event") ?? "unknown";
+  const deliveryId = c.req.header("x-gitlab-event-uuid") ?? "unknown";
+
+  // Compute payload hash for dedup and audit (SHA-256 of raw body)
+  const payloadHash = createHash("sha256").update(rawBodyBuffer).digest("hex");
+
+  // Dedup: skip if we already processed this exact payload in the last 60s
+  const existing = await findRecentByPayloadHash(db, payloadHash);
+  if (existing) {
+    log.debug({ deliveryId, payloadHash }, "duplicate payload — dedup skip");
+    return c.json({ ok: true, dedup: true });
+  }
 
   const expected = await decryptField(
     cfg.webhook_secret_enc as Buffer,
@@ -327,6 +341,20 @@ gitlabRouter.post("/webhook", async (c) => {
   }
   if (!verifyGitLabToken(token, expected)) {
     log.warn({ event }, "gitlab webhook token rejected");
+    // Record invalid token delivery before rejecting
+    await insertDelivery(
+      db,
+      {
+        provider: "gitlab",
+        delivery_external_id: deliveryId,
+        event,
+        signature_valid: false,
+        decision: "invalid_signature",
+        decision_reason: "X-Gitlab-Token mismatch",
+        payload_hash: payloadHash,
+      },
+      rawBodyBuffer,
+    ).catch((err) => log.warn({ err }, "insertDelivery(invalid_signature) failed"));
     return c.json({ error: "invalid_token" }, 401);
   }
 
@@ -337,9 +365,8 @@ gitlabRouter.post("/webhook", async (c) => {
     return c.json({ error: "invalid_json" }, 400);
   }
 
-  const deliveryId = c.req.header("x-gitlab-event-uuid") ?? "unknown";
   queueMicrotask(() =>
-    handleGitLabWebhook(db, event, payload, deliveryId).catch((err) =>
+    handleGitLabWebhook(db, event, payload, deliveryId, { payloadHash, rawBodyBuffer }).catch((err) =>
       log.error({ err, event, deliveryId }, "gitlab webhook handler failed"),
     ),
   );

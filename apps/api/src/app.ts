@@ -25,6 +25,7 @@ import { wsRouter } from "./routes/ws";
 import { wsExecRouter } from "./routes/apps-exec";
 import { eventsRouter } from "./routes/events";
 import { monitoringRouter, startMonitoringLoop } from "./routes/monitoring";
+import { notificationsRouter } from "./routes/notifications";
 
 const httpLog = childLogger("http");
 const errorLog = childLogger("error");
@@ -164,6 +165,14 @@ app.use("*", async (c, next) => {
     return next();
   }
 
+  // /auth/backup-codes/consume est un endpoint de login (aucune session active,
+  // donc aucun cookie CSRF à first visit). La sécurité repose sur : Origin check
+  // du middleware CORS en amont, rate-limit, et le secret du backup code lui-même.
+  // Cohérent avec /auth/dev-login.
+  if (c.req.path === "/auth/backup-codes/consume") {
+    return next();
+  }
+
   const cookieCsrf = getCookieValue(c.req.raw.headers.get("cookie") ?? "", "csrf");
   const headerCsrf = c.req.raw.headers.get("x-csrf-token");
 
@@ -291,6 +300,10 @@ app.route("/monitoring", monitoringRouter)
 if (env.NODE_ENV !== "test") {
   startMonitoringLoop(db)
 }
+
+// Notifications channels — all endpoints require auth.
+app.use("/notifications/*", requireAuth(db))
+app.route("/notifications", notificationsRouter)
 
 // /me — requires auth
 app.get("/me", requireAuth(db), async (c) => {

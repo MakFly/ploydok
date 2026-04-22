@@ -28,7 +28,9 @@ function isSecondFactorRequired(code?: string): boolean {
 
 describe("ApiErrorState — title resolution", () => {
   it("returns 'Second factor required' for SECOND_FACTOR_REQUIRED code", () => {
-    expect(titleForStatus("SECOND_FACTOR_REQUIRED")).toBe("Second factor required")
+    expect(titleForStatus("SECOND_FACTOR_REQUIRED")).toBe(
+      "Second factor required"
+    )
   })
 
   it("returns 'Backend indisponible' for BACKEND_UNAVAILABLE", () => {
@@ -68,8 +70,8 @@ describe("ApiErrorState — SECOND_FACTOR_REQUIRED branch detection", () => {
   })
 
   it("renders the correct CTA link path for passkey configuration", () => {
-    // The component links to /settings/security/passkeys — verify the path string.
-    const configPath = "/settings/security/passkeys"
-    expect(configPath).toBe("/settings/security/passkeys")
+    // The component links to /settings/security/passkey — verify the path string.
+    const configPath = "/settings/security/passkey"
+    expect(configPath).toBe("/settings/security/passkey")
   })
 })

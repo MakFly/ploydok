@@ -1,22 +1,28 @@
 // SPDX-License-Identifier: AGPL-3.0-only
 import { readFile } from "node:fs/promises";
+import { randomBytes } from "node:crypto";
 import { Hono } from "hono";
 import { z } from "zod";
 import { and, eq } from "drizzle-orm";
 import { nanoid } from "nanoid";
 import { createDb } from "@ploydok/db";
-import { apps, builds, projects } from "@ploydok/db";
+import { apps, audit_log, builds, projects } from "@ploydok/db";
 import { BuildMethodSchema, HealthcheckConfigSchema, RestartPolicySchema } from "@ploydok/shared";
 import { getAppActivity, getAppForUser, listAppsForUser, listBuildsForApp } from "../queries/apps";
-import { enqueueJob } from "@ploydok/db/queries";
+import { listDeliveriesByApp, getDeliveryById } from "../queries/webhook-deliveries";
+import { replayDelivery, ReplayLimitError, ReplayPayloadMissingError } from "../webhooks/deliveries";
 import { env } from "../env";
 import { deployQueue, appDeleteQueue } from "../worker/queues";
 import { childLogger } from "../logger";
 import type { Db } from "@ploydok/db";
 import type { AuthUser } from "../auth/middleware";
 import { requireSecondFactor } from "../auth/middleware";
+import { requireTotpVerified } from "../auth/second-factor";
+import { encryptField, decryptField } from "../github/app-credentials";
 import { getSharedAgent } from "../debug/singletons";
 import { resolveRuntimeContainer } from "../runtime-containers";
+import { dispatch as notifyDispatch } from "../notify/index";
+import { createRedis } from "@ploydok/db";
 
 // ---------------------------------------------------------------------------
 // Validation schemas
@@ -60,7 +66,31 @@ const CreateAppBody = z.object({
 });
 
 // PATCH accepts the same fields except name and projectId are not updatable here
-const PatchAppBody = CreateAppBody.omit({ name: true, projectId: true }).partial();
+const PatchAppBody = CreateAppBody.omit({ name: true, projectId: true })
+  .extend({
+    auto_deploy_enabled: z.boolean().optional(),
+    post_commit_status: z.boolean().optional(),
+    coalesce_pushes: z.boolean().optional(),
+    deploy_on_tag: z.boolean().optional(),
+    // tag_pattern must be a valid regex when provided
+    tag_pattern: z
+      .string()
+      .nullable()
+      .optional()
+      .refine(
+        (v) => {
+          if (v === null || v === undefined) return true;
+          try {
+            new RegExp(v);
+            return true;
+          } catch {
+            return false;
+          }
+        },
+        { message: "tag_pattern must be a valid regular expression" },
+      ),
+  })
+  .partial();
 
 // ---------------------------------------------------------------------------
 // Helpers
@@ -357,12 +387,6 @@ export function createAppsRouter(db: Db): Hono {
       .where(eq(apps.id, id))
       .limit(1);
 
-    await enqueueJob(db, {
-      type: "deploy.requested",
-      payload: { appId: id, commitSha: null },
-      maxAttempts: 1,
-    })
-    // Also push to BullMQ for real-time processing
     await deployQueue.add("deploy.requested", { appId: id, commitSha: null }, { attempts: 1 })
 
     return c.json({ app: serializeApp(rows[0]!) }, 201);
@@ -439,6 +463,11 @@ export function createAppsRouter(db: Db): Hono {
     if (body.restartPolicy !== undefined) patch.restart_policy = body.restartPolicy;
     if (body.domain !== undefined) patch.domain = body.domain;
     if (body.keepPerRepo !== undefined) patch.keep_per_repo = body.keepPerRepo;
+    if (body.auto_deploy_enabled !== undefined) patch.auto_deploy_enabled = body.auto_deploy_enabled;
+    if (body.post_commit_status !== undefined) patch.post_commit_status = body.post_commit_status;
+    if (body.coalesce_pushes !== undefined) patch.coalesce_pushes = body.coalesce_pushes;
+    if (body.deploy_on_tag !== undefined) patch.deploy_on_tag = body.deploy_on_tag;
+    if (body.tag_pattern !== undefined) patch.tag_pattern = body.tag_pattern;
 
     if (body.healthcheck !== undefined) {
       const hc = body.healthcheck;
@@ -536,19 +565,14 @@ export function createAppsRouter(db: Db): Hono {
       deleteBuildArtifacts: flags.deleteBuildArtifacts ?? true,
       deleteCaddyRoutes: flags.deleteCaddyRoutes ?? true,
     }
-    const job = await enqueueJob(db, {
-      type: "app.delete.requested",
-      payload: deletePayload,
-    });
-    // Also push to BullMQ for real-time processing
-    await appDeleteQueue.add("app.delete.requested", deletePayload)
+    const bullJob = await appDeleteQueue.add("app.delete.requested", deletePayload)
 
     childLogger("apps-delete").info(
-      { appId, jobId: job.id, flags },
+      { appId, jobId: bullJob.id, flags },
       "delete cascade enqueued",
     );
 
-    return c.json({ ok: true, jobId: job.id, status: "deleting" }, 202);
+    return c.json({ ok: true, jobId: bullJob.id, status: "deleting" }, 202);
   });
 
   // -------------------------------------------------------------------------
@@ -564,18 +588,12 @@ export function createAppsRouter(db: Db): Hono {
       return c.json({ error: { code: "NOT_FOUND", message: "App not found" } }, 404)
     }
 
-    const job = await enqueueJob(db, {
-      type: "deploy.requested",
-      payload: { appId, commitSha: null },
-      maxAttempts: 1,
-    })
-    // Also push to BullMQ for real-time processing
-    await deployQueue.add("deploy.requested", { appId, commitSha: null }, { attempts: 1 })
+    const bullJob = await deployQueue.add("deploy.requested", { appId, commitSha: null }, { attempts: 1 })
 
     // buildId is not available synchronously because the build record is created
     // by the worker when it picks up the job. Returning null here is intentional —
     // the client can poll GET /apps/:id/builds to get the new build once created.
-    return c.json({ ok: true, jobId: job.id, buildId: null }, 202)
+    return c.json({ ok: true, jobId: bullJob.id, buildId: null }, 202)
   })
   // stop / restart / rollback are implemented in the [M3.3 lifecycle] block below.
   router.get("/:id/builds", async (c) => {
@@ -885,6 +903,167 @@ export function createAppsRouter(db: Db): Hono {
     }
   });
   // [M4.2 registry — END]
+
+  // [Wave-3 webhooks — BEGIN]
+
+  // -------------------------------------------------------------------------
+  // GET /apps/:id/webhook-deliveries — list deliveries (cursor pagination)
+  // -------------------------------------------------------------------------
+
+  router.get("/:id/webhook-deliveries", async (c) => {
+    const user = getUser(c);
+    const appId = c.req.param("id");
+
+    const limitRaw = Math.min(Number(c.req.query("limit") ?? 50), 200);
+    const limit = Number.isFinite(limitRaw) && limitRaw > 0 ? limitRaw : 50;
+    const cursor = c.req.query("cursor");
+
+    const result = await listDeliveriesByApp(db, appId, user.id, limit, cursor);
+    if (result === null) {
+      return c.json({ error: { code: "NOT_FOUND", message: "App not found" } }, 404);
+    }
+
+    return c.json(result);
+  });
+
+  // -------------------------------------------------------------------------
+  // GET /apps/:id/webhook-deliveries/:deliveryId — single delivery detail
+  // -------------------------------------------------------------------------
+
+  router.get("/:id/webhook-deliveries/:deliveryId", async (c) => {
+    const user = getUser(c);
+    const appId = c.req.param("id");
+    const deliveryId = c.req.param("deliveryId");
+
+    const delivery = await getDeliveryById(db, appId, deliveryId, user.id);
+    if (delivery === null) {
+      return c.json({ error: { code: "NOT_FOUND", message: "Delivery not found" } }, 404);
+    }
+
+    return c.json({ delivery });
+  });
+
+  // -------------------------------------------------------------------------
+  // POST /apps/:id/webhook-secret/rotate — rotate per-app webhook secret
+  // Protected by requireTotpVerified. Anti-abuse: 409 if rotated < 24h ago.
+  // -------------------------------------------------------------------------
+
+  const totpMw = requireTotpVerified(db);
+
+  router.post("/:id/webhook-secret/rotate", totpMw, async (c) => {
+    const user = getUser(c);
+    const appId = c.req.param("id")!;
+
+    const app = await getAppForUser(db, appId, user.id);
+    if (!app) {
+      return c.json({ error: { code: "NOT_FOUND", message: "App not found" } }, 404);
+    }
+
+    // Anti-abuse: reject if the existing old secret hasn't expired yet (< 24h since last rotation)
+    const now = new Date();
+    if (app.webhook_secret_old_expires_at && app.webhook_secret_old_expires_at > now) {
+      return c.json({ code: "rotation_cooldown", message: "A rotation already happened in the last 24h" }, 409);
+    }
+
+    const newSecretPlain = randomBytes(32).toString("hex");
+    const { enc, nonce } = await encryptField(newSecretPlain);
+    // Store as nonce (12 bytes) || enc concatenated in a single bytea
+    const newSecretBlob = Buffer.concat([nonce, enc]);
+
+    // Move current secret → old before overwriting
+    await db
+      .update(apps)
+      .set({
+        webhook_secret: newSecretBlob,
+        webhook_secret_old: app.webhook_secret ?? null,
+        webhook_secret_old_expires_at: new Date(now.getTime() + 24 * 60 * 60 * 1000),
+        updated_at: now,
+      })
+      .where(eq(apps.id, appId));
+
+    // Audit
+    try {
+      await db.insert(audit_log).values({
+        user_id: user.id,
+        action: "webhook.secret.rotated",
+        target_type: "app",
+        target_id: appId,
+        metadata: "{}",
+        created_at: now,
+      });
+    } catch {
+      // Audit failure must not block the response
+    }
+
+    childLogger("apps-webhook-secret").info({ appId, userId: user.id }, "webhook secret rotated");
+
+    // Notification dispatch — webhook.rotated (best-effort, non-fatal)
+    const redisForNotify = createRedis(env.REDIS_URL);
+    notifyDispatch(db, redisForNotify, "webhook.rotated", {
+      appId: app.id,
+      appName: app.name,
+    }, { userId: user.id, projectId: app.project_id ?? undefined }).catch((err) =>
+      childLogger("apps-webhook-secret").warn({ err, appId }, "dispatch webhook.rotated failed (non-fatal)"),
+    ).finally(() => redisForNotify.disconnect())
+
+    // Return plain secret once — caller must copy it to GitHub/GitLab
+    return c.json({ secret: newSecretPlain });
+  });
+
+  // -------------------------------------------------------------------------
+  // POST /apps/:id/webhook-deliveries/:deliveryId/replay — replay a delivery
+  // Protected by TOTP. Anti-abuse: max 10 replays per parent delivery → 429.
+  // -------------------------------------------------------------------------
+
+  router.post("/:id/webhook-deliveries/:deliveryId/replay", totpMw, async (c) => {
+    const user = getUser(c);
+    const appId = c.req.param("id")!;
+    const deliveryId = c.req.param("deliveryId")!;
+
+    // Verify ownership
+    const app = await getAppForUser(db, appId, user.id);
+    if (!app) {
+      return c.json({ error: { code: "NOT_FOUND", message: "App not found" } }, 404);
+    }
+
+    try {
+      const newDeliveryId = await replayDelivery(db, deliveryId, appId);
+
+      // Audit
+      try {
+        await db.insert(audit_log).values({
+          user_id: user.id,
+          action: "webhook.replayed",
+          target_type: "app",
+          target_id: appId,
+          metadata: JSON.stringify({ delivery_id: deliveryId, new_delivery_id: newDeliveryId }),
+          created_at: new Date(),
+        });
+      } catch {
+        // Audit failure must not block the response
+      }
+
+      childLogger("apps-webhook-replay").info(
+        { appId, userId: user.id, deliveryId, newDeliveryId },
+        "delivery replayed",
+      );
+
+      return c.json({ delivery_id: newDeliveryId });
+    } catch (err) {
+      if (err instanceof ReplayLimitError) {
+        return c.json({ code: err.code, message: err.message }, 429);
+      }
+      if (err instanceof ReplayPayloadMissingError) {
+        return c.json({ code: err.code, message: err.message }, 422);
+      }
+      if (err instanceof Error && err.message === "Delivery not found") {
+        return c.json({ error: { code: "NOT_FOUND", message: "Delivery not found" } }, 404);
+      }
+      throw err;
+    }
+  });
+
+  // [Wave-3 webhooks — END]
 
   return router;
 }

@@ -3,10 +3,12 @@
 // Project-level runtime helpers.
 //
 // Each project owns its own Docker bridge network (`ploydok-proj-<id>`).
-// Containers are attached to both this private network (inter-container
-// isolation across projects) and the shared `ploydok-ingress` network
-// (Caddy reachability). Apps of different projects cannot resolve each
-// other by name — which is the pentest Phase 1.C validates.
+// App containers are attached to THAT network ONLY. Caddy is dynamically
+// attached to every project-network on first deploy (see `caddy/attachment.ts`)
+// so external traffic can still reach upstreams by `container_id:port` while
+// apps from different projects share NO network and cannot discover each other
+// by name — strict zero-trust by default. The pentest
+// `e2e/isolation/cross-project-blocked.spec.ts` validates the invariant.
 
 import { eq } from "drizzle-orm";
 import { projects } from "@ploydok/db";
@@ -77,10 +79,11 @@ export async function ensureProjectNetwork(
 }
 
 /**
- * Networks a container must be attached to for a given app:
- *   [projectNetwork, ingressNetwork]
- * The Rust agent iterates both and wires them via bollard's EndpointsConfig.
+ * Networks a container must be attached to for a given app: **only the
+ * project-network**. Caddy is attached dynamically to the same network on
+ * each deploy via `ensureCaddyOnProjectNetwork`, so inbound ingress still
+ * works, but apps of other projects never share a bridge.
  */
 export function networksForApp(projectNetwork: string): string[] {
-  return [projectNetwork, PLOYDOK_INGRESS_NETWORK];
+  return [projectNetwork];
 }

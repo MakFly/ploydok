@@ -239,6 +239,35 @@ export interface NetworkRemoveRequest {
 export interface NetworkRemoveResponse {
 }
 
+/**
+ * Connect an existing container to an existing network.
+ * Idempotent: returns ALREADY_EXISTS if the container is already connected.
+ */
+export interface NetworkConnectRequest {
+  networkId: string;
+  containerId: string;
+  /** Optional DNS aliases exposed on this network for the container. */
+  aliases: string[];
+}
+
+export interface NetworkConnectResponse {
+}
+
+/**
+ * Disconnect a container from a network.
+ * Idempotent: returns NOT_FOUND if either the container is not on the network
+ * or the network/container no longer exists.
+ */
+export interface NetworkDisconnectRequest {
+  networkId: string;
+  containerId: string;
+  /** Force disconnect even if the container is running. */
+  force: boolean;
+}
+
+export interface NetworkDisconnectResponse {
+}
+
 export interface ContainerSnapshot {
   id: string;
   name: string;
@@ -3059,6 +3088,292 @@ export const NetworkRemoveResponse: MessageFns<NetworkRemoveResponse> = {
   },
 };
 
+function createBaseNetworkConnectRequest(): NetworkConnectRequest {
+  return { networkId: "", containerId: "", aliases: [] };
+}
+
+export const NetworkConnectRequest: MessageFns<NetworkConnectRequest> = {
+  encode(message: NetworkConnectRequest, writer: BinaryWriter = new BinaryWriter()): BinaryWriter {
+    if (message.networkId !== "") {
+      writer.uint32(10).string(message.networkId);
+    }
+    if (message.containerId !== "") {
+      writer.uint32(18).string(message.containerId);
+    }
+    for (const v of message.aliases) {
+      writer.uint32(26).string(v!);
+    }
+    return writer;
+  },
+
+  decode(input: BinaryReader | Uint8Array, length?: number): NetworkConnectRequest {
+    const reader = input instanceof BinaryReader ? input : new BinaryReader(input);
+    const end = length === undefined ? reader.len : reader.pos + length;
+    const message = createBaseNetworkConnectRequest();
+    while (reader.pos < end) {
+      const tag = reader.uint32();
+      switch (tag >>> 3) {
+        case 1: {
+          if (tag !== 10) {
+            break;
+          }
+
+          message.networkId = reader.string();
+          continue;
+        }
+        case 2: {
+          if (tag !== 18) {
+            break;
+          }
+
+          message.containerId = reader.string();
+          continue;
+        }
+        case 3: {
+          if (tag !== 26) {
+            break;
+          }
+
+          message.aliases.push(reader.string());
+          continue;
+        }
+      }
+      if ((tag & 7) === 4 || tag === 0) {
+        break;
+      }
+      reader.skip(tag & 7);
+    }
+    return message;
+  },
+
+  fromJSON(object: any): NetworkConnectRequest {
+    return {
+      networkId: isSet(object.networkId)
+        ? globalThis.String(object.networkId)
+        : isSet(object.network_id)
+        ? globalThis.String(object.network_id)
+        : "",
+      containerId: isSet(object.containerId)
+        ? globalThis.String(object.containerId)
+        : isSet(object.container_id)
+        ? globalThis.String(object.container_id)
+        : "",
+      aliases: globalThis.Array.isArray(object?.aliases) ? object.aliases.map((e: any) => globalThis.String(e)) : [],
+    };
+  },
+
+  toJSON(message: NetworkConnectRequest): unknown {
+    const obj: any = {};
+    if (message.networkId !== "") {
+      obj.networkId = message.networkId;
+    }
+    if (message.containerId !== "") {
+      obj.containerId = message.containerId;
+    }
+    if (message.aliases?.length) {
+      obj.aliases = message.aliases;
+    }
+    return obj;
+  },
+
+  create(base?: DeepPartial<NetworkConnectRequest>): NetworkConnectRequest {
+    return NetworkConnectRequest.fromPartial(base ?? {});
+  },
+  fromPartial(object: DeepPartial<NetworkConnectRequest>): NetworkConnectRequest {
+    const message = createBaseNetworkConnectRequest();
+    message.networkId = object.networkId ?? "";
+    message.containerId = object.containerId ?? "";
+    message.aliases = object.aliases?.map((e) => e) || [];
+    return message;
+  },
+};
+
+function createBaseNetworkConnectResponse(): NetworkConnectResponse {
+  return {};
+}
+
+export const NetworkConnectResponse: MessageFns<NetworkConnectResponse> = {
+  encode(_: NetworkConnectResponse, writer: BinaryWriter = new BinaryWriter()): BinaryWriter {
+    return writer;
+  },
+
+  decode(input: BinaryReader | Uint8Array, length?: number): NetworkConnectResponse {
+    const reader = input instanceof BinaryReader ? input : new BinaryReader(input);
+    const end = length === undefined ? reader.len : reader.pos + length;
+    const message = createBaseNetworkConnectResponse();
+    while (reader.pos < end) {
+      const tag = reader.uint32();
+      switch (tag >>> 3) {
+      }
+      if ((tag & 7) === 4 || tag === 0) {
+        break;
+      }
+      reader.skip(tag & 7);
+    }
+    return message;
+  },
+
+  fromJSON(_: any): NetworkConnectResponse {
+    return {};
+  },
+
+  toJSON(_: NetworkConnectResponse): unknown {
+    const obj: any = {};
+    return obj;
+  },
+
+  create(base?: DeepPartial<NetworkConnectResponse>): NetworkConnectResponse {
+    return NetworkConnectResponse.fromPartial(base ?? {});
+  },
+  fromPartial(_: DeepPartial<NetworkConnectResponse>): NetworkConnectResponse {
+    const message = createBaseNetworkConnectResponse();
+    return message;
+  },
+};
+
+function createBaseNetworkDisconnectRequest(): NetworkDisconnectRequest {
+  return { networkId: "", containerId: "", force: false };
+}
+
+export const NetworkDisconnectRequest: MessageFns<NetworkDisconnectRequest> = {
+  encode(message: NetworkDisconnectRequest, writer: BinaryWriter = new BinaryWriter()): BinaryWriter {
+    if (message.networkId !== "") {
+      writer.uint32(10).string(message.networkId);
+    }
+    if (message.containerId !== "") {
+      writer.uint32(18).string(message.containerId);
+    }
+    if (message.force !== false) {
+      writer.uint32(24).bool(message.force);
+    }
+    return writer;
+  },
+
+  decode(input: BinaryReader | Uint8Array, length?: number): NetworkDisconnectRequest {
+    const reader = input instanceof BinaryReader ? input : new BinaryReader(input);
+    const end = length === undefined ? reader.len : reader.pos + length;
+    const message = createBaseNetworkDisconnectRequest();
+    while (reader.pos < end) {
+      const tag = reader.uint32();
+      switch (tag >>> 3) {
+        case 1: {
+          if (tag !== 10) {
+            break;
+          }
+
+          message.networkId = reader.string();
+          continue;
+        }
+        case 2: {
+          if (tag !== 18) {
+            break;
+          }
+
+          message.containerId = reader.string();
+          continue;
+        }
+        case 3: {
+          if (tag !== 24) {
+            break;
+          }
+
+          message.force = reader.bool();
+          continue;
+        }
+      }
+      if ((tag & 7) === 4 || tag === 0) {
+        break;
+      }
+      reader.skip(tag & 7);
+    }
+    return message;
+  },
+
+  fromJSON(object: any): NetworkDisconnectRequest {
+    return {
+      networkId: isSet(object.networkId)
+        ? globalThis.String(object.networkId)
+        : isSet(object.network_id)
+        ? globalThis.String(object.network_id)
+        : "",
+      containerId: isSet(object.containerId)
+        ? globalThis.String(object.containerId)
+        : isSet(object.container_id)
+        ? globalThis.String(object.container_id)
+        : "",
+      force: isSet(object.force) ? globalThis.Boolean(object.force) : false,
+    };
+  },
+
+  toJSON(message: NetworkDisconnectRequest): unknown {
+    const obj: any = {};
+    if (message.networkId !== "") {
+      obj.networkId = message.networkId;
+    }
+    if (message.containerId !== "") {
+      obj.containerId = message.containerId;
+    }
+    if (message.force !== false) {
+      obj.force = message.force;
+    }
+    return obj;
+  },
+
+  create(base?: DeepPartial<NetworkDisconnectRequest>): NetworkDisconnectRequest {
+    return NetworkDisconnectRequest.fromPartial(base ?? {});
+  },
+  fromPartial(object: DeepPartial<NetworkDisconnectRequest>): NetworkDisconnectRequest {
+    const message = createBaseNetworkDisconnectRequest();
+    message.networkId = object.networkId ?? "";
+    message.containerId = object.containerId ?? "";
+    message.force = object.force ?? false;
+    return message;
+  },
+};
+
+function createBaseNetworkDisconnectResponse(): NetworkDisconnectResponse {
+  return {};
+}
+
+export const NetworkDisconnectResponse: MessageFns<NetworkDisconnectResponse> = {
+  encode(_: NetworkDisconnectResponse, writer: BinaryWriter = new BinaryWriter()): BinaryWriter {
+    return writer;
+  },
+
+  decode(input: BinaryReader | Uint8Array, length?: number): NetworkDisconnectResponse {
+    const reader = input instanceof BinaryReader ? input : new BinaryReader(input);
+    const end = length === undefined ? reader.len : reader.pos + length;
+    const message = createBaseNetworkDisconnectResponse();
+    while (reader.pos < end) {
+      const tag = reader.uint32();
+      switch (tag >>> 3) {
+      }
+      if ((tag & 7) === 4 || tag === 0) {
+        break;
+      }
+      reader.skip(tag & 7);
+    }
+    return message;
+  },
+
+  fromJSON(_: any): NetworkDisconnectResponse {
+    return {};
+  },
+
+  toJSON(_: NetworkDisconnectResponse): unknown {
+    const obj: any = {};
+    return obj;
+  },
+
+  create(base?: DeepPartial<NetworkDisconnectResponse>): NetworkDisconnectResponse {
+    return NetworkDisconnectResponse.fromPartial(base ?? {});
+  },
+  fromPartial(_: DeepPartial<NetworkDisconnectResponse>): NetworkDisconnectResponse {
+    const message = createBaseNetworkDisconnectResponse();
+    return message;
+  },
+};
+
 function createBaseContainerSnapshot(): ContainerSnapshot {
   return {
     id: "",
@@ -4371,6 +4686,28 @@ export const AgentService = {
       Buffer.from(NetworkRemoveResponse.encode(value).finish()),
     responseDeserialize: (value: Buffer): NetworkRemoveResponse => NetworkRemoveResponse.decode(value),
   },
+  networkConnect: {
+    path: "/ploydok.agent.v1.Agent/NetworkConnect" as const,
+    requestStream: false as const,
+    responseStream: false as const,
+    requestSerialize: (value: NetworkConnectRequest): Buffer =>
+      Buffer.from(NetworkConnectRequest.encode(value).finish()),
+    requestDeserialize: (value: Buffer): NetworkConnectRequest => NetworkConnectRequest.decode(value),
+    responseSerialize: (value: NetworkConnectResponse): Buffer =>
+      Buffer.from(NetworkConnectResponse.encode(value).finish()),
+    responseDeserialize: (value: Buffer): NetworkConnectResponse => NetworkConnectResponse.decode(value),
+  },
+  networkDisconnect: {
+    path: "/ploydok.agent.v1.Agent/NetworkDisconnect" as const,
+    requestStream: false as const,
+    responseStream: false as const,
+    requestSerialize: (value: NetworkDisconnectRequest): Buffer =>
+      Buffer.from(NetworkDisconnectRequest.encode(value).finish()),
+    requestDeserialize: (value: Buffer): NetworkDisconnectRequest => NetworkDisconnectRequest.decode(value),
+    responseSerialize: (value: NetworkDisconnectResponse): Buffer =>
+      Buffer.from(NetworkDisconnectResponse.encode(value).finish()),
+    responseDeserialize: (value: Buffer): NetworkDisconnectResponse => NetworkDisconnectResponse.decode(value),
+  },
   /** Monitoring (snapshot + ad-hoc ping) */
   listContainers: {
     path: "/ploydok.agent.v1.Agent/ListContainers" as const,
@@ -4420,6 +4757,8 @@ export interface AgentServer extends UntypedServiceImplementation {
   /** Networking */
   networkCreate: handleUnaryCall<NetworkCreateRequest, NetworkCreateResponse>;
   networkRemove: handleUnaryCall<NetworkRemoveRequest, NetworkRemoveResponse>;
+  networkConnect: handleUnaryCall<NetworkConnectRequest, NetworkConnectResponse>;
+  networkDisconnect: handleUnaryCall<NetworkDisconnectRequest, NetworkDisconnectResponse>;
   /** Monitoring (snapshot + ad-hoc ping) */
   listContainers: handleUnaryCall<ListContainersRequest, ListContainersResponse>;
   pingContainer: handleUnaryCall<PingContainerRequest, PingContainerResponse>;
@@ -4545,6 +4884,36 @@ export interface AgentClient extends Client {
     metadata: Metadata,
     options: Partial<CallOptions>,
     callback: (error: ServiceError | null, response: NetworkRemoveResponse) => void,
+  ): ClientUnaryCall;
+  networkConnect(
+    request: NetworkConnectRequest,
+    callback: (error: ServiceError | null, response: NetworkConnectResponse) => void,
+  ): ClientUnaryCall;
+  networkConnect(
+    request: NetworkConnectRequest,
+    metadata: Metadata,
+    callback: (error: ServiceError | null, response: NetworkConnectResponse) => void,
+  ): ClientUnaryCall;
+  networkConnect(
+    request: NetworkConnectRequest,
+    metadata: Metadata,
+    options: Partial<CallOptions>,
+    callback: (error: ServiceError | null, response: NetworkConnectResponse) => void,
+  ): ClientUnaryCall;
+  networkDisconnect(
+    request: NetworkDisconnectRequest,
+    callback: (error: ServiceError | null, response: NetworkDisconnectResponse) => void,
+  ): ClientUnaryCall;
+  networkDisconnect(
+    request: NetworkDisconnectRequest,
+    metadata: Metadata,
+    callback: (error: ServiceError | null, response: NetworkDisconnectResponse) => void,
+  ): ClientUnaryCall;
+  networkDisconnect(
+    request: NetworkDisconnectRequest,
+    metadata: Metadata,
+    options: Partial<CallOptions>,
+    callback: (error: ServiceError | null, response: NetworkDisconnectResponse) => void,
   ): ClientUnaryCall;
   /** Monitoring (snapshot + ad-hoc ping) */
   listContainers(

@@ -3,11 +3,12 @@ import { app } from "./app";
 import { env } from "./env";
 import { wsHandler } from "./routes/ws";
 import { getSharedCaddy, getSharedAgent } from "./debug/singletons.js";
-import { AgentError, GrpcStatus } from "./agent/index.js";
+import { isAlreadyExists } from "./agent/index.js";
 import { childLogger } from "./logger";
 import { startWorker } from "./worker";
 import { createDb, type Db } from "@ploydok/db";
 import { fetchRunningAppsForCaddy, reconcileCaddyRoutes } from "./caddy/reconciler.js";
+import { reconcileCaddyAttachments } from "./caddy/attachment.js";
 
 const log = childLogger("boot");
 
@@ -27,13 +28,22 @@ async function bootInfra(db: Db): Promise<void> {
     log.warn({ err }, "caddy reconcile failed (non-fatal)");
   }
 
+  // Reconcile Caddy ↔ project-network attachments so live apps remain
+  // reachable after a Caddy or API restart without waiting for the next deploy.
+  try {
+    const result = await reconcileCaddyAttachments(agent, db);
+    log.info(result, "caddy attachments reconcile complete");
+  } catch (err) {
+    log.warn({ err }, "caddy attachments reconcile failed (non-fatal)");
+  }
+
   // Legacy flat network (pre-Phase-1.C). Kept so existing apps still resolve
   // until they are redeployed under per-project networks.
   try {
     await agent.networkCreate({ name: "ploydok-public", driver: "bridge", labels: {} });
     log.info("réseau ploydok-public créé");
   } catch (err) {
-    if (err instanceof AgentError && err.code === GrpcStatus.ALREADY_EXISTS) {
+    if (isAlreadyExists(err)) {
       log.info("réseau ploydok-public déjà existant");
     } else {
       log.warn({ err }, "networkCreate ploydok-public failed (non-fatal)");
@@ -51,7 +61,7 @@ async function bootInfra(db: Db): Promise<void> {
     });
     log.info("réseau ploydok-ingress créé");
   } catch (err) {
-    if (err instanceof AgentError && err.code === GrpcStatus.ALREADY_EXISTS) {
+    if (isAlreadyExists(err)) {
       log.info("réseau ploydok-ingress déjà existant");
     } else {
       log.warn({ err }, "networkCreate ploydok-ingress failed (non-fatal)");
