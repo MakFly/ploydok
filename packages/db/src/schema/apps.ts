@@ -79,6 +79,18 @@ export const apps = pgTable('apps', {
   webhook_secret: bytea('webhook_secret'),
   webhook_secret_old: bytea('webhook_secret_old'),
   webhook_secret_old_expires_at: timestamp('webhook_secret_old_expires_at', { withTimezone: true, mode: 'date' }),
+  // Protection — Caddy per-app middlewares (Wave 4)
+  protection_basic_auth_enabled: boolean('protection_basic_auth_enabled').notNull().default(false),
+  protection_basic_auth_user_enc: bytea('protection_basic_auth_user_enc'),
+  protection_basic_auth_user_nonce: bytea('protection_basic_auth_user_nonce'),
+  protection_basic_auth_pass_enc: bytea('protection_basic_auth_pass_enc'),
+  protection_basic_auth_pass_nonce: bytea('protection_basic_auth_pass_nonce'),
+  protection_ip_allowlist: text('protection_ip_allowlist').array(),
+  protection_rate_limit_rps: integer('protection_rate_limit_rps'),
+  // Hooks placeholders — Wave 5 will implement; defined here to avoid extra migration
+  hooks_pre_deploy: text('hooks_pre_deploy'),
+  hooks_post_deploy: text('hooks_post_deploy'),
+  hooks_timeout_s: integer('hooks_timeout_s').default(300),
   // Timestamps
   created_at: timestamp('created_at', { withTimezone: true, mode: 'date' }).notNull().$defaultFn(() => new Date()),
   updated_at: timestamp('updated_at', { withTimezone: true, mode: 'date' }).notNull().$defaultFn(() => new Date()),

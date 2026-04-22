@@ -128,10 +128,18 @@ export function createSecretsRouter(db: Db): Hono<any, any, any> {
 
     // Check if secret already exists for this key+scope
     const existing = await db
-      .select({ id: secrets.id })
+      .select({ id: secrets.id, linked_database_id: secrets.linked_database_id })
       .from(secrets)
       .where(and(eq(secrets.app_id, appId!), eq(secrets.key, body.key), eq(secrets.scope, body.scope)))
       .limit(1)
+
+    // Linked secrets must be managed via DB link, not edited manually
+    if (existing[0]?.linked_database_id) {
+      return c.json(
+        { error: { code: "LINKED_SECRET", message: "linked secret — use DB link management instead" } },
+        400,
+      )
+    }
 
     const isUpdate = existing.length > 0
     const secretId = existing[0]?.id ?? nanoid()

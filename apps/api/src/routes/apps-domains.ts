@@ -2,7 +2,9 @@
 import { Hono } from "hono"
 import { z } from "zod"
 import { randomBytes } from "node:crypto"
-import { createDb } from "@ploydok/db"
+import { eq } from "drizzle-orm"
+import { nanoid } from "nanoid"
+import { createDb, tls_certificates } from "@ploydok/db"
 import type { Db } from "@ploydok/db"
 import { env } from "../env"
 import { getAppForUser } from "../queries/apps"
@@ -20,6 +22,8 @@ import { domainVerifyQueue } from "../worker/queues"
 import { childLogger } from "../logger"
 import type { AuthUser } from "../auth/middleware"
 import { requireSecondFactor } from "../auth/middleware"
+import { encryptField, decryptField } from "../github/app-credentials"
+import { parseAndValidateCert } from "../domains/cert-parser"
 
 // ---------------------------------------------------------------------------
 // Constants
@@ -367,6 +371,130 @@ export function createAppsDomainsRouter(db: Db): Hono {
     }
 
     return c.json({ domain: serializeDomain(updated ?? domain) })
+  })
+
+  // -------------------------------------------------------------------------
+  // POST /:id/domains/:domain/tls/upload — upload manual TLS cert
+  // -------------------------------------------------------------------------
+
+  const UploadCertBody = z.object({
+    cert: z.string().min(10, "cert is required"),
+    key: z.string().min(10, "key is required"),
+  })
+
+  router.post("/:id/domains/:domainHostname/tls/upload", sf, async (c) => {
+    const user = getUser(c)
+    const appId = c.req.param("id")!
+    const domainHostname = c.req.param("domainHostname")!
+
+    const app = await getAppForUser(db, appId, user.id)
+    if (!app) {
+      return c.json({ error: { code: "NOT_FOUND", message: "App not found" } }, 404)
+    }
+
+    const domain = await getDomainByHostname(db, domainHostname.toLowerCase())
+    if (!domain || domain.app_id !== appId) {
+      return c.json({ error: { code: "NOT_FOUND", message: "Domain not found" } }, 404)
+    }
+
+    let body: z.infer<typeof UploadCertBody>
+    try {
+      body = UploadCertBody.parse(await c.req.json())
+    } catch (err) {
+      return c.json({ error: { code: "VALIDATION_ERROR", message: String(err) } }, 400)
+    }
+
+    const parseResult = parseAndValidateCert(body.cert, body.key, domainHostname)
+    if (!parseResult.ok) {
+      return c.json(
+        { error: { code: "INVALID_CERT", message: parseResult.error ?? "Invalid certificate" } },
+        400,
+      )
+    }
+
+    // Encrypt cert + key
+    const { enc: certEnc, nonce: certNonce } = await encryptField(body.cert)
+    const { enc: keyEnc, nonce: keyNonce } = await encryptField(body.key)
+
+    // Upsert tls_certificates row
+    await db
+      .insert(tls_certificates)
+      .values({
+        id: nanoid(),
+        app_id: appId,
+        domain: domainHostname.toLowerCase(),
+        cert_enc: certEnc,
+        cert_nonce: certNonce,
+        key_enc: keyEnc,
+        key_nonce: keyNonce,
+        not_before: parseResult.notBefore ?? null,
+        not_after: parseResult.notAfter ?? null,
+      })
+      .onConflictDoUpdate({
+        target: [tls_certificates.app_id, tls_certificates.domain],
+        set: {
+          cert_enc: certEnc,
+          cert_nonce: certNonce,
+          key_enc: keyEnc,
+          key_nonce: keyNonce,
+          not_before: parseResult.notBefore ?? null,
+          not_after: parseResult.notAfter ?? null,
+          last_alert_sent_at: null,
+          created_at: new Date(),
+        },
+      })
+
+    // Mark domain TLS status as issued (manual cert takes priority over ACME)
+    await updateDomainTlsStatus(db, domain.id, "issued")
+
+    log.info({ appId, domain: domainHostname }, "manual TLS cert uploaded")
+
+    return c.json({
+      uploaded: true,
+      notBefore: parseResult.notBefore?.toISOString() ?? null,
+      notAfter: parseResult.notAfter?.toISOString() ?? null,
+      sans: parseResult.sans ?? [],
+    })
+  })
+
+  // -------------------------------------------------------------------------
+  // DELETE /:id/domains/:domain/tls/custom — remove manual cert, revert to ACME
+  // -------------------------------------------------------------------------
+
+  router.delete("/:id/domains/:domainHostname/tls/custom", sf, async (c) => {
+    const user = getUser(c)
+    const appId = c.req.param("id")!
+    const domainHostname = c.req.param("domainHostname")!
+
+    const app = await getAppForUser(db, appId, user.id)
+    if (!app) {
+      return c.json({ error: { code: "NOT_FOUND", message: "App not found" } }, 404)
+    }
+
+    const domain = await getDomainByHostname(db, domainHostname.toLowerCase())
+    if (!domain || domain.app_id !== appId) {
+      return c.json({ error: { code: "NOT_FOUND", message: "Domain not found" } }, 404)
+    }
+
+    await db
+      .delete(tls_certificates)
+      .where(
+        eq(tls_certificates.app_id, appId),
+      )
+
+    // Reset TLS status to pending so ACME can retry
+    await updateDomainTlsStatus(db, domain.id, "pending")
+
+    // Re-enqueue DNS verification to trigger ACME re-issuance
+    await domainVerifyQueue.add(
+      "domain.verify",
+      { domainId: domain.id, appId },
+      { jobId: `verify-${domain.id}-revert-${Date.now()}` },
+    )
+
+    log.info({ appId, domain: domainHostname }, "manual TLS cert removed — reverted to ACME")
+
+    return new Response(null, { status: 204 })
   })
 
   return router

@@ -1,5 +1,9 @@
 // SPDX-License-Identifier: AGPL-3.0-only
 export { apps } from './apps';
+export { app_db_links } from './app_db_links';
+export type { AppDbLinkRow, AppDbLinkInsert } from './app_db_links';
+export { databases } from './databases';
+export type { DatabaseRow, DatabaseInsert } from './databases';
 export { domains } from './domains';
 export type { DomainRow, DomainInsert } from './domains';
 export { env_vars } from './env-vars';
@@ -20,3 +24,5 @@ export { totp_secrets } from "./totp"
 export { users } from './users';
 export { webhook_deliveries } from './webhook-deliveries';
 export { notification_channels } from './notification-channels';
+export { tls_certificates } from './tls_certificates';
+export type { TlsCertRow, TlsCertInsert } from './tls_certificates';

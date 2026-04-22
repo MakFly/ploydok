@@ -48,6 +48,12 @@ function AppSettingsLayout(): React.JSX.Element {
       label: "Notifications",
       exact: false,
     },
+    {
+      value: "protection",
+      to: `/apps/${id}/settings/protection`,
+      label: "Protection",
+      exact: false,
+    },
   ]
 
   const activeTab =

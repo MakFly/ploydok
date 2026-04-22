@@ -1,5 +1,11 @@
 // SPDX-License-Identifier: AGPL-3.0-only
-import type { CaddyConfig, CaddyRoute, CaddyTlsOptions } from "./types.js";
+import type {
+  CaddyConfig,
+  CaddyHandler,
+  CaddyMiddlewares,
+  CaddyRoute,
+  CaddyTlsOptions,
+} from "./types.js";
 
 export class CaddyClient {
   private readonly baseUrl: string;
@@ -27,16 +33,79 @@ export class CaddyClient {
    * - If a route with @id `ploydok-{appId}` already exists → PATCH to replace it.
    * - Otherwise → POST to append it to srv0 routes.
    */
+  /**
+   * Build the handler array for a route, injecting middlewares before reverse_proxy.
+   * Order: rate_limit → ip_allowlist (subroute) → basicauth → reverse_proxy
+   */
+  buildHandlers(upstream: string, middlewares?: CaddyMiddlewares): CaddyHandler[] {
+    const handlers: CaddyHandler[] = [];
+
+    if (middlewares?.rateLimit && middlewares.rateLimit.rps > 0) {
+      handlers.push({
+        handler: "rate_limit",
+        rate_limits: {
+          default: {
+            key: "{http.request.remote_ip}",
+            window: "1s",
+            max_events: middlewares.rateLimit.rps,
+          },
+        },
+      });
+    }
+
+    if (middlewares?.ipAllowlist && middlewares.ipAllowlist.length > 0) {
+      handlers.push({
+        handler: "subroute",
+        routes: [
+          {
+            match: [{ remote_ip: { ranges: middlewares.ipAllowlist } }],
+            handle: [],
+            terminal: false,
+          },
+          {
+            handle: [{ handler: "static_response", status_code: 403 }],
+            terminal: true,
+          },
+        ],
+      });
+    }
+
+    if (middlewares?.basicAuth) {
+      handlers.push({
+        handler: "authentication",
+        providers: {
+          http_basic: {
+            accounts: [
+              {
+                username: middlewares.basicAuth.user,
+                password: middlewares.basicAuth.pass_hash,
+              },
+            ],
+          },
+        },
+      });
+    }
+
+    handlers.push({
+      handler: "reverse_proxy",
+      upstreams: [{ dial: upstream }],
+    });
+
+    return handlers;
+  }
+
   async upsertRoute({
     host,
     upstream,
     appId,
     tls,
+    middlewares,
   }: {
     host: string;
     upstream: string;
     appId: string;
     tls?: CaddyTlsOptions;
+    middlewares?: CaddyMiddlewares;
   }): Promise<void> {
     const routeId = `ploydok-${appId}`;
 
@@ -53,12 +122,7 @@ export class CaddyClient {
     const route: CaddyRoute = {
       "@id": routeId,
       match: [{ host: [host] }],
-      handle: [
-        {
-          handler: "reverse_proxy",
-          upstreams: [{ dial: upstream }],
-        },
-      ],
+      handle: this.buildHandlers(upstream, middlewares),
       terminal: true,
     };
 

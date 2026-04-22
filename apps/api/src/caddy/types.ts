@@ -52,9 +52,17 @@ export interface CaddyRoute {
 
 export interface CaddyMatch {
   host?: string[];
+  remote_ip?: {
+    ranges: string[];
+  };
 }
 
-export type CaddyHandler = CaddyReverseProxyHandler | CaddyStaticResponseHandler;
+export type CaddyHandler =
+  | CaddyReverseProxyHandler
+  | CaddyStaticResponseHandler
+  | CaddyAuthenticationHandler
+  | CaddySubrouteHandler
+  | CaddyRateLimitHandler;
 
 export interface CaddyReverseProxyHandler {
   handler: "reverse_proxy";
@@ -65,4 +73,42 @@ export interface CaddyStaticResponseHandler {
   handler: "static_response";
   status_code?: number;
   body?: string;
+}
+
+export interface CaddyAuthenticationHandler {
+  handler: "authentication";
+  providers: {
+    http_basic: {
+      accounts: Array<{ username: string; password: string }>;
+    };
+  };
+}
+
+export interface CaddySubrouteHandler {
+  handler: "subroute";
+  routes: CaddyRoute[];
+}
+
+export interface CaddyRateLimitHandler {
+  handler: "rate_limit";
+  rate_limits: {
+    [key: string]: {
+      key: string;
+      window: string;
+      max_events: number;
+    };
+  };
+}
+
+/** Middlewares per-app to inject before reverse_proxy */
+export interface CaddyMiddlewares {
+  basicAuth?: {
+    user: string;
+    /** bcrypt hash of the password */
+    pass_hash: string;
+  };
+  ipAllowlist?: string[];
+  rateLimit?: {
+    rps: number;
+  };
 }

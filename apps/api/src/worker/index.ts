@@ -14,6 +14,7 @@ import { handleDomainVerify } from "./handlers/domain-verify"
 import type { DomainVerifyPayload } from "./handlers/domain-verify"
 import { runRegistryGc, startRegistryGcCron, stopRegistryGcCron } from "./handlers/gc-registry"
 import { startPurgeWebhookSecretsCron, stopPurgeWebhookSecretsCron } from "./jobs/purge-old-webhook-secrets"
+import { startCertExpiryCheckCron, stopCertExpiryCheckCron } from "./jobs/cert-expiry-check"
 
 // ---------------------------------------------------------------------------
 // Types
@@ -130,6 +131,7 @@ export function startWorker(
 
   startRegistryGcCron({ gcOptions: { db } })
   startPurgeWebhookSecretsCron(db)
+  startCertExpiryCheckCron(db)
 
   const abortHandler = () => stop()
   opts?.signal?.addEventListener("abort", abortHandler)
@@ -137,6 +139,7 @@ export function startWorker(
   function stop() {
     stopRegistryGcCron()
     stopPurgeWebhookSecretsCron()
+    stopCertExpiryCheckCron()
     Promise.all(workers.map((w) => w.close())).catch((err) => {
       logger.error({ err }, "error closing BullMQ workers")
     })
