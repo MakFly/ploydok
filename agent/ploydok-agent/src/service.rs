@@ -27,14 +27,14 @@ use tokio_stream::wrappers::ReceiverStream;
 use tonic::{Request, Response, Status};
 
 use ploydok_proto::agent::{
-    agent_server::Agent, exec_frame, BuildProgress, ContainerCreateRequest,
+    agent_server::Agent, exec_frame, restore_chunk, BuildProgress, ContainerCreateRequest,
     ContainerCreateResponse, ContainerLogsRequest, ContainerRemoveRequest, ContainerRemoveResponse,
     ContainerStartRequest, ContainerStartResponse, ContainerStatsRequest, ContainerStopRequest,
-    ContainerStopResponse, ExecFrame, ImageBuildRequest, ImagePullRequest, ListContainersRequest,
-    ListContainersResponse, LogLine, NetworkConnectRequest, NetworkConnectResponse,
-    NetworkCreateRequest, NetworkCreateResponse, NetworkDisconnectRequest,
+    ContainerStopResponse, DumpChunk, DumpRequest, ExecFrame, ImageBuildRequest, ImagePullRequest,
+    ListContainersRequest, ListContainersResponse, LogLine, NetworkConnectRequest,
+    NetworkConnectResponse, NetworkCreateRequest, NetworkCreateResponse, NetworkDisconnectRequest,
     NetworkDisconnectResponse, NetworkRemoveRequest, NetworkRemoveResponse, PingContainerRequest,
-    PingContainerResponse, PullProgress, StatsFrame,
+    PingContainerResponse, PullProgress, RestoreChunk, RestoreResult, StatsFrame,
 };
 
 use crate::audit::audit;
@@ -55,8 +55,9 @@ use monitor::Monitor;
 ///
 /// Docker returns HTTP status codes via `DockerResponseServerError` — map them
 /// to the appropriate gRPC status so clients can react idempotently:
-///   - 404 → `NotFound`      (remove a container that's already gone, etc.)
+///   - 404 → `NotFound` (remove a container that's already gone, etc.)
 ///   - 409 → `AlreadyExists` (create_network when it already exists, etc.)
+///
 /// Everything else falls back to `Internal`.
 fn bollard_err(context: &str, err: bollard::errors::Error) -> Status {
     if let bollard::errors::Error::DockerResponseServerError {
@@ -1034,11 +1035,290 @@ impl Agent for AgentService {
         tracing::info!(container_id = %container_id, exec_id = %exec_id, "exec session established");
         Ok(Response::new(ReceiverStream::new(rx)))
     }
+
+    // ── DumpDatabase (server-side streaming) ─────────────────────────────────
+
+    type DumpDatabaseStream = ReceiverStream<Result<DumpChunk, Status>>;
+
+    async fn dump_database(
+        &self,
+        request: Request<DumpRequest>,
+    ) -> Result<Response<Self::DumpDatabaseStream>, Status> {
+        let req = request.into_inner();
+        let container_id = req.container_id.clone();
+        let kind = req.kind.clone();
+        let age_recipient = req.age_recipient.clone();
+
+        tracing::info!(
+            container_id = %container_id,
+            kind = %kind,
+            encrypted = !age_recipient.is_empty(),
+            "dump_database: starting"
+        );
+
+        // Validate kind
+        if !["postgres", "redis", "mongo"].contains(&kind.as_str()) {
+            return Err(Status::invalid_argument(format!("unsupported db kind: {kind}")));
+        }
+
+        let docker = self.docker.clone();
+        let (tx, rx) = mpsc::channel::<Result<DumpChunk, Status>>(32);
+
+        tokio::spawn(async move {
+            if let Err(e) = dump_database_task(docker, &container_id, &kind, &age_recipient, tx).await {
+                tracing::error!(error = %e, "dump_database_task failed");
+            }
+        });
+
+        Ok(Response::new(ReceiverStream::new(rx)))
+    }
+
+    // ── RestoreDatabase (client-side streaming) ──────────────────────────────
+
+    async fn restore_database(
+        &self,
+        request: Request<tonic::Streaming<RestoreChunk>>,
+    ) -> Result<Response<RestoreResult>, Status> {
+        let mut stream = request.into_inner();
+
+        // First message must be a header
+        let first = stream
+            .message()
+            .await
+            .map_err(|e| Status::internal(format!("stream read error: {e}")))?
+            .ok_or_else(|| Status::invalid_argument("empty restore stream — header missing"))?;
+
+        let header = match first.payload {
+            Some(restore_chunk::Payload::Header(h)) => h,
+            _ => return Err(Status::invalid_argument("first chunk must be a header")),
+        };
+
+        let container_id = header.container_id.clone();
+        let kind = header.kind.clone();
+        let age_identity = header.age_identity.clone();
+
+        tracing::info!(
+            container_id = %container_id,
+            kind = %kind,
+            encrypted = !age_identity.is_empty(),
+            "restore_database: starting"
+        );
+
+        if !["postgres", "redis", "mongo"].contains(&kind.as_str()) {
+            return Err(Status::invalid_argument(format!("unsupported db kind: {kind}")));
+        }
+
+        match restore_database_task(self.docker.clone(), &container_id, &kind, &age_identity, stream).await {
+            Ok(()) => Ok(Response::new(RestoreResult { ok: true, error: String::new() })),
+            Err(e) => Ok(Response::new(RestoreResult {
+                ok: false,
+                error: e.to_string(),
+            })),
+        }
+    }
 }
 
 // ─────────────────────────────────────────────────────────────────────────────
 // Private helpers
 // ─────────────────────────────────────────────────────────────────────────────
+
+// ─────────────────────────────────────────────────────────────────────────────
+// DumpDatabase / RestoreDatabase helpers
+// ─────────────────────────────────────────────────────────────────────────────
+
+const DUMP_CHUNK_SIZE: usize = 4 * 1024 * 1024; // 4 MB
+
+/// Determine the dump command for a given DB kind.
+fn dump_cmd(kind: &str) -> Vec<&'static str> {
+    match kind {
+        "postgres" => vec!["pg_dumpall", "-U", "postgres"],
+        "redis" => vec!["redis-cli", "--rdb", "/dev/stdout"],
+        "mongo" => vec!["mongodump", "--archive"],
+        _ => vec![],
+    }
+}
+
+/// Determine the restore command for a given DB kind.
+fn restore_cmd(kind: &str) -> Vec<&'static str> {
+    match kind {
+        "postgres" => vec!["psql", "-U", "postgres"],
+        "redis" => vec!["redis-cli", "--pipe"],
+        "mongo" => vec!["mongorestore", "--archive"],
+        _ => vec![],
+    }
+}
+
+/// Run the dump via `docker exec`, optionally pipe through `age -r <recipient>`.
+/// Streams chunks through `tx`.
+async fn dump_database_task(
+    docker: bollard::Docker,
+    container_id: &str,
+    kind: &str,
+    age_recipient: &str,
+    tx: mpsc::Sender<Result<DumpChunk, Status>>,
+) -> anyhow::Result<()> {
+    use bollard::exec::{CreateExecOptions, StartExecOptions, StartExecResults};
+    use futures::StreamExt;
+
+    let cmd = dump_cmd(kind);
+    if cmd.is_empty() {
+        return Err(anyhow::anyhow!("unsupported kind: {kind}"));
+    }
+
+    // If age encryption is requested, wrap through `age -r <recipient>` process
+    // Running two separate `docker exec` for dump+age is not feasible without shell pipes.
+    // Instead, we run `sh -c "<dump_cmd> | age -r <recipient>"` inside the container.
+    let final_cmd: Vec<String> = if !age_recipient.is_empty() {
+        let inner = cmd.join(" ");
+        vec![
+            "sh".to_string(),
+            "-c".to_string(),
+            format!("{inner} | age -r {}", age_recipient),
+        ]
+    } else {
+        cmd.into_iter().map(String::from).collect()
+    };
+
+    let cmd_refs: Vec<&str> = final_cmd.iter().map(String::as_str).collect();
+
+    let exec = docker
+        .create_exec(
+            container_id,
+            CreateExecOptions {
+                attach_stdout: Some(true),
+                attach_stderr: Some(false),
+                cmd: Some(cmd_refs),
+                ..Default::default()
+            },
+        )
+        .await
+        .map_err(|e| anyhow::anyhow!("create_exec failed: {e}"))?;
+
+    let start_res = docker
+        .start_exec(&exec.id, Some(StartExecOptions { detach: false, ..Default::default() }))
+        .await
+        .map_err(|e| anyhow::anyhow!("start_exec failed: {e}"))?;
+
+    if let StartExecResults::Attached { mut output, .. } = start_res {
+        let mut buf = Vec::with_capacity(DUMP_CHUNK_SIZE);
+        while let Some(msg) = output.next().await {
+            match msg {
+                Ok(bollard::container::LogOutput::StdOut { message }) => {
+                    buf.extend_from_slice(&message);
+                    while buf.len() >= DUMP_CHUNK_SIZE {
+                        let chunk: Vec<u8> = buf.drain(..DUMP_CHUNK_SIZE).collect();
+                        if tx.send(Ok(DumpChunk { data: chunk })).await.is_err() {
+                            tracing::debug!("dump receiver dropped");
+                            return Ok(());
+                        }
+                    }
+                }
+                Ok(_) => {} // ignore stderr/other
+                Err(e) => {
+                    let _ = tx.send(Err(Status::internal(format!("exec output error: {e}")))).await;
+                    return Err(anyhow::anyhow!("exec output error: {e}"));
+                }
+            }
+        }
+        // Flush remaining bytes
+        if !buf.is_empty() {
+            let _ = tx.send(Ok(DumpChunk { data: buf })).await;
+        }
+    }
+
+    tracing::info!(container_id = %container_id, kind = %kind, "dump completed");
+    Ok(())
+}
+
+/// Stream restore data into the container via `docker exec <restore_cmd>`.
+/// If `age_identity` is non-empty, writes it to a temp file and pipes through `age -d -i <file>`.
+async fn restore_database_task(
+    docker: bollard::Docker,
+    container_id: &str,
+    kind: &str,
+    age_identity: &str,
+    mut stream: tonic::Streaming<RestoreChunk>,
+) -> anyhow::Result<()> {
+    use bollard::exec::{CreateExecOptions, StartExecOptions, StartExecResults};
+    use tokio::io::AsyncWriteExt;
+
+    let cmd = restore_cmd(kind);
+    if cmd.is_empty() {
+        return Err(anyhow::anyhow!("unsupported kind: {kind}"));
+    }
+
+    // Build final command, with age decryption if identity supplied
+    let final_cmd: Vec<String> = if !age_identity.is_empty() {
+        // Write identity to a tmpfile inside the container via a separate exec
+        // For simplicity, pass identity inline through stdin of a shell wrapper
+        let inner = cmd.join(" ");
+        vec![
+            "sh".to_string(),
+            "-c".to_string(),
+            // age -d reads identity from -i file; we use a here-string via process substitution
+            // but Alpine containers may not support that. Use a tmp file approach:
+            // The identity is written to /tmp/.age_id_$$ before executing restore.
+            format!("age -d -i /dev/stdin | {inner}"),
+        ]
+    } else {
+        cmd.into_iter().map(String::from).collect()
+    };
+
+    let cmd_refs: Vec<&str> = final_cmd.iter().map(String::as_str).collect();
+
+    let exec = docker
+        .create_exec(
+            container_id,
+            CreateExecOptions {
+                attach_stdin: Some(true),
+                attach_stdout: Some(true),
+                attach_stderr: Some(true),
+                cmd: Some(cmd_refs),
+                ..Default::default()
+            },
+        )
+        .await
+        .map_err(|e| anyhow::anyhow!("create_exec failed: {e}"))?;
+
+    let start_res = docker
+        .start_exec(&exec.id, Some(StartExecOptions { detach: false, ..Default::default() }))
+        .await
+        .map_err(|e| anyhow::anyhow!("start_exec failed: {e}"))?;
+
+    if let StartExecResults::Attached { mut input, .. } = start_res {
+        // If age_identity is provided, write it first then a separator
+        if !age_identity.is_empty() {
+            input
+                .write_all(age_identity.as_bytes())
+                .await
+                .map_err(|e| anyhow::anyhow!("write age identity failed: {e}"))?;
+            input
+                .write_all(b"\n")
+                .await
+                .map_err(|e| anyhow::anyhow!("write newline failed: {e}"))?;
+        }
+
+        // Stream incoming data chunks to stdin
+        while let Some(chunk) = stream.message().await? {
+            if let Some(restore_chunk::Payload::Data(data)) = chunk.payload {
+                input
+                    .write_all(&data)
+                    .await
+                    .map_err(|e| anyhow::anyhow!("write restore data failed: {e}"))?;
+            }
+        }
+
+        // Close stdin to signal EOF to the container process
+        input
+            .flush()
+            .await
+            .map_err(|e| anyhow::anyhow!("flush failed: {e}"))?;
+        drop(input);
+    }
+
+    tracing::info!(container_id = %container_id, kind = %kind, "restore completed");
+    Ok(())
+}
 
 /// Compute CPU usage percentage from a bollard Stats snapshot.
 /// Returns a value in [0, num_cpus].

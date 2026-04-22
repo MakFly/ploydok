@@ -28,3 +28,7 @@ export { tls_certificates } from './tls_certificates';
 export type { TlsCertRow, TlsCertInsert } from './tls_certificates';
 export { password_history } from './password_history';
 export type { PasswordHistoryRow, PasswordHistoryInsert } from './password_history';
+export { backup_configs } from './backup_configs';
+export type { BackupConfigRow, BackupConfigInsert } from './backup_configs';
+export { backups } from './backups';
+export type { BackupRow, BackupInsert } from './backups';

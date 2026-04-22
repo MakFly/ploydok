@@ -33,6 +33,10 @@ import type {
   PingContainerRequest,
   PingContainerResponse,
   ExecFrame,
+  DumpRequest,
+  DumpChunk,
+  RestoreChunk,
+  RestoreResult,
 } from "@ploydok/agent-proto";
 import { createAgentClient, type AgentClientOptions } from "./client.js";
 import { AgentError, toAgentError } from "./errors.js";
@@ -369,6 +373,96 @@ export class Agent {
         stream.end()
       },
     }
+  }
+
+  // -------------------------------------------------------------------------
+  // RPC server-streaming — DumpDatabase
+  // -------------------------------------------------------------------------
+
+  /**
+   * Streams dump chunks from the agent.
+   * Each chunk is raw dump bytes (possibly age-encrypted if age_recipient was set).
+   * The caller is responsible for consuming the async iterator to completion.
+   */
+  dumpDatabase(req: DumpRequest): AsyncIterable<DumpChunk> {
+    log.debug({ containerId: req.containerId, kind: req.kind }, "dumpDatabase: opening stream")
+    const stream: import("@grpc/grpc-js").ClientReadableStream<DumpChunk> =
+      this.client.dumpDatabase(req, new grpc.Metadata())
+
+    const queue: Array<{ value?: DumpChunk; done: boolean; error?: unknown }> = []
+    let resolveNext: (() => void) | null = null
+    let finished = false
+
+    stream.on("data", (chunk: DumpChunk) => {
+      queue.push({ value: chunk, done: false })
+      resolveNext?.()
+      resolveNext = null
+    })
+    stream.on("end", () => {
+      finished = true
+      queue.push({ done: true })
+      resolveNext?.()
+      resolveNext = null
+    })
+    stream.on("error", (err: unknown) => {
+      finished = true
+      queue.push({ done: true, error: toAgentError(err) })
+      resolveNext?.()
+      resolveNext = null
+    })
+
+    return {
+      [Symbol.asyncIterator]() {
+        return {
+          async next(): Promise<IteratorResult<DumpChunk>> {
+            while (queue.length === 0 && !finished) {
+              await new Promise<void>((r) => { resolveNext = r })
+            }
+            const item = queue.shift()
+            if (!item) return { done: true, value: undefined as unknown as DumpChunk }
+            if (item.error) throw item.error
+            if (item.done) return { done: true, value: undefined as unknown as DumpChunk }
+            return { done: false, value: item.value as DumpChunk }
+          },
+          return(): Promise<IteratorResult<DumpChunk>> {
+            stream.destroy()
+            return Promise.resolve({ done: true, value: undefined as unknown as DumpChunk })
+          },
+        }
+      },
+    }
+  }
+
+  // -------------------------------------------------------------------------
+  // RPC client-streaming — RestoreDatabase
+  // -------------------------------------------------------------------------
+
+  /**
+   * Streams restore chunks to the agent and waits for the RestoreResult.
+   * Caller must first send a RestoreChunk with `header` set, then data chunks.
+   */
+  restoreDatabase(chunks: AsyncIterable<RestoreChunk>): Promise<RestoreResult> {
+    log.debug("restoreDatabase: opening client stream")
+
+    return new Promise<RestoreResult>((resolve, reject) => {
+      // eslint-disable-next-line @typescript-eslint/no-explicit-any
+      const stream = (this.client as any).restoreDatabase(
+        new grpc.Metadata(),
+        (err: grpc.ServiceError | null, res: RestoreResult) => {
+          if (err) return reject(toAgentError(err))
+          resolve(res)
+        },
+      )
+
+      async function writeAll() {
+        for await (const chunk of chunks) {
+          stream.write(chunk)
+        }
+        stream.end()
+      }
+
+      writeAll().catch(reject)
+    })
   }
 
   // -------------------------------------------------------------------------
