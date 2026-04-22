@@ -13,6 +13,7 @@ const EVENT_COLORS: Record<NotificationEvent, number> = {
   "deploy.succeeded": 0x57f287,
   "deploy.failed": 0xed4245,
   "webhook.rotated": 0x5865f2,
+  "db.rotated": 0x5865f2,
 }
 
 function buildEmbed(event: NotificationEvent, payload: NotificationPayload) {

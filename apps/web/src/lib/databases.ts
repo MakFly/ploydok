@@ -19,6 +19,7 @@ export interface Database {
   host: string | null
   port: number | null
   rotation_schedule: "manual" | "30d" | "60d" | "90d"
+  rotation_in_progress: boolean
   password_rotated_at: string | null
   created_at: string
   linked_apps?: Array<{ app_id: string; env_prefix: string }>
@@ -132,6 +133,25 @@ export function useLinkDatabase() {
       qc.invalidateQueries({ queryKey: ["secrets", vars.appId] })
       qc.invalidateQueries({ queryKey: databaseKeys.all })
       toast.success("Database linked to app")
+    },
+    onError: (err: Error) => {
+      toast.error(err.message)
+    },
+  })
+}
+
+export function useRotateDatabase() {
+  const qc = useQueryClient()
+  return useMutation({
+    mutationFn: async (id: string) => {
+      return apiFetch<{ ok: boolean; rotatedAt: string; appsRedeployed: string[] }>(
+        `/databases/${id}/rotate`,
+        { method: "POST" },
+      )
+    },
+    onSuccess: (_, id) => {
+      qc.invalidateQueries({ queryKey: databaseKeys.detail(id) })
+      toast.success("Password rotation started — apps will be redeployed")
     },
     onError: (err: Error) => {
       toast.error(err.message)

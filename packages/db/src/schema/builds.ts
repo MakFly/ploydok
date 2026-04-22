@@ -10,7 +10,7 @@ export const builds = pgTable(
       .notNull()
       .references(() => apps.id, { onDelete: 'cascade' }),
     status: text('status', {
-      enum: ['pending', 'running', 'succeeded', 'failed', 'cancelled'],
+      enum: ['pending', 'running', 'succeeded', 'succeeded_with_warning', 'failed', 'cancelled'],
     })
       .notNull()
       .default('pending'),
@@ -21,6 +21,8 @@ export const builds = pgTable(
     commit_message: text('commit_message'),
     log_path: text('log_path'),
     error_message: text('error_message'),
+    // Set when post-deploy hook fails (build is still considered succeeded)
+    post_deploy_error: text('post_deploy_error'),
     started_at: timestamp('started_at', { withTimezone: true, mode: 'date' }),
     finished_at: timestamp('finished_at', { withTimezone: true, mode: 'date' }),
     created_at: timestamp('created_at', { withTimezone: true, mode: 'date' })

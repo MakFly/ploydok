@@ -1,5 +1,5 @@
 // SPDX-License-Identifier: AGPL-3.0-only
-import { pgTable, text, timestamp, integer, customType } from 'drizzle-orm/pg-core'
+import { pgTable, text, timestamp, integer, boolean, customType } from 'drizzle-orm/pg-core'
 import { projects } from './projects'
 
 const bytea = customType<{ data: Buffer; notNull: false; default: false }>({
@@ -34,6 +34,7 @@ export const databases = pgTable('databases', {
   })
     .notNull()
     .default('manual'),
+  rotation_in_progress: boolean('rotation_in_progress').notNull().default(false),
   password_rotated_at: timestamp('password_rotated_at', { withTimezone: true, mode: 'date' }),
   created_at: timestamp('created_at', { withTimezone: true, mode: 'date' })
     .notNull()

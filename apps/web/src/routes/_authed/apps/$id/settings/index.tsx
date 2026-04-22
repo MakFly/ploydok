@@ -34,6 +34,7 @@ import {
   FieldLabel,
 } from "@workspace/ui/components/field"
 import { Input } from "@workspace/ui/components/input"
+import { Textarea } from "@workspace/ui/components/textarea"
 import { Separator } from "@workspace/ui/components/separator"
 import { Skeleton } from "@workspace/ui/components/skeleton"
 import { Switch } from "@workspace/ui/components/switch"
@@ -65,6 +66,9 @@ type StringPatchKey = Exclude<
   | "coalescePushes"
   | "deployOnTag"
   | "tagPattern"
+  | "hooksPreDeploy"
+  | "hooksPostDeploy"
+  | "hooksTimeoutS"
 >
 
 interface FieldDef {
@@ -433,6 +437,8 @@ function AppSettingsGeneral(): React.JSX.Element {
         </CardContent>
       </Card>
 
+      <DeployHooksCard appId={id} app={app} />
+
       <Card className="relative overflow-hidden border border-border/70 bg-background/95">
         <div
           aria-hidden="true"
@@ -682,6 +688,199 @@ function ChecklistItem({ text }: { text: string }): React.JSX.Element {
       <RiCheckboxCircleLine className="mt-1 size-4 shrink-0 text-muted-foreground" />
       <span>{text}</span>
     </div>
+  )
+}
+
+// ---------------------------------------------------------------------------
+// DeployHooksCard — Wave 5
+// ---------------------------------------------------------------------------
+
+function DeployHooksCard({
+  appId,
+  app,
+}: {
+  appId: string
+  app: import("../../../../../lib/apps").AppDetail
+}): React.JSX.Element {
+  const update = useUpdateAppSettings(appId)
+  const [editing, setEditing] = React.useState(false)
+  const [preHook, setPreHook] = React.useState(app.hooksPreDeploy ?? "")
+  const [postHook, setPostHook] = React.useState(app.hooksPostDeploy ?? "")
+  const [timeoutS, setTimeoutS] = React.useState(String(app.hooksTimeoutS ?? 300))
+  const [formError, setFormError] = React.useState<string | null>(null)
+
+  React.useEffect(() => {
+    setPreHook(app.hooksPreDeploy ?? "")
+    setPostHook(app.hooksPostDeploy ?? "")
+    setTimeoutS(String(app.hooksTimeoutS ?? 300))
+  }, [app.hooksPreDeploy, app.hooksPostDeploy, app.hooksTimeoutS])
+
+  const handleCancel = (): void => {
+    setEditing(false)
+    setFormError(null)
+    setPreHook(app.hooksPreDeploy ?? "")
+    setPostHook(app.hooksPostDeploy ?? "")
+    setTimeoutS(String(app.hooksTimeoutS ?? 300))
+  }
+
+  const handleSave = async (): Promise<void> => {
+    setFormError(null)
+    const parsedTimeout = Number.parseInt(timeoutS, 10)
+    try {
+      await update.mutateAsync({
+        hooksPreDeploy: preHook.trim() || null,
+        hooksPostDeploy: postHook.trim() || null,
+        hooksTimeoutS: Number.isFinite(parsedTimeout) ? parsedTimeout : 300,
+      })
+      setEditing(false)
+    } catch (err) {
+      setFormError(err instanceof Error ? err.message : "Save failed")
+    }
+  }
+
+  return (
+    <Card className="border border-border/70 bg-background/95">
+      <CardHeader className="gap-3 border-b border-border/60 pb-5">
+        <div className="flex flex-col gap-3 lg:flex-row lg:items-start lg:justify-between">
+          <div className="flex max-w-2xl flex-col gap-2">
+            <div className="flex flex-wrap items-center gap-2">
+              <Badge variant="outline">Deploy Hooks</Badge>
+              {(app.hooksPreDeploy || app.hooksPostDeploy) ? (
+                <Badge variant="secondary">Active</Badge>
+              ) : (
+                <Badge variant="outline" className="text-muted-foreground">None configured</Badge>
+              )}
+            </div>
+            <CardTitle className="font-heading text-2xl">
+              Pre and post-deploy hooks
+            </CardTitle>
+            <CardDescription className="text-sm leading-6">
+              Shell commands run inside the just-built container before (pre) and
+              after (post) the blue-green swap. Pre-deploy failure aborts the
+              deploy. Post-deploy failure marks the build succeeded-with-warning.
+            </CardDescription>
+          </div>
+          <CardAction>
+            {!editing ? (
+              <Button size="sm" variant="outline" onClick={() => setEditing(true)}>
+                Edit hooks
+              </Button>
+            ) : null}
+          </CardAction>
+        </div>
+      </CardHeader>
+
+      <CardContent className="flex flex-col gap-4 py-5">
+        <FieldGroup>
+          <Field
+            orientation="vertical"
+            className="rounded-2xl border border-border/70 bg-background/80 p-4"
+          >
+            <FieldContent className="gap-1">
+              <FieldLabel htmlFor="hook-pre">Pre-deploy command</FieldLabel>
+              <FieldDescription>
+                Runs before the Caddy swap. Non-zero exit aborts the deployment.
+              </FieldDescription>
+            </FieldContent>
+            {editing ? (
+              <Textarea
+                id="hook-pre"
+                value={preHook}
+                placeholder="./scripts/migrate.sh"
+                className="font-mono text-sm"
+                rows={3}
+                onChange={(e) => setPreHook(e.target.value)}
+              />
+            ) : (
+              <div className="rounded-xl border border-border/70 bg-muted/30 px-3 py-2.5 font-mono text-sm text-muted-foreground">
+                {preHook || <span className="italic">None</span>}
+              </div>
+            )}
+          </Field>
+
+          <Field
+            orientation="vertical"
+            className="rounded-2xl border border-border/70 bg-background/80 p-4"
+          >
+            <FieldContent className="gap-1">
+              <FieldLabel htmlFor="hook-post">Post-deploy command</FieldLabel>
+              <FieldDescription>
+                Runs after the swap succeeds. Failure marks build as succeeded-with-warning.
+              </FieldDescription>
+            </FieldContent>
+            {editing ? (
+              <Textarea
+                id="hook-post"
+                value={postHook}
+                placeholder="./scripts/smoke-test.sh"
+                className="font-mono text-sm"
+                rows={3}
+                onChange={(e) => setPostHook(e.target.value)}
+              />
+            ) : (
+              <div className="rounded-xl border border-border/70 bg-muted/30 px-3 py-2.5 font-mono text-sm text-muted-foreground">
+                {postHook || <span className="italic">None</span>}
+              </div>
+            )}
+          </Field>
+
+          <Field
+            orientation="responsive"
+            className="rounded-2xl border border-border/70 bg-background/80 p-4"
+          >
+            <FieldContent className="gap-1">
+              <FieldLabel htmlFor="hook-timeout">Hook timeout (seconds)</FieldLabel>
+              <FieldDescription>
+                Maximum time before the hook container is force-removed (default 300s).
+              </FieldDescription>
+            </FieldContent>
+            {editing ? (
+              <Input
+                id="hook-timeout"
+                type="number"
+                min={10}
+                max={3600}
+                value={timeoutS}
+                placeholder="300"
+                className="font-mono"
+                onChange={(e) => setTimeoutS(e.target.value)}
+              />
+            ) : (
+              <div className="min-w-0 rounded-xl border border-border/70 bg-muted/30 px-3 py-2.5 font-mono text-sm font-medium">
+                {timeoutS}s
+              </div>
+            )}
+          </Field>
+        </FieldGroup>
+
+        {formError ? (
+          <Alert variant="destructive">
+            <AlertTitle>Could not save hooks</AlertTitle>
+            <AlertDescription>{formError}</AlertDescription>
+          </Alert>
+        ) : null}
+      </CardContent>
+
+      {editing ? (
+        <CardFooter className="justify-end gap-2">
+          <Button
+            size="sm"
+            variant="outline"
+            onClick={handleCancel}
+            disabled={update.isPending}
+          >
+            Cancel
+          </Button>
+          <Button
+            size="sm"
+            onClick={() => void handleSave()}
+            disabled={update.isPending}
+          >
+            {update.isPending ? "Saving..." : "Save hooks"}
+          </Button>
+        </CardFooter>
+      ) : null}
+    </Card>
   )
 }
 

@@ -22,6 +22,7 @@ export const BuildStatusSchema = z.enum([
   'pending',
   'running',
   'succeeded',
+  'succeeded_with_warning',
   'failed',
   'cancelled',
 ]);
@@ -94,6 +95,8 @@ export const BuildSchema = z.object({
   containerId: z.string().optional(),
   commitSha: z.string().optional(),
   commitMessage: z.string().nullable().optional(),
+  // Set when post-deploy hook fails (status = succeeded_with_warning)
+  postDeployError: z.string().nullable().optional(),
   startedAt: z.number().optional(),   // unix ms
   finishedAt: z.number().optional(),  // unix ms
   createdAt: z.number(),              // unix ms
