@@ -7,8 +7,8 @@ Roadmap **7 sprints d'1 semaine** pour atteindre la v1.0.
 | 1 | ✅ Terminé | [Fondations](./sprint-1-fondations.md) | Monorepo + auth passkey | Login passkey fonctionnel |
 | 2 | ✅ Terminé | [Agent + Caddy](./sprint-2-agent-caddy.md) | Isolation Docker via agent Rust | Spawn nginx via gRPC |
 | 3 | ✅ Code · ⏳ e2e | [Deploy from Git](./sprint-3-deploy-from-git.md) | Pipeline GitHub → app live, zero-downtime, build cache, monorepo | Deploy Next.js < 2 min, 0 5xx |
-| 3bis | ✅ Code · ⏳ e2e | [Multi-source & quotas](./sprint-3bis-multi-source-quotas.md) | GitLab + image Docker + quotas + net isolation (Gitea hors scope) | Interface + providers registry + specs e2e livrés |
-| 3.1.1 | ⏳ À faire | [Webhook auto-deploy](./sprint-3.1.1-webhook-autodeploy.md) | push → build → live automatique, deliveries audit, coalescing, previews PR, notifs | Parité Dokploy/Coolify sur boucle auto-deploy |
+| 3bis | ✅ Code · ⏳ e2e GitLab (standby) | [Multi-source & quotas](./sprint-3bis-multi-source-quotas.md) | GitHub focus, GitLab en standby, image Docker + quotas + net isolation stricte (Gitea hors scope) | Zero-trust cross-project : 2/2 e2e verts, OOM validé, surpasse Dokploy/Coolify |
+| 3.1.1 | ✅ Terminé | [Webhook auto-deploy](./sprint-3.1.1-webhook-autodeploy.md) | push → build → live automatique, deliveries audit, coalescing, previews PR, notifs | Parité Dokploy/Coolify sur boucle auto-deploy |
 | 4 | ⏳ À faire | [Secrets / Domaines / DB](./sprint-4-secrets-domaines-db.md) | Scopes env vars, wildcard TLS, deploy hooks, DB | App + Postgres + wildcard + migrations |
 | 5 | ⏳ À faire | [Copilot IA](./sprint-5-copilot-readonly.md) | Diagnostic & génération (read-only) | Chat qui debug une app cassée |
 | 6 | ⏳ À faire | [Hardening & Release](./sprint-6-hardening-release.md) | API tokens, terminal web, monitoring hôte, install + tests 7 niveaux | `curl install.ploydok.dev \| bash` |

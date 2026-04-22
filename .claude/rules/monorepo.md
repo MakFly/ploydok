@@ -4,7 +4,7 @@
 apps/
 ├── api/            # Bun + Hono + WebAuthn + Drizzle + pino
 │   └── src/
-│       ├── index.ts          # entrypoint (port 4000)
+│       ├── index.ts          # entrypoint (port 3335)
 │       ├── app.ts            # app Hono (middlewares, routes)
 │       ├── env.ts            # Zod schema env (source de vérité)
 │       ├── logger.ts         # pino
@@ -26,7 +26,7 @@ apps/
         └── lib/              # api.ts (fetch + refresh + SSR cookie forwarding), apps.ts, github.ts, auth-guards.ts
 
 packages/
-├── db/             # Drizzle ORM + SQLite (libsql) — migrations + schema + queries partagés
+├── db/             # Drizzle ORM + Postgres (driver `postgres`) — migrations + schema + queries partagés
 ├── shared/         # Zod schemas + types partagés api↔web
 ├── ui/             # shadcn components partagés (+ globals.css Tailwind)
 └── agent-proto/    # stubs TS gRPC (généré depuis les .proto de l'agent)
@@ -81,7 +81,11 @@ routes/
     │       ├── overview.tsx     # /apps/$id/overview
     │       ├── logs.tsx         # /apps/$id/logs
     │       ├── builds.tsx       # /apps/$id/builds
-    │       ├── settings.tsx     # /apps/$id/settings
+    │       ├── settings.tsx     # /apps/$id/settings  (layout sub-tabs + Outlet)
+    │       ├── settings/
+    │       │   ├── index.tsx          # /apps/$id/settings/    (General — tous les champs build/deploy)
+    │       │   ├── webhooks.tsx       # /apps/$id/settings/webhooks
+    │       │   └── webhook-secret.tsx # /apps/$id/settings/webhook-secret
     │       ├── env.tsx          # /apps/$id/env
     │       └── domains.tsx      # /apps/$id/domains
     └── settings/
