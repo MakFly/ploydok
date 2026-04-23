@@ -5,10 +5,10 @@ import {
   getPaginationRowModel,
   useReactTable,
 } from "@tanstack/react-table"
-import type { ColumnDef, Table as ReactTable } from "@tanstack/react-table"
 
 import { cn } from "@workspace/ui/lib/utils"
 import { Button } from "@workspace/ui/components/button"
+import type { ColumnDef, Table as ReactTable } from "@tanstack/react-table"
 
 interface DataTableProps<TData> {
   columns: Array<ColumnDef<TData>>

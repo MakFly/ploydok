@@ -1,9 +1,10 @@
 // SPDX-License-Identifier: AGPL-3.0-only
 import * as React from "react"
-import { cva, type VariantProps } from "class-variance-authority"
+import {  cva } from "class-variance-authority"
 import { Tabs as TabsPrimitive } from "radix-ui"
 
 import { cn } from "@workspace/ui/lib/utils"
+import type {VariantProps} from "class-variance-authority";
 
 function Tabs({
   className,
