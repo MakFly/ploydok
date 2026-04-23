@@ -58,6 +58,9 @@ export const HealthcheckConfigSchema = z.object({
 });
 export type HealthcheckConfig = z.infer<typeof HealthcheckConfigSchema>;
 
+export const ImagePullPolicySchema = z.enum(['always', 'if_not_present']);
+export type ImagePullPolicy = z.infer<typeof ImagePullPolicySchema>;
+
 export const SecretPhaseSchema = z.enum(['build', 'runtime', 'both']);
 export type SecretPhase = z.infer<typeof SecretPhaseSchema>;
 

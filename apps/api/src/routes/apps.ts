@@ -7,7 +7,7 @@ import { and, eq } from "drizzle-orm";
 import { nanoid } from "nanoid";
 import { createDb } from "@ploydok/db";
 import { projects } from "@ploydok/db";
-import { BuildMethodSchema, HealthcheckConfigSchema, RestartPolicySchema } from "@ploydok/shared";
+import { BuildMethodSchema, GitProviderKindSchema, HealthcheckConfigSchema, ImagePullPolicySchema, RestartPolicySchema } from "@ploydok/shared";
 import {
   getAppActivity,
   getAppForUser,
@@ -43,8 +43,6 @@ import { ensureDefaultOrganizationForUser } from "../services/organizations";
 // Validation schemas
 // ---------------------------------------------------------------------------
 
-const GitProviderKindSchema = z.enum(["github", "gitlab", "image"]);
-const ImagePullPolicySchema = z.enum(["always", "if_not_present"]);
 const PlanSchema = z.enum(["nano", "small", "medium", "large", "custom"]);
 
 // nixpacks_config_path is joined with workspacePath at build time and fed to

@@ -8,7 +8,7 @@ import { useRegistryCredentials } from "../../lib/registry-credentials";
 import { RepoSelector } from "./RepoSelector";
 import { GitLabRepoSelector } from "./GitLabRepoSelector";
 import { PlanSelector, type PlanSelectorValue } from "./PlanSelector";
-import type { AppConfig, GitBranch, GitRepo } from "@ploydok/shared";
+import type { AppConfig, GitBranch, GitProviderKind, GitRepo, ImagePullPolicy } from "@ploydok/shared";
 
 // ---------------------------------------------------------------------------
 // Types
@@ -20,7 +20,7 @@ interface CreateAppModalProps {
   onClose: () => void;
 }
 
-type SourceKind = "github" | "gitlab" | "image";
+type SourceKind = GitProviderKind;
 type Step = 1 | 2 | 3 | 4;
 
 interface FormState {
@@ -31,7 +31,7 @@ interface FormState {
   branch: string;
   // image-based
   imageRef: string;
-  imagePullPolicy: "always" | "if_not_present";
+  imagePullPolicy: ImagePullPolicy;
   registryCredentialId: string;
   // git build overrides (step 3)
   rootDir: string;
@@ -407,8 +407,8 @@ interface Step2Props {
   branchesLoading: boolean;
   imageRef: string;
   onImageRefChange: (v: string) => void;
-  imagePullPolicy: "always" | "if_not_present";
-  onImagePullPolicyChange: (v: "always" | "if_not_present") => void;
+  imagePullPolicy: ImagePullPolicy;
+  onImagePullPolicyChange: (v: ImagePullPolicy) => void;
   registryCredentialId: string;
   onRegistryCredentialIdChange: (v: string) => void;
 }
@@ -558,8 +558,8 @@ function GitSource({
 interface ImageSourceProps {
   imageRef: string;
   onImageRefChange: (v: string) => void;
-  imagePullPolicy: "always" | "if_not_present";
-  onImagePullPolicyChange: (v: "always" | "if_not_present") => void;
+  imagePullPolicy: ImagePullPolicy;
+  onImagePullPolicyChange: (v: ImagePullPolicy) => void;
   registryCredentialId: string;
   onRegistryCredentialIdChange: (v: string) => void;
 }

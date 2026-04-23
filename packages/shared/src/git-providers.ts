@@ -7,7 +7,8 @@ import { z } from "zod";
 
 // 'image' is a virtual provider for Docker-image deploys (no clone/build).
 // TODO(bitbucket): add 'bitbucket' once the adapter lands.
-export type GitProviderKind = 'github' | 'gitlab' | 'image';
+export const GitProviderKindSchema = z.enum(['github', 'gitlab', 'image']);
+export type GitProviderKind = z.infer<typeof GitProviderKindSchema>;
 
 // ---------------------------------------------------------------------------
 // Schemas
