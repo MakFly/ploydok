@@ -1,13 +1,17 @@
 // SPDX-License-Identifier: AGPL-3.0-only
-import { eq, and, count } from "drizzle-orm"
-import { apps, webhook_deliveries } from "@ploydok/db"
+import { eq, and } from "drizzle-orm"
+import { apps } from "@ploydok/db"
 import type { Db } from "@ploydok/db"
 import type { ParsedPushEvent } from "@ploydok/shared"
-import { nanoid } from "nanoid"
 import { childLogger } from "../logger"
 import { deployQueue } from "../worker/queues"
 import { filterPushEvent, matchesTagPattern } from "../webhooks/filters"
 import { insertDelivery, markDeliveryCoalesced } from "../webhooks/deliveries"
+import { resolveCoalesceJobId } from "../webhooks/coalescing"
+import {
+  findRecentEnqueuedDeliveryByApp,
+  countDeliveriesByApp,
+} from "@ploydok/db/queries"
 
 const log = childLogger("webhook.push")
 
@@ -58,7 +62,6 @@ export async function handlePushGeneric(
       { provider: event.provider, repoFullName: event.repoFullName },
       "no apps matched — skipping",
     )
-    // Record unknown-app delivery when we have a hash
     if (event.payloadHash) {
       await insertDelivery(
         db,
@@ -126,7 +129,7 @@ export async function handlePushGeneric(
         continue
       }
 
-      // Tag push is accepted — enqueue with kind=tag metadata
+      // Tag push accepted — enqueue with kind=tag metadata
       const newDeliveryId = await insertDelivery(
         db,
         {
@@ -137,7 +140,7 @@ export async function handlePushGeneric(
         event.rawBody,
       )
 
-      const jobId = nanoid()
+      const { jobId } = resolveCoalesceJobId({ coalesce: false, appId: app.id, branch: event.branch })
       await deployQueue.add(
         "deploy.requested",
         {
@@ -163,7 +166,7 @@ export async function handlePushGeneric(
       continue
     }
 
-    // Branch push path (original logic)
+    // Branch push path
     const filterEventArgs: Parameters<typeof filterPushEvent>[1] = {
       branch: event.branch,
       commitMessage: event.commitMessage,
@@ -188,61 +191,35 @@ export async function handlePushGeneric(
       continue
     }
 
-    // Build the deploy job payload
-    const jobPayload = {
+    // Resolve BullMQ jobId (with optional coalescing)
+    const existingJob = app.coalesce_pushes
+      ? await deployQueue.getJob(`deploy:${app.id}:${event.branch}`)
+      : null
+
+    const existingJobState = existingJob ? await existingJob.getState() : undefined
+
+    const deliveryCount = app.coalesce_pushes && existingJobState === "active"
+      ? await countDeliveriesByApp(db, app.id)
+      : undefined
+
+    const { jobId, shouldDropExisting } = resolveCoalesceJobId({
+      coalesce: app.coalesce_pushes,
       appId: app.id,
-      commitSha: event.commitSha,
-      commitMessage: event.commitMessage,
-      provider: event.provider,
-      authRef: event.authRef,
-      deliveryId,
-    }
+      branch: event.branch,
+      existingJobState,
+      deliveryCount,
+    })
 
-    // Coalescing: if coalesce_pushes=true, use a deterministic jobId so we
-    // can detect and drop any waiting/delayed job for the same app+branch.
-    const shouldCoalesce = app.coalesce_pushes
-    let jobId: string
-
-    if (shouldCoalesce) {
-      jobId = `deploy:${app.id}:${event.branch}`
-
-      // Check if a job with this id is already waiting or delayed
-      const existingJob = await deployQueue.getJob(jobId)
-      if (existingJob) {
-        const state = await existingJob.getState()
-        if (state === "waiting" || state === "delayed") {
-          // Drop the old job and mark its delivery as coalesced
-          await existingJob.remove()
-          log.info(
-            { event: "webhook.coalesced", app_id: app.id, dropped_job_id: jobId, reason: "newer push supersedes" },
-            "coalesced waiting deploy job",
-          )
-          // Mark any recent enqueued delivery for this app as coalesced
-          const recentDeliveries = await db
-            .select({ id: webhook_deliveries.id })
-            .from(webhook_deliveries)
-            .where(
-              and(
-                eq(webhook_deliveries.app_id, app.id),
-                eq(webhook_deliveries.decision, "enqueued"),
-              ),
-            )
-            .limit(1)
-          if (recentDeliveries[0]) {
-            await markDeliveryCoalesced(db, recentDeliveries[0].id)
-          }
-        } else if (state === "active") {
-          // Job is running — use a unique suffixed id to avoid conflict
-          const retryCount = await db
-            .select({ c: count() })
-            .from(webhook_deliveries)
-            .where(eq(webhook_deliveries.app_id, app.id))
-          const n = retryCount[0]?.c ?? 0
-          jobId = `deploy:${app.id}:${event.branch}:r${n}`
-        }
+    if (shouldDropExisting && existingJob) {
+      await existingJob.remove()
+      log.info(
+        { event: "webhook.coalesced", app_id: app.id, dropped_job_id: jobId, reason: "newer push supersedes" },
+        "coalesced waiting deploy job",
+      )
+      const recentDelivery = await findRecentEnqueuedDeliveryByApp(db, app.id)
+      if (recentDelivery) {
+        await markDeliveryCoalesced(db, recentDelivery.id)
       }
-    } else {
-      jobId = nanoid()
     }
 
     // Insert the delivery record
@@ -256,16 +233,27 @@ export async function handlePushGeneric(
       event.rawBody,
     )
 
-    await deployQueue.add("deploy.requested", { ...jobPayload, deliveryId: newDeliveryId }, {
-      jobId,
-      attempts: 3,
-      backoff: { type: "exponential", delay: 5000 },
-      removeOnComplete: 100,
-      removeOnFail: 500,
-    })
+    await deployQueue.add(
+      "deploy.requested",
+      {
+        appId: app.id,
+        commitSha: event.commitSha,
+        commitMessage: event.commitMessage,
+        provider: event.provider,
+        authRef: event.authRef,
+        deliveryId: newDeliveryId,
+      },
+      {
+        jobId,
+        attempts: 3,
+        backoff: { type: "exponential", delay: 5000 },
+        removeOnComplete: 100,
+        removeOnFail: 500,
+      },
+    )
 
     log.info(
-      { appId: app.id, commitSha: event.commitSha, jobId, coalesced: shouldCoalesce },
+      { appId: app.id, commitSha: event.commitSha, jobId, coalesced: app.coalesce_pushes },
       "deploy.requested enqueued",
     )
   }
