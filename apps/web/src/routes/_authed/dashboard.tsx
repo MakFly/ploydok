@@ -1,9 +1,10 @@
 // SPDX-License-Identifier: AGPL-3.0-only
-import { createFileRoute } from "@tanstack/react-router"
-import { DashboardPage } from "../../pages/dashboard"
-import { redirectToDefaultOrganization } from "../../lib/auth-guards"
+import { createFileRoute, redirect } from "@tanstack/react-router"
 
 export const Route = createFileRoute("/_authed/dashboard")({
-  beforeLoad: async () => redirectToDefaultOrganization(),
-  component: DashboardPage,
+  beforeLoad: ({ context }) => {
+    const slug = context.me?.default_organization?.slug
+    if (!slug) throw redirect({ to: "/login" })
+    throw redirect({ href: `/orgs/${slug}/dashboard` })
+  },
 })
