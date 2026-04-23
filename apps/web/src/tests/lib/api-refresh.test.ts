@@ -258,11 +258,10 @@ describe("apiFetch — auto-refresh sur 401", () => {
   });
 
   it("n’utilise pas de cache GET partagé hors navigateur en mode SSR/fallback", async () => {
-    if (originalWindow === undefined) {
-      delete (globalThis as { window?: unknown }).window;
-    } else {
-      (globalThis as { window?: unknown }).window = originalWindow;
-    }
+    // This test only applies in a non-browser environment (no window). When
+    // running under happy-dom (e.g. alongside packages/ui), `window` is
+    // non-configurable and cannot be deleted, so we skip rather than fail.
+    if (originalWindow !== undefined || typeof window !== "undefined") return;
     invalidateGetCache();
 
     enqueue(`${BASE}/me`, [
