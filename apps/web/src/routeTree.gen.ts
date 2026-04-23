@@ -18,13 +18,12 @@ import { Route as AuthedMonitoringRouteImport } from './routes/_authed/monitorin
 import { Route as AuthedGuideRouteImport } from './routes/_authed/guide'
 import { Route as AuthedDashboardRouteImport } from './routes/_authed/dashboard'
 import { Route as AuthedSettingsIndexRouteImport } from './routes/_authed/settings/index'
-import { Route as AuthedDatabasesIndexRouteImport } from './routes/_authed/databases/index'
 import { Route as AuthedAppsIndexRouteImport } from './routes/_authed/apps/index'
 import { Route as AuthedSettingsSecurityRouteImport } from './routes/_authed/settings/security'
 import { Route as AuthedSettingsRegistryRouteImport } from './routes/_authed/settings/registry'
 import { Route as AuthedSettingsNotificationsRouteImport } from './routes/_authed/settings/notifications'
 import { Route as AuthedOrgsOrgSlugRouteImport } from './routes/_authed/orgs/$orgSlug'
-import { Route as AuthedDatabasesIdRouteImport } from './routes/_authed/databases/$id'
+import { Route as AuthedDatabasesSplatRouteImport } from './routes/_authed/databases.$'
 import { Route as AuthedAppsIdRouteImport } from './routes/_authed/apps/$id'
 import { Route as AuthedSettingsSecurityIndexRouteImport } from './routes/_authed/settings/security/index'
 import { Route as AuthedSettingsGitProvidersIndexRouteImport } from './routes/_authed/settings/git-providers/index'
@@ -110,11 +109,6 @@ const AuthedSettingsIndexRoute = AuthedSettingsIndexRouteImport.update({
   path: '/settings/',
   getParentRoute: () => AuthedRoute,
 } as any)
-const AuthedDatabasesIndexRoute = AuthedDatabasesIndexRouteImport.update({
-  id: '/databases/',
-  path: '/databases/',
-  getParentRoute: () => AuthedRoute,
-} as any)
 const AuthedAppsIndexRoute = AuthedAppsIndexRouteImport.update({
   id: '/apps/',
   path: '/apps/',
@@ -141,9 +135,9 @@ const AuthedOrgsOrgSlugRoute = AuthedOrgsOrgSlugRouteImport.update({
   path: '/orgs/$orgSlug',
   getParentRoute: () => AuthedRoute,
 } as any)
-const AuthedDatabasesIdRoute = AuthedDatabasesIdRouteImport.update({
-  id: '/databases/$id',
-  path: '/databases/$id',
+const AuthedDatabasesSplatRoute = AuthedDatabasesSplatRouteImport.update({
+  id: '/databases/$',
+  path: '/databases/$',
   getParentRoute: () => AuthedRoute,
 } as any)
 const AuthedAppsIdRoute = AuthedAppsIdRouteImport.update({
@@ -390,13 +384,12 @@ export interface FileRoutesByFullPath {
   '/login': typeof PublicLoginRoute
   '/register': typeof PublicRegisterRoute
   '/apps/$id': typeof AuthedAppsIdRouteWithChildren
-  '/databases/$id': typeof AuthedDatabasesIdRoute
+  '/databases/$': typeof AuthedDatabasesSplatRoute
   '/orgs/$orgSlug': typeof AuthedOrgsOrgSlugRouteWithChildren
   '/settings/notifications': typeof AuthedSettingsNotificationsRoute
   '/settings/registry': typeof AuthedSettingsRegistryRoute
   '/settings/security': typeof AuthedSettingsSecurityRouteWithChildren
   '/apps/': typeof AuthedAppsIndexRoute
-  '/databases/': typeof AuthedDatabasesIndexRoute
   '/settings/': typeof AuthedSettingsIndexRoute
   '/apps/$id/deployments': typeof AuthedAppsIdDeploymentsRoute
   '/apps/$id/domains': typeof AuthedAppsIdDomainsRoute
@@ -446,11 +439,10 @@ export interface FileRoutesByTo {
   '/monitoring': typeof AuthedMonitoringRoute
   '/login': typeof PublicLoginRoute
   '/register': typeof PublicRegisterRoute
-  '/databases/$id': typeof AuthedDatabasesIdRoute
+  '/databases/$': typeof AuthedDatabasesSplatRoute
   '/settings/notifications': typeof AuthedSettingsNotificationsRoute
   '/settings/registry': typeof AuthedSettingsRegistryRoute
   '/apps': typeof AuthedAppsIndexRoute
-  '/databases': typeof AuthedDatabasesIndexRoute
   '/settings': typeof AuthedSettingsIndexRoute
   '/apps/$id/deployments': typeof AuthedAppsIdDeploymentsRoute
   '/apps/$id/domains': typeof AuthedAppsIdDomainsRoute
@@ -501,13 +493,12 @@ export interface FileRoutesById {
   '/_public/register': typeof PublicRegisterRoute
   '/_public/': typeof PublicIndexRoute
   '/_authed/apps/$id': typeof AuthedAppsIdRouteWithChildren
-  '/_authed/databases/$id': typeof AuthedDatabasesIdRoute
+  '/_authed/databases/$': typeof AuthedDatabasesSplatRoute
   '/_authed/orgs/$orgSlug': typeof AuthedOrgsOrgSlugRouteWithChildren
   '/_authed/settings/notifications': typeof AuthedSettingsNotificationsRoute
   '/_authed/settings/registry': typeof AuthedSettingsRegistryRoute
   '/_authed/settings/security': typeof AuthedSettingsSecurityRouteWithChildren
   '/_authed/apps/': typeof AuthedAppsIndexRoute
-  '/_authed/databases/': typeof AuthedDatabasesIndexRoute
   '/_authed/settings/': typeof AuthedSettingsIndexRoute
   '/_authed/apps/$id/deployments': typeof AuthedAppsIdDeploymentsRoute
   '/_authed/apps/$id/domains': typeof AuthedAppsIdDomainsRoute
@@ -560,13 +551,12 @@ export interface FileRouteTypes {
     | '/login'
     | '/register'
     | '/apps/$id'
-    | '/databases/$id'
+    | '/databases/$'
     | '/orgs/$orgSlug'
     | '/settings/notifications'
     | '/settings/registry'
     | '/settings/security'
     | '/apps/'
-    | '/databases/'
     | '/settings/'
     | '/apps/$id/deployments'
     | '/apps/$id/domains'
@@ -616,11 +606,10 @@ export interface FileRouteTypes {
     | '/monitoring'
     | '/login'
     | '/register'
-    | '/databases/$id'
+    | '/databases/$'
     | '/settings/notifications'
     | '/settings/registry'
     | '/apps'
-    | '/databases'
     | '/settings'
     | '/apps/$id/deployments'
     | '/apps/$id/domains'
@@ -670,13 +659,12 @@ export interface FileRouteTypes {
     | '/_public/register'
     | '/_public/'
     | '/_authed/apps/$id'
-    | '/_authed/databases/$id'
+    | '/_authed/databases/$'
     | '/_authed/orgs/$orgSlug'
     | '/_authed/settings/notifications'
     | '/_authed/settings/registry'
     | '/_authed/settings/security'
     | '/_authed/apps/'
-    | '/_authed/databases/'
     | '/_authed/settings/'
     | '/_authed/apps/$id/deployments'
     | '/_authed/apps/$id/domains'
@@ -790,13 +778,6 @@ declare module '@tanstack/react-router' {
       preLoaderRoute: typeof AuthedSettingsIndexRouteImport
       parentRoute: typeof AuthedRoute
     }
-    '/_authed/databases/': {
-      id: '/_authed/databases/'
-      path: '/databases'
-      fullPath: '/databases/'
-      preLoaderRoute: typeof AuthedDatabasesIndexRouteImport
-      parentRoute: typeof AuthedRoute
-    }
     '/_authed/apps/': {
       id: '/_authed/apps/'
       path: '/apps'
@@ -832,11 +813,11 @@ declare module '@tanstack/react-router' {
       preLoaderRoute: typeof AuthedOrgsOrgSlugRouteImport
       parentRoute: typeof AuthedRoute
     }
-    '/_authed/databases/$id': {
-      id: '/_authed/databases/$id'
-      path: '/databases/$id'
-      fullPath: '/databases/$id'
-      preLoaderRoute: typeof AuthedDatabasesIdRouteImport
+    '/_authed/databases/$': {
+      id: '/_authed/databases/$'
+      path: '/databases/$'
+      fullPath: '/databases/$'
+      preLoaderRoute: typeof AuthedDatabasesSplatRouteImport
       parentRoute: typeof AuthedRoute
     }
     '/_authed/apps/$id': {
@@ -1283,13 +1264,12 @@ interface AuthedRouteChildren {
   AuthedGuideRoute: typeof AuthedGuideRoute
   AuthedMonitoringRoute: typeof AuthedMonitoringRoute
   AuthedAppsIdRoute: typeof AuthedAppsIdRouteWithChildren
-  AuthedDatabasesIdRoute: typeof AuthedDatabasesIdRoute
+  AuthedDatabasesSplatRoute: typeof AuthedDatabasesSplatRoute
   AuthedOrgsOrgSlugRoute: typeof AuthedOrgsOrgSlugRouteWithChildren
   AuthedSettingsNotificationsRoute: typeof AuthedSettingsNotificationsRoute
   AuthedSettingsRegistryRoute: typeof AuthedSettingsRegistryRoute
   AuthedSettingsSecurityRoute: typeof AuthedSettingsSecurityRouteWithChildren
   AuthedAppsIndexRoute: typeof AuthedAppsIndexRoute
-  AuthedDatabasesIndexRoute: typeof AuthedDatabasesIndexRoute
   AuthedSettingsIndexRoute: typeof AuthedSettingsIndexRoute
   AuthedSettingsGitProvidersSlugRoute: typeof AuthedSettingsGitProvidersSlugRoute
   AuthedSettingsGitProvidersIndexRoute: typeof AuthedSettingsGitProvidersIndexRoute
@@ -1300,13 +1280,12 @@ const AuthedRouteChildren: AuthedRouteChildren = {
   AuthedGuideRoute: AuthedGuideRoute,
   AuthedMonitoringRoute: AuthedMonitoringRoute,
   AuthedAppsIdRoute: AuthedAppsIdRouteWithChildren,
-  AuthedDatabasesIdRoute: AuthedDatabasesIdRoute,
+  AuthedDatabasesSplatRoute: AuthedDatabasesSplatRoute,
   AuthedOrgsOrgSlugRoute: AuthedOrgsOrgSlugRouteWithChildren,
   AuthedSettingsNotificationsRoute: AuthedSettingsNotificationsRoute,
   AuthedSettingsRegistryRoute: AuthedSettingsRegistryRoute,
   AuthedSettingsSecurityRoute: AuthedSettingsSecurityRouteWithChildren,
   AuthedAppsIndexRoute: AuthedAppsIndexRoute,
-  AuthedDatabasesIndexRoute: AuthedDatabasesIndexRoute,
   AuthedSettingsIndexRoute: AuthedSettingsIndexRoute,
   AuthedSettingsGitProvidersSlugRoute: AuthedSettingsGitProvidersSlugRoute,
   AuthedSettingsGitProvidersIndexRoute: AuthedSettingsGitProvidersIndexRoute,
