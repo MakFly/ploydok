@@ -33,6 +33,28 @@ const GitProviderKindSchema = z.enum(["github", "gitlab", "image"]);
 const ImagePullPolicySchema = z.enum(["always", "if_not_present"]);
 const PlanSchema = z.enum(["nano", "small", "medium", "large", "custom"]);
 
+// nixpacks_config_path is joined with workspacePath at build time and fed to
+// nixpacks --config. An attacker controlling this field could point to any
+// readable file on the build host. Require a relative path with no traversal.
+const NixpacksConfigPathSchema = z
+  .string()
+  .min(1)
+  .max(256)
+  .regex(/^[^/\0][^\0]*$/, "must be a relative path")
+  .refine(
+    (v) => !v.split("/").some((seg) => seg === "" || seg === "." || seg === ".."),
+    { message: "path traversal segments are not allowed" },
+  );
+
+// node_version is injected verbatim into the build environment. Restrict it to
+// a dotted numeric (optionally prefixed by the letter v) to rule out env
+// injection via newlines or equals signs.
+const NodeVersionSchema = z
+  .string()
+  .min(1)
+  .max(16)
+  .regex(/^v?\d+(\.\d+){0,2}$/, "must look like '20', '20.10', or '20.10.0'");
+
 const CreateAppBody = z.object({
   name: z.string().min(1).max(64),
   organizationId: z.string().min(1).optional(),
@@ -55,8 +77,8 @@ const CreateAppBody = z.object({
   pidsLimit: z.number().int().positive().optional(),
   rootDir: z.string().optional(),
   dockerfilePath: z.string().optional(),
-  nixpacksConfigPath: z.string().optional(),
-  nodeVersion: z.string().optional(),
+  nixpacksConfigPath: NixpacksConfigPathSchema.optional(),
+  nodeVersion: NodeVersionSchema.optional(),
   installCommand: z.string().optional(),
   buildCommand: z.string().optional(),
   startCommand: z.string().optional(),
