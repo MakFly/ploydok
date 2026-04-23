@@ -20,6 +20,9 @@ export const secrets = pgTable('secrets', {
   scope: text('scope', {
     enum: ['shared', 'prod', 'preview', 'dev'],
   }).notNull(),
+  phase: text('phase', {
+    enum: ['build', 'runtime', 'both'],
+  }).notNull().default('runtime'),
   key: text('key').notNull(),
   value_ciphertext: bytea('value_ciphertext').notNull(),
   nonce: bytea('nonce').notNull(),

@@ -30,6 +30,8 @@ export const apps = pgTable('apps', {
   gitlab_project_id: integer('gitlab_project_id'),
   root_dir: text('root_dir'),
   dockerfile_path: text('dockerfile_path'),
+  nixpacks_config_path: text('nixpacks_config_path'),
+  node_version: text('node_version'),
   // Image source (git_provider = 'image').
   image_ref: text('image_ref'),
   image_pull_policy: text('image_pull_policy', { enum: ['always', 'if_not_present'] }),
@@ -47,6 +49,7 @@ export const apps = pgTable('apps', {
   build_method: text('build_method', { enum: ['docker', 'nixpacks', 'auto'] }),
   // Runtime
   container_id: text('container_id'),
+  runtime_port: integer('runtime_port'),
   restart_policy: text('restart_policy', {
     enum: ['no', 'always', 'unless-stopped', 'on-failure'],
   })

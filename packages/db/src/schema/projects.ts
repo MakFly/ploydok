@@ -1,5 +1,5 @@
 // SPDX-License-Identifier: AGPL-3.0-only
-import { pgTable, text, timestamp } from 'drizzle-orm/pg-core';
+import { boolean, pgTable, text, timestamp } from 'drizzle-orm/pg-core';
 import { users } from './users';
 
 export const projects = pgTable('projects', {
@@ -11,5 +11,6 @@ export const projects = pgTable('projects', {
   slug: text('slug').notNull().unique(),
   // Per-project Docker network (lazily created by ensureProjectNetwork).
   network_name: text('network_name'),
+  is_default: boolean('is_default').notNull().default(false),
   created_at: timestamp('created_at', { withTimezone: true, mode: 'date' }).notNull(),
 });
