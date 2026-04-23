@@ -64,6 +64,27 @@
       "when": 1776861822516,
       "tag": "0008_whole_ma_gnuci",
       "breakpoints": true
+    },
+    {
+      "idx": 9,
+      "version": "7",
+      "when": 1776879000000,
+      "tag": "0009_organizations_default_workspace",
+      "breakpoints": true
+    },
+    {
+      "idx": 10,
+      "version": "7",
+      "when": 1776904200000,
+      "tag": "0010_databases_runtime_surface",
+      "breakpoints": true
+    },
+    {
+      "idx": 11,
+      "version": "7",
+      "when": 1776953400000,
+      "tag": "0011_framework_build_surface",
+      "breakpoints": true
     }
   ]
 }

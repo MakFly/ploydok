@@ -58,6 +58,9 @@ export const HealthcheckConfigSchema = z.object({
 });
 export type HealthcheckConfig = z.infer<typeof HealthcheckConfigSchema>;
 
+export const SecretPhaseSchema = z.enum(['build', 'runtime', 'both']);
+export type SecretPhase = z.infer<typeof SecretPhaseSchema>;
+
 // ---------------------------------------------------------------------------
 // AppConfig
 // ---------------------------------------------------------------------------
@@ -65,20 +68,27 @@ export type HealthcheckConfig = z.infer<typeof HealthcheckConfigSchema>;
 export const AppConfigSchema = z.object({
   name: z.string().min(1),
   slug: z.string().min(1),
-  projectId: z.string(),
+  organizationId: z.string().optional(),
+  projectId: z.string().optional(),
   gitProvider: z.custom<GitProviderKind>((v) => v === 'github'),
   repoFullName: z.string(),   // 'owner/repo'
   branch: z.string(),
   rootDir: z.string().optional(),
   dockerfilePath: z.string().optional(),
+  nixpacksConfigPath: z.string().optional(),
+  nodeVersion: z.string().optional(),
   installCommand: z.string().optional(),
   buildCommand: z.string().optional(),
   startCommand: z.string().optional(),
   watchPaths: z.array(z.string()).optional(),
   buildMethod: BuildMethodSchema.optional(),
+  runtimePort: z.number().int().positive().optional(),
   restartPolicy: RestartPolicySchema.optional(),
   healthcheck: HealthcheckConfigSchema.optional(),
   domain: z.string().optional(),
+}).refine((value) => Boolean(value.organizationId ?? value.projectId), {
+  message: "organizationId or projectId is required",
+  path: ["organizationId"],
 });
 export type AppConfig = z.infer<typeof AppConfigSchema>;
 

@@ -1,5 +1,6 @@
 // SPDX-License-Identifier: AGPL-3.0-only
 import { z } from "zod";
+import { OrganizationSummarySchema } from "./organizations";
 
 // ---------------------------------------------------------------------------
 // Registration
@@ -40,6 +41,7 @@ export const MeSchema = z.object({
   email: z.string().email(),
   display_name: z.string(),
   created_at: z.string().datetime(),
+  default_organization: OrganizationSummarySchema.nullable(),
   accessExpiresAt: z.number(), // unix seconds, when the current access token expires
   has_passkey_plus: z.boolean(), // >= 2 passkeys
   has_backup_codes: z.boolean(), // >= 1 non-consumed backup code
