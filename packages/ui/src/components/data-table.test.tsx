@@ -6,14 +6,14 @@
  */
 import { GlobalRegistrator } from "@happy-dom/global-registrator"
 
-GlobalRegistrator.register()
-
 import { cleanup, fireEvent, render } from "@testing-library/react"
 import { afterEach, describe, expect, it } from "bun:test"
 import * as React from "react"
+import { DataTable } from "./data-table"
 import type { ColumnDef } from "@tanstack/react-table"
 
-import { DataTable } from "./data-table"
+GlobalRegistrator.register()
+
 
 afterEach(() => {
   cleanup()
