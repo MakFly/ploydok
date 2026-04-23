@@ -1,5 +1,5 @@
 // SPDX-License-Identifier: AGPL-3.0-only
-import { and, desc, eq, lt } from "drizzle-orm"
+import { and, count, desc, eq, lt } from "drizzle-orm"
 import { apps, projects, webhook_deliveries } from "../schema"
 import type { Db } from "../client"
 
@@ -30,6 +30,45 @@ export interface DeliverySummary {
   retry_count: number
   parent_delivery_id: string | null
   source: string
+}
+
+// ---------------------------------------------------------------------------
+// Push-handler helpers (used by webhook-handlers/push.ts)
+// ---------------------------------------------------------------------------
+
+/**
+ * Returns the most recent "enqueued" delivery for an app, or null if none.
+ * Used by the coalescing path to find the previous job's delivery record.
+ */
+export async function findRecentEnqueuedDeliveryByApp(
+  db: Db,
+  appId: string,
+): Promise<{ id: string } | null> {
+  const rows = await db
+    .select({ id: webhook_deliveries.id })
+    .from(webhook_deliveries)
+    .where(
+      and(
+        eq(webhook_deliveries.app_id, appId),
+        eq(webhook_deliveries.decision, "enqueued"),
+      ),
+    )
+    .limit(1)
+
+  return rows[0] ?? null
+}
+
+/**
+ * Returns the total count of deliveries for an app.
+ * Used to generate a unique job-id suffix when the active slot is busy.
+ */
+export async function countDeliveriesByApp(db: Db, appId: string): Promise<number> {
+  const rows = await db
+    .select({ c: count() })
+    .from(webhook_deliveries)
+    .where(eq(webhook_deliveries.app_id, appId))
+
+  return Number(rows[0]?.c ?? 0)
 }
 
 /**
