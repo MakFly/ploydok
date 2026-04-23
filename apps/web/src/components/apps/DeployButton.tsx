@@ -11,6 +11,7 @@ import {
 import { useDeployApp } from "../../lib/apps-mutations"
 import { useActiveBuild } from "../../lib/hooks/use-active-build"
 import { useMe } from "../../lib/auth"
+import { useCurrentOrganizationSlug } from "../../lib/organizations"
 
 // ---------------------------------------------------------------------------
 // DeployButton — split-button: primary Deploy + dropdown for variants
@@ -25,16 +26,16 @@ export function DeployButton({ appId }: DeployButtonProps): React.JSX.Element {
   const deploy = useDeployApp(appId)
   const { isActive } = useActiveBuild(appId)
   const { data: me } = useMe()
+  const orgSlug = useCurrentOrganizationSlug()
   const needs2FA = Boolean(me?.needs_second_factor)
 
   const handleDeploy = async (opts?: { rebuild?: boolean; noCache?: boolean }): Promise<void> => {
     try {
       await deploy.mutateAsync(opts)
-      // Navigate to the deployments tab after deploy kicks off.
-      void router.navigate({
-        to: "/apps/$id/deployments",
-        params: { id: appId },
-      })
+      const href = orgSlug
+        ? `/orgs/${orgSlug}/apps/${appId}/deployments`
+        : `/apps/${appId}/deployments`
+      void router.navigate({ href })
     } catch {
       // Errors surfaced via deploy.error — no need to rethrow
     }

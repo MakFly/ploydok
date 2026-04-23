@@ -106,37 +106,14 @@ export function nextState(s: ShortcutState, a: ShortcutAction): ShortcutResult {
 // Typed navigation helper
 // ---------------------------------------------------------------------------
 
-// Mapping TabSegment → typed route path for TanStack Router.
-// Using an explicit switch avoids `as never` casts and keeps full type safety.
 function navigateToTab(
   router: AnyRouter,
   appId: string,
   tab: TabSegment,
+  orgSlug: string | null,
 ): void {
-  const params = { id: appId }
-  switch (tab) {
-    case "overview":
-      void router.navigate({ to: "/apps/$id/overview", params })
-      break
-    case "deployments":
-      void router.navigate({ to: "/apps/$id/deployments", params })
-      break
-    case "logs":
-      void router.navigate({ to: "/apps/$id/logs", params })
-      break
-    case "shell":
-      void router.navigate({ to: "/apps/$id/shell", params })
-      break
-    case "settings":
-      void router.navigate({ to: "/apps/$id/settings", params })
-      break
-    case "env":
-      void router.navigate({ to: "/apps/$id/env", params })
-      break
-    case "domains":
-      void router.navigate({ to: "/apps/$id/domains", params })
-      break
-  }
+  const base = orgSlug ? `/orgs/${orgSlug}/apps/${appId}` : `/apps/${appId}`
+  void router.navigate({ href: `${base}/${tab}` })
 }
 
 // ---------------------------------------------------------------------------
@@ -168,7 +145,7 @@ function isFocusIgnored(): boolean {
  * Must be mounted inside a component that has access to the router (i.e. inside
  * a TanStack Router route or layout).
  */
-export function useTabShortcuts(appId: string): void {
+export function useTabShortcuts(appId: string, orgSlug: string | null = null): void {
   const router = useRouter()
   const stateRef = React.useRef<ShortcutState>({ phase: "idle" })
   const timerRef = React.useRef<ReturnType<typeof setTimeout> | null>(null)
@@ -206,7 +183,7 @@ export function useTabShortcuts(appId: string): void {
 
       if (result.navigateTo) {
         clearTimer()
-        navigateToTab(router, appId, result.navigateTo)
+        navigateToTab(router, appId, result.navigateTo, orgSlug)
         return
       }
 
@@ -222,6 +199,6 @@ export function useTabShortcuts(appId: string): void {
       window.removeEventListener("keydown", handleKeyDown)
       clearTimer()
     }
-  }, [appId, router, clearTimer, scheduleReset])
+  }, [appId, orgSlug, router, clearTimer, scheduleReset])
 }
 

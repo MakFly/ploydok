@@ -22,7 +22,7 @@ import { resolveRuntimeAppStatus, selectAppSnapshot } from "../../../../lib/app-
 import { useApps, useRecentBuildsAcrossApps } from "../../../../lib/apps"
 import { useGitHubAppConfig } from "../../../../lib/github"
 import { useMonitoring } from "../../../../lib/monitoring"
-import { organizationPath, useCurrentOrganization } from "../../../../lib/organizations"
+import { organizationPath, useCurrentOrganization, useCurrentOrganizationSlug } from "../../../../lib/organizations"
 import type { AppListItem, BuildWithApp } from "../../../../lib/apps"
 import type { BuildStatus } from "@ploydok/shared"
 
@@ -242,10 +242,10 @@ function AppRow({
 }: {
   app: AppListItem & { runtimeStatus: AppListItem["status"] }
 }): React.JSX.Element {
+  const orgSlug = useCurrentOrganizationSlug()
   return (
     <Link
-      to="/apps/$id/overview"
-      params={{ id: app.id }}
+      to={(orgSlug ? organizationPath(orgSlug, `apps/${app.id}/overview`) : `/apps/${app.id}/overview`) as never}
       className="group flex items-center gap-3 py-3 transition-colors hover:bg-accent/40 -mx-4 px-4 rounded-md"
     >
       <div className="flex size-8 shrink-0 items-center justify-center rounded-md border border-border bg-muted/50 text-muted-foreground">
@@ -329,12 +329,12 @@ function EmptyApps({
 function ActivityRow({ build }: { build: BuildWithApp }): React.JSX.Element {
   const tone = buildTone(build.status)
   const sha = build.commitSha ? build.commitSha.slice(0, 7) : "manual"
+  const orgSlug = useCurrentOrganizationSlug()
 
   return (
     <li>
       <Link
-        to="/apps/$id/overview"
-        params={{ id: build.appId }}
+        to={(orgSlug ? organizationPath(orgSlug, `apps/${build.appId}/overview`) : `/apps/${build.appId}/overview`) as never}
         className="group flex items-start gap-2.5 rounded-md py-2 -mx-2 px-2 transition-colors hover:bg-accent/40"
       >
         <span className={`mt-1.5 inline-flex ${tone.color}`}>{tone.icon}</span>
