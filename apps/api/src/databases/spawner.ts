@@ -3,7 +3,7 @@ import { randomBytes } from "node:crypto"
 import { nanoid } from "nanoid"
 import { databases } from "@ploydok/db"
 import type { Db } from "@ploydok/db"
-import { desc, eq, isNotNull } from "drizzle-orm"
+import { and, desc, eq, gte, isNotNull, lt, max } from "drizzle-orm"
 import { childLogger } from "../logger"
 import { encryptSecret, decryptSecret } from "../secrets/crypto"
 import { ensureProjectNetwork } from "../projects"
@@ -297,29 +297,31 @@ function buildPublicUrl(kind: DbKind, host: string, port: number): string {
   }
 }
 
+const DIRECT_PORT_MIN = 15432
+const PROXY_PORT_MIN = 16432
+
 async function allocatePublicPort(db: Db): Promise<number> {
   const rows = await db
-    .select({ public_port: databases.public_port })
+    .select({ max_port: max(databases.public_port) })
     .from(databases)
-    .where(isNotNull(databases.public_port))
-    .orderBy(desc(databases.public_port))
-    .limit(1)
-  const maxUsed = rows[0]?.public_port ?? 15431
-  return Math.max(maxUsed + 1, 15432)
+    .where(
+      and(
+        isNotNull(databases.public_port),
+        gte(databases.public_port, DIRECT_PORT_MIN),
+        lt(databases.public_port, PROXY_PORT_MIN),
+      ),
+    )
+  const maxUsed = rows[0]?.max_port ?? DIRECT_PORT_MIN - 1
+  return Math.max(maxUsed + 1, DIRECT_PORT_MIN)
 }
 
 async function allocatePublicProxyPort(db: Db): Promise<number> {
   const rows = await db
-    .select({ public_port: databases.public_port })
+    .select({ max_port: max(databases.public_port) })
     .from(databases)
-    .where(isNotNull(databases.public_port))
-    .orderBy(desc(databases.public_port))
-    .limit(1)
-  const inProxyRange = rows
-    .map((row) => row.public_port ?? 0)
-    .filter((port) => port >= 16432)
-  const maxUsed = inProxyRange[0] ?? 16431
-  return Math.max(maxUsed + 1, 16432)
+    .where(and(isNotNull(databases.public_port), gte(databases.public_port, PROXY_PORT_MIN)))
+  const maxUsed = rows[0]?.max_port ?? PROXY_PORT_MIN - 1
+  return Math.max(maxUsed + 1, PROXY_PORT_MIN)
 }
 
 async function updateConnectionSecrets(
