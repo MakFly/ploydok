@@ -33,7 +33,7 @@ import { classifyAgentError, FatalDeployError } from "../errors";
 import { createRedis } from "@ploydok/db";
 import { postCommitStatusForApp } from "../../providers/commit-status";
 import { dispatch } from "../../notify/index";
-import { buildEnvForDeploy } from "../../secrets/resolver";
+import { buildEnvForDeploy, buildEnvPairForDeploy } from "../../secrets/resolver";
 import { runPreDeployHook, runPostDeployHook } from "../hooks";
 import { getSharedAgent } from "../../debug/singletons";
 
@@ -509,8 +509,11 @@ export async function handleDeploy(
       logStream.write(line + "\n");
     }
 
-    const buildEnv = await buildEnvForDeploy(db, app.id, "prod", "build");
-    const runtimeSecretEnv = await buildEnvForDeploy(db, app.id, "prod", "runtime");
+    const { build: buildEnv, runtime: runtimeSecretEnv } = await buildEnvPairForDeploy(
+      db,
+      app.id,
+      "prod",
+    );
 
     if (detected.method === "docker") {
       // BuildKit path (M3.1)

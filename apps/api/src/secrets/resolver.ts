@@ -25,7 +25,46 @@ export async function buildEnvForDeploy(
       ),
     )
 
-  // Two-pass merge: shared first, then scope-specific overrides
+  return mergeScoped(rows)
+}
+
+/**
+ * Fetch both build-phase and runtime-phase env maps in a single DB query.
+ * Preferred over calling buildEnvForDeploy twice back-to-back.
+ */
+export async function buildEnvPairForDeploy(
+  db: Db,
+  appId: string,
+  kind: "prod" | "preview",
+): Promise<{ build: Record<string, string>; runtime: Record<string, string> }> {
+  const rows = await db
+    .select()
+    .from(secrets)
+    .where(
+      and(
+        eq(secrets.app_id, appId),
+        or(eq(secrets.scope, "shared"), eq(secrets.scope, kind)),
+      ),
+    )
+
+  const buildRows = rows.filter((r) => r.phase === "build" || r.phase === "both")
+  const runtimeRows = rows.filter((r) => r.phase === "runtime" || r.phase === "both")
+
+  const [build, runtime] = await Promise.all([
+    mergeScoped(buildRows),
+    mergeScoped(runtimeRows),
+  ])
+  return { build, runtime }
+}
+
+async function mergeScoped(
+  rows: Array<{
+    scope: string
+    key: string
+    value_ciphertext: unknown
+    nonce: unknown
+  }>,
+): Promise<Record<string, string>> {
   const shared: Record<string, string> = {}
   const scoped: Record<string, string> = {}
 
