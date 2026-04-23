@@ -168,6 +168,12 @@ function buildPublicUrl(domain: string | null): string | null {
 function serializeApp(row: AppRow) {
   return {
     id: row.id,
+    // organizationId and projectId are currently both projections of the same
+    // underlying `projects.id` column. The backend models an organization as
+    // a project row (is_default=true marks the user's default workspace) so
+    // the two names are aliases. Kept for the transitional period where the
+    // frontend is moving to org-scoped URLs; once the web never requests
+    // projectId we drop that field.
     organizationId: row.project_id,
     projectId: row.project_id,
     name: row.name,

@@ -59,6 +59,8 @@ const UpdateNetworkBody = z.object({
 function listShape(row: DatabaseRow) {
   return {
     id: row.id,
+    // See serializeApp() in routes/apps.ts for the rationale on why
+    // organization_id and project_id are both projections of projects.id.
     organization_id: row.project_id,
     project_id: row.project_id,
     kind: row.kind,
