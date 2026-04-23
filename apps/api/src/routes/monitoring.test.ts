@@ -68,7 +68,7 @@ mock.module("../debug/singletons", () => ({
 }))
 
 // resolveAppOwner: user-1 owns app-123, nobody owns anything else.
-mock.module("../queries/app-owner", () => ({
+mock.module("@ploydok/db/queries", () => ({
   resolveAppOwner: (_db: unknown, appId: string) => {
     if (appId === "app-123") return Promise.resolve("user-1")
     return Promise.resolve(null)
