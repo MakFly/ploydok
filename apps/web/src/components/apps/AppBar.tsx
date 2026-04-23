@@ -14,6 +14,7 @@ import { DeployButton } from "./DeployButton"
 import { ActionsMenu } from "./ActionsMenu"
 import { useTabShortcuts } from "../../lib/hooks/use-tab-shortcuts"
 import type { AppDetail } from "../../lib/apps"
+import { organizationPath, useCurrentOrganizationSlug } from "../../lib/organizations"
 
 // ---------------------------------------------------------------------------
 // AppBar — single row, tabs + primary actions. No meta, no border.
@@ -38,6 +39,7 @@ const NAV_ITEMS: Array<NavItem> = [
 
 export function AppBar({ app }: { app: AppDetail }): React.JSX.Element {
   useTabShortcuts(app.id)
+  const currentOrgSlug = useCurrentOrganizationSlug()
   const pathname = useRouterState({ select: (s) => s.location.pathname })
   const activeTabRef = React.useRef<HTMLAnchorElement | null>(null)
 
@@ -57,15 +59,16 @@ export function AppBar({ app }: { app: AppDetail }): React.JSX.Element {
         className="flex min-w-0 flex-1 items-stretch gap-0.5 overflow-x-auto overflow-y-hidden [scrollbar-width:none] [&::-webkit-scrollbar]:hidden"
       >
         {NAV_ITEMS.map((item) => {
-          const resolved = item.to.replace("$id", app.id)
+          const resolved = currentOrgSlug
+            ? organizationPath(currentOrgSlug, item.to.replace("/apps/$id/", `apps/${app.id}/`))
+            : item.to.replace("$id", app.id)
           const isActive =
             pathname === resolved || pathname.startsWith(resolved + "/")
           const Icon = item.icon
           return (
             <Link
               key={item.label}
-              to={item.to}
-              params={{ id: app.id }}
+              to={resolved as never}
               role="tab"
               aria-selected={isActive}
               aria-current={isActive ? "page" : undefined}

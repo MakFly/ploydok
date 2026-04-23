@@ -1,6 +1,6 @@
 // SPDX-License-Identifier: AGPL-3.0-only
 import * as React from "react"
-import { createFileRoute } from "@tanstack/react-router"
+import { createFileRoute, useParams } from "@tanstack/react-router"
 import {
   useDomains,
   useCreateDomain,
@@ -26,8 +26,8 @@ export const Route = createFileRoute("/_authed/apps/$id/domains")({
 // AppDomainsTab
 // ---------------------------------------------------------------------------
 
-function AppDomainsTab(): React.JSX.Element {
-  const { id: appId } = Route.useParams()
+export function AppDomainsTab(): React.JSX.Element {
+  const { id: appId } = useParams({ strict: false }) as { id: string }
 
   const { data: domains, isLoading, isError } = useDomains(appId)
   const { mutate: createDomain, isPending: isAdding } = useCreateDomain(appId)

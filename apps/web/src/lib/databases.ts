@@ -2,34 +2,78 @@
 import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query"
 import { apiFetch } from "./api"
 import { toast } from "sonner"
+import { notifyMutationError } from "./second-factor-toast"
 
 // ── Types ─────────────────────────────────────────────────────────────────────
 
-export type DbKind = "postgres" | "redis" | "mongo"
+export type DbKind = "postgres" | "mysql" | "mariadb" | "redis" | "mongo"
 export type DbPlan = "small" | "medium" | "large"
-export type DbStatus = "creating" | "running" | "stopped" | "failed"
+export type DbStatus = "creating" | "starting" | "running" | "stopped" | "degraded" | "failed"
+export type DbHealthStatus = "unknown" | "starting" | "healthy" | "degraded" | "unhealthy"
+export type DbExposureMode = "internal" | "direct_port" | "public_proxy"
 
 export interface Database {
+  organization_id?: string
   id: string
   project_id: string
   kind: DbKind
+  version: string
   name: string
   plan: DbPlan
   status: DbStatus
+  health_status: DbHealthStatus
   host: string | null
   port: number | null
+  internal_host: string | null
+  internal_port: number | null
+  exposure_mode: DbExposureMode
+  public_enabled: boolean
+  public_host: string | null
+  public_port: number | null
+  public_url: string | null
   rotation_schedule: "manual" | "30d" | "60d" | "90d"
   rotation_in_progress: boolean
   password_rotated_at: string | null
+  last_started_at: string | null
   created_at: string
   linked_apps?: Array<{ app_id: string; env_prefix: string }>
+  connections?: {
+    internal: {
+      host: string | null
+      port: number | null
+    }
+    public: null | {
+      exposure_mode: DbExposureMode
+      host: string | null
+      port: number | null
+      url: string | null
+    }
+  }
 }
 
 export interface CreateDatabaseInput {
+  organizationId?: string
   projectId: string
   kind: DbKind
   name: string
   plan: DbPlan
+  exposureMode?: DbExposureMode
+  publicEnabled?: boolean
+}
+
+export interface DatabaseLogLine {
+  t: number
+  line: string
+  stream?: "stdout" | "stderr"
+}
+
+export interface DatabaseStats {
+  cpu_percent: number
+  memory_bytes: number
+  memory_limit_bytes: number
+  net_rx_bytes: number
+  net_tx_bytes: number
+  timestamp_ns: number
 }
 
 // ── Query keys ────────────────────────────────────────────────────────────────
@@ -95,16 +139,17 @@ export function useDeleteDatabase() {
       toast.success("Database deleted")
     },
     onError: (err: Error) => {
-      toast.error(err.message)
+      notifyMutationError(err, "Database deletion failed")
     },
   })
 }
 
 export function useRevealDatabase() {
   return useMutation({
-    mutationFn: async (id: string) => {
+    mutationFn: async ({ id, totpCode }: { id: string; totpCode: string }) => {
       const data = await apiFetch<{ connection_string: string }>(`/databases/${id}/reveal`, {
         method: "POST",
+        headers: { "X-TOTP-Code": totpCode },
       })
       return data.connection_string
     },
@@ -143,18 +188,22 @@ export function useLinkDatabase() {
 export function useRotateDatabase() {
   const qc = useQueryClient()
   return useMutation({
-    mutationFn: async (id: string) => {
+    mutationFn: async ({ id, totpCode }: { id: string; totpCode: string }) => {
       return apiFetch<{ ok: boolean; rotatedAt: string; appsRedeployed: string[] }>(
         `/databases/${id}/rotate`,
-        { method: "POST" },
+        {
+          method: "POST",
+          headers: { "X-TOTP-Code": totpCode },
+        },
       )
     },
-    onSuccess: (_, id) => {
+    onSuccess: (_, vars) => {
+      const id = vars.id
       qc.invalidateQueries({ queryKey: databaseKeys.detail(id) })
       toast.success("Password rotation started — apps will be redeployed")
     },
     onError: (err: Error) => {
-      toast.error(err.message)
+      notifyMutationError(err, "Password rotation failed")
     },
   })
 }
@@ -175,5 +224,83 @@ export function useUnlinkDatabase() {
     onError: (err: Error) => {
       toast.error(err.message)
     },
+  })
+}
+
+function useDatabaseAction(
+  action: "start" | "stop" | "restart",
+  successMessage: string,
+) {
+  const qc = useQueryClient()
+  return useMutation({
+    mutationFn: async (id: string) => {
+      return apiFetch<{ ok: boolean }>(`/databases/${id}/${action}`, { method: "POST" })
+    },
+    onSuccess: (_data, id) => {
+      qc.invalidateQueries({ queryKey: databaseKeys.detail(id) })
+      qc.invalidateQueries({ queryKey: databaseKeys.all })
+      toast.success(successMessage)
+    },
+    onError: (err: Error) => {
+      toast.error(err.message)
+    },
+  })
+}
+
+export function useStartDatabase() {
+  return useDatabaseAction("start", "Database started")
+}
+
+export function useStopDatabase() {
+  return useDatabaseAction("stop", "Database stopped")
+}
+
+export function useRestartDatabase() {
+  return useDatabaseAction("restart", "Database restarted")
+}
+
+export function useUpdateDatabaseNetwork() {
+  const qc = useQueryClient()
+  return useMutation({
+    mutationFn: async ({
+      id,
+      exposureMode,
+      publicEnabled,
+    }: {
+      id: string
+      exposureMode: DbExposureMode
+      publicEnabled: boolean
+    }) => {
+      return apiFetch<{ ok: boolean; database: Database }>(`/databases/${id}/network`, {
+        method: "PATCH",
+        body: { exposureMode, publicEnabled },
+        headers: { "content-type": "application/json" },
+      })
+    },
+    onSuccess: (_data, vars) => {
+      qc.invalidateQueries({ queryKey: databaseKeys.detail(vars.id) })
+      qc.invalidateQueries({ queryKey: databaseKeys.all })
+      toast.success("Network settings updated")
+    },
+    onError: (err: Error) => {
+      toast.error(err.message)
+    },
+  })
+}
+
+export function useDatabaseLogs(id: string, tail = 200) {
+  return useQuery({
+    queryKey: ["databases", "logs", id, tail],
+    queryFn: async () => apiFetch<{ lines: DatabaseLogLine[]; containerFound: boolean }>(`/databases/${id}/logs?tail=${tail}`),
+    enabled: Boolean(id),
+  })
+}
+
+export function useDatabaseStats(id: string) {
+  return useQuery({
+    queryKey: ["databases", "stats", id],
+    queryFn: async () => apiFetch<{ containerFound: boolean; stats: DatabaseStats | null }>(`/databases/${id}/stats`),
+    enabled: Boolean(id),
+    refetchInterval: 10_000,
   })
 }

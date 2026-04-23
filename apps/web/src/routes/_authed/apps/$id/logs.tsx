@@ -1,6 +1,6 @@
 // SPDX-License-Identifier: AGPL-3.0-only
 import * as React from "react"
-import { createFileRoute } from "@tanstack/react-router"
+import { createFileRoute, useParams } from "@tanstack/react-router"
 import { BuildLogViewer } from "../../../../components/apps/BuildLogViewer"
 import { useApp } from "../../../../lib/apps"
 
@@ -8,8 +8,8 @@ export const Route = createFileRoute("/_authed/apps/$id/logs")({
   component: AppLogsTab,
 })
 
-function AppLogsTab(): React.JSX.Element {
-  const { id } = Route.useParams()
+export function AppLogsTab(): React.JSX.Element {
+  const { id } = useParams({ strict: false }) as { id: string }
   const { data: app } = useApp(id)
 
   return (

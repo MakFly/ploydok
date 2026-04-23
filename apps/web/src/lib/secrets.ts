@@ -8,10 +8,12 @@ import type { ApiError } from "./api"
 // ---------------------------------------------------------------------------
 
 export type SecretScope = "shared" | "prod" | "preview" | "dev"
+export type SecretPhase = "build" | "runtime" | "both"
 
 export interface SecretMeta {
   key: string
   scope: SecretScope
+  phase: SecretPhase
   updated_at: string | null
 }
 
@@ -23,25 +25,31 @@ export interface CreateSecretPayload {
   key: string
   value: string
   scope: SecretScope
+  phase?: SecretPhase
 }
 
 // ---------------------------------------------------------------------------
 // Query key factory
 // ---------------------------------------------------------------------------
 
-export function secretsQueryKey(appId: string, scope?: SecretScope) {
-  return scope ? (["apps", appId, "secrets", scope] as const) : (["apps", appId, "secrets"] as const)
+export function secretsQueryKey(appId: string, scope?: SecretScope, phase?: SecretPhase) {
+  return scope || phase
+    ? (["apps", appId, "secrets", scope ?? "all", phase ?? "all"] as const)
+    : (["apps", appId, "secrets"] as const)
 }
 
 // ---------------------------------------------------------------------------
 // useSecrets — GET /apps/:id/secrets?scope=
 // ---------------------------------------------------------------------------
 
-export function useSecrets(appId: string, scope?: SecretScope) {
+export function useSecrets(appId: string, scope?: SecretScope, phase?: SecretPhase) {
   return useQuery<SecretMeta[], ApiError>({
-    queryKey: secretsQueryKey(appId, scope),
+    queryKey: secretsQueryKey(appId, scope, phase),
     queryFn: async () => {
-      const qs = scope ? `?scope=${scope}` : ""
+      const params = new URLSearchParams()
+      if (scope) params.set("scope", scope)
+      if (phase) params.set("phase", phase)
+      const qs = params.size > 0 ? `?${params.toString()}` : ""
       const data = await apiFetch<SecretsResponse>(`/apps/${appId}/secrets${qs}`)
       return data.secrets
     },
@@ -57,7 +65,7 @@ export function useSecrets(appId: string, scope?: SecretScope) {
 export function useCreateSecret(appId: string) {
   const qc = useQueryClient()
 
-  return useMutation<{ key: string; scope: SecretScope }, ApiError, CreateSecretPayload>({
+  return useMutation<{ key: string; scope: SecretScope; phase: SecretPhase }, ApiError, CreateSecretPayload>({
     mutationFn: async (payload) => {
       return apiFetch(`/apps/${appId}/secrets`, {
         method: "POST",
@@ -77,9 +85,10 @@ export function useCreateSecret(appId: string) {
 export function useDeleteSecret(appId: string) {
   const qc = useQueryClient()
 
-  return useMutation<unknown, ApiError, { key: string; scope: SecretScope }>({
-    mutationFn: async ({ key, scope }) => {
-      return apiFetch(`/apps/${appId}/secrets/${encodeURIComponent(key)}?scope=${scope}`, {
+  return useMutation<unknown, ApiError, { key: string; scope: SecretScope; phase?: SecretPhase }>({
+    mutationFn: async ({ key, scope, phase }) => {
+      const safePhase = phase ?? "runtime"
+      return apiFetch(`/apps/${appId}/secrets/${encodeURIComponent(key)}?scope=${scope}&phase=${safePhase}`, {
         method: "DELETE",
       })
     },
@@ -94,9 +103,10 @@ export function useDeleteSecret(appId: string) {
 // ---------------------------------------------------------------------------
 
 export function useRevealSecret(appId: string) {
-  return useMutation<{ value: string }, ApiError, { key: string; scope: SecretScope; totpCode: string }>({
-    mutationFn: async ({ key, scope, totpCode }) => {
-      return apiFetch(`/apps/${appId}/secrets/${encodeURIComponent(key)}/reveal?scope=${scope}`, {
+  return useMutation<{ value: string }, ApiError, { key: string; scope: SecretScope; phase?: SecretPhase; totpCode: string }>({
+    mutationFn: async ({ key, scope, phase, totpCode }) => {
+      const safePhase = phase ?? "runtime"
+      return apiFetch(`/apps/${appId}/secrets/${encodeURIComponent(key)}/reveal?scope=${scope}&phase=${safePhase}`, {
         method: "POST",
         headers: { "X-TOTP-Code": totpCode },
         body: JSON.stringify({}),
@@ -112,10 +122,13 @@ export function useRevealSecret(appId: string) {
 export function useImportEnv(appId: string) {
   const qc = useQueryClient()
 
-  return useMutation<{ imported: number }, ApiError, { file: File; scope?: SecretScope }>({
-    mutationFn: async ({ file, scope }) => {
+  return useMutation<{ imported: number }, ApiError, { file: File; scope?: SecretScope; phase?: SecretPhase }>({
+    mutationFn: async ({ file, scope, phase }) => {
       const content = await file.text()
-      const qs = scope ? `?scope=${scope}` : ""
+      const params = new URLSearchParams()
+      if (scope) params.set("scope", scope)
+      if (phase) params.set("phase", phase)
+      const qs = params.size > 0 ? `?${params.toString()}` : ""
       return apiFetch<{ imported: number }>(`/apps/${appId}/secrets/import${qs}`, {
         method: "POST",
         body: { content },

@@ -4,13 +4,13 @@ import { RiDeleteBinLine, RiEyeLine } from "@remixicon/react"
 import { Button } from "@workspace/ui/components/button"
 import { Badge } from "@workspace/ui/components/badge"
 import { useDeleteSecret } from "../../lib/secrets"
-import type { SecretMeta, SecretScope } from "../../lib/secrets"
+import type { SecretMeta, SecretPhase, SecretScope } from "../../lib/secrets"
 
 interface SecretsTableProps {
   appId: string
   scope: SecretScope
   secrets: SecretMeta[]
-  onReveal: (key: string, scope: SecretScope) => void
+  onReveal: (key: string, scope: SecretScope, phase: SecretPhase) => void
 }
 
 export function SecretsTable({ appId, scope, secrets, onReveal }: SecretsTableProps): React.JSX.Element {
@@ -30,14 +30,18 @@ export function SecretsTable({ appId, scope, secrets, onReveal }: SecretsTablePr
         <thead>
           <tr className="border-b border-border bg-muted/40">
             <th className="px-4 py-2.5 text-left font-medium text-muted-foreground">Key</th>
+            <th className="px-4 py-2.5 text-left font-medium text-muted-foreground">Phase</th>
             <th className="px-4 py-2.5 text-left font-medium text-muted-foreground">Updated</th>
             <th className="px-4 py-2.5 text-right font-medium text-muted-foreground">Actions</th>
           </tr>
         </thead>
         <tbody className="divide-y divide-border">
           {secrets.map((secret) => (
-            <tr key={`${secret.key}-${secret.scope}`} className="hover:bg-muted/20">
+            <tr key={`${secret.key}-${secret.scope}-${secret.phase}`} className="hover:bg-muted/20">
               <td className="px-4 py-3 font-mono text-xs">{secret.key}</td>
+              <td className="px-4 py-3 text-xs">
+                <Badge variant="secondary">{secret.phase}</Badge>
+              </td>
               <td className="px-4 py-3 text-muted-foreground text-xs">
                 {secret.updated_at ? new Date(secret.updated_at).toLocaleDateString() : "—"}
               </td>
@@ -46,7 +50,7 @@ export function SecretsTable({ appId, scope, secrets, onReveal }: SecretsTablePr
                   <Button
                     variant="ghost"
                     size="icon"
-                    onClick={() => onReveal(secret.key, secret.scope)}
+                    onClick={() => onReveal(secret.key, secret.scope, secret.phase)}
                     title="Reveal value"
                   >
                     <RiEyeLine className="size-4" />
@@ -54,7 +58,7 @@ export function SecretsTable({ appId, scope, secrets, onReveal }: SecretsTablePr
                   <Button
                     variant="ghost"
                     size="icon"
-                    onClick={() => deleteSecret({ key: secret.key, scope })}
+                    onClick={() => deleteSecret({ key: secret.key, scope, phase: secret.phase })}
                     disabled={isDeleting}
                     title="Delete secret"
                   >

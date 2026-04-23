@@ -1,6 +1,6 @@
 // SPDX-License-Identifier: AGPL-3.0-only
 import * as React from "react"
-import { createFileRoute } from "@tanstack/react-router"
+import { createFileRoute, useParams } from "@tanstack/react-router"
 import {
   RiFileCopyLine,
   RiLockPasswordLine,
@@ -277,8 +277,8 @@ function RotateSecretDialog({
   )
 }
 
-function WebhookSecretTab(): React.JSX.Element {
-  const { id } = Route.useParams()
+export function WebhookSecretTab(): React.JSX.Element {
+  const { id } = useParams({ strict: false }) as { id: string }
   const { data: app, isLoading } = useApp(id)
   const [dialogOpen, setDialogOpen] = React.useState(false)
   const [rotated, setRotated] = React.useState(false)

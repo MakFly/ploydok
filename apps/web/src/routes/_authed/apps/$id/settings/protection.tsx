@@ -1,6 +1,6 @@
 // SPDX-License-Identifier: AGPL-3.0-only
 import * as React from "react"
-import { createFileRoute } from "@tanstack/react-router"
+import { createFileRoute, useParams } from "@tanstack/react-router"
 import { BasicAuthForm } from "../../../../../components/protection/BasicAuthForm"
 import { IpAllowlistForm } from "../../../../../components/protection/IpAllowlistForm"
 import { RateLimitForm } from "../../../../../components/protection/RateLimitForm"
@@ -10,8 +10,8 @@ export const Route = createFileRoute("/_authed/apps/$id/settings/protection")({
   component: ProtectionPage,
 })
 
-function ProtectionPage(): React.JSX.Element {
-  const { id } = Route.useParams()
+export function ProtectionPage(): React.JSX.Element {
+  const { id } = useParams({ strict: false }) as { id: string }
 
   return (
     <div className="flex flex-col gap-6">

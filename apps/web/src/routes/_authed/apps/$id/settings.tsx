@@ -5,18 +5,21 @@ import {
   Outlet,
   createFileRoute,
   useNavigate,
+  useParams,
   useRouterState,
 } from "@tanstack/react-router"
 import { Tabs, TabsList, TabsTrigger } from "@workspace/ui/components/tabs"
 import { AppStatusBadge } from "../../../../components/apps/AppStatusBadge"
 import { useApp } from "../../../../lib/apps"
+import { organizationPath, useCurrentOrganizationSlug } from "../../../../lib/organizations"
 
 export const Route = createFileRoute("/_authed/apps/$id/settings")({
   component: AppSettingsLayout,
 })
 
-function AppSettingsLayout(): React.JSX.Element {
-  const { id } = Route.useParams()
+export function AppSettingsLayout(): React.JSX.Element {
+  const { id } = useParams({ strict: false }) as { id: string }
+  const currentOrgSlug = useCurrentOrganizationSlug()
   const navigate = useNavigate()
   const pathname = useRouterState({
     select: (state) => state.location.pathname,
@@ -26,31 +29,31 @@ function AppSettingsLayout(): React.JSX.Element {
   const tabs = [
     {
       value: "general",
-      to: `/apps/${id}/settings`,
+      to: currentOrgSlug ? organizationPath(currentOrgSlug, `apps/${id}/settings`) : `/apps/${id}/settings`,
       label: "General",
       exact: true,
     },
     {
       value: "webhooks",
-      to: `/apps/${id}/settings/webhooks`,
+      to: currentOrgSlug ? organizationPath(currentOrgSlug, `apps/${id}/settings/webhooks`) : `/apps/${id}/settings/webhooks`,
       label: "Webhooks",
       exact: false,
     },
     {
       value: "secret",
-      to: `/apps/${id}/settings/webhook-secret`,
+      to: currentOrgSlug ? organizationPath(currentOrgSlug, `apps/${id}/settings/webhook-secret`) : `/apps/${id}/settings/webhook-secret`,
       label: "Secret",
       exact: false,
     },
     {
       value: "notifications",
-      to: `/apps/${id}/settings/notifications`,
+      to: currentOrgSlug ? organizationPath(currentOrgSlug, `apps/${id}/settings/notifications`) : `/apps/${id}/settings/notifications`,
       label: "Notifications",
       exact: false,
     },
     {
       value: "protection",
-      to: `/apps/${id}/settings/protection`,
+      to: currentOrgSlug ? organizationPath(currentOrgSlug, `apps/${id}/settings/protection`) : `/apps/${id}/settings/protection`,
       label: "Protection",
       exact: false,
     },
@@ -78,13 +81,13 @@ function AppSettingsLayout(): React.JSX.Element {
         onValueChange={(value) => {
           const next = tabs.find((tab) => tab.value === value)
           if (!next) return
-          void navigate({ to: next.to })
+          void navigate({ href: next.to })
         }}
       >
         <TabsList>
           {tabs.map((tab) => (
             <TabsTrigger key={tab.value} value={tab.value} asChild>
-              <Link to={tab.to}>{tab.label}</Link>
+              <Link to={tab.to as never}>{tab.label}</Link>
             </TabsTrigger>
           ))}
         </TabsList>

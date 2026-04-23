@@ -10,15 +10,20 @@ import { resolveRuntimeAppStatus, selectAppSnapshot } from "../../../lib/app-run
 import { useApps } from "../../../lib/apps";
 import { useGitHubAppConfig } from "../../../lib/github";
 import { useMonitoring } from "../../../lib/monitoring";
+import { organizationPath, useCurrentOrganization, useCurrentOrganizationSlug } from "../../../lib/organizations";
+import { redirectToDefaultOrganization } from "../../../lib/auth-guards";
 import type { AppListItem } from "../../../lib/apps";
 
 export const Route = createFileRoute("/_authed/apps/")({
+  beforeLoad: async () => redirectToDefaultOrganization(),
   component: AppsPage,
 });
 
-function AppsPage(): React.JSX.Element {
+export function AppsPage(): React.JSX.Element {
   const [modalOpen, setModalOpen] = React.useState(false);
-  const { data: apps = [], isLoading, error } = useApps();
+  const organization = useCurrentOrganization();
+  const currentOrgSlug = useCurrentOrganizationSlug();
+  const { data: apps = [], isLoading, error } = useApps(organization?.id);
   const { data: appConfig } = useGitHubAppConfig();
   const { data: monitoring } = useMonitoring();
   const containers = monitoring?.containers ?? [];
@@ -64,8 +69,8 @@ function AppsPage(): React.JSX.Element {
             </p>
           ) : appsWithRuntimeStatus.length > 0 ? (
             <div className="grid gap-4 md:grid-cols-2 xl:grid-cols-3">
-              {appsWithRuntimeStatus.map((app) => (
-                <AppCard key={app.id} app={app} />
+          {appsWithRuntimeStatus.map((app) => (
+                <AppCard key={app.id} app={app} currentOrgSlug={currentOrgSlug} />
               ))}
             </div>
           ) : (
@@ -118,20 +123,25 @@ function AppsPage(): React.JSX.Element {
         </div>
       </div>
 
-      <CreateAppModal open={modalOpen} onClose={() => setModalOpen(false)} />
+      <CreateAppModal
+        open={modalOpen}
+        organizationId={organization?.id}
+        onClose={() => setModalOpen(false)}
+      />
     </ShellPage>
   );
 }
 
 function AppCard({
   app,
+  currentOrgSlug,
 }: {
   app: AppListItem & { runtimeStatus: AppListItem["status"] }
+  currentOrgSlug: string | null
 }): React.JSX.Element {
   return (
     <Link
-      to="/apps/$id/overview"
-      params={{ id: app.id }}
+      to={(currentOrgSlug ? organizationPath(currentOrgSlug, `apps/${app.id}/overview`) : `/apps/${app.id}/overview`) as never}
       className="group rounded-lg border border-border bg-card p-4 transition-colors hover:border-foreground/20 hover:bg-accent/30"
     >
       <div className="flex items-start justify-between gap-3">

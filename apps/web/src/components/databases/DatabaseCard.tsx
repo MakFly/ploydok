@@ -2,10 +2,14 @@
 import * as React from "react"
 import { Badge } from "@workspace/ui/components/badge"
 import { Button } from "@workspace/ui/components/button"
+import { Link } from "@tanstack/react-router"
 import type { Database } from "../../lib/databases"
+import { organizationPath, useCurrentOrganizationSlug } from "../../lib/organizations"
 
 const KIND_LABELS: Record<string, string> = {
   postgres: "PostgreSQL 16",
+  mysql: "MySQL 8.4",
+  mariadb: "MariaDB 11.4",
   redis: "Redis 7",
   mongo: "MongoDB 7",
 }
@@ -13,7 +17,9 @@ const KIND_LABELS: Record<string, string> = {
 const STATUS_VARIANTS: Record<string, "default" | "secondary" | "destructive" | "outline"> = {
   running: "default",
   creating: "secondary",
+  starting: "secondary",
   stopped: "outline",
+  degraded: "secondary",
   failed: "destructive",
 }
 
@@ -25,6 +31,11 @@ interface DatabaseCardProps {
 }
 
 export function DatabaseCard({ database, onReveal, onDelete, onLink }: DatabaseCardProps): React.JSX.Element {
+  const currentOrgSlug = useCurrentOrganizationSlug()
+  const detailPath = currentOrgSlug
+    ? organizationPath(currentOrgSlug, `databases/${database.id}`)
+    : `/databases/${database.id}`
+
   return (
     <div className="border rounded-lg p-4 flex flex-col gap-3 bg-card">
       <div className="flex items-start justify-between gap-2">
@@ -40,6 +51,11 @@ export function DatabaseCard({ database, onReveal, onDelete, onLink }: DatabaseC
           </span>
         </div>
         <div className="flex gap-2">
+          <Button size="sm" variant="ghost" asChild>
+            <Link to={detailPath}>
+              Open
+            </Link>
+          </Button>
           {onLink && (
             <Button size="sm" variant="outline" onClick={() => onLink(database)}>
               Link
@@ -58,8 +74,11 @@ export function DatabaseCard({ database, onReveal, onDelete, onLink }: DatabaseC
         </div>
       </div>
       {database.host && (
-        <div className="text-xs text-muted-foreground font-mono">
-          {database.host}:{database.port}
+        <div className="flex flex-col gap-1 text-xs text-muted-foreground font-mono">
+          <span>internal://{database.host}:{database.port}</span>
+          {database.public_enabled && database.public_host && database.public_port && (
+            <span>public://{database.public_host}:{database.public_port}</span>
+          )}
         </div>
       )}
       {database.linked_apps && database.linked_apps.length > 0 && (

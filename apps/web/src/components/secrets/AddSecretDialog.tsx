@@ -17,7 +17,7 @@ import {
   FieldError,
 } from "@workspace/ui/components/field"
 import { useCreateSecret } from "../../lib/secrets"
-import type { SecretScope } from "../../lib/secrets"
+import type { SecretPhase, SecretScope } from "../../lib/secrets"
 
 interface AddSecretDialogProps {
   appId: string
@@ -27,11 +27,13 @@ interface AddSecretDialogProps {
 }
 
 const SCOPES: SecretScope[] = ["shared", "prod", "preview", "dev"]
+const PHASES: SecretPhase[] = ["runtime", "build", "both"]
 
 export function AddSecretDialog({ appId, open, defaultScope = "shared", onOpenChange }: AddSecretDialogProps): React.JSX.Element {
   const [key, setKey] = React.useState("")
   const [value, setValue] = React.useState("")
   const [scope, setScope] = React.useState<SecretScope>(defaultScope)
+  const [phase, setPhase] = React.useState<SecretPhase>("runtime")
   const [showValue, setShowValue] = React.useState(false)
   const [keyError, setKeyError] = React.useState<string | null>(null)
 
@@ -47,13 +49,14 @@ export function AddSecretDialog({ appId, open, defaultScope = "shared", onOpenCh
     setKeyError(null)
 
     createSecret(
-      { key, value, scope },
+      { key, value, scope, phase },
       {
         onSuccess: () => {
           toast.success(`Secret ${key} saved`)
           setKey("")
           setValue("")
           setScope(defaultScope)
+          setPhase("runtime")
           onOpenChange(false)
         },
         onError: (err) => {
@@ -97,6 +100,24 @@ export function AddSecretDialog({ appId, open, defaultScope = "shared", onOpenCh
                 {SCOPES.map((s) => (
                   <option key={s} value={s}>
                     {s}
+                  </option>
+                ))}
+              </select>
+            </FieldContent>
+          </Field>
+
+          <Field>
+            <FieldLabel htmlFor="secret-phase">Phase</FieldLabel>
+            <FieldContent>
+              <select
+                id="secret-phase"
+                value={phase}
+                onChange={(e) => setPhase(e.target.value as SecretPhase)}
+                className="flex h-9 w-full rounded-md border border-input bg-transparent px-3 py-1 text-sm shadow-sm"
+              >
+                {PHASES.map((p) => (
+                  <option key={p} value={p}>
+                    {p}
                   </option>
                 ))}
               </select>

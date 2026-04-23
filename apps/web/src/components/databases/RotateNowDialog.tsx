@@ -9,6 +9,8 @@ import {
   DialogTitle,
 } from "@workspace/ui/components/dialog"
 import { Button } from "@workspace/ui/components/button"
+import { Input } from "@workspace/ui/components/input"
+import { Label } from "@workspace/ui/components/label"
 import { useRotateDatabase } from "../../lib/databases"
 
 interface RotateNowDialogProps {
@@ -18,16 +20,18 @@ interface RotateNowDialogProps {
 
 export function RotateNowDialog({ databaseId, onClose }: RotateNowDialogProps): React.JSX.Element {
   const [confirmed, setConfirmed] = React.useState(false)
+  const [totpCode, setTotpCode] = React.useState("")
   const { mutate: rotate, isPending } = useRotateDatabase()
 
   function handleClose() {
     setConfirmed(false)
+    setTotpCode("")
     onClose()
   }
 
   function handleRotate() {
     if (!databaseId) return
-    rotate(databaseId, {
+    rotate({ id: databaseId, totpCode }, {
       onSuccess: () => {
         handleClose()
       },
@@ -59,7 +63,21 @@ export function RotateNowDialog({ databaseId, onClose }: RotateNowDialogProps): 
             >
               I understand, continue
             </Button>
-          ) : null}
+          ) : (
+            <div className="flex flex-col gap-2">
+              <Label htmlFor="rotate-database-totp">TOTP code</Label>
+              <Input
+                id="rotate-database-totp"
+                type="text"
+                inputMode="numeric"
+                maxLength={6}
+                placeholder="000000"
+                value={totpCode}
+                onChange={(event) => setTotpCode(event.target.value.replace(/\D+/g, "").slice(0, 6))}
+                autoComplete="one-time-code"
+              />
+            </div>
+          )}
         </div>
 
         <DialogFooter>
@@ -70,7 +88,7 @@ export function RotateNowDialog({ databaseId, onClose }: RotateNowDialogProps): 
             <Button
               variant="destructive"
               onClick={handleRotate}
-              disabled={isPending}
+              disabled={isPending || totpCode.length !== 6}
             >
               {isPending ? "Rotating…" : "Rotate password"}
             </Button>
