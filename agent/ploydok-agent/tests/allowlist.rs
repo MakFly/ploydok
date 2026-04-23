@@ -6,8 +6,8 @@
 
 use ploydok_agent::validator::{StrictValidator, Validator, ValidatorConfig};
 use ploydok_proto::agent::{
-    ContainerCreateRequest, ImageBuildRequest, ImagePullRequest, NetworkCreateRequest,
-    ResourceLimits, VolumeMount,
+    ContainerCreateRequest, HealthcheckConfig, ImageBuildRequest, ImagePullRequest,
+    NetworkCreateRequest, ResourceLimits, VolumeMount,
 };
 use tonic::Code;
 
@@ -31,6 +31,7 @@ fn valid_create() -> ContainerCreateRequest {
         command: vec![],
         user: String::new(),
         networks: vec![],
+        healthcheck: None,
     }
 }
 
@@ -223,6 +224,27 @@ fn test_network_create_macvlan_is_denied() {
     assert!(
         err.message().contains("network_driver_forbidden"),
         "message doit mentionner network_driver_forbidden: {}",
+        err.message()
+    );
+}
+
+#[test]
+fn test_invalid_healthcheck_mode_is_denied() {
+    let v = make_validator();
+    let mut req = valid_create();
+    req.healthcheck = Some(HealthcheckConfig {
+        test: vec!["RUN".to_string(), "echo ok".to_string()],
+        interval_seconds: 5,
+        timeout_seconds: 5,
+        retries: 3,
+        start_period_seconds: 0,
+    });
+
+    let err = v.validate_container_create(&req).unwrap_err();
+    assert_eq!(err.code(), Code::InvalidArgument);
+    assert!(
+        err.message().contains("healthcheck_mode_invalid"),
+        "message doit mentionner healthcheck_mode_invalid: {}",
         err.message()
     );
 }

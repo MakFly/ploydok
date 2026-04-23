@@ -37,6 +37,20 @@ message ResourceLimits {
   int64  pids_limit = 3;
 }
 
+// Docker container healthcheck.
+message HealthcheckConfig {
+  // Possible values mirror Docker:
+  // - [] inherit from image
+  // - ["NONE"] disable
+  // - ["CMD", args...]
+  // - ["CMD-SHELL", command]
+  repeated string test = 1;
+  int64 interval_seconds = 2;
+  int64 timeout_seconds = 3;
+  uint32 retries = 4;
+  int64 start_period_seconds = 5;
+}
+
 // ─────────────────────────────────────────────────────────────────────────────
 // ContainerCreate
 // ─────────────────────────────────────────────────────────────────────────────
@@ -79,6 +93,9 @@ message ContainerCreateRequest {
   // Docker networks to attach the container to (each must be pre-created via NetworkCreate).
   // When non-empty this supersedes the deprecated `network` field above.
   repeated string networks = 12;
+
+  // Optional Docker healthcheck.
+  optional HealthcheckConfig healthcheck = 13;
 }
 
 message ContainerCreateResponse {
