@@ -3,12 +3,20 @@ import { describe, expect, it } from "bun:test";
 import { ApiError, SessionExpiredError } from "../../lib/api";
 import { redirectIfAuthenticated, requireMe } from "../../lib/auth-guards";
 import type { Me } from "@ploydok/shared";
+import { organizationDashboardPath } from "../../lib/organizations";
 
 const fakeMe: Me = {
   id: "user-1",
   email: "test@example.com",
   display_name: "Test User",
   created_at: new Date().toISOString(),
+  default_organization: {
+    id: "org-1",
+    name: "Test User",
+    slug: "test-user",
+    is_default: true,
+    created_at: new Date().toISOString(),
+  },
   accessExpiresAt: Date.now() + 60_000,
   has_passkey_plus: true,
   has_backup_codes: true,
@@ -50,9 +58,9 @@ describe("auth route guards", () => {
     ).rejects.toBe(err);
   });
 
-  it("redirectIfAuthenticated redirects authenticated users to /dashboard", async () => {
+  it("redirectIfAuthenticated redirects authenticated users to the default workspace", async () => {
     await expect(redirectIfAuthenticated(async () => fakeMe)).rejects.toMatchObject({
-      options: { to: "/dashboard" },
+      options: { href: organizationDashboardPath("test-user") },
     });
   });
 

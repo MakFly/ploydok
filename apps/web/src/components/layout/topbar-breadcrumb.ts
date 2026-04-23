@@ -13,7 +13,9 @@ export interface BreadcrumbItem {
 export function extractAppName(
   matches: ReadonlyArray<MatchWithLoader>
 ): string | null {
-  const appMatch = matches.find((m) => m.routeId === "/_authed/apps/$id")
+  const appMatch = matches.find(
+    (m) => m.routeId === "/_authed/apps/$id" || m.routeId === "/_authed/orgs/$orgSlug/apps/$id"
+  )
   if (!appMatch) return null
   const data = appMatch.loaderData as
     | { app?: { name?: string | null } }
@@ -38,7 +40,11 @@ export function resolveTopbarBreadcrumb(
   pathname: string,
   appName: string | null
 ): Array<BreadcrumbItem> {
-  const normalized = normalizePathname(pathname)
+  let normalized = normalizePathname(pathname)
+  if (normalized.startsWith("/orgs/")) {
+    const parts = normalized.split("/").filter(Boolean)
+    normalized = parts.length > 2 ? `/${parts.slice(2).join("/")}` : "/dashboard"
+  }
 
   if (normalized === "/dashboard") {
     return [{ label: "Dashboard" }]
@@ -104,6 +110,17 @@ export function resolveTopbarBreadcrumb(
 
   if (normalized === "/apps") {
     return [{ label: "Apps" }]
+  }
+
+  if (normalized === "/databases") {
+    return [{ label: "Databases" }]
+  }
+
+  if (normalized.startsWith("/databases/")) {
+    return [
+      { label: "Databases", to: "/databases" },
+      { label: "Database" },
+    ]
   }
 
   if (normalized.startsWith("/apps/")) {

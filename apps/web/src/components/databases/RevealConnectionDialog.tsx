@@ -56,8 +56,8 @@ export function RevealConnectionDialog({ databaseId, onClose }: RevealConnection
   }
 
   function handleReveal() {
-    if (!databaseId) return
-    reveal(databaseId, {
+    if (!databaseId || totpCode.length < 6) return
+    reveal({ id: databaseId, totpCode }, {
       onSuccess: (value) => {
         setConnString(value)
       },

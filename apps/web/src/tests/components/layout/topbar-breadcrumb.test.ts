@@ -81,6 +81,19 @@ describe("resolveTopbarBreadcrumb", () => {
     ])
   })
 
+  it("builds the databases breadcrumb for org-scoped routes", () => {
+    expect(resolveTopbarBreadcrumb("/orgs/acme/databases", null)).toEqual([
+      { label: "Databases" },
+    ])
+  })
+
+  it("builds the database detail breadcrumb", () => {
+    expect(resolveTopbarBreadcrumb("/databases/db-123", null)).toEqual([
+      { label: "Databases", to: "/databases" },
+      { label: "Database" },
+    ])
+  })
+
   it("returns no breadcrumb for routes outside the supported topbar map", () => {
     expect(resolveTopbarBreadcrumb("/login", null)).toEqual([])
   })

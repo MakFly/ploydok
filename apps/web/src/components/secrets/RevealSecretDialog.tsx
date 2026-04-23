@@ -18,7 +18,7 @@ import {
   FieldDescription,
 } from "@workspace/ui/components/field"
 import { useRevealSecret } from "../../lib/secrets"
-import type { SecretScope } from "../../lib/secrets"
+import type { SecretPhase, SecretScope } from "../../lib/secrets"
 
 const AUTO_HIDE_MS = 30_000
 
@@ -26,10 +26,11 @@ interface RevealSecretDialogProps {
   appId: string
   secretKey: string | null
   scope: SecretScope | null
+  phase: SecretPhase | null
   onClose: () => void
 }
 
-export function RevealSecretDialog({ appId, secretKey, scope, onClose }: RevealSecretDialogProps): React.JSX.Element {
+export function RevealSecretDialog({ appId, secretKey, scope, phase, onClose }: RevealSecretDialogProps): React.JSX.Element {
   const [totpCode, setTotpCode] = React.useState("")
   const [revealedValue, setRevealedValue] = React.useState<string | null>(null)
   const [countdown, setCountdown] = React.useState(0)
@@ -69,7 +70,7 @@ export function RevealSecretDialog({ appId, secretKey, scope, onClose }: RevealS
     if (!secretKey || !scope) return
 
     revealSecret(
-      { key: secretKey, scope, totpCode },
+      { key: secretKey, scope, phase: phase ?? "runtime", totpCode },
       {
         onSuccess: ({ value }) => {
           setRevealedValue(value)
@@ -99,6 +100,7 @@ export function RevealSecretDialog({ appId, secretKey, scope, onClose }: RevealS
           <DialogTitle>Reveal secret</DialogTitle>
           <DialogDescription>
             Enter your TOTP code to reveal <strong>{secretKey}</strong> ({scope}).
+            {phase ? ` Phase: ${phase}.` : ""}
           </DialogDescription>
         </DialogHeader>
 

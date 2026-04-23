@@ -1,6 +1,6 @@
 // SPDX-License-Identifier: AGPL-3.0-only
 import * as React from "react"
-import { createFileRoute } from "@tanstack/react-router"
+import { createFileRoute, useParams } from "@tanstack/react-router"
 import { Button } from "@workspace/ui/components/button"
 import {
   Select,
@@ -30,8 +30,8 @@ export const Route = createFileRoute("/_authed/apps/$id/overview")({
   component: AppOverviewTab,
 })
 
-function AppOverviewTab(): React.JSX.Element {
-  const { id } = Route.useParams()
+export function AppOverviewTab(): React.JSX.Element {
+  const { id } = useParams({ strict: false }) as { id: string }
   const { data: app, isLoading, error } = useApp(id)
 
   if (isLoading) return <OverviewSkeleton />
@@ -302,4 +302,3 @@ function OverviewSkeleton(): React.JSX.Element {
     </div>
   )
 }
-

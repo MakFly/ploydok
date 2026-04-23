@@ -3,7 +3,9 @@ import * as React from "react"
 import { Link, createFileRoute, useRouter } from "@tanstack/react-router"
 import { startRegistration } from "@simplewebauthn/browser"
 import { apiFetch } from "../../lib/api"
+import type { Me } from "@ploydok/shared"
 import { toast } from "sonner"
+import { organizationDashboardPath } from "../../lib/organizations"
 
 export const Route = createFileRoute("/_public/register")({
   component: RegisterPage,
@@ -47,7 +49,12 @@ function RegisterPage(): React.JSX.Element {
       });
 
       toast.success("Account created");
-      void router.navigate({ to: "/dashboard" });
+      const me = await apiFetch<Me>("/me");
+      void router.navigate({
+        href: me.default_organization
+          ? organizationDashboardPath(me.default_organization.slug)
+          : "/dashboard",
+      });
     } catch (err) {
       toast.error(err instanceof Error ? err.message : "Échec de l'inscription");
       setError(err instanceof Error ? err.message : "Échec de l'inscription");

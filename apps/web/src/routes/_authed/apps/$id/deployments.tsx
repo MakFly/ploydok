@@ -1,6 +1,6 @@
 // SPDX-License-Identifier: AGPL-3.0-only
 import * as React from "react"
-import { createFileRoute, useNavigate } from "@tanstack/react-router"
+import { createFileRoute, useNavigate, useParams, useRouterState, useSearch } from "@tanstack/react-router"
 import { DeploymentsTable } from "../../../../components/apps/DeploymentsTable"
 import { BuildLogDrawer } from "../../../../components/apps/BuildLogDrawer"
 import { useBuilds } from "../../../../lib/apps"
@@ -34,34 +34,25 @@ export const Route = createFileRoute("/_authed/apps/$id/deployments")({
 // AppDeploymentsTab
 // ---------------------------------------------------------------------------
 
-function AppDeploymentsTab(): React.JSX.Element {
-  const { id } = Route.useParams()
-  const { build: selectedBuildId } = Route.useSearch()
-  const navigate = useNavigate({ from: Route.fullPath })
+export function AppDeploymentsTab(): React.JSX.Element {
+  const { id } = useParams({ strict: false }) as { id: string }
+  const { build: selectedBuildId } = useSearch({ strict: false }) as DeploymentsSearch
+  const navigate = useNavigate()
+  const pathname = useRouterState({ select: (state) => state.location.pathname })
 
   const { data: builds, isLoading, error } = useBuilds(id)
   const rollback = useRollbackApp(id)
 
   const handleSelectBuild = React.useCallback(
     (buildId: string) => {
-      void navigate({
-        search: (prev: DeploymentsSearch) => ({ ...prev, build: buildId }),
-        replace: false,
-      })
+      void navigate({ href: `${pathname}?build=${encodeURIComponent(buildId)}` })
     },
-    [navigate],
+    [navigate, pathname],
   )
 
   const handleCloseDrawer = React.useCallback(() => {
-    void navigate({
-      search: (prev: DeploymentsSearch) => {
-        const next: DeploymentsSearch = { ...prev }
-        delete next.build
-        return next
-      },
-      replace: false,
-    })
-  }, [navigate])
+    void navigate({ href: pathname })
+  }, [navigate, pathname])
 
   const handleRollback = React.useCallback(
     (build: Build) => {

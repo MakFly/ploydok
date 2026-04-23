@@ -430,7 +430,7 @@ async function apiFetchCore<T>(
     const errData = data as { error?: { code?: string; message?: string } }
     const code = errData.error?.code ?? "UNKNOWN"
     const message = errData.error?.message ?? "An error occurred"
-    if (res.status === 403 && code === "SECOND_FACTOR_REQUIRED") {
+    if (res.status === 403 && (code === "SECOND_FACTOR_REQUIRED" || code === "totp_required")) {
       throw new SecondFactorRequiredError(message)
     }
     throw new ApiError(res.status, code, message)

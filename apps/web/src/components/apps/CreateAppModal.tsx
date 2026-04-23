@@ -16,6 +16,7 @@ import type { AppConfig, GitBranch, GitRepo } from "@ploydok/shared";
 
 interface CreateAppModalProps {
   open: boolean;
+  organizationId?: string;
   onClose: () => void;
 }
 
@@ -68,7 +69,7 @@ const INITIAL_FORM: FormState = {
 // CreateAppModal
 // ---------------------------------------------------------------------------
 
-export function CreateAppModal({ open, onClose }: CreateAppModalProps): React.JSX.Element | null {
+export function CreateAppModal({ open, organizationId, onClose }: CreateAppModalProps): React.JSX.Element | null {
   const [step, setStep] = React.useState<Step>(1);
   const [form, setForm] = React.useState<FormState>(INITIAL_FORM);
   const [showAdvanced, setShowAdvanced] = React.useState(false);
@@ -144,7 +145,7 @@ export function CreateAppModal({ open, onClose }: CreateAppModalProps): React.JS
   const handleSubmit = async (): Promise<void> => {
     setSubmitError(null);
     try {
-      const body = buildCreateAppBody(form);
+      const body = buildCreateAppBody(form, organizationId);
       await createApp.mutateAsync(body as Partial<AppConfig>);
       onClose();
     } catch (err) {
@@ -294,11 +295,15 @@ export function CreateAppModal({ open, onClose }: CreateAppModalProps): React.JS
 // Build POST /apps body from form state
 // ---------------------------------------------------------------------------
 
-function buildCreateAppBody(form: FormState): Record<string, unknown> {
+function buildCreateAppBody(form: FormState, organizationId?: string): Record<string, unknown> {
   const body: Record<string, unknown> = {
     name: form.name.trim(),
     gitProvider: form.source,
   };
+
+  if (organizationId) {
+    body.organizationId = organizationId;
+  }
 
   if (form.source === "image") {
     body.imageRef = form.imageRef.trim();

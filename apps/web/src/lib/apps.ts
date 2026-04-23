@@ -12,6 +12,7 @@ import { toast } from "sonner"
 
 export interface AppListItem {
   id: string
+  organizationId?: string
   projectId?: string
   name: string
   slug: string
@@ -28,10 +29,13 @@ export interface AppDetail extends AppListItem {
   gitProvider?: string
   rootDir?: string
   dockerfilePath?: string
+  nixpacksConfigPath?: string
+  nodeVersion?: string
   installCommand?: string
   buildCommand?: string
   startCommand?: string
   buildMethod?: string
+  runtimePort?: number | null
   restartPolicy?: RestartPolicy
   currentCommitSha?: string
   latestBuildId?: string
@@ -107,10 +111,13 @@ export type AppSettingsPatch = Partial<
     | "branch"
     | "rootDir"
     | "dockerfilePath"
+    | "nixpacksConfigPath"
+    | "nodeVersion"
     | "installCommand"
     | "buildCommand"
     | "startCommand"
     | "buildMethod"
+    | "runtimePort"
     | "restartPolicy"
     | "healthcheckPath"
     | "healthcheckPort"
@@ -148,11 +155,12 @@ export function getEventAppStatus(payload: AppStatusEventPayload): AppStatus | u
 // useApps
 // ---------------------------------------------------------------------------
 
-export function useApps() {
+export function useApps(organizationId?: string) {
   return useQuery<Array<AppListItem>, ApiError>({
-    queryKey: ["apps"],
+    queryKey: ["apps", organizationId ?? "all"],
     queryFn: async () => {
-      const data = await apiFetch<AppsResponse>("/apps")
+      const query = organizationId ? `?organizationId=${encodeURIComponent(organizationId)}` : ""
+      const data = await apiFetch<AppsResponse>(`/apps${query}`)
       return data.apps
     },
     staleTime: 30_000,
@@ -175,9 +183,12 @@ export function useCreateApp() {
         body,
         headers: { "content-type": "application/json" },
       }),
-    onSuccess: () => {
+    onSuccess: (_, vars) => {
       toast.success("App created")
       qc.invalidateQueries({ queryKey: ["apps"] })
+      if (vars.organizationId ?? vars.projectId) {
+        qc.invalidateQueries({ queryKey: ["apps", vars.organizationId ?? vars.projectId] })
+      }
     },
     onError: (error) => {
       toast.error(error.message)

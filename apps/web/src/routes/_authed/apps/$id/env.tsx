@@ -1,6 +1,6 @@
 // SPDX-License-Identifier: AGPL-3.0-only
 import * as React from "react"
-import { createFileRoute } from "@tanstack/react-router"
+import { createFileRoute, useParams } from "@tanstack/react-router"
 import { RiUploadLine, RiAddLine, RiDatabase2Line } from "@remixicon/react"
 import { Button } from "@workspace/ui/components/button"
 import { Tabs, TabsContent, TabsList, TabsTrigger } from "@workspace/ui/components/tabs"
@@ -11,7 +11,7 @@ import { ImportEnvDialog } from "../../../../components/secrets/ImportEnvDialog"
 import { LinkDatabaseDialog } from "../../../../components/databases/LinkDatabaseDialog"
 import { useSecrets } from "../../../../lib/secrets"
 import { useApp } from "../../../../lib/apps"
-import type { SecretScope } from "../../../../lib/secrets"
+import type { SecretPhase, SecretScope } from "../../../../lib/secrets"
 
 // ---------------------------------------------------------------------------
 // Route
@@ -27,19 +27,19 @@ export const Route = createFileRoute("/_authed/apps/$id/env")({
 
 const SCOPES: SecretScope[] = ["shared", "prod", "preview", "dev"]
 
-function AppEnvTab(): React.JSX.Element {
-  const { id: appId } = Route.useParams()
+export function AppEnvTab(): React.JSX.Element {
+  const { id: appId } = useParams({ strict: false }) as { id: string }
   const [activeScope, setActiveScope] = React.useState<SecretScope>("shared")
   const [showAdd, setShowAdd] = React.useState(false)
   const [showImport, setShowImport] = React.useState(false)
   const [showLinkDb, setShowLinkDb] = React.useState(false)
-  const [revealTarget, setRevealTarget] = React.useState<{ key: string; scope: SecretScope } | null>(null)
+  const [revealTarget, setRevealTarget] = React.useState<{ key: string; scope: SecretScope; phase: SecretPhase } | null>(null)
 
   const { data: app } = useApp(appId)
   const { data: secrets, isLoading, isError } = useSecrets(appId, activeScope)
 
-  function handleReveal(key: string, scope: SecretScope) {
-    setRevealTarget({ key, scope })
+  function handleReveal(key: string, scope: SecretScope, phase: SecretPhase) {
+    setRevealTarget({ key, scope, phase })
   }
 
   if (isError) {
@@ -127,6 +127,7 @@ function AppEnvTab(): React.JSX.Element {
         appId={appId}
         secretKey={revealTarget?.key ?? null}
         scope={revealTarget?.scope ?? null}
+        phase={revealTarget?.phase ?? null}
         onClose={() => setRevealTarget(null)}
       />
 

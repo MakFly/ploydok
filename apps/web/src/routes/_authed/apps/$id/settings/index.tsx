@@ -1,6 +1,6 @@
 // SPDX-License-Identifier: AGPL-3.0-only
 import * as React from "react"
-import { createFileRoute } from "@tanstack/react-router"
+import { createFileRoute, useParams } from "@tanstack/react-router"
 import {
   RiCheckboxCircleLine,
   RiGitBranchLine,
@@ -60,6 +60,7 @@ export const Route = createFileRoute("/_authed/apps/$id/settings/")({
 
 type StringPatchKey = Exclude<
   keyof AppSettingsPatch,
+  | "runtimePort"
   | "healthcheckPort"
   | "autoDeployEnabled"
   | "postCommitStatus"
@@ -103,6 +104,21 @@ const FIELDS: Array<FieldDef> = [
     mono: true,
   },
   {
+    key: "nixpacksConfigPath",
+    label: "Nixpacks config",
+    placeholder: "nixpacks.toml",
+    description:
+      "Optional Nixpacks config file path when autodetect needs framework-specific overrides.",
+    mono: true,
+  },
+  {
+    key: "nodeVersion",
+    label: "Node version",
+    placeholder: "22",
+    description: "Pinned Node version used by the Nixpacks builder.",
+    mono: true,
+  },
+  {
     key: "installCommand",
     label: "Install command",
     placeholder: "npm install",
@@ -141,8 +157,8 @@ const FIELDS: Array<FieldDef> = [
   },
 ]
 
-function AppSettingsGeneral(): React.JSX.Element {
-  const { id } = Route.useParams()
+export function AppSettingsGeneral(): React.JSX.Element {
+  const { id } = useParams({ strict: false }) as { id: string }
   const { data: app, isLoading, error } = useApp(id)
   const update = useUpdateAppSettings(id)
 
@@ -165,10 +181,13 @@ function AppSettingsGeneral(): React.JSX.Element {
       branch: app.branch,
       rootDir: app.rootDir,
       dockerfilePath: app.dockerfilePath,
+      nixpacksConfigPath: app.nixpacksConfigPath,
+      nodeVersion: app.nodeVersion,
       installCommand: app.installCommand,
       buildCommand: app.buildCommand,
       startCommand: app.startCommand,
       buildMethod: app.buildMethod,
+      runtimePort: app.runtimePort,
       healthcheckPath: app.healthcheckPath,
       healthcheckPort: app.healthcheckPort,
     })
@@ -203,10 +222,13 @@ function AppSettingsGeneral(): React.JSX.Element {
       branch: app.branch,
       rootDir: app.rootDir,
       dockerfilePath: app.dockerfilePath,
+      nixpacksConfigPath: app.nixpacksConfigPath,
+      nodeVersion: app.nodeVersion,
       installCommand: app.installCommand,
       buildCommand: app.buildCommand,
       startCommand: app.startCommand,
       buildMethod: app.buildMethod,
+      runtimePort: app.runtimePort,
       healthcheckPath: app.healthcheckPath,
       healthcheckPort: app.healthcheckPort,
     })
@@ -280,7 +302,7 @@ function AppSettingsGeneral(): React.JSX.Element {
               <SettingsField
                 key={field.key}
                 field={field}
-                value={formData[field.key] ?? ""}
+                value={String(formData[field.key] ?? "")}
                 editing={editing}
                 onChange={(value) =>
                   setFormData((previous) => ({
@@ -292,6 +314,23 @@ function AppSettingsGeneral(): React.JSX.Element {
             ))}
 
             <HealthcheckPortField
+              inputId="setting-runtime-port"
+              label="Runtime port"
+              description="Port exposed by the application process inside the container."
+              value={formData.runtimePort ?? null}
+              editing={editing}
+              onChange={(value) =>
+                setFormData((previous) => ({
+                  ...previous,
+                  runtimePort: value,
+                }))
+              }
+            />
+
+            <HealthcheckPortField
+              inputId="setting-healthcheck-port"
+              label="Healthcheck port"
+              description="Optional readiness probe port. Leave empty to probe the runtime port."
               value={formData.healthcheckPort ?? null}
               editing={editing}
               onChange={(value) =>
@@ -549,10 +588,16 @@ function SettingsField({
 }
 
 function HealthcheckPortField({
+  inputId,
+  label,
+  description,
   value,
   editing,
   onChange,
 }: {
+  inputId: string
+  label: string
+  description: string
   value: number | null
   editing: boolean
   onChange: (value: number | null) => void
@@ -577,18 +622,13 @@ function HealthcheckPortField({
       className="rounded-2xl border border-border/70 bg-background/80 p-4"
     >
       <FieldContent className="gap-1">
-        <FieldLabel htmlFor="setting-healthcheck-port">
-          Healthcheck port
-        </FieldLabel>
-        <FieldDescription>
-          Port probed together with the healthcheck path during readiness
-          validation.
-        </FieldDescription>
+        <FieldLabel htmlFor={inputId}>{label}</FieldLabel>
+        <FieldDescription>{description}</FieldDescription>
       </FieldContent>
 
       {editing ? (
         <Input
-          id="setting-healthcheck-port"
+          id={inputId}
           type="number"
           min={1}
           max={65535}

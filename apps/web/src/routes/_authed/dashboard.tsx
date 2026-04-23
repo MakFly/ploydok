@@ -22,16 +22,20 @@ import { resolveRuntimeAppStatus, selectAppSnapshot } from "../../lib/app-runtim
 import { useApps, useRecentBuildsAcrossApps } from "../../lib/apps"
 import { useGitHubAppConfig } from "../../lib/github"
 import { useMonitoring } from "../../lib/monitoring"
+import { organizationPath, useCurrentOrganization } from "../../lib/organizations"
+import { redirectToDefaultOrganization } from "../../lib/auth-guards"
 import type { AppListItem, BuildWithApp } from "../../lib/apps"
 import type { BuildStatus } from "@ploydok/shared"
 
 export const Route = createFileRoute("/_authed/dashboard")({
+  beforeLoad: async () => redirectToDefaultOrganization(),
   component: DashboardPage,
 })
 
-function DashboardPage(): React.JSX.Element {
+export function DashboardPage(): React.JSX.Element {
   const [modalOpen, setModalOpen] = React.useState(false)
-  const { data: apps = [], isLoading: appsLoading, error: appsError } = useApps()
+  const organization = useCurrentOrganization()
+  const { data: apps = [], isLoading: appsLoading, error: appsError } = useApps(organization?.id)
   const { builds: recentBuilds, isLoading: buildsLoading } = useRecentBuildsAcrossApps(apps, 6)
   const { data: appConfig, isLoading: appConfigLoading } = useGitHubAppConfig()
   const { data: monitoring, isLoading: monitoringLoading } = useMonitoring()
@@ -60,8 +64,8 @@ function DashboardPage(): React.JSX.Element {
       }
       actions={
         <>
-          <Button variant="outline" size="sm" asChild>
-            <Link to="/settings/git-providers/$slug" params={{ slug: "github" }}>
+            <Button variant="outline" size="sm" asChild>
+              <Link to="/settings/git-providers/$slug" params={{ slug: "github" }}>
               <RiGithubFill className="size-4" />
               GitHub setup
             </Link>
@@ -126,8 +130,8 @@ function DashboardPage(): React.JSX.Element {
           description="Deployed services and their current state."
           action={
             apps.length > 0 ? (
-              <Button variant="ghost" size="sm" asChild>
-                <Link to="/apps">
+            <Button variant="ghost" size="sm" asChild>
+                <Link to={(organization ? organizationPath(organization.slug, "apps") : "/apps") as never}>
                   View all
                   <RiArrowRightLine className="size-3.5" />
                 </Link>
@@ -171,7 +175,11 @@ function DashboardPage(): React.JSX.Element {
         </ShellPanel>
       </div>
 
-      <CreateAppModal open={modalOpen} onClose={() => setModalOpen(false)} />
+      <CreateAppModal
+        open={modalOpen}
+        organizationId={organization?.id}
+        onClose={() => setModalOpen(false)}
+      />
     </ShellPage>
   )
 }

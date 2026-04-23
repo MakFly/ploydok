@@ -2,27 +2,62 @@
 import * as React from "react";
 import { Link, useMatches, useRouter, useRouterState } from "@tanstack/react-router";
 import {
+  RiAddLine,
   RiApps2Line,
   RiArrowUpDownLine,
   RiBookOpenLine,
   RiCloseLine,
   RiDashboardLine,
   RiDatabase2Line,
-  RiFolder3Line,
   RiLogoutBoxRLine,
   RiPulseLine,
   RiSettings3Line,
   RiShieldCheckLine,
   RiSidebarFoldLine,
   RiSparkling2Line,
-  RiStackLine,
 } from "@remixicon/react";
+import { Button } from "@workspace/ui/components/button";
+import {
+  Dialog,
+  DialogContent,
+  DialogDescription,
+  DialogFooter,
+  DialogHeader,
+  DialogTitle,
+} from "@workspace/ui/components/dialog";
+import {
+  Field,
+  FieldContent,
+  FieldDescription,
+  FieldError,
+  FieldGroup,
+  FieldLabel,
+} from "@workspace/ui/components/field";
+import { Input } from "@workspace/ui/components/input";
+import {
+  Select,
+  SelectContent,
+  SelectGroup,
+  SelectItem,
+  SelectTrigger,
+  SelectValue,
+} from "@workspace/ui/components/select";
+import type { OrganizationSummary } from "@ploydok/shared";
 import { useLogout, useMe } from "../../lib/auth"
 import { CommandPaletteProvider } from "../../lib/hooks/command-palette-context"
 import { CommandBar } from "./CommandBar"
 import { CommandPaletteRoot } from "./CommandPalette"
 import { NotificationBell } from "./NotificationBell"
 import { extractAppName, resolveTopbarBreadcrumb } from "./topbar-breadcrumb"
+import {
+  organizationDashboardPath,
+  organizationPath,
+  replaceOrganizationInPath,
+  useCreateOrganization,
+  useCurrentOrganization,
+  useCurrentOrganizationSlug,
+  useOrganizations,
+} from "../../lib/organizations"
 
 interface AppShellProps {
   children: React.ReactNode;
@@ -54,11 +89,9 @@ interface NavItem {
 }
 
 const primaryNav: Array<NavItem> = [
-  { label: "Dashboard", to: "/dashboard", icon: RiDashboardLine },
-  { label: "Projects", icon: RiFolder3Line, comingSoon: true },
-  { label: "Applications", to: "/apps", icon: RiApps2Line },
-  { label: "Databases", icon: RiDatabase2Line, comingSoon: true },
-  { label: "Templates", icon: RiStackLine, comingSoon: true },
+  { label: "Dashboard", icon: RiDashboardLine },
+  { label: "Applications", icon: RiApps2Line },
+  { label: "Databases", icon: RiDatabase2Line },
   { label: "Monitoring", to: "/monitoring", icon: RiPulseLine },
   {
     label: "AI Copilot",
@@ -74,6 +107,7 @@ const secondaryNav: Array<NavItem> = [
 ];
 
 const STORAGE_KEY = "ploydok.sidebar.state";
+const CREATE_WORKSPACE_VALUE = "__create_workspace__";
 
 function cx(...values: Array<string | false | null | undefined>): string {
   return values.filter(Boolean).join(" ");
@@ -93,31 +127,126 @@ function isNavActive(pathname: string, target: string): boolean {
   return pathname === target || pathname.startsWith(`${target}/`);
 }
 
-function useSidebarState(): [boolean, () => void] {
-  const [open, setOpen] = React.useState<boolean>(true);
+function useSidebarState(): {
+  open: boolean;
+  setOpen: React.Dispatch<React.SetStateAction<boolean>>;
+  toggle: () => void;
+} {
+  const [open, setOpen] = React.useState<boolean>(() => {
+    if (typeof window === "undefined") return true;
+    try {
+      return window.localStorage.getItem(STORAGE_KEY) !== "collapsed";
+    } catch {
+      return true;
+    }
+  });
 
   React.useEffect(() => {
+    if (typeof window === "undefined") return;
     try {
-      const stored = window.localStorage.getItem(STORAGE_KEY);
-      if (stored === "collapsed") setOpen(false);
+      window.localStorage.setItem(STORAGE_KEY, open ? "expanded" : "collapsed");
     } catch {
       // ignore
     }
-  }, []);
+  }, [open]);
 
   const toggle = React.useCallback(() => {
-    setOpen((prev) => {
-      const next = !prev;
-      try {
-        window.localStorage.setItem(STORAGE_KEY, next ? "expanded" : "collapsed");
-      } catch {
-        // ignore
-      }
-      return next;
-    });
+    setOpen((prev) => !prev);
   }, []);
 
-  return [open, toggle];
+  return { open, setOpen, toggle };
+}
+
+interface CreateWorkspaceDialogProps {
+  open: boolean;
+  onOpenChange: (open: boolean) => void;
+  onCreated: (organization: OrganizationSummary) => Promise<void> | void;
+}
+
+function CreateWorkspaceDialog({
+  open,
+  onOpenChange,
+  onCreated,
+}: CreateWorkspaceDialogProps): React.JSX.Element {
+  const createOrganization = useCreateOrganization();
+  const [name, setName] = React.useState("");
+  const wasOpenRef = React.useRef(open);
+
+  React.useEffect(() => {
+    if (open || !wasOpenRef.current) {
+      wasOpenRef.current = open;
+      return;
+    }
+
+    setName("");
+    createOrganization.reset();
+    wasOpenRef.current = open;
+  }, [open]);
+
+  const trimmedName = name.trim();
+
+  const handleSubmit = async (event: React.FormEvent<HTMLFormElement>): Promise<void> => {
+    event.preventDefault();
+    if (!trimmedName || createOrganization.isPending) return;
+
+    try {
+      const organization = await createOrganization.mutateAsync({ name: trimmedName });
+      setName("");
+      onOpenChange(false);
+      await onCreated(organization);
+    } catch {
+      return;
+    }
+  };
+
+  return (
+    <Dialog open={open} onOpenChange={onOpenChange}>
+      <DialogContent className="sm:max-w-md">
+        <DialogHeader>
+          <DialogTitle>Create workspace</DialogTitle>
+          <DialogDescription>
+            Add a new isolated workspace for a separate set of apps and databases.
+          </DialogDescription>
+        </DialogHeader>
+
+        <form onSubmit={(event) => void handleSubmit(event)} className="flex flex-col gap-4">
+          <FieldGroup>
+            <Field data-invalid={Boolean(createOrganization.error)}>
+              <FieldContent>
+                <FieldLabel htmlFor="workspace-name">Workspace name</FieldLabel>
+                <FieldDescription>
+                  This name is used to generate the workspace slug automatically.
+                </FieldDescription>
+              </FieldContent>
+              <Input
+                id="workspace-name"
+                value={name}
+                autoFocus
+                aria-invalid={Boolean(createOrganization.error)}
+                placeholder="Acme"
+                onChange={(event) => setName(event.target.value)}
+              />
+              <FieldError>{createOrganization.error?.message}</FieldError>
+            </Field>
+          </FieldGroup>
+
+          <DialogFooter>
+            <Button
+              type="button"
+              variant="outline"
+              onClick={() => onOpenChange(false)}
+              disabled={createOrganization.isPending}
+            >
+              Cancel
+            </Button>
+            <Button type="submit" disabled={createOrganization.isPending || !trimmedName}>
+              {createOrganization.isPending ? "Creating..." : "Create workspace"}
+            </Button>
+          </DialogFooter>
+        </form>
+      </DialogContent>
+    </Dialog>
+  );
 }
 
 export function AppShell({ children, banner }: AppShellProps): React.JSX.Element {
@@ -125,15 +254,36 @@ export function AppShell({ children, banner }: AppShellProps): React.JSX.Element
     select: (state) => state.location.pathname,
   });
   const { data: me } = useMe();
+  const { data: organizations = [] } = useOrganizations();
+  const currentOrganization = useCurrentOrganization();
+  const currentOrgSlug = useCurrentOrganizationSlug();
   const logout = useLogout();
   const router = useRouter();
-  const [sidebarOpen, toggleSidebar] = useSidebarState();
+  const { open: sidebarOpen, setOpen: setSidebarOpen, toggle: toggleSidebar } = useSidebarState();
   const [updateOpen, setUpdateOpen] = React.useState(true);
   const [profileOpen, setProfileOpen] = React.useState(false);
+  const [workspaceSelectOpen, setWorkspaceSelectOpen] = React.useState(false);
+  const [openWorkspaceSelectOnExpand, setOpenWorkspaceSelectOnExpand] = React.useState(false);
+  const [createWorkspaceOpen, setCreateWorkspaceOpen] = React.useState(false);
 
   React.useEffect(() => {
     setProfileOpen(false);
+    setWorkspaceSelectOpen(false);
   }, [pathname]);
+
+  React.useEffect(() => {
+    if (!sidebarOpen || !openWorkspaceSelectOnExpand || typeof window === "undefined") return;
+    const frame = window.requestAnimationFrame(() => {
+      setWorkspaceSelectOpen(true);
+      setOpenWorkspaceSelectOnExpand(false);
+    });
+    return () => window.cancelAnimationFrame(frame);
+  }, [openWorkspaceSelectOnExpand, sidebarOpen]);
+
+  React.useEffect(() => {
+    if (sidebarOpen) return;
+    setWorkspaceSelectOpen(false);
+  }, [sidebarOpen]);
 
   const displayName = me?.display_name ?? "Workspace Owner";
   const email = me?.email ?? "hello@ploydok.dev";
@@ -143,6 +293,13 @@ export function AppShell({ children, banner }: AppShellProps): React.JSX.Element
     .join("")
     .slice(0, 2)
     .toUpperCase();
+  const availableOrganizations = React.useMemo(() => {
+    const rows = [...organizations];
+    if (currentOrganization && !rows.some((organization) => organization.id === currentOrganization.id)) {
+      rows.unshift(currentOrganization);
+    }
+    return rows;
+  }, [currentOrganization, organizations]);
 
   const handleLogout = async (): Promise<void> => {
     await logout.mutateAsync();
@@ -150,6 +307,48 @@ export function AppShell({ children, banner }: AppShellProps): React.JSX.Element
   };
 
   const state = sidebarOpen ? "expanded" : "collapsed";
+  const brandTarget = currentOrgSlug ? organizationDashboardPath(currentOrgSlug) : "/dashboard";
+  const navItems = primaryNav.map((item) => {
+    if (item.to) return item;
+    if (item.label === "Dashboard") {
+      return { ...item, to: brandTarget };
+    }
+    if (item.label === "Applications") {
+      return { ...item, to: currentOrgSlug ? organizationPath(currentOrgSlug, "apps") : "/apps" };
+    }
+    if (item.label === "Databases") {
+      return { ...item, to: currentOrgSlug ? organizationPath(currentOrgSlug, "databases") : "/databases" };
+    }
+    return item;
+  });
+
+  const handleOrganizationChange = async (nextSlug: string): Promise<void> => {
+    if (!nextSlug || nextSlug === currentOrgSlug) return;
+    await router.navigate({ href: replaceOrganizationInPath(pathname, nextSlug) });
+  };
+
+  const handleWorkspaceSelect = (nextValue: string): void => {
+    if (nextValue === CREATE_WORKSPACE_VALUE) {
+      setWorkspaceSelectOpen(false);
+      setCreateWorkspaceOpen(true);
+      return;
+    }
+    void handleOrganizationChange(nextValue);
+  };
+
+  const handleCollapsedWorkspaceClick = (): void => {
+    if (sidebarOpen) {
+      setWorkspaceSelectOpen(true);
+      return;
+    }
+    setSidebarOpen(true);
+    setOpenWorkspaceSelectOnExpand(true);
+  };
+
+  const handleWorkspaceCreated = async (organization: OrganizationSummary): Promise<void> => {
+    setWorkspaceSelectOpen(false);
+    await router.navigate({ href: organizationDashboardPath(organization.slug) });
+  };
 
   const wrapperStyle: React.CSSProperties = {
     ["--sidebar-width" as string]: "16rem",
@@ -198,7 +397,7 @@ export function AppShell({ children, banner }: AppShellProps): React.JSX.Element
               {sidebarOpen ? (
                 <>
                   <Link
-                    to="/dashboard"
+                    to={brandTarget as never}
                     className="hover:bg-sidebar-accent flex h-10 min-w-0 flex-1 items-center gap-2 overflow-hidden rounded-md px-[11px] py-2 text-sm outline-none"
                     aria-label="Ploydok"
                   >
@@ -237,20 +436,58 @@ export function AppShell({ children, banner }: AppShellProps): React.JSX.Element
             <div className="flex min-h-0 flex-1 flex-col overflow-x-hidden overflow-y-auto">
               {/* Team selector */}
               <div className="p-2">
-                <button
-                  type="button"
-                  className={cx(
-                    "hover:bg-sidebar-accent flex h-12 w-full items-center gap-2 overflow-hidden rounded-md px-[11px] py-2 text-sm outline-none",
-                    "group-data-[sidebar-state=collapsed]/shell:h-8 group-data-[sidebar-state=collapsed]/shell:justify-center group-data-[sidebar-state=collapsed]/shell:p-0",
-                  )}
-                  aria-label="Switch workspace"
-                >
-                  <span className="size-6 shrink-0 rounded-md bg-gradient-to-br from-emerald-300 via-teal-400 to-sky-500" />
-                  <span className="grid flex-1 text-left leading-tight group-data-[sidebar-state=collapsed]/shell:hidden">
-                    <span className="truncate text-xs font-medium">Ploydok Cloud</span>
-                  </span>
-                  <RiArrowUpDownLine className="text-muted-foreground size-3.5 group-data-[sidebar-state=collapsed]/shell:hidden" />
-                </button>
+                {sidebarOpen ? (
+                  <div className="flex flex-col gap-1.5">
+                    <span className="text-muted-foreground px-1 text-[10px] font-medium uppercase tracking-wide">
+                      Workspace
+                    </span>
+                    <div className="relative">
+                      <span
+                        aria-hidden
+                        className="pointer-events-none absolute top-1/2 left-3 z-10 size-5 -translate-y-1/2 rounded-md bg-gradient-to-br from-emerald-300 via-teal-400 to-sky-500"
+                      />
+                      <Select
+                        open={workspaceSelectOpen}
+                        onOpenChange={setWorkspaceSelectOpen}
+                        value={currentOrgSlug ?? currentOrganization?.slug ?? ""}
+                        onValueChange={handleWorkspaceSelect}
+                      >
+                        <SelectTrigger className="h-12 w-full pl-11 text-left">
+                          <SelectValue placeholder="Select workspace" />
+                        </SelectTrigger>
+                        <SelectContent align="start" className="w-[--radix-select-trigger-width]">
+                          <SelectGroup>
+                            {availableOrganizations.map((organization) => (
+                              <SelectItem key={organization.id} value={organization.slug}>
+                                {organization.name}
+                              </SelectItem>
+                            ))}
+                          </SelectGroup>
+                          <SelectGroup>
+                            <SelectItem value={CREATE_WORKSPACE_VALUE}>
+                              <span className="flex items-center gap-2">
+                                <RiAddLine className="size-4 shrink-0" />
+                                <span>Create workspace</span>
+                              </span>
+                            </SelectItem>
+                          </SelectGroup>
+                        </SelectContent>
+                      </Select>
+                    </div>
+                  </div>
+                ) : (
+                  <button
+                    type="button"
+                    onClick={handleCollapsedWorkspaceClick}
+                    className={cx(
+                      "hover:bg-sidebar-accent flex h-8 w-full items-center justify-center overflow-hidden rounded-md p-0 text-sm outline-none",
+                    )}
+                    aria-label="Open workspace switcher"
+                    title={currentOrganization?.name ?? "My Organization"}
+                  >
+                    <span className="size-6 shrink-0 rounded-md bg-gradient-to-br from-emerald-300 via-teal-400 to-sky-500" />
+                  </button>
+                )}
               </div>
 
               {/* Platform group */}
@@ -259,7 +496,7 @@ export function AppShell({ children, banner }: AppShellProps): React.JSX.Element
                   Platform
                 </div>
                 <ul className="flex w-full min-w-0 flex-col">
-                  {primaryNav.map((item) => {
+                  {navItems.map((item) => {
                     const Icon = item.icon;
                     if (item.comingSoon || !item.to) {
                       return (
@@ -447,6 +684,11 @@ export function AppShell({ children, banner }: AppShellProps): React.JSX.Element
 
       {/* Global command palette — portalized, position-safe */}
       <CommandPaletteRoot />
+      <CreateWorkspaceDialog
+        open={createWorkspaceOpen}
+        onOpenChange={setCreateWorkspaceOpen}
+        onCreated={handleWorkspaceCreated}
+      />
     </div>
     </CommandPaletteProvider>
   );

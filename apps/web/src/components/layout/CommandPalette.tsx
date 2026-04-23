@@ -24,6 +24,7 @@ import {
 import { useApps } from "../../lib/apps"
 import { useDeployApp, useStopApp } from "../../lib/apps-mutations"
 import { useCommandPaletteContext } from "../../lib/hooks/command-palette-context"
+import { organizationPath, useCurrentOrganization, useCurrentOrganizationSlug } from "../../lib/organizations"
 
 // ---------------------------------------------------------------------------
 // Types
@@ -79,6 +80,7 @@ interface CurrentAppActionsProps {
 }
 
 function CurrentAppActions({ appId, onClose }: CurrentAppActionsProps): React.JSX.Element {
+  const currentOrgSlug = useCurrentOrganizationSlug()
   const deploy = useDeployApp(appId)
   const stop = useStopApp(appId)
   const router = useRouter()
@@ -94,7 +96,9 @@ function CurrentAppActions({ appId, onClose }: CurrentAppActionsProps): React.JS
   }
 
   const handleLogs = () => {
-    void router.navigate({ to: "/apps/$id/logs", params: { id: appId } })
+    void router.navigate({
+      href: currentOrgSlug ? organizationPath(currentOrgSlug, `apps/${appId}/logs`) : `/apps/${appId}/logs`,
+    })
     onClose()
   }
 
@@ -133,9 +137,13 @@ interface CommandPaletteContentProps {
 function CommandPaletteContent({ onClose }: CommandPaletteContentProps): React.JSX.Element {
   const router = useRouter()
   const matches = useMatches()
-  const { data: apps } = useApps()
+  const organization = useCurrentOrganization()
+  const currentOrgSlug = useCurrentOrganizationSlug()
+  const { data: apps } = useApps(organization?.id)
 
-  const currentAppMatch = matches.find((m) => m.routeId === "/_authed/apps/$id")
+  const currentAppMatch = matches.find(
+    (m) => m.routeId === "/_authed/apps/$id" || m.routeId === "/_authed/orgs/$orgSlug/apps/$id"
+  )
   const currentAppId = currentAppMatch
     ? (currentAppMatch.params as { id?: string }).id
     : undefined
@@ -157,7 +165,10 @@ function CommandPaletteContent({ onClose }: CommandPaletteContentProps): React.J
               key={app.id}
               value={`app-${app.name}-${app.slug}`}
               onSelect={() =>
-                handleNavSelect("/apps/$id/overview", { id: app.id })
+                handleNavSelect(
+                  currentOrgSlug ? organizationPath(currentOrgSlug, `apps/${app.id}/overview`) : "/apps/$id/overview",
+                  currentOrgSlug ? undefined : { id: app.id },
+                )
               }
             >
               <RiApps2Line className="size-4" />
@@ -175,11 +186,15 @@ function CommandPaletteContent({ onClose }: CommandPaletteContentProps): React.J
       <CommandGroup heading="Navigation">
         {NAV_ITEMS.map((item) => {
           const Icon = item.icon
+          const target =
+            currentOrgSlug && (item.id === "nav-dashboard" || item.id === "nav-apps")
+              ? organizationPath(currentOrgSlug, item.id === "nav-dashboard" ? "dashboard" : "apps")
+              : item.to
           return (
             <CommandItem
               key={item.id}
               value={`nav-${item.label}`}
-              onSelect={() => handleNavSelect(item.to, item.params)}
+              onSelect={() => handleNavSelect(target, item.params)}
             >
               <Icon className="size-4" />
               {item.label}

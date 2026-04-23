@@ -2,8 +2,11 @@
 import * as React from "react"
 import { Link, createFileRoute, useRouter } from "@tanstack/react-router"
 import { Button } from "@workspace/ui/components/button"
+import { apiFetch } from "../../lib/api"
+import type { Me } from "@ploydok/shared"
 import { toast } from "sonner"
 import { PasskeyButton } from "../../components/auth/PasskeyButton"
+import { organizationDashboardPath } from "../../lib/organizations"
 
 export const Route = createFileRoute("/_public/login")({
   component: LoginPage,
@@ -13,8 +16,12 @@ function LoginPage(): React.JSX.Element {
   const router = useRouter()
   const [backupMode, setBackupMode] = React.useState(false)
 
-  const handlePasskeySuccess = (): void => {
-    void router.navigate({ to: "/dashboard" })
+  const handlePasskeySuccess = async (): Promise<void> => {
+    const me = await apiFetch<Me>("/me")
+    const target = me.default_organization
+      ? organizationDashboardPath(me.default_organization.slug)
+      : "/dashboard"
+    await router.navigate({ href: target })
   }
 
   return (
@@ -37,7 +44,7 @@ function LoginPage(): React.JSX.Element {
         <div className="bg-card border-border rounded-[10px] border p-5 shadow-[0_0_2.5px_1px_var(--border)]">
           {!backupMode ? (
             <PasskeyModePanel
-              onSuccess={handlePasskeySuccess}
+              onSuccess={() => void handlePasskeySuccess()}
               onSwitchBackup={() => setBackupMode(true)}
             />
           ) : (
@@ -129,7 +136,7 @@ function BackupCodePanel({
         throw new Error(data.error?.message ?? "Invalid backup code")
       }
       toast.success("Signed in")
-      onSuccess()
+      void onSuccess()
     } catch (err) {
       toast.error(err instanceof Error ? err.message : "Authentication failed")
       setError(err instanceof Error ? err.message : "Authentication failed")

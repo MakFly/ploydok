@@ -131,7 +131,7 @@ function BackendUnavailableGate({
 
 function RootDocument({ children }: { children: React.ReactNode }): React.JSX.Element {
   return (
-    <html lang="en" className="dark">
+    <html lang="en" className="dark" suppressHydrationWarning>
       <head>
         <HeadContent />
         {/* Apply dark theme before paint */}
