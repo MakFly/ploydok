@@ -4,9 +4,9 @@
 //
 import { and, eq } from "drizzle-orm"
 import { nanoid } from "nanoid"
-import { env_vars } from "@ploydok/db"
-import type { Db } from "@ploydok/db"
-import type { EnvVarRow } from "@ploydok/db"
+import { env_vars } from "../schema"
+import type { Db } from "../client"
+import type { EnvVarRow } from "../schema"
 
 export type { EnvVarRow }
 

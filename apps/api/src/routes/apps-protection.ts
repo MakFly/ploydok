@@ -5,13 +5,13 @@ import { eq } from "drizzle-orm"
 import { createDb, apps } from "@ploydok/db"
 import type { Db } from "@ploydok/db"
 import { env } from "../env"
-import { getAppForUser } from "../queries/apps"
+import { getAppForUser } from "@ploydok/db/queries"
 import { encryptField, decryptField } from "../github/app-credentials"
 import { CaddyClient } from "../caddy/client"
 import { childLogger } from "../logger"
 import { requireSecondFactor } from "../auth/middleware"
 import type { AuthUser } from "../auth/middleware"
-import { listDomainsForApp } from "../queries/domains"
+import { listDomainsForApp } from "@ploydok/db/queries"
 
 const log = childLogger("protection")
 

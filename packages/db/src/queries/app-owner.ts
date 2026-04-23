@@ -1,13 +1,14 @@
 // SPDX-License-Identifier: AGPL-3.0-only
 import { eq } from "drizzle-orm"
-import { createDb, apps, projects } from "@ploydok/db"
+import { apps, projects } from "../schema"
+import type { Db } from "../client"
 
 /**
  * Returns the owner_id of the project that contains the given app,
  * or null if the app does not exist.
  */
 export async function resolveAppOwner(
-  db: ReturnType<typeof createDb>,
+  db: Db,
   appId: string,
 ): Promise<string | null> {
   const rows = await db

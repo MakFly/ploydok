@@ -7,7 +7,7 @@ import { nanoid } from "nanoid"
 import { createDb, tls_certificates } from "@ploydok/db"
 import type { Db } from "@ploydok/db"
 import { env } from "../env"
-import { getAppForUser } from "../queries/apps"
+import { getAppForUser } from "@ploydok/db/queries"
 import {
   listDomainsForApp,
   addDomain,
@@ -16,7 +16,7 @@ import {
   updateDomainTlsStatus,
   updateDomainDns01,
   getDomainByHostname,
-} from "../queries/domains"
+} from "@ploydok/db/queries"
 import { CaddyClient } from "../caddy/client"
 import { domainVerifyQueue } from "../worker/queues"
 import { childLogger } from "../logger"

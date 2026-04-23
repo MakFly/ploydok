@@ -4,9 +4,9 @@
 //
 import { eq } from "drizzle-orm"
 import { nanoid } from "nanoid"
-import { domains } from "@ploydok/db"
-import type { Db } from "@ploydok/db"
-import type { DomainRow } from "@ploydok/db"
+import { domains } from "../schema"
+import type { Db } from "../client"
+import type { DomainRow } from "../schema"
 
 export type { DomainRow }
 
