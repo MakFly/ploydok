@@ -11,6 +11,7 @@ import type {
 
 export class CaddyClient {
   private readonly baseUrl: string;
+  private bootstrapL4InFlight: Promise<void> | null = null;
 
   constructor(baseUrl = "http://127.0.0.1:2020") {
     // Remove trailing slash for consistent URL building
@@ -301,6 +302,17 @@ export class CaddyClient {
   }
 
   async ensureLayer4Bootstrap(): Promise<void> {
+    // Dedup concurrent callers: two database spawns racing through
+    // upsertTcpProxy would each read the config and both issue a PUT
+    // on /config/apps/layer4, silently clobbering peer server entries.
+    if (this.bootstrapL4InFlight) return this.bootstrapL4InFlight;
+    this.bootstrapL4InFlight = this.doEnsureLayer4Bootstrap().finally(() => {
+      this.bootstrapL4InFlight = null;
+    });
+    return this.bootstrapL4InFlight;
+  }
+
+  private async doEnsureLayer4Bootstrap(): Promise<void> {
     const config = await this.getConfig();
 
     if (config.apps?.layer4?.servers) {
