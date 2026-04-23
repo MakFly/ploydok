@@ -32,7 +32,7 @@ import { createBackupsRouter } from "./routes/backups";
 import { createAppsDatabasesLinkRouter } from "./routes/apps-databases-link";
 import { appsProtectionRouter } from "./routes/apps-protection";
 import { createOrganizationsRouter } from "./routes/organizations";
-import { getDefaultOrganizationForUser } from "./organizations";
+import { getDefaultOrganizationForUser } from "./services/organizations";
 
 const httpLog = childLogger("http");
 const errorLog = childLogger("error");

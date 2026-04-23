@@ -15,7 +15,7 @@ import { nanoid } from "nanoid"
 import type { Agent } from "../agent/index.js"
 import { logBus } from "./log-bus.js"
 import { workerLog } from "./logger.js"
-import { ensureProjectNetwork } from "../projects.js"
+import { ensureProjectNetwork } from "../services/projects.js"
 import type { Db } from "@ploydok/db"
 
 const log = workerLog.child({ module: "hooks" })

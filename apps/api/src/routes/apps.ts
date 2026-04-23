@@ -20,10 +20,10 @@ import { requireSecondFactor } from "../auth/middleware";
 import { requireTotpVerified } from "../auth/second-factor";
 import { encryptField, decryptField } from "../github/app-credentials";
 import { getSharedAgent } from "../debug/singletons";
-import { resolveRuntimeContainer } from "../runtime-containers";
+import { resolveRuntimeContainer } from "../services/runtime-containers";
 import { dispatch as notifyDispatch } from "../notify/index";
 import { createRedis } from "@ploydok/db";
-import { ensureDefaultOrganizationForUser } from "../organizations";
+import { ensureDefaultOrganizationForUser } from "../services/organizations";
 
 // ---------------------------------------------------------------------------
 // Validation schemas

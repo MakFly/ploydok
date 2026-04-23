@@ -24,7 +24,7 @@ let createOrganizationImpl: (
   created_at: new Date().toISOString(),
 });
 
-mock.module("../organizations", () => ({
+mock.module("../services/organizations", () => ({
   createOrganizationForUser: async (
     db: Db,
     userId: string,

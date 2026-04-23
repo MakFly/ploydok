@@ -13,8 +13,8 @@
 import { eq } from "drizzle-orm";
 import { projects } from "@ploydok/db";
 import type { Db } from "@ploydok/db";
-import { getSharedAgent } from "./debug/singletons.js";
-import { childLogger } from "./logger";
+import { getSharedAgent } from "../debug/singletons.js";
+import { childLogger } from "../logger";
 
 type Agent = ReturnType<typeof getSharedAgent>;
 

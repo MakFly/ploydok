@@ -8,7 +8,7 @@ import {
   getDefaultOrganizationForUser,
   getOrganizationBySlugForUser,
   listOrganizationsForUser,
-} from "../organizations";
+} from "../services/organizations";
 
 function getUser(c: { get: (key: string) => unknown }): AuthUser {
   return c.get("user") as AuthUser;
