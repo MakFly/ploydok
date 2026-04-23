@@ -6,7 +6,8 @@
  * Streams stderr line-by-line via the `onLog` callback.
  */
 import path from "node:path";
-import { mkdir } from "node:fs/promises";
+import os from "node:os";
+import { mkdir, mkdtemp, rm, writeFile } from "node:fs/promises";
 import { env } from "../env";
 
 // ---------------------------------------------------------------------------
@@ -25,6 +26,13 @@ export interface BuildImageOptions {
    * Created automatically if missing.
    */
   cacheDir: string;
+  /** Build args forwarded to the Dockerfile frontend. */
+  buildArgs?: Record<string, string>;
+  /**
+   * Build secrets mounted via BuildKit `RUN --mount=type=secret,id=...`.
+   * The same values are also exposed as build args by the caller when needed.
+   */
+  buildSecrets?: Record<string, string>;
   /** Called for every log line emitted by buildctl on stdout/stderr. */
   onLog?: (line: string) => void;
 }
@@ -72,67 +80,83 @@ export async function buildImage(opts: BuildImageOptions): Promise<BuildImageRes
     "--progress", "plain",
   ];
 
-  const startMs = Date.now();
+  for (const [key, value] of Object.entries(opts.buildArgs ?? {})) {
+    args.push("--opt", `build-arg:${key}=${value}`);
+  }
 
-  const proc = Bun.spawn(["buildctl", ...args], {
-    stdout: "pipe",
-    stderr: "pipe",
-  });
-
-  // Collect digest from output while streaming logs.
-  let imageDigest = "";
-
-  async function pipeLines(stream: ReadableStream<Uint8Array>): Promise<void> {
-    const reader = stream.getReader();
-    const dec = new TextDecoder();
-    let buf = "";
-    while (true) {
-      const { done, value } = await reader.read();
-      if (done) break;
-      buf += dec.decode(value, { stream: true });
-      let i: number;
-      while ((i = buf.indexOf("\n")) !== -1) {
-        const line = buf.slice(0, i);
-        buf = buf.slice(i + 1);
-        // Try to parse the pushed digest from buildctl output.
-        // buildctl --progress plain prints lines like:
-        //   #N pushing manifest for …@sha256:…
-        //   #N [auth] … -> sha256:…
-        // We look for a sha256 digest in any output line.
-        const digestMatch = line.match(/sha256:[a-f0-9]{64}/);
-        if (digestMatch && !imageDigest) {
-          imageDigest = digestMatch[0];
-        }
-        opts.onLog?.(line);
+  let secretDir: string | null = null;
+  try {
+    if (opts.buildSecrets && Object.keys(opts.buildSecrets).length > 0) {
+      secretDir = await mkdtemp(path.join(os.tmpdir(), "ploydok-buildkit-secrets-"));
+      for (const [key, value] of Object.entries(opts.buildSecrets)) {
+        const secretPath = path.join(secretDir, key);
+        await writeFile(secretPath, value, { mode: 0o600 });
+        args.push("--secret", `id=${key},src=${secretPath}`);
       }
     }
-    // Flush remaining content without trailing newline.
-    if (buf) {
-      const digestMatch = buf.match(/sha256:[a-f0-9]{64}/);
-      if (digestMatch && !imageDigest) imageDigest = digestMatch[0];
-      opts.onLog?.(buf);
+
+    const startMs = Date.now();
+
+    const proc = Bun.spawn(["buildctl", ...args], {
+      stdout: "pipe",
+      stderr: "pipe",
+    });
+
+  // Collect digest from output while streaming logs.
+    let imageDigest = "";
+
+    async function pipeLines(stream: ReadableStream<Uint8Array>): Promise<void> {
+      const reader = stream.getReader();
+      const dec = new TextDecoder();
+      let buf = "";
+      while (true) {
+        const { done, value } = await reader.read();
+        if (done) break;
+        buf += dec.decode(value, { stream: true });
+        let i: number;
+        while ((i = buf.indexOf("\n")) !== -1) {
+          const line = buf.slice(0, i);
+          buf = buf.slice(i + 1);
+          // Try to parse the pushed digest from buildctl output.
+          const digestMatch = line.match(/sha256:[a-f0-9]{64}/);
+          if (digestMatch && !imageDigest) {
+            imageDigest = digestMatch[0];
+          }
+          opts.onLog?.(line);
+        }
+      }
+      // Flush remaining content without trailing newline.
+      if (buf) {
+        const digestMatch = buf.match(/sha256:[a-f0-9]{64}/);
+        if (digestMatch && !imageDigest) imageDigest = digestMatch[0];
+        opts.onLog?.(buf);
+      }
+    }
+
+    await Promise.all([
+      pipeLines(proc.stdout as ReadableStream<Uint8Array>),
+      pipeLines(proc.stderr as ReadableStream<Uint8Array>),
+    ]);
+
+    const code = await proc.exited;
+    const durationMs = Date.now() - startMs;
+
+    if (code !== 0) {
+      throw new Error(
+        `buildctl failed (exit ${code}) for image ${opts.imageRef}`,
+      );
+    }
+
+    // If we couldn't parse the digest from output, fall back to a placeholder
+    // so callers can still proceed — the image was pushed successfully.
+    if (!imageDigest) {
+      imageDigest = "sha256:unknown";
+    }
+
+    return { imageDigest, durationMs };
+  } finally {
+    if (secretDir) {
+      await rm(secretDir, { recursive: true, force: true });
     }
   }
-
-  await Promise.all([
-    pipeLines(proc.stdout as ReadableStream<Uint8Array>),
-    pipeLines(proc.stderr as ReadableStream<Uint8Array>),
-  ]);
-
-  const code = await proc.exited;
-  const durationMs = Date.now() - startMs;
-
-  if (code !== 0) {
-    throw new Error(
-      `buildctl failed (exit ${code}) for image ${opts.imageRef}`,
-    );
-  }
-
-  // If we couldn't parse the digest from output, fall back to a placeholder
-  // so callers can still proceed — the image was pushed successfully.
-  if (!imageDigest) {
-    imageDigest = "sha256:unknown";
-  }
-
-  return { imageDigest, durationMs };
 }

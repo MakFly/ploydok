@@ -69,10 +69,13 @@ interface AppForDeploy {
   github_installation_id: string | null;
   root_dir: string | null;
   dockerfile_path: string | null;
+  nixpacks_config_path: string | null;
+  node_version: string | null;
   install_command: string | null;
   build_command: string | null;
   start_command: string | null;
   build_method: string | null;
+  runtime_port: number | null;
   restart_policy: string | null;
   image_ref: string | null;
   registry_credential_id: string | null;
@@ -101,10 +104,13 @@ async function getAppForDeploy(db: Db, appId: string): Promise<AppForDeploy> {
       github_installation_id: apps.github_installation_id,
       root_dir: apps.root_dir,
       dockerfile_path: apps.dockerfile_path,
+      nixpacks_config_path: apps.nixpacks_config_path,
+      node_version: apps.node_version,
       install_command: apps.install_command,
       build_command: apps.build_command,
       start_command: apps.start_command,
       build_method: apps.build_method,
+      runtime_port: apps.runtime_port,
       restart_policy: apps.restart_policy,
       image_ref: apps.image_ref,
       registry_credential_id: apps.registry_credential_id,
@@ -334,7 +340,7 @@ export async function handleDeploy(
       }
 
       const registryAuth = await loadRegistryAuthForApp(db, app);
-      const secretEnv = await buildEnvForDeploy(db, app.id, "prod");
+      const secretEnv = await buildEnvForDeploy(db, app.id, "prod", "runtime");
 
       // Pre-deploy hook (image source path)
       if (app.hooks_pre_deploy) {
@@ -361,6 +367,7 @@ export async function handleDeploy(
         env: secretEnv,
         db,
       };
+      if (app.runtime_port !== null) runOpts.runtimePort = app.runtime_port;
       if (registryAuth) runOpts.registryAuth = registryAuth;
       let containerId: string;
       try {
@@ -502,6 +509,9 @@ export async function handleDeploy(
       logStream.write(line + "\n");
     }
 
+    const buildEnv = await buildEnvForDeploy(db, app.id, "prod", "build");
+    const runtimeSecretEnv = await buildEnvForDeploy(db, app.id, "prod", "runtime");
+
     if (detected.method === "docker") {
       // BuildKit path (M3.1)
       const contextDir = path.join(workspacePath, app.root_dir ?? ".");
@@ -517,6 +527,8 @@ export async function handleDeploy(
           dockerfile: dockerfileAbs,
           imageRef: pushRef,
           cacheDir,
+          buildArgs: buildEnv,
+          buildSecrets: buildEnv,
           onLog,
         }));
       } catch (buildErr) {
@@ -564,9 +576,12 @@ export async function handleDeploy(
           cacheDir: nixpacksCache,
           dockerCacheRef: `${pushRegistry}/${repo}:cache`,
           ...(app.root_dir !== null && { rootDir: app.root_dir }),
+          ...(app.nixpacks_config_path !== null && { configFile: app.nixpacks_config_path }),
+          ...(app.node_version !== null && { nodeVersion: app.node_version }),
           ...(app.install_command !== null && { installCmd: app.install_command }),
           ...(app.build_command !== null && { buildCmd: app.build_command }),
           ...(app.start_command !== null && { startCmd: app.start_command }),
+          ...(Object.keys(buildEnv).length > 0 && { buildEnv }),
           onLog,
         });
       } catch (nixErr) {
@@ -607,8 +622,6 @@ export async function handleDeploy(
     // 4. Blue-green deploy — spawn container, healthcheck, Caddy swap.
     // runBlueGreen internally updates apps.container_id + apps.status = 'running'.
     onLog("[deploy] starting blue-green runner");
-    const runtimeSecretEnv = await buildEnvForDeploy(db, app.id, "prod");
-
     // Pre-deploy hook (git source path)
     if (app.hooks_pre_deploy) {
       onLog("[deploy] running pre-deploy hook");
@@ -630,12 +643,14 @@ export async function handleDeploy(
 
     let containerId: string;
     try {
-      ({ containerId } = await runBlueGreen({
+      const runOpts: Parameters<typeof runBlueGreen>[0] = {
         appId: app.id,
         imageRef,
         env: runtimeSecretEnv,
         db,
-      }));
+      };
+      if (app.runtime_port !== null) runOpts.runtimePort = app.runtime_port;
+      ({ containerId } = await runBlueGreen(runOpts));
     } catch (runErr) {
       throw classifyAgentError(runErr);
     }

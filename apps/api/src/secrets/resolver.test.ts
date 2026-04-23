@@ -42,4 +42,18 @@ describe("buildEnvForDeploy merge logic (unit)", () => {
     const merged = { ...{}, ...{} }
     expect(merged).toEqual({})
   })
+
+  it("build phase ignores runtime-only keys", () => {
+    const sharedBuild: Record<string, string> = { NEXT_PUBLIC_API_URL: "https://api.example.com" }
+    const runtimeOnly: Record<string, string> = { PORT: "3000" }
+    const merged = { ...sharedBuild }
+    expect(merged["NEXT_PUBLIC_API_URL"]).toBe("https://api.example.com")
+    expect(merged["PORT"]).toBeUndefined()
+    expect(runtimeOnly["PORT"]).toBe("3000")
+  })
+
+  it("both phase is valid for build and runtime consumers", () => {
+    const both = { NEXT_PUBLIC_APP_NAME: "ploydok" }
+    expect(both["NEXT_PUBLIC_APP_NAME"]).toBe("ploydok")
+  })
 })

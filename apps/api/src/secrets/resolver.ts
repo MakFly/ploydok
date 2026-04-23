@@ -12,6 +12,7 @@ export async function buildEnvForDeploy(
   db: Db,
   appId: string,
   kind: "prod" | "preview",
+  phase: "build" | "runtime" = "runtime",
 ): Promise<Record<string, string>> {
   const rows = await db
     .select()
@@ -20,6 +21,7 @@ export async function buildEnvForDeploy(
       and(
         eq(secrets.app_id, appId),
         or(eq(secrets.scope, "shared"), eq(secrets.scope, kind)),
+        or(eq(secrets.phase, phase), eq(secrets.phase, "both")),
       ),
     )
 

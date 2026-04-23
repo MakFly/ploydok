@@ -97,6 +97,9 @@ export interface NixpacksBuildOptions {
    * backend, so they follow the standard BuildKit cache export/import syntax.
    */
   dockerCacheRef?: string;
+  configFile?: string;
+  nodeVersion?: string;
+  buildEnv?: Record<string, string>;
   installCmd?: string;
   buildCmd?: string;
   startCmd?: string;
@@ -139,6 +142,7 @@ export async function nixpacksBuild(opts: NixpacksBuildOptions): Promise<void> {
     args.push(`--docker-cache-to=type=local,dest=${opts.cacheDir},mode=max`);
   }
 
+  if (opts.configFile) args.push("--config", path.join(opts.workspacePath, opts.configFile));
   if (opts.installCmd) args.push("--install-cmd", opts.installCmd);
   if (opts.buildCmd) args.push("--build-cmd", opts.buildCmd);
   if (opts.startCmd) args.push("--start-cmd", opts.startCmd);
@@ -146,6 +150,11 @@ export async function nixpacksBuild(opts: NixpacksBuildOptions): Promise<void> {
   const proc = Bun.spawn([bin, ...args], {
     stdout: "pipe",
     stderr: "pipe",
+    env: {
+      ...process.env,
+      ...(opts.buildEnv ?? {}),
+      ...(opts.nodeVersion ? { NIXPACKS_NODE_VERSION: opts.nodeVersion } : {}),
+    },
   });
 
   async function pipeLogs(stream: ReadableStream<Uint8Array>) {

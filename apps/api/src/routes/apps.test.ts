@@ -185,6 +185,32 @@ describe.skipIf(skip)("POST /apps", () => {
     expect(body.app.restartPolicy).toBe("no");
   });
 
+  it("creates an app with runtime port and nixpacks metadata", async () => {
+    const app = buildTestApp(db, fakeUser(userId, `u@t.com`));
+    const res = await app.request("/apps", {
+      method: "POST",
+      headers: { "content-type": "application/json" },
+      body: JSON.stringify({
+        name: "Framework App",
+        projectId,
+        gitProvider: "github",
+        repoFullName: "owner/repo",
+        branch: "main",
+        runtimePort: 4321,
+        nixpacksConfigPath: "nixpacks.toml",
+        nodeVersion: "22",
+      }),
+    });
+
+    expect(res.status).toBe(201);
+    const body = await res.json() as {
+      app: { runtimePort: number | null; nixpacksConfigPath?: string; nodeVersion?: string }
+    };
+    expect(body.app.runtimePort).toBe(4321);
+    expect(body.app.nixpacksConfigPath).toBe("nixpacks.toml");
+    expect(body.app.nodeVersion).toBe("22");
+  });
+
   it("generates slug from name — special chars collapsed", async () => {
     const app = buildTestApp(db, fakeUser(userId, `u@t.com`));
     const res = await app.request("/apps", {
@@ -439,6 +465,29 @@ describe.skipIf(skip)("PATCH /apps/:id", () => {
     expect(body.app.branch).toBe("develop");
     expect(body.app.restartPolicy).toBe("on-failure");
     expect(body.app.healthcheck.retries).toBe(10);
+  });
+
+  it("updates runtime port and nixpacks metadata", async () => {
+    const { id: appId } = await createTestApp(db, { userId, projectId, branch: "main" });
+
+    const honoApp = buildTestApp(db, fakeUser(userId, `u@t.com`));
+    const res = await honoApp.request(`/apps/${appId}`, {
+      method: "PATCH",
+      headers: { "content-type": "application/json" },
+      body: JSON.stringify({
+        runtimePort: 8080,
+        nixpacksConfigPath: "deploy/nixpacks.toml",
+        nodeVersion: "20",
+      }),
+    });
+
+    expect(res.status).toBe(200);
+    const body = await res.json() as {
+      app: { runtimePort: number | null; nixpacksConfigPath?: string; nodeVersion?: string }
+    };
+    expect(body.app.runtimePort).toBe(8080);
+    expect(body.app.nixpacksConfigPath).toBe("deploy/nixpacks.toml");
+    expect(body.app.nodeVersion).toBe("20");
   });
 
   it("returns 404 for an app belonging to another user", async () => {
