@@ -2,6 +2,8 @@
 import type {
   CaddyConfig,
   CaddyHandler,
+  CaddyLayer4Route,
+  CaddyLayer4Server,
   CaddyMiddlewares,
   CaddyRoute,
   CaddyTlsOptions,
@@ -295,6 +297,68 @@ export class CaddyClient {
       `/config/apps`,
       { http: { servers: { srv0 } } },
       "apps",
+    );
+  }
+
+  async ensureLayer4Bootstrap(): Promise<void> {
+    const config = await this.getConfig();
+
+    if (config.apps?.layer4?.servers) {
+      return;
+    }
+
+    if (config.apps?.layer4) {
+      await this.putOrFail(`/config/apps/layer4/servers`, {}, "layer4.servers");
+      return;
+    }
+
+    if (config.apps) {
+      await this.putOrFail(`/config/apps/layer4`, { servers: {} }, "apps.layer4");
+      return;
+    }
+
+    await this.putOrFail(`/config/apps`, { layer4: { servers: {} } }, "apps");
+  }
+
+  async upsertTcpProxy({
+    serverId,
+    listenPort,
+    upstream,
+  }: {
+    serverId: string;
+    listenPort: number;
+    upstream: string;
+  }): Promise<void> {
+    await this.ensureLayer4Bootstrap();
+
+    const route: CaddyLayer4Route = {
+      "@id": serverId,
+      handle: [
+        {
+          handler: "proxy",
+          upstreams: [{ dial: [upstream] }],
+        },
+      ],
+    };
+
+    const server: CaddyLayer4Server = {
+      listen: [`:${listenPort}`],
+      routes: [route],
+    };
+
+    await this.putOrFail(`/config/apps/layer4/servers/${serverId}`, server, `layer4.servers.${serverId}`);
+  }
+
+  async removeTcpProxy(serverId: string): Promise<void> {
+    await this.ensureLayer4Bootstrap();
+    const res = await fetch(`${this.baseUrl}/config/apps/layer4/servers/${serverId}`, {
+      method: "DELETE",
+    });
+
+    if (res.ok || res.status === 404) return;
+
+    throw new Error(
+      `CaddyClient.removeTcpProxy failed: ${res.status} ${await res.text()}`,
     );
   }
 

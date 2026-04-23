@@ -2,6 +2,7 @@
 export { CaddyClient } from "./client.js";
 export type {
   CaddyConfig,
+  CaddyLayer4Server,
   CaddyHandler,
   CaddyMatch,
   CaddyReverseProxyHandler,

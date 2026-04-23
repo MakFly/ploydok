@@ -14,6 +14,9 @@ export interface CaddyConfig {
     http?: {
       servers?: Record<string, CaddyServer>;
     };
+    layer4?: {
+      servers?: Record<string, CaddyLayer4Server>;
+    };
     tls?: {
       automation?: {
         policies?: CaddyTlsPolicy[]
@@ -41,6 +44,28 @@ export interface CaddyServer {
     disable?: boolean;
     skip?: string[];
   };
+}
+
+export interface CaddyLayer4Server {
+  listen?: string[];
+  routes?: CaddyLayer4Route[];
+}
+
+export interface CaddyLayer4Route {
+  "@id"?: string;
+  match?: CaddyLayer4Match[];
+  handle?: CaddyLayer4Handler[];
+}
+
+export interface CaddyLayer4Match {
+  tls?: Record<string, unknown>;
+}
+
+export type CaddyLayer4Handler = CaddyLayer4ProxyHandler;
+
+export interface CaddyLayer4ProxyHandler {
+  handler: "proxy";
+  upstreams: Array<{ dial: string[] }>;
 }
 
 export interface CaddyRoute {
