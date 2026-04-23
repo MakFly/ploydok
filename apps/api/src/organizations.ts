@@ -27,7 +27,9 @@ function buildDefaultOrganizationName(displayName: string | null | undefined): s
   return normalized && normalized.length > 0 ? normalized : "My Organization";
 }
 
-async function uniqueOrganizationSlug(db: Db, baseName: string): Promise<string> {
+type DbOrTx = Pick<Db, "select">;
+
+async function uniqueOrganizationSlug(db: DbOrTx, baseName: string): Promise<string> {
   const base = slugifyOrganizationName(baseName) || "workspace";
   let candidate = base;
   let attempt = 1;
@@ -54,44 +56,75 @@ function toSummary(row: typeof projects.$inferSelect): OrganizationSummary {
   };
 }
 
+function isUniqueViolation(err: unknown): boolean {
+  return (
+    typeof err === "object" &&
+    err !== null &&
+    "code" in err &&
+    (err as { code: unknown }).code === "23505"
+  );
+}
+
 export async function ensureDefaultOrganizationForUser(
   db: Db,
   userId: string,
   displayName?: string | null,
 ): Promise<typeof projects.$inferSelect> {
-  const existingDefault = await db
-    .select()
-    .from(projects)
-    .where(and(eq(projects.owner_id, userId), eq(projects.is_default, true)))
-    .orderBy(asc(projects.created_at), asc(projects.id))
-    .limit(1);
+  try {
+    return await db.transaction(async (tx) => {
+      const existingDefault = await tx
+        .select()
+        .from(projects)
+        .where(and(eq(projects.owner_id, userId), eq(projects.is_default, true)))
+        .orderBy(asc(projects.created_at), asc(projects.id))
+        .limit(1);
 
-  if (existingDefault[0]) return existingDefault[0];
+      if (existingDefault[0]) return existingDefault[0];
 
-  const oldest = await db
-    .select()
-    .from(projects)
-    .where(eq(projects.owner_id, userId))
-    .orderBy(asc(projects.created_at), asc(projects.id))
-    .limit(1);
+      const oldest = await tx
+        .select()
+        .from(projects)
+        .where(eq(projects.owner_id, userId))
+        .orderBy(asc(projects.created_at), asc(projects.id))
+        .limit(1);
 
-  if (oldest[0]) {
-    await db.update(projects).set({ is_default: true }).where(eq(projects.id, oldest[0].id));
-    return { ...oldest[0], is_default: true };
+      if (oldest[0]) {
+        await tx
+          .update(projects)
+          .set({ is_default: true })
+          .where(eq(projects.id, oldest[0].id));
+        return { ...oldest[0], is_default: true };
+      }
+
+      const now = new Date();
+      const name = buildDefaultOrganizationName(displayName);
+      const [inserted] = await tx
+        .insert(projects)
+        .values({
+          id: nanoid(),
+          owner_id: userId,
+          name,
+          slug: await uniqueOrganizationSlug(tx, name),
+          is_default: true,
+          created_at: now,
+        })
+        .returning();
+      if (!inserted) throw new Error("failed to insert default organization");
+      return inserted;
+    });
+  } catch (err) {
+    // Concurrent caller won the race and created the default first.
+    // Re-read and return theirs.
+    if (!isUniqueViolation(err)) throw err;
+    const fallback = await db
+      .select()
+      .from(projects)
+      .where(and(eq(projects.owner_id, userId), eq(projects.is_default, true)))
+      .orderBy(asc(projects.created_at), asc(projects.id))
+      .limit(1);
+    if (fallback[0]) return fallback[0];
+    throw err;
   }
-
-  const now = new Date();
-  const name = buildDefaultOrganizationName(displayName);
-  const row: typeof projects.$inferInsert = {
-    id: nanoid(),
-    owner_id: userId,
-    name,
-    slug: await uniqueOrganizationSlug(db, name),
-    is_default: true,
-    created_at: now,
-  };
-  await db.insert(projects).values(row);
-  return row as typeof projects.$inferSelect;
 }
 
 export async function listOrganizationsForUser(
@@ -119,17 +152,20 @@ export async function createOrganizationForUser(
   await ensureDefaultOrganizationForUser(db, userId, displayName);
 
   const normalizedName = name.trim();
-  const row: typeof projects.$inferInsert = {
-    id: nanoid(),
-    owner_id: userId,
-    name: normalizedName,
-    slug: await uniqueOrganizationSlug(db, normalizedName),
-    is_default: false,
-    created_at: new Date(),
-  };
+  const [inserted] = await db
+    .insert(projects)
+    .values({
+      id: nanoid(),
+      owner_id: userId,
+      name: normalizedName,
+      slug: await uniqueOrganizationSlug(db, normalizedName),
+      is_default: false,
+      created_at: new Date(),
+    })
+    .returning();
 
-  await db.insert(projects).values(row);
-  return toSummary(row as typeof projects.$inferSelect);
+  if (!inserted) throw new Error("failed to insert organization");
+  return toSummary(inserted);
 }
 
 export async function getOrganizationBySlugForUser(
