@@ -6,9 +6,23 @@ import { z } from "zod";
 import { and, eq } from "drizzle-orm";
 import { nanoid } from "nanoid";
 import { createDb } from "@ploydok/db";
-import { apps, audit_log, builds, projects } from "@ploydok/db";
+import { projects } from "@ploydok/db";
 import { BuildMethodSchema, HealthcheckConfigSchema, RestartPolicySchema } from "@ploydok/shared";
-import { getAppActivity, getAppForUser, listAppsForUser, listBuildsForApp } from "@ploydok/db/queries";
+import {
+  getAppActivity,
+  getAppForUser,
+  getBuildForApp,
+  getBuildLogPath,
+  insertAuditLog,
+  insertApp,
+  listAppsForUser,
+  listBuildsForApp,
+  markAppDeleting,
+  rotateAppWebhookSecret,
+  uniqueSlug,
+  updateApp,
+  type AppRow,
+} from "@ploydok/db/queries";
 import { listDeliveriesByApp, getDeliveryById } from "@ploydok/db/queries";
 import { replayDelivery, ReplayLimitError, ReplayPayloadMissingError } from "../webhooks/deliveries";
 import { env } from "../env";
@@ -135,32 +149,6 @@ export function slugify(name: string): string {
     .slice(0, 32);
 }
 
-/**
- * Find a slug that doesn't already exist in the given project.
- * If the base slug is taken, append -2, -3, etc.
- */
-async function uniqueSlug(
-  db: Db,
-  projectId: string,
-  base: string,
-  excludeAppId?: string,
-): Promise<string> {
-  let candidate = base || "app";
-  let attempt = 1;
-  for (;;) {
-    const existing = await db
-      .select({ id: apps.id })
-      .from(apps)
-      .where(and(eq(apps.project_id, projectId), eq(apps.slug, candidate)))
-      .limit(1);
-
-    const conflict = existing.find((r) => r.id !== excludeAppId);
-    if (!conflict) return candidate;
-    attempt++;
-    candidate = `${base}-${attempt}`;
-  }
-}
-
 function getUser(c: { get: (key: string) => unknown }): AuthUser {
   return c.get("user") as AuthUser;
 }
@@ -168,8 +156,6 @@ function getUser(c: { get: (key: string) => unknown }): AuthUser {
 // ---------------------------------------------------------------------------
 // Serializers
 // ---------------------------------------------------------------------------
-
-type AppRow = typeof apps.$inferSelect;
 
 function nullToUndefined<T>(value: T | null): T | undefined {
   return value ?? undefined;
@@ -370,7 +356,7 @@ export function createAppsRouter(db: Db): Hono {
     const hc = body.healthcheck ?? {};
 
     // 5. INSERT
-    await db.insert(apps).values({
+    const newApp = await insertApp(db, {
       id,
       project_id: projectId,
       name: body.name,
@@ -411,15 +397,9 @@ export function createAppsRouter(db: Db): Hono {
       healthcheck_start_period_s: hc.startPeriodS ?? 0,
     });
 
-    const rows = await db
-      .select()
-      .from(apps)
-      .where(eq(apps.id, id))
-      .limit(1);
-
     await deployQueue.add("deploy.requested", { appId: id, commitSha: null }, { attempts: 1 })
 
-    return c.json({ app: serializeApp(rows[0]!) }, 201);
+    return c.json({ app: serializeApp(newApp) }, 201);
   });
 
   // -------------------------------------------------------------------------
@@ -518,7 +498,7 @@ export function createAppsRouter(db: Db): Hono {
       if (hc.startPeriodS !== undefined) patch.healthcheck_start_period_s = hc.startPeriodS;
     }
 
-    await db.update(apps).set(patch).where(eq(apps.id, appId));
+    const updated = await updateApp(db, appId, patch);
 
     // Docker only applies restart policy at container creation time.
     // If a running app changes policy, immediately recreate the runtime so the
@@ -528,13 +508,7 @@ export function createAppsRouter(db: Db): Hono {
       await restartApp(appId, db, user.id);
     }
 
-    const updated = await db
-      .select()
-      .from(apps)
-      .where(eq(apps.id, appId))
-      .limit(1);
-
-    return c.json({ app: serializeApp(updated[0]!) });
+    return c.json({ app: serializeApp(updated) });
   });
 
   // -------------------------------------------------------------------------
@@ -592,10 +566,7 @@ export function createAppsRouter(db: Db): Hono {
       return c.json({ error: { code: "VALIDATION_ERROR", message: String(err) } }, 400);
     }
 
-    await db
-      .update(apps)
-      .set({ status: "deleting", updated_at: new Date() })
-      .where(eq(apps.id, appId));
+    await markAppDeleting(db, appId);
 
     const deletePayload = {
       appId,
@@ -692,13 +663,7 @@ export function createAppsRouter(db: Db): Hono {
     }
 
     // Load build row and verify it belongs to this app.
-    const buildRows = await db
-      .select({ id: builds.id, app_id: builds.app_id, log_path: builds.log_path })
-      .from(builds)
-      .where(and(eq(builds.id, buildId), eq(builds.app_id, appId)))
-      .limit(1);
-
-    const build = buildRows[0];
+    const build = await getBuildLogPath(db, buildId, appId);
     if (!build) {
       return c.json({ error: { code: "NOT_FOUND", message: "Build not found" } }, 404);
     }
@@ -821,13 +786,7 @@ export function createAppsRouter(db: Db): Hono {
 
     // If an explicit buildId is provided, validate it exists and has status succeeded
     if (body.buildId) {
-      const targetBuildRows = await db
-        .select({ id: builds.id, app_id: builds.app_id, status: builds.status })
-        .from(builds)
-        .where(and(eq(builds.id, body.buildId), eq(builds.app_id, appId)))
-        .limit(1);
-
-      const targetBuild = targetBuildRows[0];
+      const targetBuild = await getBuildForApp(db, body.buildId, appId);
       if (!targetBuild) {
         return c.json({ error: { code: "NOT_FOUND", message: "Build not found for this app" } }, 404);
       }
@@ -1010,29 +969,16 @@ export function createAppsRouter(db: Db): Hono {
     const newSecretBlob = Buffer.concat([nonce, enc]);
 
     // Move current secret → old before overwriting
-    await db
-      .update(apps)
-      .set({
-        webhook_secret: newSecretBlob,
-        webhook_secret_old: app.webhook_secret ?? null,
-        webhook_secret_old_expires_at: new Date(now.getTime() + 24 * 60 * 60 * 1000),
-        updated_at: now,
-      })
-      .where(eq(apps.id, appId));
+    await rotateAppWebhookSecret(db, appId, app.webhook_secret ?? null, newSecretBlob, now);
 
     // Audit
-    try {
-      await db.insert(audit_log).values({
-        user_id: user.id,
-        action: "webhook.secret.rotated",
-        target_type: "app",
-        target_id: appId,
-        metadata: "{}",
-        created_at: now,
-      });
-    } catch {
-      // Audit failure must not block the response
-    }
+    await insertAuditLog(db, {
+      user_id: user.id,
+      action: "webhook.secret.rotated",
+      target_type: "app",
+      target_id: appId,
+      created_at: now,
+    });
 
     childLogger("apps-webhook-secret").info({ appId, userId: user.id }, "webhook secret rotated");
 
@@ -1069,18 +1015,13 @@ export function createAppsRouter(db: Db): Hono {
       const newDeliveryId = await replayDelivery(db, deliveryId, appId);
 
       // Audit
-      try {
-        await db.insert(audit_log).values({
-          user_id: user.id,
-          action: "webhook.replayed",
-          target_type: "app",
-          target_id: appId,
-          metadata: JSON.stringify({ delivery_id: deliveryId, new_delivery_id: newDeliveryId }),
-          created_at: new Date(),
-        });
-      } catch {
-        // Audit failure must not block the response
-      }
+      await insertAuditLog(db, {
+        user_id: user.id,
+        action: "webhook.replayed",
+        target_type: "app",
+        target_id: appId,
+        metadata: JSON.stringify({ delivery_id: deliveryId, new_delivery_id: newDeliveryId }),
+      });
 
       childLogger("apps-webhook-replay").info(
         { appId, userId: user.id, deliveryId, newDeliveryId },

@@ -3,7 +3,7 @@
 // App CRUD queries — thin wrappers over Drizzle to keep routes clean.
 //
 import { and, desc, eq } from "drizzle-orm";
-import { apps, builds, projects } from "../schema";
+import { apps, audit_log, builds, projects } from "../schema";
 import type { Db } from "../client";
 
 // ---------------------------------------------------------------------------
@@ -201,4 +201,145 @@ export async function getAppActivity(
 ): Promise<ActivityEvent[]> {
   const rows = await listBuildsForApp(db, appId, limit);
   return deriveActivityFromBuilds(rows, limit);
+}
+
+// ---------------------------------------------------------------------------
+// Mutations
+// ---------------------------------------------------------------------------
+
+export type InsertAppInput = typeof apps.$inferInsert;
+
+/** Inserts a new app row and returns the persisted row. */
+export async function insertApp(db: Db, values: InsertAppInput): Promise<AppRow> {
+  await db.insert(apps).values(values);
+  const rows = await db.select().from(apps).where(eq(apps.id, values.id!)).limit(1);
+  return rows[0]!;
+}
+
+/** Updates an app row by id and returns the updated row. */
+export async function updateApp(
+  db: Db,
+  appId: string,
+  patch: Record<string, unknown>,
+): Promise<AppRow> {
+  await db.update(apps).set(patch).where(eq(apps.id, appId));
+  const rows = await db.select().from(apps).where(eq(apps.id, appId)).limit(1);
+  return rows[0]!;
+}
+
+/** Sets app status to 'deleting'. */
+export async function markAppDeleting(db: Db, appId: string): Promise<void> {
+  await db.update(apps).set({ status: "deleting", updated_at: new Date() }).where(eq(apps.id, appId));
+}
+
+/** Finds the first slug candidate that is not already in use within the project. */
+export async function uniqueSlug(
+  db: Db,
+  projectId: string,
+  base: string,
+  excludeAppId?: string,
+): Promise<string> {
+  let candidate = base || "app";
+  let attempt = 1;
+  for (;;) {
+    const existing = await db
+      .select({ id: apps.id })
+      .from(apps)
+      .where(and(eq(apps.project_id, projectId), eq(apps.slug, candidate)))
+      .limit(1);
+
+    const conflict = existing.find((r) => r.id !== excludeAppId);
+    if (!conflict) return candidate;
+    attempt++;
+    candidate = `${base}-${attempt}`;
+  }
+}
+
+// ---------------------------------------------------------------------------
+// Build helpers used by lifecycle routes
+// ---------------------------------------------------------------------------
+
+export type BuildLogRow = { id: string; app_id: string; log_path: string | null };
+
+/** Returns the build row (id + app_id + log_path) for a given build/app pair. */
+export async function getBuildLogPath(
+  db: Db,
+  buildId: string,
+  appId: string,
+): Promise<BuildLogRow | null> {
+  const rows = await db
+    .select({ id: builds.id, app_id: builds.app_id, log_path: builds.log_path })
+    .from(builds)
+    .where(and(eq(builds.id, buildId), eq(builds.app_id, appId)))
+    .limit(1);
+  return rows[0] ?? null;
+}
+
+export type BuildStatusRow = { id: string; app_id: string; status: string };
+
+/** Returns id + app_id + status for a build belonging to a specific app. */
+export async function getBuildForApp(
+  db: Db,
+  buildId: string,
+  appId: string,
+): Promise<BuildStatusRow | null> {
+  const rows = await db
+    .select({ id: builds.id, app_id: builds.app_id, status: builds.status })
+    .from(builds)
+    .where(and(eq(builds.id, buildId), eq(builds.app_id, appId)))
+    .limit(1);
+  return rows[0] ?? null;
+}
+
+// ---------------------------------------------------------------------------
+// Audit log
+// ---------------------------------------------------------------------------
+
+export interface AuditLogEntry {
+  user_id: string;
+  action: string;
+  target_type: string;
+  target_id: string;
+  metadata?: string;
+  created_at?: Date;
+}
+
+/**
+ * Inserts an audit log entry. Swallows errors so callers can use fire-and-forget.
+ * Returns true on success, false on failure.
+ */
+export async function insertAuditLog(db: Db, entry: AuditLogEntry): Promise<boolean> {
+  try {
+    await db.insert(audit_log).values({
+      user_id: entry.user_id,
+      action: entry.action,
+      target_type: entry.target_type,
+      target_id: entry.target_id,
+      metadata: entry.metadata ?? "{}",
+      created_at: entry.created_at ?? new Date(),
+    });
+    return true;
+  } catch {
+    return false;
+  }
+}
+
+// ---------------------------------------------------------------------------
+// Webhook secret rotation
+// ---------------------------------------------------------------------------
+
+/** Rotates the per-app webhook secret: current → old, new → current. */
+export async function rotateAppWebhookSecret(
+  db: Db,
+  appId: string,
+  currentSecretBlob: Buffer | null,
+  newSecretBlob: Buffer,
+  now: Date,
+): Promise<void> {
+  await db.update(apps).set({
+    webhook_secret: newSecretBlob,
+    webhook_secret_old: currentSecretBlob,
+    webhook_secret_old_expires_at: new Date(now.getTime() + 24 * 60 * 60 * 1000),
+    updated_at: now,
+  }).where(eq(apps.id, appId));
 }
