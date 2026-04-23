@@ -4,11 +4,11 @@ import { z } from "zod"
 import { createDb } from "@ploydok/db"
 import type { Db } from "@ploydok/db"
 import { env } from "../env"
-import { getAppForUser } from "../queries/apps"
-import { listEnvForApp, upsertEnvVars } from "../queries/env"
+import { getAppForUser } from "@ploydok/db/queries"
+import { listEnvForApp, upsertEnvVars } from "@ploydok/db/queries"
 import type { AuthUser } from "../auth/middleware"
 import { requireSecondFactor } from "../auth/middleware"
-import type { EnvVarRow } from "../queries/env"
+import type { EnvVarRow } from "@ploydok/db/queries"
 
 // ---------------------------------------------------------------------------
 // Constants

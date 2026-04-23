@@ -21,8 +21,9 @@ make db-migrate      # applique les migrations sur Postgres
 
 ## Queries
 
-- Partagées (utilisées par plusieurs routes ou par le worker) : `packages/db/src/queries/`.
-- Spécifiques à un domaine API : `apps/api/src/queries/`.
+- **Toutes** les queries cross-routes vivent dans `packages/db/src/queries/` et sont importées via `@ploydok/db/queries`. Il n'existe plus de couche `apps/api/src/queries/`.
+- Les fichiers dans `packages/db/src/queries/` importent uniquement depuis `../schema`, `../client`, `drizzle-orm`, ou des libs standard — jamais depuis `@ploydok/db` (évite la référence circulaire).
+- Exposés dans `packages/db/src/queries/index.ts` et accessibles via le subpath export `@ploydok/db/queries`.
 - Toujours typer le retour — pas de `any` sur un `.select()`.
 - Préfère `db.transaction()` pour toute séquence read-then-write.
 - Client : `postgres` (porsager) via Drizzle — pas de pool custom, le driver gère.

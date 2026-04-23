@@ -7,7 +7,7 @@ import type { Db } from "@ploydok/db"
 import { nanoid } from "nanoid"
 import { getConnectionString } from "../databases/spawner"
 import { encryptSecret } from "../secrets/crypto"
-import { getAppForUser } from "../queries/apps"
+import { getAppForUser } from "@ploydok/db/queries"
 import { childLogger } from "../logger"
 import type { AuthUser } from "../auth/middleware"
 

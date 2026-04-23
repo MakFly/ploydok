@@ -1,7 +1,7 @@
 // SPDX-License-Identifier: AGPL-3.0-only
 import { and, desc, eq, lt } from "drizzle-orm"
-import { apps, projects, webhook_deliveries } from "@ploydok/db"
-import type { Db } from "@ploydok/db"
+import { apps, projects, webhook_deliveries } from "../schema"
+import type { Db } from "../client"
 
 export type DeliveryRow = typeof webhook_deliveries.$inferSelect
 

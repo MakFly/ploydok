@@ -3,8 +3,8 @@
 // App CRUD queries — thin wrappers over Drizzle to keep routes clean.
 //
 import { and, desc, eq } from "drizzle-orm";
-import { apps, builds, projects } from "@ploydok/db";
-import type { Db } from "@ploydok/db";
+import { apps, builds, projects } from "../schema";
+import type { Db } from "../client";
 
 // ---------------------------------------------------------------------------
 // Types

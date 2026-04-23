@@ -27,7 +27,7 @@ import {
 } from "@ploydok/shared"
 import { apps, projects } from "@ploydok/db"
 import { and, eq } from "drizzle-orm"
-import { resolveAppOwner } from "../queries/app-owner"
+import { resolveAppOwner } from "@ploydok/db/queries"
 import { createDb } from "@ploydok/db"
 import { env } from "../env"
 import { childLogger } from "../logger"
