@@ -300,7 +300,44 @@ impl Validator for StrictValidator {
             }
         }
 
-        // 5. Network(s): empty or matching ploydok-*; never "host".
+        // 5. Healthcheck: if set, only Docker-supported modes and non-negative timings.
+        if let Some(healthcheck) = &req.healthcheck {
+            if healthcheck.test.is_empty() {
+                return Err(deny(
+                    tonic::Code::InvalidArgument,
+                    "healthcheck_test_empty",
+                    serde_json::json!({ "healthcheck": "test array must not be empty when provided" }),
+                ));
+            }
+
+            let mode = healthcheck.test[0].as_str();
+            if !["CMD", "CMD-SHELL", "NONE"].contains(&mode) {
+                return Err(deny(
+                    tonic::Code::InvalidArgument,
+                    "healthcheck_mode_invalid",
+                    serde_json::json!({
+                        "mode": mode,
+                        "allowed": ["CMD", "CMD-SHELL", "NONE"]
+                    }),
+                ));
+            }
+
+            for (field, value) in [
+                ("interval_seconds", healthcheck.interval_seconds),
+                ("timeout_seconds", healthcheck.timeout_seconds),
+                ("start_period_seconds", healthcheck.start_period_seconds),
+            ] {
+                if value < 0 {
+                    return Err(deny(
+                        tonic::Code::InvalidArgument,
+                        "healthcheck_negative_duration",
+                        serde_json::json!({ "field": field, "value": value }),
+                    ));
+                }
+            }
+        }
+
+        // 6. Network(s): empty or matching ploydok-*; never "host".
         // Validate both the legacy single-string `network` field AND the new
         // repeated `networks` field (sprint-3bis multi-network support).
         let mut net_candidates: Vec<&str> = Vec::new();
@@ -329,7 +366,7 @@ impl Validator for StrictValidator {
             }
         }
 
-        // 6. User: must not be root/0 if specified.
+        // 7. User: must not be root/0 if specified.
         if !req.user.is_empty()
             && (req.user == "root" || req.user == "0" || req.user.starts_with("0:"))
         {
@@ -340,7 +377,7 @@ impl Validator for StrictValidator {
             ));
         }
 
-        // 7. Resource limits: cpu ≤ max_cpu, memory ≤ max_memory_bytes.
+        // 8. Resource limits: cpu ≤ max_cpu, memory ≤ max_memory_bytes.
         if let Some(limits) = &req.resource_limits {
             if limits.cpu > self.cfg.max_cpu && limits.cpu > 0.0 {
                 return Err(deny(

@@ -52,6 +52,22 @@ export interface ResourceLimits {
   pidsLimit: number;
 }
 
+/** Docker container healthcheck. */
+export interface HealthcheckConfig {
+  /**
+   * Possible values mirror Docker:
+   * - [] inherit from image
+   * - ["NONE"] disable
+   * - ["CMD", args...]
+   * - ["CMD-SHELL", command]
+   */
+  test: string[];
+  intervalSeconds: number;
+  timeoutSeconds: number;
+  retries: number;
+  startPeriodSeconds: number;
+}
+
 export interface ContainerCreateRequest {
   /** Container name — MUST match the ploydok-* allowlist enforced by the agent. */
   name: string;
@@ -85,6 +101,8 @@ export interface ContainerCreateRequest {
    * When non-empty this supersedes the deprecated `network` field above.
    */
   networks: string[];
+  /** Optional Docker healthcheck. */
+  healthcheck?: HealthcheckConfig | undefined;
 }
 
 export interface ContainerCreateRequest_EnvEntry {
@@ -708,6 +726,142 @@ export const ResourceLimits: MessageFns<ResourceLimits> = {
   },
 };
 
+function createBaseHealthcheckConfig(): HealthcheckConfig {
+  return { test: [], intervalSeconds: 0, timeoutSeconds: 0, retries: 0, startPeriodSeconds: 0 };
+}
+
+export const HealthcheckConfig: MessageFns<HealthcheckConfig> = {
+  encode(message: HealthcheckConfig, writer: BinaryWriter = new BinaryWriter()): BinaryWriter {
+    for (const v of message.test) {
+      writer.uint32(10).string(v!);
+    }
+    if (message.intervalSeconds !== 0) {
+      writer.uint32(16).int64(message.intervalSeconds);
+    }
+    if (message.timeoutSeconds !== 0) {
+      writer.uint32(24).int64(message.timeoutSeconds);
+    }
+    if (message.retries !== 0) {
+      writer.uint32(32).uint32(message.retries);
+    }
+    if (message.startPeriodSeconds !== 0) {
+      writer.uint32(40).int64(message.startPeriodSeconds);
+    }
+    return writer;
+  },
+
+  decode(input: BinaryReader | Uint8Array, length?: number): HealthcheckConfig {
+    const reader = input instanceof BinaryReader ? input : new BinaryReader(input);
+    const end = length === undefined ? reader.len : reader.pos + length;
+    const message = createBaseHealthcheckConfig();
+    while (reader.pos < end) {
+      const tag = reader.uint32();
+      switch (tag >>> 3) {
+        case 1: {
+          if (tag !== 10) {
+            break;
+          }
+
+          message.test.push(reader.string());
+          continue;
+        }
+        case 2: {
+          if (tag !== 16) {
+            break;
+          }
+
+          message.intervalSeconds = longToNumber(reader.int64());
+          continue;
+        }
+        case 3: {
+          if (tag !== 24) {
+            break;
+          }
+
+          message.timeoutSeconds = longToNumber(reader.int64());
+          continue;
+        }
+        case 4: {
+          if (tag !== 32) {
+            break;
+          }
+
+          message.retries = reader.uint32();
+          continue;
+        }
+        case 5: {
+          if (tag !== 40) {
+            break;
+          }
+
+          message.startPeriodSeconds = longToNumber(reader.int64());
+          continue;
+        }
+      }
+      if ((tag & 7) === 4 || tag === 0) {
+        break;
+      }
+      reader.skip(tag & 7);
+    }
+    return message;
+  },
+
+  fromJSON(object: any): HealthcheckConfig {
+    return {
+      test: globalThis.Array.isArray(object?.test) ? object.test.map((e: any) => globalThis.String(e)) : [],
+      intervalSeconds: isSet(object.intervalSeconds)
+        ? globalThis.Number(object.intervalSeconds)
+        : isSet(object.interval_seconds)
+        ? globalThis.Number(object.interval_seconds)
+        : 0,
+      timeoutSeconds: isSet(object.timeoutSeconds)
+        ? globalThis.Number(object.timeoutSeconds)
+        : isSet(object.timeout_seconds)
+        ? globalThis.Number(object.timeout_seconds)
+        : 0,
+      retries: isSet(object.retries) ? globalThis.Number(object.retries) : 0,
+      startPeriodSeconds: isSet(object.startPeriodSeconds)
+        ? globalThis.Number(object.startPeriodSeconds)
+        : isSet(object.start_period_seconds)
+        ? globalThis.Number(object.start_period_seconds)
+        : 0,
+    };
+  },
+
+  toJSON(message: HealthcheckConfig): unknown {
+    const obj: any = {};
+    if (message.test?.length) {
+      obj.test = message.test;
+    }
+    if (message.intervalSeconds !== 0) {
+      obj.intervalSeconds = Math.round(message.intervalSeconds);
+    }
+    if (message.timeoutSeconds !== 0) {
+      obj.timeoutSeconds = Math.round(message.timeoutSeconds);
+    }
+    if (message.retries !== 0) {
+      obj.retries = Math.round(message.retries);
+    }
+    if (message.startPeriodSeconds !== 0) {
+      obj.startPeriodSeconds = Math.round(message.startPeriodSeconds);
+    }
+    return obj;
+  },
+
+  create(base?: DeepPartial<HealthcheckConfig>): HealthcheckConfig {
+    return HealthcheckConfig.fromPartial(base ?? {});
+  },
+  fromPartial(object: DeepPartial<HealthcheckConfig>): HealthcheckConfig {
+    const message = createBaseHealthcheckConfig();
+    message.test = object.test?.map((e) => e) || [];
+    message.intervalSeconds = object.intervalSeconds ?? 0;
+    message.timeoutSeconds = object.timeoutSeconds ?? 0;
+    message.retries = object.retries ?? 0;
+    message.startPeriodSeconds = object.startPeriodSeconds ?? 0;
+    return message;
+  },
+};
+
 function createBaseContainerCreateRequest(): ContainerCreateRequest {
   return {
     name: "",
@@ -722,6 +876,7 @@ function createBaseContainerCreateRequest(): ContainerCreateRequest {
     command: [],
     user: "",
     networks: [],
+    healthcheck: undefined,
   };
 }
 
@@ -762,6 +917,9 @@ export const ContainerCreateRequest: MessageFns<ContainerCreateRequest> = {
     }
     for (const v of message.networks) {
       writer.uint32(98).string(v!);
+    }
+    if (message.healthcheck !== undefined) {
+      HealthcheckConfig.encode(message.healthcheck, writer.uint32(106).fork()).join();
     }
     return writer;
   },
@@ -875,6 +1033,14 @@ export const ContainerCreateRequest: MessageFns<ContainerCreateRequest> = {
           message.networks.push(reader.string());
           continue;
         }
+        case 13: {
+          if (tag !== 106) {
+            break;
+          }
+
+          message.healthcheck = HealthcheckConfig.decode(reader, reader.uint32());
+          continue;
+        }
       }
       if ((tag & 7) === 4 || tag === 0) {
         break;
@@ -926,6 +1092,7 @@ export const ContainerCreateRequest: MessageFns<ContainerCreateRequest> = {
       networks: globalThis.Array.isArray(object?.networks)
         ? object.networks.map((e: any) => globalThis.String(e))
         : [],
+      healthcheck: isSet(object.healthcheck) ? HealthcheckConfig.fromJSON(object.healthcheck) : undefined,
     };
   },
 
@@ -979,6 +1146,9 @@ export const ContainerCreateRequest: MessageFns<ContainerCreateRequest> = {
     if (message.networks?.length) {
       obj.networks = message.networks;
     }
+    if (message.healthcheck !== undefined) {
+      obj.healthcheck = HealthcheckConfig.toJSON(message.healthcheck);
+    }
     return obj;
   },
 
@@ -1017,6 +1187,9 @@ export const ContainerCreateRequest: MessageFns<ContainerCreateRequest> = {
     message.command = object.command?.map((e) => e) || [];
     message.user = object.user ?? "";
     message.networks = object.networks?.map((e) => e) || [];
+    message.healthcheck = (object.healthcheck !== undefined && object.healthcheck !== null)
+      ? HealthcheckConfig.fromPartial(object.healthcheck)
+      : undefined;
     return message;
   },
 };

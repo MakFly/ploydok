@@ -16,8 +16,10 @@ use bollard::container::{
 };
 use bollard::exec::{CreateExecOptions, ResizeExecOptions, StartExecOptions, StartExecResults};
 use bollard::image::{BuildImageOptions, CreateImageOptions};
-use bollard::models::{HostConfig, PortBinding, RestartPolicy, RestartPolicyNameEnum};
 use bollard::models::EndpointSettings;
+use bollard::models::{
+    HealthConfig, HostConfig, PortBinding, RestartPolicy, RestartPolicyNameEnum,
+};
 use bollard::network::{ConnectNetworkOptions, CreateNetworkOptions, DisconnectNetworkOptions};
 use futures::StreamExt;
 use tokio::io::AsyncWriteExt;
@@ -68,11 +70,19 @@ fn bollard_err(context: &str, err: bollard::errors::Error) -> Status {
         let detail = format!("{context}: {message}");
         match status_code {
             404 => {
-                tracing::debug!(context = context, status = status_code, "docker 404 → NotFound");
+                tracing::debug!(
+                    context = context,
+                    status = status_code,
+                    "docker 404 → NotFound"
+                );
                 return Status::not_found(detail);
             }
             409 => {
-                tracing::debug!(context = context, status = status_code, "docker 409 → AlreadyExists");
+                tracing::debug!(
+                    context = context,
+                    status = status_code,
+                    "docker 409 → AlreadyExists"
+                );
                 return Status::already_exists(detail);
             }
             _ => {}
@@ -90,6 +100,14 @@ fn restart_policy_name(s: &str) -> RestartPolicyNameEnum {
         "on-failure" => RestartPolicyNameEnum::ON_FAILURE,
         "no" => RestartPolicyNameEnum::NO,
         _ => RestartPolicyNameEnum::EMPTY,
+    }
+}
+
+fn healthcheck_nanos(seconds: i64) -> Option<i64> {
+    if seconds <= 0 {
+        None
+    } else {
+        Some(seconds.saturating_mul(1_000_000_000))
     }
 }
 
@@ -214,6 +232,23 @@ impl Agent for AgentService {
             ..Default::default()
         };
 
+        let healthcheck = req.healthcheck.as_ref().map(|hc| HealthConfig {
+            test: if hc.test.is_empty() {
+                None
+            } else {
+                Some(hc.test.clone())
+            },
+            interval: healthcheck_nanos(hc.interval_seconds),
+            timeout: healthcheck_nanos(hc.timeout_seconds),
+            retries: if hc.retries == 0 {
+                None
+            } else {
+                Some(hc.retries as i64)
+            },
+            start_period: healthcheck_nanos(hc.start_period_seconds),
+            start_interval: None,
+        });
+
         let config = Config {
             image: Some(req.image.clone()),
             env: if env.is_empty() { None } else { Some(env) },
@@ -232,6 +267,7 @@ impl Agent for AgentService {
             } else {
                 Some(req.user.clone())
             },
+            healthcheck,
             host_config: Some(host_config),
             // Attach only the first requested network at create time. Docker's
             // create_container API silently drops extra EndpointsConfig entries
@@ -1058,14 +1094,18 @@ impl Agent for AgentService {
 
         // Validate kind
         if !["postgres", "redis", "mongo"].contains(&kind.as_str()) {
-            return Err(Status::invalid_argument(format!("unsupported db kind: {kind}")));
+            return Err(Status::invalid_argument(format!(
+                "unsupported db kind: {kind}"
+            )));
         }
 
         let docker = self.docker.clone();
         let (tx, rx) = mpsc::channel::<Result<DumpChunk, Status>>(32);
 
         tokio::spawn(async move {
-            if let Err(e) = dump_database_task(docker, &container_id, &kind, &age_recipient, tx).await {
+            if let Err(e) =
+                dump_database_task(docker, &container_id, &kind, &age_recipient, tx).await
+            {
                 tracing::error!(error = %e, "dump_database_task failed");
             }
         });
@@ -1105,11 +1145,24 @@ impl Agent for AgentService {
         );
 
         if !["postgres", "redis", "mongo"].contains(&kind.as_str()) {
-            return Err(Status::invalid_argument(format!("unsupported db kind: {kind}")));
+            return Err(Status::invalid_argument(format!(
+                "unsupported db kind: {kind}"
+            )));
         }
 
-        match restore_database_task(self.docker.clone(), &container_id, &kind, &age_identity, stream).await {
-            Ok(()) => Ok(Response::new(RestoreResult { ok: true, error: String::new() })),
+        match restore_database_task(
+            self.docker.clone(),
+            &container_id,
+            &kind,
+            &age_identity,
+            stream,
+        )
+        .await
+        {
+            Ok(()) => Ok(Response::new(RestoreResult {
+                ok: true,
+                error: String::new(),
+            })),
             Err(e) => Ok(Response::new(RestoreResult {
                 ok: false,
                 error: e.to_string(),
@@ -1195,7 +1248,13 @@ async fn dump_database_task(
         .map_err(|e| anyhow::anyhow!("create_exec failed: {e}"))?;
 
     let start_res = docker
-        .start_exec(&exec.id, Some(StartExecOptions { detach: false, ..Default::default() }))
+        .start_exec(
+            &exec.id,
+            Some(StartExecOptions {
+                detach: false,
+                ..Default::default()
+            }),
+        )
         .await
         .map_err(|e| anyhow::anyhow!("start_exec failed: {e}"))?;
 
@@ -1215,7 +1274,9 @@ async fn dump_database_task(
                 }
                 Ok(_) => {} // ignore stderr/other
                 Err(e) => {
-                    let _ = tx.send(Err(Status::internal(format!("exec output error: {e}")))).await;
+                    let _ = tx
+                        .send(Err(Status::internal(format!("exec output error: {e}"))))
+                        .await;
                     return Err(anyhow::anyhow!("exec output error: {e}"));
                 }
             }
@@ -1281,7 +1342,13 @@ async fn restore_database_task(
         .map_err(|e| anyhow::anyhow!("create_exec failed: {e}"))?;
 
     let start_res = docker
-        .start_exec(&exec.id, Some(StartExecOptions { detach: false, ..Default::default() }))
+        .start_exec(
+            &exec.id,
+            Some(StartExecOptions {
+                detach: false,
+                ..Default::default()
+            }),
+        )
         .await
         .map_err(|e| anyhow::anyhow!("start_exec failed: {e}"))?;
 

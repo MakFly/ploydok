@@ -447,8 +447,9 @@ fn compute_cpu_percent(stats: &bollard::container::Stats) -> f64 {
 fn map_status(state: &str, status: &str) -> String {
     match state {
         "running" => {
-            // Check if the status string mentions "(unhealthy)"
-            if status.contains("unhealthy") {
+            if status.contains("health: starting") || status.contains("(starting)") {
+                "starting".to_string()
+            } else if status.contains("unhealthy") {
                 "unhealthy".to_string()
             } else {
                 "running".to_string()
@@ -559,5 +560,18 @@ mod tests {
 
         apply_snapshots(&mut cache, vec![]);
         assert!(cache.is_empty());
+    }
+
+    #[test]
+    fn map_status_tracks_healthcheck_starting_and_unhealthy() {
+        assert_eq!(
+            map_status("running", "Up 3 seconds (health: starting)"),
+            "starting"
+        );
+        assert_eq!(
+            map_status("running", "Up 2 minutes (unhealthy)"),
+            "unhealthy"
+        );
+        assert_eq!(map_status("running", "Up 1 minute (healthy)"), "running");
     }
 }
