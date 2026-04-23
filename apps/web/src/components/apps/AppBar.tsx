@@ -38,8 +38,8 @@ const NAV_ITEMS: Array<NavItem> = [
 ]
 
 export function AppBar({ app }: { app: AppDetail }): React.JSX.Element {
-  useTabShortcuts(app.id)
   const currentOrgSlug = useCurrentOrganizationSlug()
+  useTabShortcuts(app.id, currentOrgSlug)
   const pathname = useRouterState({ select: (s) => s.location.pathname })
   const activeTabRef = React.useRef<HTMLAnchorElement | null>(null)
 

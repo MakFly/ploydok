@@ -4,6 +4,7 @@ import { Link } from "@tanstack/react-router";
 import { AppStatusBadge } from "../apps/AppStatusBadge";
 import { resolveRuntimeAppStatus, selectAppSnapshot } from "../../lib/app-runtime";
 import { useMonitoring } from "../../lib/monitoring";
+import { organizationPath, useCurrentOrganizationSlug } from "../../lib/organizations";
 import type { AppListItem } from "../../lib/apps";
 
 // ---------------------------------------------------------------------------
@@ -60,10 +61,10 @@ function AppMiniCard({
 }: {
   app: AppListItem & { runtimeStatus: AppListItem["status"] }
 }): React.JSX.Element {
+  const orgSlug = useCurrentOrganizationSlug()
   return (
     <Link
-      to="/apps/$id/overview"
-      params={{ id: app.id }}
+      to={(orgSlug ? organizationPath(orgSlug, `apps/${app.id}/overview`) : `/apps/${app.id}/overview`) as never}
       className="block rounded-lg border border-border bg-card p-4 space-y-2 hover:border-muted-foreground/30 hover:bg-accent/30 transition-colors focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring"
     >
       <div className="flex items-start justify-between gap-2">

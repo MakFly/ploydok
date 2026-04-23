@@ -1,6 +1,7 @@
 // SPDX-License-Identifier: AGPL-3.0-only
 import * as React from "react";
 import { Link } from "@tanstack/react-router";
+import { organizationPath, useCurrentOrganizationSlug } from "../../lib/organizations";
 import type { BuildStatus } from "@ploydok/shared";
 
 // ---------------------------------------------------------------------------
@@ -89,11 +90,11 @@ export function RecentBuilds({ builds, isLoading }: RecentBuildsProps): React.JS
 function BuildItem({ build }: { build: BuildRow }): React.JSX.Element {
   const ts = build.startedAt ?? build.createdAt;
   const sha = build.commitSha ? build.commitSha.slice(0, 7) : null;
+  const orgSlug = useCurrentOrganizationSlug()
 
   return (
     <Link
-      to="/apps/$id/overview"
-      params={{ id: build.appId }}
+      to={(orgSlug ? organizationPath(orgSlug, `apps/${build.appId}/overview`) : `/apps/${build.appId}/overview`) as never}
       className="flex items-center gap-3 px-4 py-3 hover:bg-accent/30 transition-colors focus-visible:outline-none focus-visible:ring-inset focus-visible:ring-2 focus-visible:ring-ring"
     >
       {/* Status dot */}

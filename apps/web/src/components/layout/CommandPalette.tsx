@@ -142,7 +142,7 @@ function CommandPaletteContent({ onClose }: CommandPaletteContentProps): React.J
   const { data: apps } = useApps(organization?.id)
 
   const currentAppMatch = matches.find(
-    (m) => m.routeId === "/_authed/apps/$id" || m.routeId === "/_authed/orgs/$orgSlug/apps/$id"
+    (m) => m.routeId === "/_authed/orgs/$orgSlug/apps/$id"
   )
   const currentAppId = currentAppMatch
     ? (currentAppMatch.params as { id?: string }).id

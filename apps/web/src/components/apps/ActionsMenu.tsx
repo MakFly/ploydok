@@ -27,6 +27,7 @@ import {
   useStopApp,
 } from "../../lib/apps-mutations"
 import { useMe } from "../../lib/auth"
+import { useCurrentOrganizationSlug } from "../../lib/organizations"
 import type { AppDetail } from "../../lib/apps"
 import type { Build } from "@ploydok/shared"
 
@@ -46,6 +47,7 @@ interface ActionsMenuProps {
 
 export function ActionsMenu({ app }: ActionsMenuProps): React.JSX.Element {
   const router = useRouter()
+  const orgSlug = useCurrentOrganizationSlug()
   const [openDialog, setOpenDialog] = React.useState<DialogKind>(null)
   const [deleteConfirmName, setDeleteConfirmName] = React.useState("")
   const [selectedBuildId, setSelectedBuildId] = React.useState<string | null>(null)
@@ -116,7 +118,8 @@ export function ActionsMenu({ app }: ActionsMenuProps): React.JSX.Element {
     try {
       // No flags = server uses all-true defaults = full cascade wipe.
       await deleteApp.mutateAsync()
-      void router.navigate({ to: "/apps" })
+      const href = orgSlug ? `/orgs/${orgSlug}/apps` : "/apps"
+      void router.navigate({ href })
     } catch (err) {
       setActionError(err instanceof Error ? err.message : "Delete failed")
     }
