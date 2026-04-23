@@ -19,12 +19,18 @@ mock.module("../databases/spawner", () => ({
     connectionString: "postgres://ploydok:secret@ploydok-db-db-test-id:5432/app",
   })),
   getConnectionString: mock(async () => "postgres://ploydok:secret@ploydok-db-db-test-id:5432/app"),
+  startDatabaseContainer: mock(async () => {}),
+  stopDatabaseContainer: mock(async () => {}),
+  recreateDatabaseContainer: mock(async (_db: unknown, row: Record<string, unknown>) => row),
+  removeDatabasePublicProxy: mock(async () => {}),
 }))
 
 mock.module("../debug/singletons", () => ({
   getSharedAgent: () => ({
     containerStop: mock(async () => ({})),
     containerRemove: mock(async () => ({})),
+    containerLogs: mock(async function* () {}),
+    containerStats: mock(async function* () {}),
   }),
   getSharedCaddy: () => ({}),
 }))
@@ -108,7 +114,7 @@ describe("POST /databases validation", () => {
   it("returns 400 on invalid kind", async () => {
     const db = buildDb({ dbRow: { id: "proj-1" } })
     const app = wrapRouter(db)
-    const res = await app.fetch(req("POST", "/", { projectId: "proj-1", kind: "mysql", name: "mydb", plan: "small" }))
+    const res = await app.fetch(req("POST", "/", { projectId: "proj-1", kind: "sqlite", name: "mydb", plan: "small" }))
     expect(res.status).toBe(400)
     const data = await res.json() as { error: { code: string } }
     expect(data.error.code).toBe("VALIDATION_ERROR")
@@ -185,5 +191,43 @@ describe("GET /databases", () => {
     expect(res.status).toBe(200)
     const data = await res.json()
     expect(Array.isArray(data)).toBe(true)
+  })
+})
+
+describe("POST /databases/:id lifecycle", () => {
+  const mockDatabaseRow = {
+    id: "db-test-id",
+    project_id: "proj-1",
+    kind: "postgres",
+    version: "16",
+    name: "mydb",
+    plan: "small",
+    status: "running",
+    health_status: "healthy",
+    host: "ploydok-db-db-test-id",
+    port: 5432,
+    exposure_mode: "internal",
+    public_enabled: false,
+    public_port: null,
+    public_host: null,
+    public_url: null,
+    volume_name: "ploydok-db-db-test-id",
+    container_id: "container-123",
+    connection_string_enc: Buffer.from("enc"),
+    connection_string_nonce: Buffer.from("nonce"),
+  }
+
+  it("starts a database", async () => {
+    const db = buildDb({ dbRow: mockDatabaseRow })
+    const app = wrapRouter(db)
+    const res = await app.fetch(req("POST", "/db-test-id/start"))
+    expect(res.status).toBe(200)
+  })
+
+  it("updates network settings", async () => {
+    const db = buildDb({ dbRow: mockDatabaseRow })
+    const app = wrapRouter(db)
+    const res = await app.fetch(req("PATCH", "/db-test-id/network", { exposureMode: "public_proxy", publicEnabled: true }))
+    expect(res.status).toBe(200)
   })
 })

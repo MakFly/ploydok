@@ -24,7 +24,7 @@ const LinkBody = z.object({
 })
 
 function parseConnectionString(
-  kind: "postgres" | "redis" | "mongo",
+  kind: "postgres" | "mysql" | "mariadb" | "redis" | "mongo",
   connString: string,
   prefix: string,
 ): Record<string, string> {
@@ -33,9 +33,11 @@ function parseConnectionString(
 
   switch (kind) {
     case "postgres":
+    case "mysql":
+    case "mariadb":
       vars[`${prefix}_URL`] = connString
       vars[`${prefix}_HOST`] = url.hostname
-      vars[`${prefix}_PORT`] = url.port || "5432"
+      vars[`${prefix}_PORT`] = url.port || (kind === "postgres" ? "5432" : "3306")
       vars[`${prefix}_USER`] = decodeURIComponent(url.username)
       vars[`${prefix}_PASSWORD`] = decodeURIComponent(url.password)
       vars[`${prefix}_NAME`] = url.pathname.replace(/^\//, "")
@@ -107,7 +109,7 @@ export function createAppsDatabasesLinkRouter(db: Db): Hono<any, any, any> {
     }
 
     const vars = parseConnectionString(
-      dbRow.kind as "postgres" | "redis" | "mongo",
+      dbRow.kind as "postgres" | "mysql" | "mariadb" | "redis" | "mongo",
       connString,
       env_prefix,
     )

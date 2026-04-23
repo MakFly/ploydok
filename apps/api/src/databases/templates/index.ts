@@ -6,7 +6,8 @@ export interface DbPlan {
 }
 
 export interface DbTemplate {
-  kind: "postgres" | "redis" | "mongo"
+  kind: "postgres" | "mysql" | "mariadb" | "redis" | "mongo"
+  version: string
   image: string
   plans: Record<"small" | "medium" | "large", DbPlan>
   volume_path: string
@@ -17,9 +18,10 @@ export interface DbTemplate {
   connection_string: string
 }
 
-export const templates: Record<"postgres" | "redis" | "mongo", DbTemplate> = {
+export const templates: Record<"postgres" | "mysql" | "mariadb" | "redis" | "mongo", DbTemplate> = {
   postgres: {
     kind: "postgres",
+    version: "16",
     image: "postgres:16-alpine",
     plans: {
       small: { cpu: 0.5, mem_mb: 512 },
@@ -28,7 +30,7 @@ export const templates: Record<"postgres" | "redis" | "mongo", DbTemplate> = {
     },
     volume_path: "/var/lib/postgresql/data",
     port: 5432,
-    healthcheck: "pg_isready -U $POSTGRES_USER",
+    healthcheck: "pg_isready -U $POSTGRES_USER -d $POSTGRES_DB",
     env: {
       POSTGRES_USER: "ploydok",
       POSTGRES_DB: "app",
@@ -36,8 +38,49 @@ export const templates: Record<"postgres" | "redis" | "mongo", DbTemplate> = {
     },
     connection_string: "postgres://{user}:{password}@{host}:{port}/{database}",
   },
+  mysql: {
+    kind: "mysql",
+    version: "8.4",
+    image: "mysql:8.4",
+    plans: {
+      small: { cpu: 0.5, mem_mb: 512 },
+      medium: { cpu: 1.0, mem_mb: 2048 },
+      large: { cpu: 2.0, mem_mb: 8192 },
+    },
+    volume_path: "/var/lib/mysql",
+    port: 3306,
+    healthcheck: "mysqladmin ping -h 127.0.0.1 -uroot -p$MYSQL_ROOT_PASSWORD",
+    env: {
+      MYSQL_DATABASE: "app",
+      MYSQL_USER: "ploydok",
+      MYSQL_PASSWORD: "@generated(32)",
+      MYSQL_ROOT_PASSWORD: "@generated(32)",
+    },
+    connection_string: "mysql://{user}:{password}@{host}:{port}/{database}",
+  },
+  mariadb: {
+    kind: "mariadb",
+    version: "11.4",
+    image: "mariadb:11.4",
+    plans: {
+      small: { cpu: 0.5, mem_mb: 512 },
+      medium: { cpu: 1.0, mem_mb: 2048 },
+      large: { cpu: 2.0, mem_mb: 8192 },
+    },
+    volume_path: "/var/lib/mysql",
+    port: 3306,
+    healthcheck: "mariadb-admin ping -h 127.0.0.1 -uroot -p$MARIADB_ROOT_PASSWORD",
+    env: {
+      MARIADB_DATABASE: "app",
+      MARIADB_USER: "ploydok",
+      MARIADB_PASSWORD: "@generated(32)",
+      MARIADB_ROOT_PASSWORD: "@generated(32)",
+    },
+    connection_string: "mysql://{user}:{password}@{host}:{port}/{database}",
+  },
   redis: {
     kind: "redis",
+    version: "7",
     image: "redis:7-alpine",
     plans: {
       small: { cpu: 0.25, mem_mb: 256 },
@@ -53,6 +96,7 @@ export const templates: Record<"postgres" | "redis" | "mongo", DbTemplate> = {
   },
   mongo: {
     kind: "mongo",
+    version: "7",
     image: "mongo:7",
     plans: {
       small: { cpu: 0.5, mem_mb: 512 },
