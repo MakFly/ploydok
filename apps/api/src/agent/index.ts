@@ -37,4 +37,5 @@ export type {
   VolumeMount,
   PortMapping,
   ResourceLimits,
+  HealthcheckConfig,
 } from "@ploydok/agent-proto";

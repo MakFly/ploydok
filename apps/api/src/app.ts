@@ -31,6 +31,8 @@ import { createDatabasesRouter } from "./routes/databases";
 import { createBackupsRouter } from "./routes/backups";
 import { createAppsDatabasesLinkRouter } from "./routes/apps-databases-link";
 import { appsProtectionRouter } from "./routes/apps-protection";
+import { createOrganizationsRouter } from "./routes/organizations";
+import { getDefaultOrganizationForUser } from "./organizations";
 
 const httpLog = childLogger("http");
 const errorLog = childLogger("error");
@@ -320,6 +322,11 @@ app.use("/databases/*", requireAuth(db))
 app.use("/databases", requireAuth(db))
 app.route("/databases", createDatabasesRouter(db))
 
+// Organizations / workspaces — all endpoints require auth.
+app.use("/organizations/*", requireAuth(db))
+app.use("/organizations", requireAuth(db))
+app.route("/organizations", createOrganizationsRouter(db))
+
 // Backups — all endpoints require auth.
 app.use("/databases/*/backups*", requireAuth(db))
 app.use("/databases/*/backup-config*", requireAuth(db))
@@ -365,11 +372,18 @@ app.get("/me", requireAuth(db), async (c) => {
     return c.json({ error: { code: "NOT_FOUND", message: "User not found" } }, 404);
   }
 
+  const defaultOrganization = await getDefaultOrganizationForUser(
+    db,
+    fullUser.id,
+    fullUser.display_name,
+  );
+
   return c.json({
     id: fullUser.id,
     email: fullUser.email,
     display_name: fullUser.display_name,
     created_at: fullUser.created_at?.toISOString(),
+    default_organization: defaultOrganization,
     accessExpiresAt,
     has_passkey_plus: passkeyCount >= 2,
     has_backup_codes: backupCount >= 1,

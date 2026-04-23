@@ -394,4 +394,48 @@ describe("CaddyClient", () => {
     expect(Array.isArray(policies)).toBe(true);
     expect(policies[0]?.["subjects"]).toEqual(["app.example.com"]);
   });
+
+  test("upsertTcpProxy PUTs a layer4 server with proxy upstream", async () => {
+    const calls: MockRequest[] = [];
+    const existingConfig: CaddyConfig = {
+      apps: { http: { servers: { srv0: { listen: [":80"], routes: [] } } } },
+    };
+
+    handler = (req) => {
+      calls.push(req);
+      if (req.method === "GET") return { status: 200, body: existingConfig };
+      if (req.method === "PUT") return { status: 200, body: null };
+      return { status: 405, body: null };
+    };
+
+    await client.upsertTcpProxy({ serverId: "db-proxy-1", listenPort: 16432, upstream: "db:5432" });
+
+    const putPaths = calls.filter((c) => c.method === "PUT").map((c) => c.path);
+    expect(putPaths).toContain("/config/apps/layer4");
+    expect(putPaths).toContain("/config/apps/layer4/servers/db-proxy-1");
+    const serverPut = calls.find((c) => c.path === "/config/apps/layer4/servers/db-proxy-1");
+    expect(serverPut?.body).toMatchObject({
+      listen: [":16432"],
+      routes: [{ "@id": "db-proxy-1", handle: [{ handler: "proxy", upstreams: [{ dial: ["db:5432"] }] }] }],
+    });
+  });
+
+  test("removeTcpProxy DELETEs the layer4 server path", async () => {
+    const calls: MockRequest[] = [];
+    const existingConfig: CaddyConfig = {
+      apps: { layer4: { servers: { "db-proxy-1": { listen: [":16432"], routes: [] } } } },
+    };
+
+    handler = (req) => {
+      calls.push(req);
+      if (req.method === "GET") return { status: 200, body: existingConfig };
+      if (req.method === "DELETE") return { status: 200, body: null };
+      return { status: 405, body: null };
+    };
+
+    await client.removeTcpProxy("db-proxy-1");
+
+    const del = calls.find((c) => c.method === "DELETE");
+    expect(del?.path).toBe("/config/apps/layer4/servers/db-proxy-1");
+  });
 });
