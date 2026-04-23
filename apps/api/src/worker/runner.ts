@@ -26,7 +26,7 @@ import type {
   ContainerRemoveResponse,
   PingContainerResponse,
 } from "@ploydok/agent-proto";
-import { apps, builds, env_vars, projects } from "@ploydok/db";
+import { apps, builds, projects } from "@ploydok/db";
 import type { Db } from "@ploydok/db";
 import { CaddyClient } from "../caddy/client.js";
 import { logBus } from "./log-bus.js";
@@ -42,6 +42,7 @@ import { ensureCaddyOnProjectNetwork } from "../caddy/attachment.js";
 import { getSharedAgent } from "../debug/singletons.js";
 import { PLANS } from "@ploydok/shared";
 import type { PlanName } from "@ploydok/shared";
+import { buildEnvForDeploy } from "../secrets/resolver.js";
 
 // ---------------------------------------------------------------------------
 // Constants
@@ -72,6 +73,8 @@ export interface RunBlueGreenOptions {
   imageRef: string;
   /** Key=value pairs injected as container env vars. */
   env: Record<string, string>;
+  /** Explicit runtime port exposed by the app process inside the container. */
+  runtimePort?: number;
   /** Overrides read from apps table when not provided. */
   healthcheck?: {
     path?: string;
@@ -310,16 +313,8 @@ async function pullImage(
  * Load env vars for an app from the DB and return them as a plain Record.
  * Secret values are passed as-is — the caller is responsible for not leaking.
  */
-async function loadEnvVars(db: Db, appId: string): Promise<Record<string, string>> {
-  const rows = await db
-    .select({ key: env_vars.key, value: env_vars.value })
-    .from(env_vars)
-    .where(eq(env_vars.app_id, appId));
-  const result: Record<string, string> = {};
-  for (const row of rows) {
-    result[row.key] = row.value;
-  }
-  return result;
+async function loadRuntimeEnv(db: Db, appId: string): Promise<Record<string, string>> {
+  return buildEnvForDeploy(db, appId, "prod", "runtime");
 }
 
 /** Stop a container by name via the Agent (idempotent — errors ignored). */
@@ -372,7 +367,7 @@ async function stopContainerCandidates(
  * On success: updates apps.container_id + apps.status = 'running'.
  */
 export async function runBlueGreen(opts: RunBlueGreenOptions): Promise<RunBlueGreenResult> {
-  const { appId, imageRef, env: containerEnv, db } = opts;
+  const { appId, imageRef, db } = opts;
   const channel = `runtime:${appId}`;
 
   // -- Load app config (healthcheck settings + domain + owner for labels) --
@@ -382,6 +377,7 @@ export async function runBlueGreen(opts: RunBlueGreenOptions): Promise<RunBlueGr
       slug: apps.slug,
       domain: apps.domain,
       restart_policy: apps.restart_policy,
+      runtime_port: apps.runtime_port,
       healthcheck_path: apps.healthcheck_path,
       healthcheck_port: apps.healthcheck_port,
       healthcheck_interval_s: apps.healthcheck_interval_s,
@@ -405,7 +401,8 @@ export async function runBlueGreen(opts: RunBlueGreenOptions): Promise<RunBlueGr
 
   // Merge healthcheck overrides.
   const hcPath = opts.healthcheck?.path ?? appRow.healthcheck_path ?? "/";
-  const hcPort = opts.healthcheck?.port ?? appRow.healthcheck_port ?? 3000;
+  const runtimePort = opts.runtimePort ?? appRow.runtime_port ?? 3000;
+  const hcPort = opts.healthcheck?.port ?? appRow.healthcheck_port ?? runtimePort;
   const hcIntervalS = opts.healthcheck?.intervalS ?? appRow.healthcheck_interval_s ?? 5;
   const hcTimeoutS = opts.healthcheck?.timeoutS ?? appRow.healthcheck_timeout_s ?? 3;
   const hcRetries = opts.healthcheck?.retries ?? appRow.healthcheck_retries ?? 6;
@@ -421,6 +418,7 @@ export async function runBlueGreen(opts: RunBlueGreenOptions): Promise<RunBlueGr
 
   logBus.publish(channel, `[runner] blue-green: current=${currentColor} new=${newColor}`);
   logBus.publish(channel, `[runner] starting container ${newName} from ${imageRef}`);
+  const containerEnv = { ...containerEnvWithPort(opts.env, runtimePort) };
 
   // -- Agent client ----------------------------------------------------------
   const agentSocket = opts.agentSocketPath ?? DEFAULT_AGENT_SOCKET;
@@ -510,7 +508,7 @@ export async function runBlueGreen(opts: RunBlueGreenOptions): Promise<RunBlueGr
     logBus.publish(channel, `[runner] healthcheck OK — switching Caddy upstream`);
 
     // 4. Switch Caddy upstream.
-    await caddyClient.setUpstream(appId, domain, { host: newName, port: hcPort });
+    await caddyClient.setUpstream(appId, domain, { host: newName, port: runtimePort });
     logBus.publish(channel, `[runner] Caddy upstream updated`);
 
     // 5. Mark app live immediately — new container serves traffic from this
@@ -652,6 +650,7 @@ export async function rollbackApp(
       slug: apps.slug,
       domain: apps.domain,
       restart_policy: apps.restart_policy,
+      runtime_port: apps.runtime_port,
       healthcheck_port: apps.healthcheck_port,
       plan: apps.plan,
       cpu_limit: apps.cpu_limit,
@@ -669,11 +668,11 @@ export async function rollbackApp(
   if (!appRow) throw new Error(`App not found: ${appId}`);
   const rollbackName = runtimeContainerName(appRow, rollbackColor);
   const oldNames = runtimeContainerNameCandidates(appRow, currentColor);
-  const hcPort = appRow.healthcheck_port ?? 3000;
+  const runtimePort = appRow.runtime_port ?? 3000;
   const domain = appRow.domain ?? `${appId}.ploydok.local`;
   const caddyClient = new CaddyClient(opts?.caddyBaseUrl);
 
-  const containerEnv = await loadEnvVars(db, appId);
+  const containerEnv = containerEnvWithPort(await loadRuntimeEnv(db, appId), runtimePort);
 
   try {
     // Pull image first — host daemon cache ≠ registry storage.
@@ -720,7 +719,7 @@ export async function rollbackApp(
     logBus.publish(channel, `[runner] rollback container started`);
 
     // Switch Caddy immediately (no grace — rollback must be fast).
-    await caddyClient.setUpstream(appId, domain, { host: rollbackName, port: hcPort });
+    await caddyClient.setUpstream(appId, domain, { host: rollbackName, port: runtimePort });
     logBus.publish(channel, `[runner] Caddy switched to rollback container`);
 
     // Stop old container.
@@ -812,7 +811,13 @@ export async function restartApp(
   logBus.publish(channel, `[runner] restart: re-deploying ${lastBuild.image_tag}`);
 
   // 3. Load current env vars.
-  const containerEnv = await loadEnvVars(db, appId);
+  const appRuntimeRows = await db
+    .select({ runtime_port: apps.runtime_port })
+    .from(apps)
+    .where(eq(apps.id, appId))
+    .limit(1)
+  const runtimePort = appRuntimeRows[0]?.runtime_port ?? 3000
+  const containerEnv = containerEnvWithPort(await loadRuntimeEnv(db, appId), runtimePort);
 
   // 4. Blue-green redeploy — emit "running" as soon as Caddy has switched,
   //    via onLive. The grace period + old-container stop then run without
@@ -821,6 +826,7 @@ export async function restartApp(
     appId,
     imageRef: lastBuild.image_tag,
     env: containerEnv,
+    runtimePort,
     db,
     onLive: () => {
       if (!userId) return;
@@ -860,4 +866,14 @@ export async function restartApp(
   }
 
   logBus.publish(channel, `[runner] restart complete`);
+}
+
+function containerEnvWithPort(
+  env: Record<string, string>,
+  runtimePort: number,
+): Record<string, string> {
+  return {
+    ...env,
+    PORT: String(runtimePort),
+  };
 }

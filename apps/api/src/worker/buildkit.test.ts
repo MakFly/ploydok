@@ -209,4 +209,29 @@ describe("buildImage", () => {
     expect(cmd[exportIdx + 1]).toContain("type=local");
     expect(cmd[exportIdx + 1]).toContain("mode=max");
   });
+
+  it("forwards build args and BuildKit secrets", async () => {
+    spawnSpy = spyOn(Bun, "spawn").mockReturnValue(
+      fakeBunProcess({}) as ReturnType<typeof Bun.spawn>,
+    );
+
+    const { buildImage } = await import("./buildkit");
+
+    await buildImage({
+      contextDir: tmpDir,
+      dockerfile: path.join(tmpDir, "Dockerfile"),
+      imageRef: "127.0.0.1:5000/app-build-env:sha",
+      cacheDir: path.join(tmpDir, "cache"),
+      buildArgs: { NEXT_PUBLIC_API_URL: "https://api.example.com" },
+      buildSecrets: { INTERNAL_TOKEN: "super-secret" },
+    });
+
+    const spawnMock = spawnSpy as unknown as { mock: { calls: Array<[string[]]> } };
+    const cmd = spawnMock.mock.calls[0]![0];
+    expect(cmd).toContain("--opt");
+    expect(cmd).toContain("build-arg:NEXT_PUBLIC_API_URL=https://api.example.com");
+    expect(cmd).toContain("--secret");
+    const secretIdx = cmd.indexOf("--secret");
+    expect(cmd[secretIdx + 1]).toContain("id=INTERNAL_TOKEN,src=");
+  });
 });

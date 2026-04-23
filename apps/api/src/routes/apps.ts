@@ -23,6 +23,7 @@ import { getSharedAgent } from "../debug/singletons";
 import { resolveRuntimeContainer } from "../runtime-containers";
 import { dispatch as notifyDispatch } from "../notify/index";
 import { createRedis } from "@ploydok/db";
+import { ensureDefaultOrganizationForUser } from "../organizations";
 
 // ---------------------------------------------------------------------------
 // Validation schemas
@@ -34,6 +35,7 @@ const PlanSchema = z.enum(["nano", "small", "medium", "large", "custom"]);
 
 const CreateAppBody = z.object({
   name: z.string().min(1).max(64),
+  organizationId: z.string().min(1).optional(),
   projectId: z.string().min(1).optional(),
   gitProvider: GitProviderKindSchema,
   // repoFullName + branch are only required for git sources (github / gitlab).
@@ -53,11 +55,14 @@ const CreateAppBody = z.object({
   pidsLimit: z.number().int().positive().optional(),
   rootDir: z.string().optional(),
   dockerfilePath: z.string().optional(),
+  nixpacksConfigPath: z.string().optional(),
+  nodeVersion: z.string().optional(),
   installCommand: z.string().optional(),
   buildCommand: z.string().optional(),
   startCommand: z.string().optional(),
   watchPaths: z.array(z.string()).optional(),
   buildMethod: BuildMethodSchema.optional(),
+  runtimePort: z.number().int().positive().optional(),
   restartPolicy: RestartPolicySchema.optional(),
   healthcheck: HealthcheckConfigSchema.partial().optional(),
   domain: z.string().optional(),
@@ -66,7 +71,7 @@ const CreateAppBody = z.object({
 });
 
 // PATCH accepts the same fields except name and projectId are not updatable here
-const PatchAppBody = CreateAppBody.omit({ name: true, projectId: true })
+const PatchAppBody = CreateAppBody.omit({ name: true, organizationId: true, projectId: true })
   .extend({
     auto_deploy_enabled: z.boolean().optional(),
     post_commit_status: z.boolean().optional(),
@@ -157,6 +162,7 @@ function buildPublicUrl(domain: string | null): string | null {
 function serializeApp(row: AppRow) {
   return {
     id: row.id,
+    organizationId: row.project_id,
     projectId: row.project_id,
     name: row.name,
     slug: row.slug,
@@ -167,11 +173,14 @@ function serializeApp(row: AppRow) {
     githubInstallationId: row.github_installation_id,
     rootDir: nullToUndefined(row.root_dir),
     dockerfilePath: nullToUndefined(row.dockerfile_path),
+    nixpacksConfigPath: nullToUndefined(row.nixpacks_config_path),
+    nodeVersion: nullToUndefined(row.node_version),
     installCommand: nullToUndefined(row.install_command),
     buildCommand: nullToUndefined(row.build_command),
     startCommand: nullToUndefined(row.start_command),
     watchPaths: row.watch_paths ? (JSON.parse(row.watch_paths) as string[]) : undefined,
     buildMethod: row.build_method,
+    runtimePort: row.runtime_port,
     restartPolicy: row.restart_policy,
     domain: row.domain,
     publicUrl: buildPublicUrl(row.domain),
@@ -212,6 +221,7 @@ type AppPartialRow = {
 function serializeAppPartial(row: AppPartialRow) {
   return {
     id: row.id,
+    organizationId: row.project_id,
     projectId: row.project_id,
     name: row.name,
     slug: row.slug,
@@ -306,38 +316,23 @@ export function createAppsRouter(db: Db): Hono {
 
     const now = new Date();
 
-    // 1. Resolve projectId: explicit → verify ownership; absent → find/create user's default project
+    // 1. Resolve organization/project id.
     let projectId: string;
-    if (body.projectId) {
+    const requestedOrganizationId = body.organizationId ?? body.projectId;
+    if (requestedOrganizationId) {
       const projectRows = await db
         .select({ id: projects.id })
         .from(projects)
-        .where(and(eq(projects.id, body.projectId), eq(projects.owner_id, user.id)))
+        .where(and(eq(projects.id, requestedOrganizationId), eq(projects.owner_id, user.id)))
         .limit(1);
 
       if (!projectRows[0]) {
-        return c.json({ error: { code: "NOT_FOUND", message: "Project not found" } }, 404);
+        return c.json({ error: { code: "NOT_FOUND", message: "Organization not found" } }, 404);
       }
       projectId = projectRows[0].id;
     } else {
-      const existing = await db
-        .select({ id: projects.id })
-        .from(projects)
-        .where(eq(projects.owner_id, user.id))
-        .limit(1);
-
-      if (existing[0]) {
-        projectId = existing[0].id;
-      } else {
-        projectId = nanoid();
-        await db.insert(projects).values({
-          id: projectId,
-          owner_id: user.id,
-          name: "Default",
-          slug: projectId, // nanoid guarantees global uniqueness on `projects.slug`
-          created_at: now,
-        });
-      }
+      const organization = await ensureDefaultOrganizationForUser(db, user.id, user.display_name);
+      projectId = organization.id;
     }
 
     // 2. Generate id + slug (unique within project)
@@ -376,11 +371,14 @@ export function createAppsRouter(db: Db): Hono {
       pids_limit: body.pidsLimit ?? null,
       root_dir: body.rootDir ?? null,
       dockerfile_path: body.dockerfilePath ?? null,
+      nixpacks_config_path: body.nixpacksConfigPath ?? null,
+      node_version: body.nodeVersion ?? null,
       install_command: body.installCommand ?? null,
       build_command: body.buildCommand ?? null,
       start_command: body.startCommand ?? null,
       watch_paths: body.watchPaths ? JSON.stringify(body.watchPaths) : null,
       build_method: body.buildMethod ?? "auto",
+      runtime_port: body.runtimePort ?? null,
       restart_policy: body.restartPolicy ?? "unless-stopped",
       domain,
       healthcheck_path: hc.path ?? "/",
@@ -408,7 +406,8 @@ export function createAppsRouter(db: Db): Hono {
 
   router.get("/", async (c) => {
     const user = getUser(c);
-    const rows = await listAppsForUser(db, user.id);
+    const organizationId = c.req.query("organizationId") ?? c.req.query("projectId") ?? undefined;
+    const rows = await listAppsForUser(db, user.id, organizationId);
     return c.json({ apps: rows.map(serializeAppPartial) });
   });
 
@@ -465,11 +464,14 @@ export function createAppsRouter(db: Db): Hono {
     if (body.installationId !== undefined) patch.github_installation_id = body.installationId;
     if (body.rootDir !== undefined) patch.root_dir = body.rootDir;
     if (body.dockerfilePath !== undefined) patch.dockerfile_path = body.dockerfilePath;
+    if (body.nixpacksConfigPath !== undefined) patch.nixpacks_config_path = body.nixpacksConfigPath;
+    if (body.nodeVersion !== undefined) patch.node_version = body.nodeVersion;
     if (body.installCommand !== undefined) patch.install_command = body.installCommand;
     if (body.buildCommand !== undefined) patch.build_command = body.buildCommand;
     if (body.startCommand !== undefined) patch.start_command = body.startCommand;
     if (body.watchPaths !== undefined) patch.watch_paths = JSON.stringify(body.watchPaths);
     if (body.buildMethod !== undefined) patch.build_method = body.buildMethod;
+    if (body.runtimePort !== undefined) patch.runtime_port = body.runtimePort;
     if (body.restartPolicy !== undefined) patch.restart_policy = body.restartPolicy;
     if (body.domain !== undefined) patch.domain = body.domain;
     if (body.keepPerRepo !== undefined) patch.keep_per_repo = body.keepPerRepo;

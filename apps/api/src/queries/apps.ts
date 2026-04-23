@@ -42,6 +42,7 @@ export async function getAppForUser(
 export async function listAppsForUser(
   db: Db,
   userId: string,
+  projectId?: string,
 ): Promise<{
   id: string;
   project_id: string;
@@ -56,6 +57,9 @@ export async function listAppsForUser(
   created_at: Date | null;
   updated_at: Date | null;
 }[]> {
+  const where = projectId
+    ? and(eq(projects.owner_id, userId), eq(apps.project_id, projectId))
+    : eq(projects.owner_id, userId);
   return db
     .select({
       id: apps.id,
@@ -73,7 +77,7 @@ export async function listAppsForUser(
     })
     .from(apps)
     .innerJoin(projects, eq(apps.project_id, projects.id))
-    .where(eq(projects.owner_id, userId));
+    .where(where);
 }
 
 /**
