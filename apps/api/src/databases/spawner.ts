@@ -637,6 +637,14 @@ export async function recreateDatabaseContainer(
       log.warn({ err, dbId: row.id }, "container stop warning during recreate")
     }
     await agent.containerRemove({ containerId: row.container_id, force: true, removeVolumes: false })
+    // The old container is gone; if the upcoming containerCreate or the
+    // healthcheck fails, the row would still point at the removed id. Clear
+    // container_id and mark transitional so the UI / agent status sync surface
+    // the "no container" state accurately.
+    await db
+      .update(databases)
+      .set({ container_id: null, status: "starting" })
+      .where(eq(databases.id, row.id))
   }
 
   let containerId: string | null = null

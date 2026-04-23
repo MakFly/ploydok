@@ -217,6 +217,13 @@ export function createDatabasesRouter(db: Db): Hono<any, any, any> {
     }
   })
 
+  // Statuses in which a mutation (start/stop/restart/network-change) is
+  // already in flight. A second mutation kicked off from a double-click would
+  // race with the first inside the spawner, double-calling containerStart /
+  // containerCreate on the same db. Reject as CONFLICT; the client retries
+  // once it sees the status settle.
+  const BUSY_STATUSES = new Set<string>(["creating", "starting"])
+
   router.post("/:id/start", async (c) => {
     const user = getUser(c)
     const dbId = c.req.param("id")
@@ -224,13 +231,16 @@ export function createDatabasesRouter(db: Db): Hono<any, any, any> {
     if (!row) {
       return c.json({ error: { code: "NOT_FOUND", message: "Database not found" } }, 404)
     }
+    if (BUSY_STATUSES.has(row.status)) {
+      return c.json({ error: { code: "CONFLICT", message: "Database is busy" } }, 409)
+    }
 
     try {
       await startDatabaseContainer(db, row, { ownerId: user.id })
       return c.json({ ok: true })
     } catch (err) {
-      const message = err instanceof Error ? err.message : String(err)
-      return c.json({ error: { code: "START_FAILED", message } }, 500)
+      log.error({ err, dbId: row.id }, "start database failed")
+      return c.json({ error: { code: "START_FAILED", message: "Start failed" } }, 500)
     }
   })
 
@@ -241,13 +251,16 @@ export function createDatabasesRouter(db: Db): Hono<any, any, any> {
     if (!row) {
       return c.json({ error: { code: "NOT_FOUND", message: "Database not found" } }, 404)
     }
+    if (BUSY_STATUSES.has(row.status)) {
+      return c.json({ error: { code: "CONFLICT", message: "Database is busy" } }, 409)
+    }
 
     try {
       await stopDatabaseContainer(db, row)
       return c.json({ ok: true })
     } catch (err) {
-      const message = err instanceof Error ? err.message : String(err)
-      return c.json({ error: { code: "STOP_FAILED", message } }, 500)
+      log.error({ err, dbId: row.id }, "stop database failed")
+      return c.json({ error: { code: "STOP_FAILED", message: "Stop failed" } }, 500)
     }
   })
 
@@ -258,6 +271,9 @@ export function createDatabasesRouter(db: Db): Hono<any, any, any> {
     if (!row) {
       return c.json({ error: { code: "NOT_FOUND", message: "Database not found" } }, 404)
     }
+    if (BUSY_STATUSES.has(row.status)) {
+      return c.json({ error: { code: "CONFLICT", message: "Database is busy" } }, 409)
+    }
 
     try {
       await recreateDatabaseContainer(db, row, {
@@ -267,8 +283,8 @@ export function createDatabasesRouter(db: Db): Hono<any, any, any> {
       })
       return c.json({ ok: true })
     } catch (err) {
-      const message = err instanceof Error ? err.message : String(err)
-      return c.json({ error: { code: "RESTART_FAILED", message } }, 500)
+      log.error({ err, dbId: row.id }, "restart database failed")
+      return c.json({ error: { code: "RESTART_FAILED", message: "Restart failed" } }, 500)
     }
   })
 
@@ -278,6 +294,9 @@ export function createDatabasesRouter(db: Db): Hono<any, any, any> {
     const row = await getDbForUser(db, dbId!, user.id)
     if (!row) {
       return c.json({ error: { code: "NOT_FOUND", message: "Database not found" } }, 404)
+    }
+    if (BUSY_STATUSES.has(row.status)) {
+      return c.json({ error: { code: "CONFLICT", message: "Database is busy" } }, 409)
     }
 
     const body = await c.req.json().catch(() => null)
@@ -295,8 +314,8 @@ export function createDatabasesRouter(db: Db): Hono<any, any, any> {
       })
       return c.json({ ok: true, database: listShape(nextRow) })
     } catch (err) {
-      const message = err instanceof Error ? err.message : String(err)
-      return c.json({ error: { code: "NETWORK_UPDATE_FAILED", message } }, 500)
+      log.error({ err, dbId: row.id }, "network update failed")
+      return c.json({ error: { code: "NETWORK_UPDATE_FAILED", message: "Network update failed" } }, 500)
     }
   })
 
