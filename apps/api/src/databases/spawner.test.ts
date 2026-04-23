@@ -29,7 +29,7 @@ mock.module("../debug/singletons", () => ({
 
 const mockEnsureProjectNetwork = mock(async () => "ploydok-proj-test-project")
 
-mock.module("../projects", () => ({
+mock.module("../services/projects", () => ({
   ensureProjectNetwork: mockEnsureProjectNetwork,
   projectNetworkName: (id: string) => `ploydok-proj-${id}`,
   networksForApp: (net: string) => [net],

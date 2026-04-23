@@ -1,5 +1,5 @@
 // SPDX-License-Identifier: AGPL-3.0-only
-import type { Agent } from "./agent"
+import type { Agent } from "../agent"
 import type { ContainerSnapshot } from "@ploydok/shared"
 
 export type RuntimeContainerColor = "blue" | "green"

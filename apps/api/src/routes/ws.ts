@@ -29,7 +29,7 @@ import { logBus } from "../worker/log-bus";
 import { env } from "../env";
 import type { LogEntry } from "../worker/log-bus";
 import { getSharedAgent } from "../debug/singletons";
-import { resolveRuntimeContainer } from "../runtime-containers";
+import { resolveRuntimeContainer } from "../services/runtime-containers";
 
 // ---------------------------------------------------------------------------
 // BunWebSocket adapter — the `websocket` object must be forwarded to Bun.serve.

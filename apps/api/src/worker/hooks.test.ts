@@ -84,7 +84,7 @@ function makeDb(): import("@ploydok/db").Db {
 // ---------------------------------------------------------------------------
 
 // We mock ensureProjectNetwork to avoid real DB calls
-import * as projectsMod from "../projects.js"
+import * as projectsMod from "../services/projects.js"
 
 beforeEach(() => {
   mock.restore()

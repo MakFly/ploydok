@@ -19,7 +19,7 @@ import { rotatePassword, RotationInProgressError, RotationFailedError } from "..
 import { getSharedAgent } from "../debug/singletons"
 import { childLogger } from "../logger"
 import type { AuthUser } from "../auth/middleware"
-import { ensureDefaultOrganizationForUser } from "../organizations"
+import { ensureDefaultOrganizationForUser } from "../services/organizations"
 
 const log = childLogger("databases.routes")
 

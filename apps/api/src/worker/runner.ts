@@ -36,8 +36,8 @@ import {
   inferContainerColor,
   runtimeContainerName,
   runtimeContainerNameCandidates,
-} from "../runtime-containers.js";
-import { ensureProjectNetwork, networksForApp } from "../projects.js";
+} from "../services/runtime-containers.js";
+import { ensureProjectNetwork, networksForApp } from "../services/projects.js";
 import { ensureCaddyOnProjectNetwork } from "../caddy/attachment.js";
 import { getSharedAgent } from "../debug/singletons.js";
 import { PLANS } from "@ploydok/shared";
