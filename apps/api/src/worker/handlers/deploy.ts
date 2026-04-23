@@ -527,7 +527,9 @@ export async function handleDeploy(
           dockerfile: dockerfileAbs,
           imageRef: pushRef,
           cacheDir,
-          buildArgs: buildEnv,
+          // Secrets from the secrets table are always sensitive material — pass
+          // them ONLY as --secret mounts. Passing them as --build-arg bakes
+          // the plaintext into the image history, visible via `docker history`.
           buildSecrets: buildEnv,
           onLog,
         }));
