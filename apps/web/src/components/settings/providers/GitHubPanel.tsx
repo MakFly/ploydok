@@ -4,11 +4,14 @@ import { Button } from "@workspace/ui/components/button"
 import {
   useCreateGitHubApp,
   useGitHubAppConfig,
+  useGitHubCacheStatus,
   useInstallations,
   useResetGitHubApp,
   useRevokeInstallation,
+  useSyncGitHubInstallations,
 } from "../../../lib/github"
 import type { AppInstallation } from "../../../lib/github"
+import { CachedReposPanel } from "./CachedReposPanel"
 
 export function GitHubPanel(): React.JSX.Element {
   const appParam =
@@ -235,7 +238,36 @@ function InstallationsCard(): React.JSX.Element {
           </div>
         )}
       </div>
+
+      <GitHubCacheSection />
     </>
+  )
+}
+
+function GitHubCacheSection(): React.JSX.Element {
+  const sync = useSyncGitHubInstallations()
+  const { data, isLoading, isError, error } = useGitHubCacheStatus({
+    autoRefresh: sync.isPending,
+  })
+
+  return (
+    <CachedReposPanel
+      title="Cached repositories"
+      description="Repos are served from a Postgres cache so the create-app picker opens instantly. Webhooks invalidate it on install / repo events; a background sync re-fills stale data."
+      entries={data?.installations ?? []}
+      isLoading={isLoading}
+      isError={isError}
+      errorMessage={error?.message}
+      isSyncing={sync.isPending}
+      onSyncOne={(installationId) => sync.mutateAsync({ installationId })}
+      onSyncAll={() => sync.mutateAsync()}
+      emptyState={
+        <p className="text-sm text-muted-foreground">
+          No installation cached yet. Install the GitHub App above; the first sync runs
+          automatically.
+        </p>
+      }
+    />
   )
 }
 

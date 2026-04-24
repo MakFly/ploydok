@@ -13,9 +13,12 @@ import {
   gitlabConnectUrl,
   useDeleteGitLabConfig,
   useDisconnectGitLab,
+  useGitLabCacheStatus,
   useGitLabConfig,
   useSaveGitLabConfig,
+  useSyncGitLabInstallations,
 } from "../../../lib/gitlab"
+import { CachedReposPanel } from "./CachedReposPanel"
 
 export function GitLabPanel(): React.JSX.Element {
   const { data: config, isLoading } = useGitLabConfig()
@@ -60,7 +63,38 @@ export function GitLabPanel(): React.JSX.Element {
       )}
 
       <SetupHelp />
+
+      {configured ? <GitLabCacheSection /> : null}
     </div>
+  )
+}
+
+function GitLabCacheSection(): React.JSX.Element {
+  const sync = useSyncGitLabInstallations()
+  const { data, isLoading, isError, error } = useGitLabCacheStatus({
+    autoRefresh: sync.isPending,
+  })
+
+  const entries = data?.installation ? [data.installation] : []
+
+  return (
+    <CachedReposPanel
+      title="Cached repositories"
+      description="Repos are served from a Postgres cache so the create-app picker opens instantly. Use Sync if you just added a project on GitLab and don't see it yet."
+      entries={entries}
+      isLoading={isLoading}
+      isError={isError}
+      errorMessage={error?.message}
+      isSyncing={sync.isPending}
+      onSyncOne={() => sync.mutateAsync()}
+      onSyncAll={undefined}
+      emptyState={
+        <p className="text-sm text-muted-foreground">
+          No GitLab projects cached yet. Connect via OAuth above; the first sync runs
+          automatically.
+        </p>
+      }
+    />
   )
 }
 

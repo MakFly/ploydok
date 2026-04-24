@@ -165,3 +165,45 @@ export function useGitLabFileExists(
     staleTime: 5 * 60_000,
   })
 }
+
+// ---------------------------------------------------------------------------
+// Cache status — per-user freshness + repo count for the cached gitlab repos.
+// ---------------------------------------------------------------------------
+
+export interface GitLabCacheStatusEntry {
+  id: string
+  externalId: string
+  accountLogin: string
+  avatarUrl: string | null
+  htmlUrl: string | null
+  lastSyncedAt: string
+  repoCount: number
+  ageMs: number
+  status: "fresh" | "stale"
+}
+
+export interface GitLabCacheStatusResponse {
+  installation: GitLabCacheStatusEntry | null
+  staleThresholdMs: number
+}
+
+export function useGitLabCacheStatus(opts: { autoRefresh?: boolean } = {}) {
+  return useQuery<GitLabCacheStatusResponse, ApiError>({
+    queryKey: ["gitlab", "cache-status"],
+    queryFn: () => apiFetch<GitLabCacheStatusResponse>("/gitlab/installations/cache-status"),
+    staleTime: 5_000,
+    refetchInterval: opts.autoRefresh ? 3_000 : false,
+  })
+}
+
+export function useSyncGitLabInstallations() {
+  const qc = useQueryClient()
+  return useMutation<{ enqueued: true }, ApiError, void>({
+    mutationFn: () =>
+      apiFetch<{ enqueued: true }>("/gitlab/installations/sync", { method: "POST" }),
+    onSuccess: () => {
+      void qc.invalidateQueries({ queryKey: ["gitlab", "cache-status"] })
+      void qc.invalidateQueries({ queryKey: ["gitlab", "repos"] })
+    },
+  })
+}
