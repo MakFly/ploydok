@@ -14,7 +14,11 @@ export const builds = pgTable(
     })
       .notNull()
       .default('pending'),
-    build_method: text('build_method', { enum: ['docker', 'nixpacks'] }),
+    build_method: text('build_method', {
+      enum: ['docker', 'dockerfile', 'recipe', 'compose', 'nixpacks', 'railpack'],
+    }),
+    recipe_id: text('recipe_id'),
+    recipe_version: text('recipe_version'),
     image_tag: text('image_tag'),
     container_id: text('container_id'),
     commit_sha: text('commit_sha'),

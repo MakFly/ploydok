@@ -7,7 +7,7 @@ import { and, eq } from "drizzle-orm";
 import { nanoid } from "nanoid";
 import { createDb } from "@ploydok/db";
 import { projects } from "@ploydok/db";
-import { BuildMethodSchema, GitProviderKindSchema, HealthcheckConfigSchema, ImagePullPolicySchema, RestartPolicySchema } from "@ploydok/shared";
+import { BuildMethodSchema, GitProviderKindSchema, HealthcheckConfigSchema, ImagePullPolicySchema, RecipeIdSchema, RecipeVarsSchema, RestartPolicySchema } from "@ploydok/shared";
 import {
   getAppActivity,
   getAppForUser,
@@ -67,7 +67,8 @@ const NodeVersionSchema = z
   .max(16)
   .regex(/^v?\d+(\.\d+){0,2}$/, "must look like '20', '20.10', or '20.10.0'");
 
-const CreateAppBody = z.object({
+// Base object schema (no .refine so it stays composable with .omit/.extend).
+const CreateAppBodyBase = z.object({
   name: z.string().min(1).max(64),
   organizationId: z.string().min(1).optional(),
   projectId: z.string().min(1).optional(),
@@ -96,6 +97,9 @@ const CreateAppBody = z.object({
   startCommand: z.string().optional(),
   watchPaths: z.array(z.string()).optional(),
   buildMethod: BuildMethodSchema.optional(),
+  recipeId: RecipeIdSchema.nullish(),
+  recipeVersion: z.string().max(32).nullish(),
+  recipeVars: RecipeVarsSchema.nullish(),
   runtimePort: z.number().int().positive().optional(),
   restartPolicy: RestartPolicySchema.optional(),
   healthcheck: HealthcheckConfigSchema.partial().optional(),
@@ -104,8 +108,21 @@ const CreateAppBody = z.object({
   keepPerRepo: z.number().int().min(0).max(50).nullable().optional(),
 });
 
+function requireRecipeIdWhenRecipe(
+  v: { buildMethod?: string | undefined; recipeId?: unknown },
+): boolean {
+  if (!v.buildMethod) return true;
+  const m = v.buildMethod === "docker" ? "dockerfile" : v.buildMethod;
+  return m !== "recipe" || Boolean(v.recipeId);
+}
+
+const CreateAppBody = CreateAppBodyBase.refine(requireRecipeIdWhenRecipe, {
+  message: "recipeId is required when buildMethod is 'recipe'",
+  path: ["recipeId"],
+});
+
 // PATCH accepts the same fields except name and projectId are not updatable here
-const PatchAppBody = CreateAppBody.omit({ name: true, organizationId: true, projectId: true })
+const PatchAppBody = CreateAppBodyBase.omit({ name: true, organizationId: true, projectId: true })
   .extend({
     auto_deploy_enabled: z.boolean().optional(),
     post_commit_status: z.boolean().optional(),
@@ -133,7 +150,11 @@ const PatchAppBody = CreateAppBody.omit({ name: true, organizationId: true, proj
         { message: "tag_pattern must be a valid regular expression" },
       ),
   })
-  .partial();
+  .partial()
+  .refine(requireRecipeIdWhenRecipe, {
+    message: "recipeId is required when buildMethod is 'recipe'",
+    path: ["recipeId"],
+  });
 
 // ---------------------------------------------------------------------------
 // Helpers
@@ -359,6 +380,23 @@ export function createAppsRouter(db: Db): Hono {
     // 4. Build healthcheck fields
     const hc = body.healthcheck ?? {};
 
+    // 4b. Recipe defaults — when the user picks a managed recipe and does NOT
+    // override runtime_port, pull the port the recipe listens on so the
+    // blue-green healthcheck targets the correct socket. Same for start_command:
+    // the recipe ships its own entrypoint, so any pre-existing user start
+    // command would be ignored — but we leave it untouched for compatibility.
+    let resolvedRuntimePort: number | null =
+      body.runtimePort ?? body.recipeVars?.runtimePort ?? null;
+    if (body.buildMethod === "recipe" && body.recipeId && resolvedRuntimePort === null) {
+      const { getRecipe } = await import("@ploydok/recipes");
+      try {
+        const recipe = getRecipe(body.recipeId);
+        resolvedRuntimePort = recipe.defaults.runtimePort;
+      } catch {
+        // Unknown recipe id — validation will have failed earlier; fall through.
+      }
+    }
+
     // 5. INSERT
     const newApp = await insertApp(db, {
       id,
@@ -389,12 +427,15 @@ export function createAppsRouter(db: Db): Hono {
       build_command: body.buildCommand ?? null,
       start_command: body.startCommand ?? null,
       watch_paths: body.watchPaths ? JSON.stringify(body.watchPaths) : null,
-      build_method: body.buildMethod ?? "auto",
-      runtime_port: body.runtimePort ?? null,
+      build_method: body.buildMethod === "docker" ? "dockerfile" : body.buildMethod ?? "auto",
+      recipe_id: body.recipeId ?? null,
+      recipe_version: body.recipeVersion ?? null,
+      recipe_vars: body.recipeVars ? JSON.stringify(body.recipeVars) : null,
+      runtime_port: resolvedRuntimePort,
       restart_policy: body.restartPolicy ?? "unless-stopped",
       domain,
       healthcheck_path: hc.path ?? "/",
-      healthcheck_port: hc.port ?? null,
+      healthcheck_port: hc.port ?? resolvedRuntimePort ?? null,
       healthcheck_interval_s: hc.intervalS ?? 5,
       healthcheck_timeout_s: hc.timeoutS ?? 3,
       healthcheck_retries: hc.retries ?? 6,
@@ -476,7 +517,13 @@ export function createAppsRouter(db: Db): Hono {
     if (body.buildCommand !== undefined) patch.build_command = body.buildCommand;
     if (body.startCommand !== undefined) patch.start_command = body.startCommand;
     if (body.watchPaths !== undefined) patch.watch_paths = JSON.stringify(body.watchPaths);
-    if (body.buildMethod !== undefined) patch.build_method = body.buildMethod;
+    if (body.buildMethod !== undefined) {
+      patch.build_method = body.buildMethod === "docker" ? "dockerfile" : body.buildMethod;
+    }
+    if (body.recipeId !== undefined) patch.recipe_id = body.recipeId;
+    if (body.recipeVersion !== undefined) patch.recipe_version = body.recipeVersion;
+    if (body.recipeVars !== undefined)
+      patch.recipe_vars = body.recipeVars ? JSON.stringify(body.recipeVars) : null;
     if (body.runtimePort !== undefined) patch.runtime_port = body.runtimePort;
     if (body.restartPolicy !== undefined) patch.restart_policy = body.restartPolicy;
     if (body.domain !== undefined) patch.domain = body.domain;

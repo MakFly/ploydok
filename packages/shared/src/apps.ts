@@ -28,8 +28,54 @@ export const BuildStatusSchema = z.enum([
 ]);
 export type BuildStatus = z.infer<typeof BuildStatusSchema>;
 
-export const BuildMethodSchema = z.enum(['docker', 'nixpacks', 'auto']);
+/**
+ * `docker` is the legacy alias for `dockerfile` — kept in the enum so rows
+ * written before sprint 3.2 still validate on read. New writes should use
+ * `dockerfile`. Normalize via `normalizeBuildMethod()` before any switch.
+ */
+export const BuildMethodSchema = z.enum([
+  'auto',
+  'docker',
+  'dockerfile',
+  'recipe',
+  'compose',
+  'nixpacks',
+  'railpack',
+]);
 export type BuildMethod = z.infer<typeof BuildMethodSchema>;
+
+export type NormalizedBuildMethod = Exclude<BuildMethod, 'docker'>;
+
+export function normalizeBuildMethod(value: BuildMethod): NormalizedBuildMethod {
+  return value === 'docker' ? 'dockerfile' : value;
+}
+
+export const RecipeIdSchema = z.enum([
+  'php-laravel.v1',
+  'php-symfony.v1',
+  'php-generic.v1',
+]);
+export type RecipeId = z.infer<typeof RecipeIdSchema>;
+
+/**
+ * Build-time knobs passed to a managed recipe. All fields optional — each
+ * recipe supplies its own defaults when a field is absent.
+ */
+export const RecipeVarsSchema = z.object({
+  phpVersion: z.string().regex(/^\d+(\.\d+)?$/).optional(),
+  nodeVersion: z.string().optional(),
+  rootDir: z.string().optional(),
+  publicDir: z.string().optional(),
+  runtimePort: z.number().int().positive().max(65535).optional(),
+  installCommand: z.string().optional(),
+  buildCommand: z.string().optional(),
+  composerFlags: z.string().optional(),
+  // Free-form env identifier: Symfony uses prod/dev/test/staging/preprod/preview,
+  // Laravel uses production/local/staging, Node uses production/development/test.
+  // Recipes classify it via isProductionAppEnv() to decide build posture.
+  appEnv: z.string().min(1).max(32).regex(/^[a-z0-9][a-z0-9_-]*$/i).optional(),
+}).strict();
+export type RecipeVars = z.infer<typeof RecipeVarsSchema>;
 
 export const RestartPolicySchema = z.enum(['no', 'always', 'unless-stopped', 'on-failure']);
 export type RestartPolicy = z.infer<typeof RestartPolicySchema>;
@@ -85,14 +131,27 @@ export const AppConfigSchema = z.object({
   startCommand: z.string().optional(),
   watchPaths: z.array(z.string()).optional(),
   buildMethod: BuildMethodSchema.optional(),
+  recipeId: RecipeIdSchema.nullish(),
+  recipeVersion: z.string().nullish(),
   runtimePort: z.number().int().positive().optional(),
   restartPolicy: RestartPolicySchema.optional(),
   healthcheck: HealthcheckConfigSchema.optional(),
   domain: z.string().optional(),
-}).refine((value) => Boolean(value.organizationId ?? value.projectId), {
-  message: "organizationId or projectId is required",
-  path: ["organizationId"],
-});
+})
+  .refine((value) => Boolean(value.organizationId ?? value.projectId), {
+    message: "organizationId or projectId is required",
+    path: ["organizationId"],
+  })
+  .refine(
+    (v) => {
+      if (!v.buildMethod) return true;
+      if (normalizeBuildMethod(v.buildMethod) === 'recipe') {
+        return Boolean(v.recipeId);
+      }
+      return true;
+    },
+    { message: "recipeId is required when buildMethod is 'recipe'", path: ["recipeId"] },
+  );
 export type AppConfig = z.infer<typeof AppConfigSchema>;
 
 // ---------------------------------------------------------------------------

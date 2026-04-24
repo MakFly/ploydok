@@ -9,3 +9,4 @@ export * from './monitoring';
 export * from './organizations';
 export * from './plans';
 export * from './notifications';
+export * from './stack-classifier';

@@ -46,7 +46,12 @@ export const apps = pgTable('apps', {
   build_command: text('build_command'),
   start_command: text('start_command'),
   watch_paths: text('watch_paths'), // JSON array
-  build_method: text('build_method', { enum: ['docker', 'nixpacks', 'auto'] }),
+  build_method: text('build_method', {
+    enum: ['auto', 'docker', 'dockerfile', 'recipe', 'compose', 'nixpacks', 'railpack'],
+  }),
+  recipe_id: text('recipe_id'),
+  recipe_version: text('recipe_version'),
+  recipe_vars: text('recipe_vars'), // JSON object; shape validated by RecipeVarsSchema at the API boundary.
   // Runtime
   container_id: text('container_id'),
   runtime_port: integer('runtime_port'),
