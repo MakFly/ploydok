@@ -232,10 +232,24 @@ export function classifyStack(probes: ProbeResults): StackClassification {
         signals,
         recommendedBuild: "nixpacks",
         warnings: [],
+        // - NIXPACKS_PHP_ROOT_DIR / NIXPACKS_PHP_FALLBACK_PATH: Nixpacks'
+        //   Laravel-centric PHP provider only rewrites index.php when these
+        //   are set (Coolify documents the same gotcha).
+        // - NIXPACKS_INSTALL_CMD: Symfony Flex's auto-scripts hook runs
+        //   `symfony-cmd` after composer install. That binary doesn't exist
+        //   when composer plugins are disabled in root-run containers, so
+        //   the install phase fails with exit 127. `--no-scripts` skips the
+        //   flex hook while keeping the vendor autoloader intact — this is
+        //   the exact pattern the dunglas/symfony-docker template uses.
+        // APP_ENV is intentionally NOT injected: `prod` on a fresh repo
+        // without DATABASE_URL / writable var/cache breaks cache:warmup and
+        // makes the app 500 on every route. The user sets APP_ENV per
+        // environment scope (sprint-4) once the DB is wired.
         suggestedEnvVars: {
           NIXPACKS_PHP_ROOT_DIR: "/app/public",
           NIXPACKS_PHP_FALLBACK_PATH: "/index.php",
-          APP_ENV: "prod",
+          NIXPACKS_INSTALL_CMD:
+            "composer install --no-interaction --no-scripts --no-progress --prefer-dist --ignore-platform-reqs --optimize-autoloader",
         },
       }
     }

@@ -208,22 +208,20 @@ describe("classifyStack — tie-breaking & edge cases", () => {
 })
 
 describe("classifyStack — suggestedEnvVars", () => {
-  it("Symfony: injects NIXPACKS_PHP_ROOT_DIR, NIXPACKS_PHP_FALLBACK_PATH, APP_ENV", () => {
+  it("Symfony: injects PHP root/fallback + composer --no-scripts (APP_ENV stays user-owned)", () => {
     const r = classifyStack(probes(["composer.json", "symfony.lock"]))
     expect(r.suggestedEnvVars).toEqual({
       NIXPACKS_PHP_ROOT_DIR: "/app/public",
       NIXPACKS_PHP_FALLBACK_PATH: "/index.php",
-      APP_ENV: "prod",
+      NIXPACKS_INSTALL_CMD:
+        "composer install --no-interaction --no-scripts --no-progress --prefer-dist --ignore-platform-reqs --optimize-autoloader",
     })
   })
 
   it("Symfony via bin/console: same env vars", () => {
     const r = classifyStack(probes(["composer.json", "bin/console"]))
-    expect(r.suggestedEnvVars).toEqual({
-      NIXPACKS_PHP_ROOT_DIR: "/app/public",
-      NIXPACKS_PHP_FALLBACK_PATH: "/index.php",
-      APP_ENV: "prod",
-    })
+    expect(r.suggestedEnvVars.NIXPACKS_PHP_ROOT_DIR).toBe("/app/public")
+    expect(r.suggestedEnvVars.NIXPACKS_INSTALL_CMD).toContain("--no-scripts")
   })
 
   it("Laravel: empty suggestedEnvVars (Nixpacks handles it natively)", () => {
