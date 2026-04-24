@@ -100,6 +100,12 @@ export interface StackClassification {
   recommendedBuild: BuildMethodRecommendation
   /** Human-readable warnings to show the user in the wizard. */
   warnings: string[]
+  /**
+   * Env vars Ploydok will auto-inject so the detected framework works out-of-the-box
+   * under Nixpacks/Railpack without any manual configuration from the user.
+   * Empty for stacks that Nixpacks handles natively (e.g. Laravel).
+   */
+  suggestedEnvVars: Record<string, string>
 }
 
 /** Ordered list of all probe keys the classifier understands. */
@@ -168,6 +174,7 @@ export function classifyStack(probes: ProbeResults): StackClassification {
       signals: ["Dockerfile"],
       recommendedBuild: "dockerfile",
       warnings: [],
+      suggestedEnvVars: {},
     }
   }
 
@@ -186,6 +193,7 @@ export function classifyStack(probes: ProbeResults): StackClassification {
         : [
             "Docker Compose détecté — support natif prévu sprint 3.3. Pour l'instant, fallback dockerfile ou nixpacks.",
           ],
+      suggestedEnvVars: {},
     }
   }
 
@@ -203,6 +211,7 @@ export function classifyStack(probes: ProbeResults): StackClassification {
         signals,
         recommendedBuild: "nixpacks",
         warnings: [],
+        suggestedEnvVars: {},
       }
     }
     if (has(probes, "symfony.lock") || has(probes, "bin/console")) {
@@ -215,6 +224,11 @@ export function classifyStack(probes: ProbeResults): StackClassification {
         signals,
         recommendedBuild: "nixpacks",
         warnings: [],
+        suggestedEnvVars: {
+          NIXPACKS_PHP_ROOT_DIR: "/app/public",
+          NIXPACKS_PHP_FALLBACK_PATH: "/index.php",
+          APP_ENV: "prod",
+        },
       }
     }
     return {
@@ -224,6 +238,7 @@ export function classifyStack(probes: ProbeResults): StackClassification {
       signals,
       recommendedBuild: "nixpacks",
       warnings: [],
+      suggestedEnvVars: {},
     }
   }
 
@@ -240,6 +255,7 @@ export function classifyStack(probes: ProbeResults): StackClassification {
         signals: ["package.json", nextCfg],
         recommendedBuild: "nixpacks",
         warnings: [],
+        suggestedEnvVars: {},
       }
     }
     if (has(probes, "remix.config.js")) {
@@ -250,6 +266,7 @@ export function classifyStack(probes: ProbeResults): StackClassification {
         signals: ["package.json", "remix.config.js"],
         recommendedBuild: "nixpacks",
         warnings: [],
+        suggestedEnvVars: {},
       }
     }
     const astroCfg = (["astro.config.mjs", "astro.config.ts"] as const).find(
@@ -263,6 +280,7 @@ export function classifyStack(probes: ProbeResults): StackClassification {
         signals: ["package.json", astroCfg],
         recommendedBuild: "nixpacks",
         warnings: [],
+        suggestedEnvVars: {},
       }
     }
     if (has(probes, "bun.lockb")) {
@@ -273,6 +291,7 @@ export function classifyStack(probes: ProbeResults): StackClassification {
         signals: ["package.json", "bun.lockb"],
         recommendedBuild: "nixpacks",
         warnings: [],
+        suggestedEnvVars: {},
       }
     }
     return {
@@ -284,6 +303,7 @@ export function classifyStack(probes: ProbeResults): StackClassification {
       warnings: [
         "Vérifie NIXPACKS_NODE_VERSION si ton projet cible Node ≥ 20 (Node 18 EOL en 2025).",
       ],
+      suggestedEnvVars: {},
     }
   }
 
@@ -295,6 +315,7 @@ export function classifyStack(probes: ProbeResults): StackClassification {
       signals: ["deno.json"],
       recommendedBuild: "nixpacks",
       warnings: [],
+      suggestedEnvVars: {},
     }
   }
 
@@ -310,6 +331,7 @@ export function classifyStack(probes: ProbeResults): StackClassification {
       signals,
       recommendedBuild: "nixpacks",
       warnings: [],
+      suggestedEnvVars: { PYTHON_VERSION: "3.12" },
     }
   }
   if (hasAny(probes, ["pyproject.toml", "requirements.txt"])) {
@@ -322,6 +344,7 @@ export function classifyStack(probes: ProbeResults): StackClassification {
         : ["requirements.txt"],
       recommendedBuild: "nixpacks",
       warnings: [],
+      suggestedEnvVars: {},
     }
   }
 
@@ -334,6 +357,7 @@ export function classifyStack(probes: ProbeResults): StackClassification {
       signals: ["go.mod"],
       recommendedBuild: "nixpacks",
       warnings: [],
+      suggestedEnvVars: {},
     }
   }
   if (has(probes, "Cargo.toml")) {
@@ -344,6 +368,7 @@ export function classifyStack(probes: ProbeResults): StackClassification {
       signals: ["Cargo.toml"],
       recommendedBuild: "nixpacks",
       warnings: [],
+      suggestedEnvVars: {},
     }
   }
   if (has(probes, "Gemfile")) {
@@ -356,6 +381,10 @@ export function classifyStack(probes: ProbeResults): StackClassification {
       warnings: [
         "Support Ruby dans nixpacks upstream est partiel — tester le build avant de compter dessus.",
       ],
+      suggestedEnvVars: {
+        RAILS_ENV: "production",
+        RAILS_SERVE_STATIC_FILES: "true",
+      },
     }
   }
   if (has(probes, "mix.exs")) {
@@ -366,6 +395,7 @@ export function classifyStack(probes: ProbeResults): StackClassification {
       signals: ["mix.exs"],
       recommendedBuild: "nixpacks",
       warnings: [],
+      suggestedEnvVars: {},
     }
   }
   if (hasAny(probes, ["pom.xml", "build.gradle", "build.gradle.kts"])) {
@@ -383,6 +413,7 @@ export function classifyStack(probes: ProbeResults): StackClassification {
       warnings: [
         "Support JVM dans nixpacks est patchy — préfère un Dockerfile.",
       ],
+      suggestedEnvVars: {},
     }
   }
 
@@ -395,6 +426,7 @@ export function classifyStack(probes: ProbeResults): StackClassification {
       signals: ["index.html"],
       recommendedBuild: "nixpacks",
       warnings: [],
+      suggestedEnvVars: {},
     }
   }
 
@@ -407,5 +439,6 @@ export function classifyStack(probes: ProbeResults): StackClassification {
     warnings: [
       "Aucune stack reconnue — ajoute un Dockerfile ou choisis manuellement un build method.",
     ],
+    suggestedEnvVars: {},
   }
 }

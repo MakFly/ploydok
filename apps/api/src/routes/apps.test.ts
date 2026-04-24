@@ -1,14 +1,16 @@
 // SPDX-License-Identifier: AGPL-3.0-only
-import { describe, it, expect, beforeEach, mock, spyOn } from "bun:test";
-import { Hono } from "hono";
-import { nanoid } from "nanoid";
-import { eq } from "drizzle-orm";
-import { users, projects, apps, builds } from "@ploydok/db";
-import type { Db } from "@ploydok/db";
-import { makeTestDb as makePgTestDb, TEST_PG_URL } from "../test/db-helpers";
-import { createAppsRouter } from "./apps";
-import type { AuthUser } from "../auth/middleware";
-import * as singletons from "../debug/singletons";
+import { describe, it, expect, beforeEach, mock, spyOn } from "bun:test"
+import { Hono } from "hono"
+import { nanoid } from "nanoid"
+import { eq } from "drizzle-orm"
+import { users, projects, apps, builds } from "@ploydok/db"
+import type { Db } from "@ploydok/db"
+import { makeTestDb as makePgTestDb, TEST_PG_URL } from "../test/db-helpers"
+import { createAppsRouter } from "./apps"
+import type { AuthUser } from "../auth/middleware"
+import * as singletons from "../debug/singletons"
+import * as githubModule from "./github"
+import { listEnvForApp } from "@ploydok/db/queries"
 
 // ---------------------------------------------------------------------------
 // Test DB helper — in-memory SQLite with all required tables
@@ -28,9 +30,12 @@ type TestDb = Db
 // Test fixtures helpers
 // ---------------------------------------------------------------------------
 
-async function createTestUser(db: TestDb, overrides: Partial<{ id: string; email: string }> = {}) {
-  const id = overrides.id ?? nanoid();
-  const now = new Date();
+async function createTestUser(
+  db: TestDb,
+  overrides: Partial<{ id: string; email: string }> = {}
+) {
+  const id = overrides.id ?? nanoid()
+  const now = new Date()
   await db.insert(users).values({
     id,
     email: overrides.email ?? `user-${id}@test.com`,
@@ -39,35 +44,39 @@ async function createTestUser(db: TestDb, overrides: Partial<{ id: string; email
     updated_at: now,
     recovery_token_hash: null,
     recovery_expires_at: null,
-  });
-  return { id, email: overrides.email ?? `user-${id}@test.com` };
+  })
+  return { id, email: overrides.email ?? `user-${id}@test.com` }
 }
 
 async function createTestProject(db: TestDb, ownerId: string) {
-  const id = nanoid();
-  const now = new Date();
+  const id = nanoid()
+  const now = new Date()
   await db.insert(projects).values({
     id,
     owner_id: ownerId,
     name: `Project ${id}`,
     slug: `proj-${id}`,
     created_at: now,
-  });
-  return { id };
+  })
+  return { id }
 }
 
 interface CreateAppOpts {
-  userId: string;
-  projectId: string;
-  name?: string;
-  branch?: string;
+  userId: string
+  projectId: string
+  name?: string
+  branch?: string
 }
 
 async function createTestApp(db: TestDb, opts: CreateAppOpts) {
-  const id = nanoid();
-  const now = new Date();
-  const name = opts.name ?? `App ${id}`;
-  const slug = name.toLowerCase().replace(/[^a-z0-9]+/g, "-").replace(/^-+|-+$/g, "").slice(0, 32);
+  const id = nanoid()
+  const now = new Date()
+  const name = opts.name ?? `App ${id}`
+  const slug = name
+    .toLowerCase()
+    .replace(/[^a-z0-9]+/g, "-")
+    .replace(/^-+|-+$/g, "")
+    .slice(0, 32)
 
   await db.insert(apps).values({
     id,
@@ -96,8 +105,8 @@ async function createTestApp(db: TestDb, opts: CreateAppOpts) {
     healthcheck_timeout_s: 3,
     healthcheck_retries: 6,
     healthcheck_start_period_s: 0,
-  });
-  return { id, slug };
+  })
+  return { id, slug }
 }
 
 // ---------------------------------------------------------------------------
@@ -105,23 +114,23 @@ async function createTestApp(db: TestDb, opts: CreateAppOpts) {
 // ---------------------------------------------------------------------------
 
 function buildTestApp(db: TestDb, authedUser?: AuthUser): Hono {
-  const honoApp = new Hono();
+  const honoApp = new Hono()
 
   honoApp.use("*", async (c, next) => {
     if (authedUser) {
       // eslint-disable-next-line @typescript-eslint/no-explicit-any
-      (c as any).set("user", authedUser);
+      ;(c as any).set("user", authedUser)
     }
-    return next();
-  });
+    return next()
+  })
 
-  const router = createAppsRouter(db);
-  honoApp.route("/apps", router);
-  return honoApp;
+  const router = createAppsRouter(db)
+  honoApp.route("/apps", router)
+  return honoApp
 }
 
 function fakeUser(id: string, email: string): AuthUser {
-  return { id, email, display_name: "Test User", session_id: "sess-test" };
+  return { id, email, display_name: "Test User", session_id: "sess-test" }
 }
 
 // ---------------------------------------------------------------------------
@@ -129,20 +138,20 @@ function fakeUser(id: string, email: string): AuthUser {
 // ---------------------------------------------------------------------------
 
 describe.skipIf(skip)("POST /apps", () => {
-  let db: TestDb;
-  let userId: string;
-  let projectId: string;
+  let db: TestDb
+  let userId: string
+  let projectId: string
 
   beforeEach(async () => {
-    db = await makeTestDb();
-    const user = await createTestUser(db);
-    userId = user.id;
-    const project = await createTestProject(db, userId);
-    projectId = project.id;
-  });
+    db = await makeTestDb()
+    const user = await createTestUser(db)
+    userId = user.id
+    const project = await createTestProject(db, userId)
+    projectId = project.id
+  })
 
   it("creates an app with valid body → 201 + app in response", async () => {
-    const app = buildTestApp(db, fakeUser(userId, `u@t.com`));
+    const app = buildTestApp(db, fakeUser(userId, `u@t.com`))
     const res = await app.request("/apps", {
       method: "POST",
       headers: { "content-type": "application/json" },
@@ -153,20 +162,29 @@ describe.skipIf(skip)("POST /apps", () => {
         repoFullName: "owner/my-repo",
         branch: "main",
       }),
-    });
+    })
 
-    expect(res.status).toBe(201);
-    const body = await res.json() as { app: { id: string; slug: string; name: string; status: string; domain: string; restartPolicy: string } };
-    expect(body.app.name).toBe("My App");
-    expect(body.app.slug).toBe("my-app");
-    expect(body.app.status).toBe("created");
-    expect(body.app.domain).toBe("my-app.demo.ploydok.local");
-    expect(body.app.restartPolicy).toBe("unless-stopped");
-    expect(body.app.id).toBeString();
-  });
+    expect(res.status).toBe(201)
+    const body = (await res.json()) as {
+      app: {
+        id: string
+        slug: string
+        name: string
+        status: string
+        domain: string
+        restartPolicy: string
+      }
+    }
+    expect(body.app.name).toBe("My App")
+    expect(body.app.slug).toBe("my-app")
+    expect(body.app.status).toBe("created")
+    expect(body.app.domain).toBe("my-app.demo.ploydok.local")
+    expect(body.app.restartPolicy).toBe("unless-stopped")
+    expect(body.app.id).toBeString()
+  })
 
   it("creates an app with an explicit restart policy", async () => {
-    const app = buildTestApp(db, fakeUser(userId, `u@t.com`));
+    const app = buildTestApp(db, fakeUser(userId, `u@t.com`))
     const res = await app.request("/apps", {
       method: "POST",
       headers: { "content-type": "application/json" },
@@ -178,15 +196,15 @@ describe.skipIf(skip)("POST /apps", () => {
         branch: "main",
         restartPolicy: "no",
       }),
-    });
+    })
 
-    expect(res.status).toBe(201);
-    const body = await res.json() as { app: { restartPolicy: string } };
-    expect(body.app.restartPolicy).toBe("no");
-  });
+    expect(res.status).toBe(201)
+    const body = (await res.json()) as { app: { restartPolicy: string } }
+    expect(body.app.restartPolicy).toBe("no")
+  })
 
   it("creates an app with runtime port and nixpacks metadata", async () => {
-    const app = buildTestApp(db, fakeUser(userId, `u@t.com`));
+    const app = buildTestApp(db, fakeUser(userId, `u@t.com`))
     const res = await app.request("/apps", {
       method: "POST",
       headers: { "content-type": "application/json" },
@@ -200,19 +218,23 @@ describe.skipIf(skip)("POST /apps", () => {
         nixpacksConfigPath: "nixpacks.toml",
         nodeVersion: "22",
       }),
-    });
+    })
 
-    expect(res.status).toBe(201);
-    const body = await res.json() as {
-      app: { runtimePort: number | null; nixpacksConfigPath?: string; nodeVersion?: string }
-    };
-    expect(body.app.runtimePort).toBe(4321);
-    expect(body.app.nixpacksConfigPath).toBe("nixpacks.toml");
-    expect(body.app.nodeVersion).toBe("22");
-  });
+    expect(res.status).toBe(201)
+    const body = (await res.json()) as {
+      app: {
+        runtimePort: number | null
+        nixpacksConfigPath?: string
+        nodeVersion?: string
+      }
+    }
+    expect(body.app.runtimePort).toBe(4321)
+    expect(body.app.nixpacksConfigPath).toBe("nixpacks.toml")
+    expect(body.app.nodeVersion).toBe("22")
+  })
 
   it("generates slug from name — special chars collapsed", async () => {
-    const app = buildTestApp(db, fakeUser(userId, `u@t.com`));
+    const app = buildTestApp(db, fakeUser(userId, `u@t.com`))
     const res = await app.request("/apps", {
       method: "POST",
       headers: { "content-type": "application/json" },
@@ -223,39 +245,51 @@ describe.skipIf(skip)("POST /apps", () => {
         repoFullName: "owner/repo",
         branch: "main",
       }),
-    });
-    expect(res.status).toBe(201);
-    const body = await res.json() as { app: { slug: string } };
-    expect(body.app.slug).toBe("hello-world-123");
-  });
+    })
+    expect(res.status).toBe(201)
+    const body = (await res.json()) as { app: { slug: string } }
+    expect(body.app.slug).toBe("hello-world-123")
+  })
 
   it("slug collision within project → appends -2", async () => {
-    const app = buildTestApp(db, fakeUser(userId, `u@t.com`));
+    const app = buildTestApp(db, fakeUser(userId, `u@t.com`))
 
     // Create first app
     await app.request("/apps", {
       method: "POST",
       headers: { "content-type": "application/json" },
-      body: JSON.stringify({ name: "My App", projectId, gitProvider: "github", repoFullName: "o/r", branch: "main" }),
-    });
+      body: JSON.stringify({
+        name: "My App",
+        projectId,
+        gitProvider: "github",
+        repoFullName: "o/r",
+        branch: "main",
+      }),
+    })
 
     // Create second app with same name
     const res2 = await app.request("/apps", {
       method: "POST",
       headers: { "content-type": "application/json" },
-      body: JSON.stringify({ name: "My App", projectId, gitProvider: "github", repoFullName: "o/r", branch: "main" }),
-    });
-    expect(res2.status).toBe(201);
-    const body2 = await res2.json() as { app: { slug: string } };
-    expect(body2.app.slug).toBe("my-app-2");
-  });
+      body: JSON.stringify({
+        name: "My App",
+        projectId,
+        gitProvider: "github",
+        repoFullName: "o/r",
+        branch: "main",
+      }),
+    })
+    expect(res2.status).toBe(201)
+    const body2 = (await res2.json()) as { app: { slug: string } }
+    expect(body2.app.slug).toBe("my-app-2")
+  })
 
   it("projectId belonging to another user → 404", async () => {
     // Create another user's project
-    const otherUser = await createTestUser(db);
-    const otherProject = await createTestProject(db, otherUser.id);
+    const otherUser = await createTestUser(db)
+    const otherProject = await createTestProject(db, otherUser.id)
 
-    const app = buildTestApp(db, fakeUser(userId, `u@t.com`));
+    const app = buildTestApp(db, fakeUser(userId, `u@t.com`))
     const res = await app.request("/apps", {
       method: "POST",
       headers: { "content-type": "application/json" },
@@ -266,15 +300,15 @@ describe.skipIf(skip)("POST /apps", () => {
         repoFullName: "o/r",
         branch: "main",
       }),
-    });
+    })
 
-    expect(res.status).toBe(404);
-    const body = await res.json() as { error: { code: string } };
-    expect(body.error.code).toBe("NOT_FOUND");
-  });
+    expect(res.status).toBe(404)
+    const body = (await res.json()) as { error: { code: string } }
+    expect(body.error.code).toBe("NOT_FOUND")
+  })
 
   it("invalid body (missing branch) → 400", async () => {
-    const app = buildTestApp(db, fakeUser(userId, `u@t.com`));
+    const app = buildTestApp(db, fakeUser(userId, `u@t.com`))
     const res = await app.request("/apps", {
       method: "POST",
       headers: { "content-type": "application/json" },
@@ -285,12 +319,12 @@ describe.skipIf(skip)("POST /apps", () => {
         repoFullName: "o/r",
         // missing branch
       }),
-    });
-    expect(res.status).toBe(400);
-  });
+    })
+    expect(res.status).toBe(400)
+  })
 
   it("uses provided domain instead of generated one", async () => {
-    const app = buildTestApp(db, fakeUser(userId, `u@t.com`));
+    const app = buildTestApp(db, fakeUser(userId, `u@t.com`))
     const res = await app.request("/apps", {
       method: "POST",
       headers: { "content-type": "application/json" },
@@ -302,154 +336,176 @@ describe.skipIf(skip)("POST /apps", () => {
         branch: "main",
         domain: "myapp.example.com",
       }),
-    });
-    expect(res.status).toBe(201);
-    const body = await res.json() as { app: { domain: string } };
-    expect(body.app.domain).toBe("myapp.example.com");
-  });
-});
+    })
+    expect(res.status).toBe(201)
+    const body = (await res.json()) as { app: { domain: string } }
+    expect(body.app.domain).toBe("myapp.example.com")
+  })
+})
 
 // ---------------------------------------------------------------------------
 // GET /apps
 // ---------------------------------------------------------------------------
 
 describe.skipIf(skip)("GET /apps", () => {
-  let db: TestDb;
-  let userId: string;
-  let projectId: string;
+  let db: TestDb
+  let userId: string
+  let projectId: string
 
   beforeEach(async () => {
-    db = await makeTestDb();
-    const user = await createTestUser(db);
-    userId = user.id;
-    const project = await createTestProject(db, userId);
-    projectId = project.id;
-  });
+    db = await makeTestDb()
+    const user = await createTestUser(db)
+    userId = user.id
+    const project = await createTestProject(db, userId)
+    projectId = project.id
+  })
 
   it("lists only apps belonging to the authenticated user", async () => {
     // Create 2 apps for this user
-    await createTestApp(db, { userId, projectId, name: "App Alpha" });
-    await createTestApp(db, { userId, projectId, name: "App Beta" });
+    await createTestApp(db, { userId, projectId, name: "App Alpha" })
+    await createTestApp(db, { userId, projectId, name: "App Beta" })
 
     // Create another user with their own app
-    const other = await createTestUser(db);
-    const otherProject = await createTestProject(db, other.id);
-    await createTestApp(db, { userId: other.id, projectId: otherProject.id, name: "Other App" });
+    const other = await createTestUser(db)
+    const otherProject = await createTestProject(db, other.id)
+    await createTestApp(db, {
+      userId: other.id,
+      projectId: otherProject.id,
+      name: "Other App",
+    })
 
-    const honoApp = buildTestApp(db, fakeUser(userId, `u@t.com`));
-    const res = await honoApp.request("/apps");
+    const honoApp = buildTestApp(db, fakeUser(userId, `u@t.com`))
+    const res = await honoApp.request("/apps")
 
-    expect(res.status).toBe(200);
-    const body = await res.json() as { apps: { name: string }[] };
-    expect(body.apps).toHaveLength(2);
-    const names = body.apps.map((a) => a.name).sort();
-    expect(names).toEqual(["App Alpha", "App Beta"]);
-  });
+    expect(res.status).toBe(200)
+    const body = (await res.json()) as { apps: { name: string }[] }
+    expect(body.apps).toHaveLength(2)
+    const names = body.apps.map((a) => a.name).sort()
+    expect(names).toEqual(["App Alpha", "App Beta"])
+  })
 
   it("returns empty list when user has no apps", async () => {
-    const honoApp = buildTestApp(db, fakeUser(userId, `u@t.com`));
-    const res = await honoApp.request("/apps");
-    expect(res.status).toBe(200);
-    const body = await res.json() as { apps: unknown[] };
-    expect(body.apps).toHaveLength(0);
-  });
-});
+    const honoApp = buildTestApp(db, fakeUser(userId, `u@t.com`))
+    const res = await honoApp.request("/apps")
+    expect(res.status).toBe(200)
+    const body = (await res.json()) as { apps: unknown[] }
+    expect(body.apps).toHaveLength(0)
+  })
+})
 
 // ---------------------------------------------------------------------------
 // GET /apps/:id
 // ---------------------------------------------------------------------------
 
 describe.skipIf(skip)("GET /apps/:id", () => {
-  let db: TestDb;
-  let userId: string;
-  let projectId: string;
+  let db: TestDb
+  let userId: string
+  let projectId: string
 
   beforeEach(async () => {
-    db = await makeTestDb();
-    const user = await createTestUser(db);
-    userId = user.id;
-    const project = await createTestProject(db, userId);
-    projectId = project.id;
-  });
+    db = await makeTestDb()
+    const user = await createTestUser(db)
+    userId = user.id
+    const project = await createTestProject(db, userId)
+    projectId = project.id
+  })
 
   it("returns app details + builds for the owner", async () => {
-    const { id: appId } = await createTestApp(db, { userId, projectId, name: "Detail App" });
+    const { id: appId } = await createTestApp(db, {
+      userId,
+      projectId,
+      name: "Detail App",
+    })
 
-    const honoApp = buildTestApp(db, fakeUser(userId, `u@t.com`));
-    const res = await honoApp.request(`/apps/${appId}`);
+    const honoApp = buildTestApp(db, fakeUser(userId, `u@t.com`))
+    const res = await honoApp.request(`/apps/${appId}`)
 
-    expect(res.status).toBe(200);
-    const body = await res.json() as { app: { id: string; name: string }; builds: unknown[] };
-    expect(body.app.id).toBe(appId);
-    expect(body.app.name).toBe("Detail App");
-    expect(Array.isArray(body.builds)).toBe(true);
-  });
+    expect(res.status).toBe(200)
+    const body = (await res.json()) as {
+      app: { id: string; name: string }
+      builds: unknown[]
+    }
+    expect(body.app.id).toBe(appId)
+    expect(body.app.name).toBe("Detail App")
+    expect(Array.isArray(body.builds)).toBe(true)
+  })
 
   it("normalizes nullable optional config fields to undefined", async () => {
-    const { id: appId } = await createTestApp(db, { userId, projectId, name: "Detail App" });
+    const { id: appId } = await createTestApp(db, {
+      userId,
+      projectId,
+      name: "Detail App",
+    })
 
-    const honoApp = buildTestApp(db, fakeUser(userId, `u@t.com`));
-    const res = await honoApp.request(`/apps/${appId}`);
+    const honoApp = buildTestApp(db, fakeUser(userId, `u@t.com`))
+    const res = await honoApp.request(`/apps/${appId}`)
 
-    expect(res.status).toBe(200);
-    const body = await res.json() as {
+    expect(res.status).toBe(200)
+    const body = (await res.json()) as {
       app: {
-        rootDir?: string;
-        dockerfilePath?: string;
-        installCommand?: string;
-        buildCommand?: string;
-        startCommand?: string;
-      };
-    };
+        rootDir?: string
+        dockerfilePath?: string
+        installCommand?: string
+        buildCommand?: string
+        startCommand?: string
+      }
+    }
 
-    expect(body.app.rootDir).toBeUndefined();
-    expect(body.app.dockerfilePath).toBeUndefined();
-    expect(body.app.installCommand).toBeUndefined();
-    expect(body.app.buildCommand).toBeUndefined();
-    expect(body.app.startCommand).toBeUndefined();
-  });
+    expect(body.app.rootDir).toBeUndefined()
+    expect(body.app.dockerfilePath).toBeUndefined()
+    expect(body.app.installCommand).toBeUndefined()
+    expect(body.app.buildCommand).toBeUndefined()
+    expect(body.app.startCommand).toBeUndefined()
+  })
 
   it("returns 404 for an app belonging to another user", async () => {
-    const other = await createTestUser(db);
-    const otherProject = await createTestProject(db, other.id);
-    const { id: otherAppId } = await createTestApp(db, { userId: other.id, projectId: otherProject.id });
+    const other = await createTestUser(db)
+    const otherProject = await createTestProject(db, other.id)
+    const { id: otherAppId } = await createTestApp(db, {
+      userId: other.id,
+      projectId: otherProject.id,
+    })
 
-    const honoApp = buildTestApp(db, fakeUser(userId, `u@t.com`));
-    const res = await honoApp.request(`/apps/${otherAppId}`);
+    const honoApp = buildTestApp(db, fakeUser(userId, `u@t.com`))
+    const res = await honoApp.request(`/apps/${otherAppId}`)
 
-    expect(res.status).toBe(404);
-    const body = await res.json() as { error: { code: string } };
-    expect(body.error.code).toBe("NOT_FOUND");
-  });
+    expect(res.status).toBe(404)
+    const body = (await res.json()) as { error: { code: string } }
+    expect(body.error.code).toBe("NOT_FOUND")
+  })
 
   it("returns 404 for a non-existent appId", async () => {
-    const honoApp = buildTestApp(db, fakeUser(userId, `u@t.com`));
-    const res = await honoApp.request(`/apps/nonexistent-id`);
-    expect(res.status).toBe(404);
-  });
-});
+    const honoApp = buildTestApp(db, fakeUser(userId, `u@t.com`))
+    const res = await honoApp.request(`/apps/nonexistent-id`)
+    expect(res.status).toBe(404)
+  })
+})
 
 // ---------------------------------------------------------------------------
 // PATCH /apps/:id
 // ---------------------------------------------------------------------------
 
 describe.skipIf(skip)("PATCH /apps/:id", () => {
-  let db: TestDb;
-  let userId: string;
-  let projectId: string;
+  let db: TestDb
+  let userId: string
+  let projectId: string
 
   beforeEach(async () => {
-    db = await makeTestDb();
-    const user = await createTestUser(db);
-    userId = user.id;
-    const project = await createTestProject(db, userId);
-    projectId = project.id;
-  });
+    db = await makeTestDb()
+    const user = await createTestUser(db)
+    userId = user.id
+    const project = await createTestProject(db, userId)
+    projectId = project.id
+  })
 
   it("updates branch, restartPolicy and healthcheck.retries", async () => {
-    const { id: appId } = await createTestApp(db, { userId, projectId, branch: "main" });
+    const { id: appId } = await createTestApp(db, {
+      userId,
+      projectId,
+      branch: "main",
+    })
 
-    const honoApp = buildTestApp(db, fakeUser(userId, `u@t.com`));
+    const honoApp = buildTestApp(db, fakeUser(userId, `u@t.com`))
     const res = await honoApp.request(`/apps/${appId}`, {
       method: "PATCH",
       headers: { "content-type": "application/json" },
@@ -458,19 +514,29 @@ describe.skipIf(skip)("PATCH /apps/:id", () => {
         restartPolicy: "on-failure",
         healthcheck: { retries: 10 },
       }),
-    });
+    })
 
-    expect(res.status).toBe(200);
-    const body = await res.json() as { app: { branch: string; restartPolicy: string; healthcheck: { retries: number } } };
-    expect(body.app.branch).toBe("develop");
-    expect(body.app.restartPolicy).toBe("on-failure");
-    expect(body.app.healthcheck.retries).toBe(10);
-  });
+    expect(res.status).toBe(200)
+    const body = (await res.json()) as {
+      app: {
+        branch: string
+        restartPolicy: string
+        healthcheck: { retries: number }
+      }
+    }
+    expect(body.app.branch).toBe("develop")
+    expect(body.app.restartPolicy).toBe("on-failure")
+    expect(body.app.healthcheck.retries).toBe(10)
+  })
 
   it("updates runtime port and nixpacks metadata", async () => {
-    const { id: appId } = await createTestApp(db, { userId, projectId, branch: "main" });
+    const { id: appId } = await createTestApp(db, {
+      userId,
+      projectId,
+      branch: "main",
+    })
 
-    const honoApp = buildTestApp(db, fakeUser(userId, `u@t.com`));
+    const honoApp = buildTestApp(db, fakeUser(userId, `u@t.com`))
     const res = await honoApp.request(`/apps/${appId}`, {
       method: "PATCH",
       headers: { "content-type": "application/json" },
@@ -479,92 +545,110 @@ describe.skipIf(skip)("PATCH /apps/:id", () => {
         nixpacksConfigPath: "deploy/nixpacks.toml",
         nodeVersion: "20",
       }),
-    });
+    })
 
-    expect(res.status).toBe(200);
-    const body = await res.json() as {
-      app: { runtimePort: number | null; nixpacksConfigPath?: string; nodeVersion?: string }
-    };
-    expect(body.app.runtimePort).toBe(8080);
-    expect(body.app.nixpacksConfigPath).toBe("deploy/nixpacks.toml");
-    expect(body.app.nodeVersion).toBe("20");
-  });
+    expect(res.status).toBe(200)
+    const body = (await res.json()) as {
+      app: {
+        runtimePort: number | null
+        nixpacksConfigPath?: string
+        nodeVersion?: string
+      }
+    }
+    expect(body.app.runtimePort).toBe(8080)
+    expect(body.app.nixpacksConfigPath).toBe("deploy/nixpacks.toml")
+    expect(body.app.nodeVersion).toBe("20")
+  })
 
   it("returns 404 for an app belonging to another user", async () => {
-    const other = await createTestUser(db);
-    const otherProject = await createTestProject(db, other.id);
-    const { id: otherAppId } = await createTestApp(db, { userId: other.id, projectId: otherProject.id });
+    const other = await createTestUser(db)
+    const otherProject = await createTestProject(db, other.id)
+    const { id: otherAppId } = await createTestApp(db, {
+      userId: other.id,
+      projectId: otherProject.id,
+    })
 
-    const honoApp = buildTestApp(db, fakeUser(userId, `u@t.com`));
+    const honoApp = buildTestApp(db, fakeUser(userId, `u@t.com`))
     const res = await honoApp.request(`/apps/${otherAppId}`, {
       method: "PATCH",
       headers: { "content-type": "application/json" },
       body: JSON.stringify({ branch: "hacked" }),
-    });
+    })
 
-    expect(res.status).toBe(404);
-  });
+    expect(res.status).toBe(404)
+  })
 
   it("ignores unknown fields (partial update)", async () => {
-    const { id: appId } = await createTestApp(db, { userId, projectId, branch: "main" });
+    const { id: appId } = await createTestApp(db, {
+      userId,
+      projectId,
+      branch: "main",
+    })
 
-    const honoApp = buildTestApp(db, fakeUser(userId, `u@t.com`));
+    const honoApp = buildTestApp(db, fakeUser(userId, `u@t.com`))
     const res = await honoApp.request(`/apps/${appId}`, {
       method: "PATCH",
       headers: { "content-type": "application/json" },
       body: JSON.stringify({ buildMethod: "nixpacks" }),
-    });
+    })
 
-    expect(res.status).toBe(200);
-    const body = await res.json() as { app: { buildMethod: string; branch: string } };
-    expect(body.app.buildMethod).toBe("nixpacks");
-    expect(body.app.branch).toBe("main"); // unchanged
-  });
-});
+    expect(res.status).toBe(200)
+    const body = (await res.json()) as {
+      app: { buildMethod: string; branch: string }
+    }
+    expect(body.app.buildMethod).toBe("nixpacks")
+    expect(body.app.branch).toBe("main") // unchanged
+  })
+})
 
 // ---------------------------------------------------------------------------
 // DELETE /apps/:id
 // ---------------------------------------------------------------------------
 
 describe.skipIf(skip)("DELETE /apps/:id", () => {
-  let db: TestDb;
-  let userId: string;
-  let projectId: string;
+  let db: TestDb
+  let userId: string
+  let projectId: string
 
   beforeEach(async () => {
-    db = await makeTestDb();
-    const user = await createTestUser(db);
-    userId = user.id;
-    const project = await createTestProject(db, userId);
-    projectId = project.id;
-  });
+    db = await makeTestDb()
+    const user = await createTestUser(db)
+    userId = user.id
+    const project = await createTestProject(db, userId)
+    projectId = project.id
+  })
 
   it("soft-deletes (status=stopped) and returns 204", async () => {
-    const { id: appId } = await createTestApp(db, { userId, projectId });
+    const { id: appId } = await createTestApp(db, { userId, projectId })
 
-    const honoApp = buildTestApp(db, fakeUser(userId, `u@t.com`));
-    const res = await honoApp.request(`/apps/${appId}`, { method: "DELETE" });
+    const honoApp = buildTestApp(db, fakeUser(userId, `u@t.com`))
+    const res = await honoApp.request(`/apps/${appId}`, { method: "DELETE" })
 
-    expect(res.status).toBe(204);
+    expect(res.status).toBe(204)
 
     // Verify still in DB with status=stopped (hard delete would leave nothing)
-    const rows = await db.select().from(apps);
-    const found = rows.find((r) => r.id === appId);
-    expect(found).toBeDefined();
-    expect(found!.status).toBe("stopped");
-  });
+    const rows = await db.select().from(apps)
+    const found = rows.find((r) => r.id === appId)
+    expect(found).toBeDefined()
+    expect(found!.status).toBe("stopped")
+  })
 
   it("returns 404 for an app belonging to another user", async () => {
-    const other = await createTestUser(db);
-    const otherProject = await createTestProject(db, other.id);
-    const { id: otherAppId } = await createTestApp(db, { userId: other.id, projectId: otherProject.id });
+    const other = await createTestUser(db)
+    const otherProject = await createTestProject(db, other.id)
+    const { id: otherAppId } = await createTestApp(db, {
+      userId: other.id,
+      projectId: otherProject.id,
+    })
 
-    const honoApp = buildTestApp(db, fakeUser(userId, `u@t.com`));
-    const res = await honoApp.request(`/apps/${otherAppId}`, { method: "DELETE" });
+    const honoApp = buildTestApp(db, fakeUser(userId, `u@t.com`))
+    const res = await honoApp.request(`/apps/${otherAppId}`, {
+      method: "DELETE",
+    })
 
-    expect(res.status).toBe(404);
-  });
-});
+    expect(res.status).toBe(404)
+  })
+})
 
 // ---------------------------------------------------------------------------
 // POST /apps/:id/rollback — with explicit buildId (W2.A)
@@ -574,11 +658,11 @@ async function createTestBuild(
   db: TestDb,
   appId: string,
   status: "pending" | "running" | "succeeded" | "failed" | "cancelled",
-  opts: { imageTag?: string; commitSha?: string; commitMessage?: string } = {},
+  opts: { imageTag?: string; commitSha?: string; commitMessage?: string } = {}
 ) {
-  const id = nanoid();
-  const now = new Date();
-  const startedAt = new Date(now.getTime() - 60_000);
+  const id = nanoid()
+  const now = new Date()
+  const startedAt = new Date(now.getTime() - 60_000)
   await db.insert(builds).values({
     id,
     app_id: appId,
@@ -593,8 +677,8 @@ async function createTestBuild(
     started_at: startedAt,
     finished_at: now,
     created_at: now,
-  });
-  return { id };
+  })
+  return { id }
 }
 
 // ---------------------------------------------------------------------------
@@ -602,66 +686,77 @@ async function createTestBuild(
 // ---------------------------------------------------------------------------
 
 describe.skipIf(skip)("GET /apps/:id/builds", () => {
-  let db: TestDb;
-  let userId: string;
-  let projectId: string;
+  let db: TestDb
+  let userId: string
+  let projectId: string
 
   beforeEach(async () => {
-    db = await makeTestDb();
-    const user = await createTestUser(db);
-    userId = user.id;
-    const project = await createTestProject(db, userId);
-    projectId = project.id;
-  });
+    db = await makeTestDb()
+    const user = await createTestUser(db)
+    userId = user.id
+    const project = await createTestProject(db, userId)
+    projectId = project.id
+  })
 
   it("exposes commitMessage from build row", async () => {
-    const { id: appId } = await createTestApp(db, { userId, projectId });
+    const { id: appId } = await createTestApp(db, { userId, projectId })
     await createTestBuild(db, appId, "succeeded", {
       commitSha: "abc1234",
       commitMessage: "feat: add commit message field",
-    });
+    })
 
-    const honoApp = buildTestApp(db, fakeUser(userId, `u@t.com`));
-    const res = await honoApp.request(`/apps/${appId}/builds`);
+    const honoApp = buildTestApp(db, fakeUser(userId, `u@t.com`))
+    const res = await honoApp.request(`/apps/${appId}/builds`)
 
-    expect(res.status).toBe(200);
-    const body = await res.json() as { builds: { commitMessage: string | null }[] };
-    expect(body.builds).toHaveLength(1);
-    expect(body.builds[0]!.commitMessage).toBe("feat: add commit message field");
-  });
+    expect(res.status).toBe(200)
+    const body = (await res.json()) as {
+      builds: { commitMessage: string | null }[]
+    }
+    expect(body.builds).toHaveLength(1)
+    expect(body.builds[0]!.commitMessage).toBe("feat: add commit message field")
+  })
 
   it("exposes commitMessage as null when absent", async () => {
-    const { id: appId } = await createTestApp(db, { userId, projectId });
-    await createTestBuild(db, appId, "succeeded");
+    const { id: appId } = await createTestApp(db, { userId, projectId })
+    await createTestBuild(db, appId, "succeeded")
 
-    const honoApp = buildTestApp(db, fakeUser(userId, `u@t.com`));
-    const res = await honoApp.request(`/apps/${appId}/builds`);
+    const honoApp = buildTestApp(db, fakeUser(userId, `u@t.com`))
+    const res = await honoApp.request(`/apps/${appId}/builds`)
 
-    expect(res.status).toBe(200);
-    const body = await res.json() as { builds: { commitMessage: string | null }[] };
-    expect(body.builds[0]!.commitMessage).toBeNull();
-  });
-});
+    expect(res.status).toBe(200)
+    const body = (await res.json()) as {
+      builds: { commitMessage: string | null }[]
+    }
+    expect(body.builds[0]!.commitMessage).toBeNull()
+  })
+})
 
 describe.skipIf(skip)("GET /apps/:id/runtime-logs", () => {
-  let db: TestDb;
-  let userId: string;
-  let projectId: string;
+  let db: TestDb
+  let userId: string
+  let projectId: string
 
   beforeEach(async () => {
-    db = await makeTestDb();
-    const user = await createTestUser(db);
-    userId = user.id;
-    const project = await createTestProject(db, userId);
-    projectId = project.id;
-  });
+    db = await makeTestDb()
+    const user = await createTestUser(db)
+    userId = user.id
+    const project = await createTestProject(db, userId)
+    projectId = project.id
+  })
 
   it("returns recent runtime log lines from the resolved app container", async () => {
-    const { id: appId } = await createTestApp(db, { userId, projectId, name: "Runtime App" });
+    const { id: appId } = await createTestApp(db, {
+      userId,
+      projectId,
+      name: "Runtime App",
+    })
     await db
       .update(apps)
-      .set({ container_id: "ploydok-app-runtime-app-blue", updated_at: new Date() })
-      .where(eq(apps.id, appId));
+      .set({
+        container_id: "ploydok-app-runtime-app-blue",
+        updated_at: new Date(),
+      })
+      .where(eq(apps.id, appId))
 
     using _agentSpy = spyOn(singletons, "getSharedAgent").mockReturnValue({
       listContainers: async () => ({
@@ -690,38 +785,38 @@ describe.skipIf(skip)("GET /apps/:id/runtime-logs", () => {
           stream: "stdout",
           line: "hello runtime",
           timestamp: "2026-04-18T20:00:00.000Z",
-        };
+        }
         yield {
           stream: "stderr",
           line: "warn runtime",
           timestamp: "2026-04-18T20:00:01.000Z",
-        };
+        }
       },
-    } as unknown as ReturnType<typeof singletons.getSharedAgent>);
+    } as unknown as ReturnType<typeof singletons.getSharedAgent>)
 
-    const app = buildTestApp(db, fakeUser(userId, `u@t.com`));
-    const res = await app.request(`/apps/${appId}/runtime-logs`);
+    const app = buildTestApp(db, fakeUser(userId, `u@t.com`))
+    const res = await app.request(`/apps/${appId}/runtime-logs`)
 
-    expect(res.status).toBe(200);
-    const body = await res.json() as {
-      containerFound: boolean;
-      lines: Array<{ t: number; line: string; stream?: string }>;
-    };
-    expect(body.containerFound).toBe(true);
-    expect(body.lines).toHaveLength(2);
+    expect(res.status).toBe(200)
+    const body = (await res.json()) as {
+      containerFound: boolean
+      lines: Array<{ t: number; line: string; stream?: string }>
+    }
+    expect(body.containerFound).toBe(true)
+    expect(body.lines).toHaveLength(2)
     expect(body.lines[0]).toEqual({
       t: Date.parse("2026-04-18T20:00:00.000Z"),
       line: "hello runtime",
       stream: "stdout",
-    });
-    expect(body.lines[1]?.stream).toBe("stderr");
-  });
-});
+    })
+    expect(body.lines[1]?.stream).toBe("stderr")
+  })
+})
 
 describe.skipIf(skip)("POST /apps/:id/rollback", () => {
-  let db: TestDb;
-  let userId: string;
-  let projectId: string;
+  let db: TestDb
+  let userId: string
+  let projectId: string
 
   // Mock the runner module so lifecycle ops don't try to connect to Docker/agent.
   // All public exports must be listed here to avoid breaking other test files
@@ -733,138 +828,138 @@ describe.skipIf(skip)("POST /apps/:id/rollback", () => {
     runBlueGreen: async () => ({ containerId: "mock-ctr", color: "blue" }),
     DeployFailedError: class DeployFailedError extends Error {
       constructor(appId: string, reason: string) {
-        super(`DeployFailedError[${appId}]: ${reason}`);
-        this.name = "DeployFailedError";
+        super(`DeployFailedError[${appId}]: ${reason}`)
+        this.name = "DeployFailedError"
       }
     },
-  }));
+  }))
 
   beforeEach(async () => {
-    db = await makeTestDb();
-    const user = await createTestUser(db);
-    userId = user.id;
-    const project = await createTestProject(db, userId);
-    projectId = project.id;
-  });
+    db = await makeTestDb()
+    const user = await createTestUser(db)
+    userId = user.id
+    const project = await createTestProject(db, userId)
+    projectId = project.id
+  })
 
   it("rollback with explicit succeeded buildId → 200", async () => {
-    const { id: appId } = await createTestApp(db, { userId, projectId });
-    const { id: buildId } = await createTestBuild(db, appId, "succeeded");
+    const { id: appId } = await createTestApp(db, { userId, projectId })
+    const { id: buildId } = await createTestBuild(db, appId, "succeeded")
 
-    const honoApp = buildTestApp(db, fakeUser(userId, `u@t.com`));
+    const honoApp = buildTestApp(db, fakeUser(userId, `u@t.com`))
     const res = await honoApp.request(`/apps/${appId}/rollback`, {
       method: "POST",
       headers: { "content-type": "application/json" },
       body: JSON.stringify({ buildId }),
-    });
+    })
 
-    expect(res.status).toBe(200);
-    const body = await res.json() as { ok: boolean };
-    expect(body.ok).toBe(true);
-  });
+    expect(res.status).toBe(200)
+    const body = (await res.json()) as { ok: boolean }
+    expect(body.ok).toBe(true)
+  })
 
   it("rollback with explicit failed buildId → 400 INVALID_BUILD_STATUS", async () => {
-    const { id: appId } = await createTestApp(db, { userId, projectId });
-    const { id: failedBuildId } = await createTestBuild(db, appId, "failed");
+    const { id: appId } = await createTestApp(db, { userId, projectId })
+    const { id: failedBuildId } = await createTestBuild(db, appId, "failed")
 
-    const honoApp = buildTestApp(db, fakeUser(userId, `u@t.com`));
+    const honoApp = buildTestApp(db, fakeUser(userId, `u@t.com`))
     const res = await honoApp.request(`/apps/${appId}/rollback`, {
       method: "POST",
       headers: { "content-type": "application/json" },
       body: JSON.stringify({ buildId: failedBuildId }),
-    });
+    })
 
-    expect(res.status).toBe(400);
-    const body = await res.json() as { error: { code: string } };
-    expect(body.error.code).toBe("INVALID_BUILD_STATUS");
-  });
+    expect(res.status).toBe(400)
+    const body = (await res.json()) as { error: { code: string } }
+    expect(body.error.code).toBe("INVALID_BUILD_STATUS")
+  })
 
   it("rollback without buildId (legacy) — calls runner and returns 200", async () => {
-    const { id: appId } = await createTestApp(db, { userId, projectId });
+    const { id: appId } = await createTestApp(db, { userId, projectId })
 
-    const honoApp = buildTestApp(db, fakeUser(userId, `u@t.com`));
+    const honoApp = buildTestApp(db, fakeUser(userId, `u@t.com`))
     // No body — legacy behaviour
     const res = await honoApp.request(`/apps/${appId}/rollback`, {
       method: "POST",
-    });
+    })
 
     // Runner mock succeeds — expect 200
-    expect(res.status).toBe(200);
-    const body = await res.json() as { ok: boolean };
-    expect(body.ok).toBe(true);
-  });
+    expect(res.status).toBe(200)
+    const body = (await res.json()) as { ok: boolean }
+    expect(body.ok).toBe(true)
+  })
 
   it("rollback with non-existent buildId → 404", async () => {
-    const { id: appId } = await createTestApp(db, { userId, projectId });
+    const { id: appId } = await createTestApp(db, { userId, projectId })
 
-    const honoApp = buildTestApp(db, fakeUser(userId, `u@t.com`));
+    const honoApp = buildTestApp(db, fakeUser(userId, `u@t.com`))
     const res = await honoApp.request(`/apps/${appId}/rollback`, {
       method: "POST",
       headers: { "content-type": "application/json" },
       body: JSON.stringify({ buildId: "does-not-exist" }),
-    });
+    })
 
-    expect(res.status).toBe(404);
-  });
+    expect(res.status).toBe(404)
+  })
 
   it("rollback for another user's app → 404", async () => {
-    const other = await createTestUser(db);
-    const otherProject = await createTestProject(db, other.id);
+    const other = await createTestUser(db)
+    const otherProject = await createTestProject(db, other.id)
     const { id: otherAppId } = await createTestApp(db, {
       userId: other.id,
       projectId: otherProject.id,
-    });
+    })
 
-    const honoApp = buildTestApp(db, fakeUser(userId, `u@t.com`));
+    const honoApp = buildTestApp(db, fakeUser(userId, `u@t.com`))
     const res = await honoApp.request(`/apps/${otherAppId}/rollback`, {
       method: "POST",
-    });
+    })
 
-    expect(res.status).toBe(404);
-  });
-});
+    expect(res.status).toBe(404)
+  })
+})
 
 // ---------------------------------------------------------------------------
 // GET /apps/:id/activity — historical timeline derived from builds
 // ---------------------------------------------------------------------------
 
 describe.skipIf(skip)("GET /apps/:id/activity", () => {
-  let db: TestDb;
-  let userId: string;
-  let projectId: string;
+  let db: TestDb
+  let userId: string
+  let projectId: string
 
   beforeEach(async () => {
-    db = await makeTestDb();
-    const user = await createTestUser(db);
-    userId = user.id;
-    const project = await createTestProject(db, userId);
-    projectId = project.id;
-  });
+    db = await makeTestDb()
+    const user = await createTestUser(db)
+    userId = user.id
+    const project = await createTestProject(db, userId)
+    projectId = project.id
+  })
 
   it("returns build.started + build.succeeded for a successful build", async () => {
-    const { id: appId } = await createTestApp(db, { userId, projectId });
+    const { id: appId } = await createTestApp(db, { userId, projectId })
     await createTestBuild(db, appId, "succeeded", {
       commitSha: "abc1234",
       commitMessage: "feat: new feature",
-    });
+    })
 
-    const honoApp = buildTestApp(db, fakeUser(userId, `u@t.com`));
-    const res = await honoApp.request(`/apps/${appId}/activity`);
+    const honoApp = buildTestApp(db, fakeUser(userId, `u@t.com`))
+    const res = await honoApp.request(`/apps/${appId}/activity`)
 
-    expect(res.status).toBe(200);
+    expect(res.status).toBe(200)
     const body = (await res.json()) as {
-      events: Array<{ type: string; data: { commitSha?: string } }>;
-    };
-    const types = body.events.map((e) => e.type);
-    expect(types).toContain("build.started");
-    expect(types).toContain("build.succeeded");
-    expect(body.events[0]!.data.commitSha).toBe("abc1234");
-  });
+      events: Array<{ type: string; data: { commitSha?: string } }>
+    }
+    const types = body.events.map((e) => e.type)
+    expect(types).toContain("build.started")
+    expect(types).toContain("build.succeeded")
+    expect(body.events[0]!.data.commitSha).toBe("abc1234")
+  })
 
   it("returns build.failed with error message when failed", async () => {
-    const { id: appId } = await createTestApp(db, { userId, projectId });
-    const buildId = nanoid();
-    const now = new Date();
+    const { id: appId } = await createTestApp(db, { userId, projectId })
+    const buildId = nanoid()
+    const now = new Date()
     await db.insert(builds).values({
       id: buildId,
       app_id: appId,
@@ -879,23 +974,23 @@ describe.skipIf(skip)("GET /apps/:id/activity", () => {
       started_at: new Date(now.getTime() - 10_000),
       finished_at: now,
       created_at: now,
-    });
+    })
 
-    const honoApp = buildTestApp(db, fakeUser(userId, `u@t.com`));
-    const res = await honoApp.request(`/apps/${appId}/activity`);
+    const honoApp = buildTestApp(db, fakeUser(userId, `u@t.com`))
+    const res = await honoApp.request(`/apps/${appId}/activity`)
 
     const body = (await res.json()) as {
-      events: Array<{ type: string; data: { errorMessage?: string } }>;
-    };
-    const failed = body.events.find((e) => e.type === "build.failed");
-    expect(failed).toBeDefined();
-    expect(failed!.data.errorMessage).toBe("exit code 1");
-  });
+      events: Array<{ type: string; data: { errorMessage?: string } }>
+    }
+    const failed = body.events.find((e) => e.type === "build.failed")
+    expect(failed).toBeDefined()
+    expect(failed!.data.errorMessage).toBe("exit code 1")
+  })
 
   it("emits only build.started for a still-running build", async () => {
-    const { id: appId } = await createTestApp(db, { userId, projectId });
-    const buildId = nanoid();
-    const now = new Date();
+    const { id: appId } = await createTestApp(db, { userId, projectId })
+    const buildId = nanoid()
+    const now = new Date()
     await db.insert(builds).values({
       id: buildId,
       app_id: appId,
@@ -910,40 +1005,205 @@ describe.skipIf(skip)("GET /apps/:id/activity", () => {
       started_at: new Date(now.getTime() - 5_000),
       finished_at: null,
       created_at: now,
-    });
+    })
 
-    const honoApp = buildTestApp(db, fakeUser(userId, `u@t.com`));
-    const res = await honoApp.request(`/apps/${appId}/activity`);
+    const honoApp = buildTestApp(db, fakeUser(userId, `u@t.com`))
+    const res = await honoApp.request(`/apps/${appId}/activity`)
 
     const body = (await res.json()) as {
-      events: Array<{ type: string }>;
-    };
-    expect(body.events).toHaveLength(1);
-    expect(body.events[0]!.type).toBe("build.started");
-  });
+      events: Array<{ type: string }>
+    }
+    expect(body.events).toHaveLength(1)
+    expect(body.events[0]!.type).toBe("build.started")
+  })
 
   it("returns 404 for an app belonging to another user", async () => {
-    const other = await createTestUser(db);
-    const otherProject = await createTestProject(db, other.id);
+    const other = await createTestUser(db)
+    const otherProject = await createTestProject(db, other.id)
     const { id: otherAppId } = await createTestApp(db, {
       userId: other.id,
       projectId: otherProject.id,
-    });
+    })
 
-    const honoApp = buildTestApp(db, fakeUser(userId, `u@t.com`));
-    const res = await honoApp.request(`/apps/${otherAppId}/activity`);
+    const honoApp = buildTestApp(db, fakeUser(userId, `u@t.com`))
+    const res = await honoApp.request(`/apps/${otherAppId}/activity`)
 
-    expect(res.status).toBe(404);
-  });
+    expect(res.status).toBe(404)
+  })
 
   it("returns an empty list when there are no builds", async () => {
-    const { id: appId } = await createTestApp(db, { userId, projectId });
+    const { id: appId } = await createTestApp(db, { userId, projectId })
 
-    const honoApp = buildTestApp(db, fakeUser(userId, `u@t.com`));
-    const res = await honoApp.request(`/apps/${appId}/activity`);
+    const honoApp = buildTestApp(db, fakeUser(userId, `u@t.com`))
+    const res = await honoApp.request(`/apps/${appId}/activity`)
 
-    expect(res.status).toBe(200);
-    const body = (await res.json()) as { events: Array<unknown> };
-    expect(body.events).toHaveLength(0);
-  });
-});
+    expect(res.status).toBe(200)
+    const body = (await res.json()) as { events: Array<unknown> }
+    expect(body.events).toHaveLength(0)
+  })
+})
+
+// ---------------------------------------------------------------------------
+// POST /apps — auto-inject suggestedEnvVars
+// ---------------------------------------------------------------------------
+
+describe.skipIf(skip)("POST /apps — auto-inject suggestedEnvVars", () => {
+  let db: TestDb
+  let userId: string
+  let projectId: string
+
+  beforeEach(async () => {
+    db = await makeTestDb()
+    const user = await createTestUser(db)
+    userId = user.id
+    const project = await createTestProject(db, userId)
+    projectId = project.id
+  })
+
+  it("Symfony repo: injects NIXPACKS_PHP_ROOT_DIR, NIXPACKS_PHP_FALLBACK_PATH, APP_ENV", async () => {
+    // Mock ghProvider.fileExists: symfony.lock + composer.json present, everything else absent
+    using _spy = spyOn(
+      githubModule.ghProvider,
+      "fileExists"
+    ).mockImplementation(
+      async (_installId: string, _fullName: string, filePath: string) => {
+        return filePath === "composer.json" || filePath === "symfony.lock"
+      }
+    )
+
+    const app = buildTestApp(db, fakeUser(userId, `u@t.com`))
+    const res = await app.request("/apps", {
+      method: "POST",
+      headers: { "content-type": "application/json" },
+      body: JSON.stringify({
+        name: "Symfony App",
+        projectId,
+        gitProvider: "github",
+        repoFullName: "owner/symfony-repo",
+        branch: "main",
+        installationId: "123456",
+        buildMethod: "nixpacks",
+      }),
+    })
+
+    expect(res.status).toBe(201)
+    const { app: created } = (await res.json()) as { app: { id: string } }
+
+    const envVars = await listEnvForApp(db, created.id)
+    const keys = envVars.map((v) => v.key)
+    expect(keys).toContain("NIXPACKS_PHP_ROOT_DIR")
+    expect(keys).toContain("NIXPACKS_PHP_FALLBACK_PATH")
+    expect(keys).toContain("APP_ENV")
+
+    const rootDir = envVars.find((v) => v.key === "NIXPACKS_PHP_ROOT_DIR")
+    expect(rootDir?.value).toBe("/app/public")
+    const fallback = envVars.find((v) => v.key === "NIXPACKS_PHP_FALLBACK_PATH")
+    expect(fallback?.value).toBe("/index.php")
+    const appEnv = envVars.find((v) => v.key === "APP_ENV")
+    expect(appEnv?.value).toBe("prod")
+  })
+
+  it("Laravel repo: no env vars injected (Nixpacks handles it natively)", async () => {
+    using _spy = spyOn(
+      githubModule.ghProvider,
+      "fileExists"
+    ).mockImplementation(
+      async (_installId: string, _fullName: string, filePath: string) => {
+        return filePath === "composer.json" || filePath === "artisan"
+      }
+    )
+
+    const app = buildTestApp(db, fakeUser(userId, `u@t.com`))
+    const res = await app.request("/apps", {
+      method: "POST",
+      headers: { "content-type": "application/json" },
+      body: JSON.stringify({
+        name: "Laravel App",
+        projectId,
+        gitProvider: "github",
+        repoFullName: "owner/laravel-repo",
+        branch: "main",
+        installationId: "123456",
+        buildMethod: "nixpacks",
+      }),
+    })
+
+    expect(res.status).toBe(201)
+    const { app: created } = (await res.json()) as { app: { id: string } }
+    const envVars = await listEnvForApp(db, created.id)
+    expect(envVars).toHaveLength(0)
+  })
+
+  it("no installationId: auto-inject skipped, 201 still returned", async () => {
+    const fileExistsSpy = spyOn(githubModule.ghProvider, "fileExists")
+
+    const app = buildTestApp(db, fakeUser(userId, `u@t.com`))
+    const res = await app.request("/apps", {
+      method: "POST",
+      headers: { "content-type": "application/json" },
+      body: JSON.stringify({
+        name: "No Install App",
+        projectId,
+        gitProvider: "github",
+        repoFullName: "owner/repo",
+        branch: "main",
+        // installationId deliberately omitted
+        buildMethod: "nixpacks",
+      }),
+    })
+
+    expect(res.status).toBe(201)
+    expect(fileExistsSpy).not.toHaveBeenCalled()
+    fileExistsSpy.mockRestore()
+  })
+
+  it("buildMethod=dockerfile: auto-inject skipped", async () => {
+    const fileExistsSpy = spyOn(githubModule.ghProvider, "fileExists")
+
+    const app = buildTestApp(db, fakeUser(userId, `u@t.com`))
+    const res = await app.request("/apps", {
+      method: "POST",
+      headers: { "content-type": "application/json" },
+      body: JSON.stringify({
+        name: "Dockerfile App",
+        projectId,
+        gitProvider: "github",
+        repoFullName: "owner/repo",
+        branch: "main",
+        installationId: "123456",
+        buildMethod: "dockerfile",
+      }),
+    })
+
+    expect(res.status).toBe(201)
+    expect(fileExistsSpy).not.toHaveBeenCalled()
+    fileExistsSpy.mockRestore()
+  })
+
+  it("ghProvider.fileExists throws: auto-inject fails silently, 201 still returned", async () => {
+    using _spy = spyOn(
+      githubModule.ghProvider,
+      "fileExists"
+    ).mockImplementation(async () => {
+      throw new Error("GitHub API unavailable")
+    })
+
+    const app = buildTestApp(db, fakeUser(userId, `u@t.com`))
+    const res = await app.request("/apps", {
+      method: "POST",
+      headers: { "content-type": "application/json" },
+      body: JSON.stringify({
+        name: "Flaky GitHub App",
+        projectId,
+        gitProvider: "github",
+        repoFullName: "owner/repo",
+        branch: "main",
+        installationId: "123456",
+        buildMethod: "nixpacks",
+      }),
+    })
+
+    // Must not blow up — auto-inject is best-effort
+    expect(res.status).toBe(201)
+  })
+})

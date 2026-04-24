@@ -198,3 +198,58 @@ describe("classifyStack — tie-breaking & edge cases", () => {
     expect(r.recommendedBuild).toBe("dockerfile")
   })
 })
+
+describe("classifyStack — suggestedEnvVars", () => {
+  it("Symfony: injects NIXPACKS_PHP_ROOT_DIR, NIXPACKS_PHP_FALLBACK_PATH, APP_ENV", () => {
+    const r = classifyStack(probes(["composer.json", "symfony.lock"]))
+    expect(r.suggestedEnvVars).toEqual({
+      NIXPACKS_PHP_ROOT_DIR: "/app/public",
+      NIXPACKS_PHP_FALLBACK_PATH: "/index.php",
+      APP_ENV: "prod",
+    })
+  })
+
+  it("Symfony via bin/console: same env vars", () => {
+    const r = classifyStack(probes(["composer.json", "bin/console"]))
+    expect(r.suggestedEnvVars).toEqual({
+      NIXPACKS_PHP_ROOT_DIR: "/app/public",
+      NIXPACKS_PHP_FALLBACK_PATH: "/index.php",
+      APP_ENV: "prod",
+    })
+  })
+
+  it("Laravel: empty suggestedEnvVars (Nixpacks handles it natively)", () => {
+    const r = classifyStack(probes(["composer.json", "artisan"]))
+    expect(r.suggestedEnvVars).toEqual({})
+  })
+
+  it("Django: injects PYTHON_VERSION=3.12", () => {
+    const r = classifyStack(probes(["manage.py", "requirements.txt"]))
+    expect(r.suggestedEnvVars).toEqual({ PYTHON_VERSION: "3.12" })
+  })
+
+  it("Ruby/Rails: injects RAILS_ENV and RAILS_SERVE_STATIC_FILES", () => {
+    const r = classifyStack(probes(["Gemfile"]))
+    expect(r.suggestedEnvVars).toEqual({
+      RAILS_ENV: "production",
+      RAILS_SERVE_STATIC_FILES: "true",
+    })
+  })
+
+  it("Node.js: empty suggestedEnvVars", () => {
+    const r = classifyStack(probes(["package.json"]))
+    expect(r.suggestedEnvVars).toEqual({})
+  })
+
+  it("unknown stack: empty suggestedEnvVars", () => {
+    const r = classifyStack({})
+    expect(r.suggestedEnvVars).toEqual({})
+  })
+
+  it("Dockerfile short-circuit: empty suggestedEnvVars", () => {
+    const r = classifyStack(
+      probes(["Dockerfile", "composer.json", "symfony.lock"])
+    )
+    expect(r.suggestedEnvVars).toEqual({})
+  })
+})
