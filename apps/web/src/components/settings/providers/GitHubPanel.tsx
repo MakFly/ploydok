@@ -12,6 +12,8 @@ import {
 } from "../../../lib/github"
 import type { AppInstallation } from "../../../lib/github"
 import { CachedReposPanel } from "./CachedReposPanel"
+import { SyncProgressDialog } from "./SyncProgressDialog"
+import { useSyncWithProgress } from "./useSyncWithProgress"
 
 export function GitHubPanel(): React.JSX.Element {
   const appParam =
@@ -246,28 +248,66 @@ function InstallationsCard(): React.JSX.Element {
 
 function GitHubCacheSection(): React.JSX.Element {
   const sync = useSyncGitHubInstallations()
-  const { data, isLoading, isError, error } = useGitHubCacheStatus({
+  const entries = React.useMemo(() => [], [])
+  const cache = useGitHubCacheStatus({
     autoRefresh: sync.isPending,
   })
+  const liveEntries = cache.data?.installations ?? entries
+  const [scopeId, setScopeId] = React.useState<string | undefined>(undefined)
+  const progress = useSyncWithProgress({
+    entries: liveEntries,
+    isMutationError: sync.isError,
+    mutationErrorMessage: sync.error?.message,
+    scopeId,
+  })
+
+  React.useEffect(() => {
+    if (progress.status === "running") {
+      void cache.refetch()
+    }
+  }, [progress.status, cache])
+
+  async function startSync(opts: { installationId?: string }): Promise<void> {
+    setScopeId(opts.installationId)
+    progress.begin()
+    try {
+      await sync.mutateAsync(opts)
+    } catch (err) {
+      progress.fail(err instanceof Error ? err.message : String(err))
+      throw err
+    }
+  }
 
   return (
-    <CachedReposPanel
-      title="Cached repositories"
-      description="Repos are served from a Postgres cache so the create-app picker opens instantly. Webhooks invalidate it on install / repo events; a background sync re-fills stale data."
-      entries={data?.installations ?? []}
-      isLoading={isLoading}
-      isError={isError}
-      errorMessage={error?.message}
-      isSyncing={sync.isPending}
-      onSyncOne={(installationId) => sync.mutateAsync({ installationId })}
-      onSyncAll={() => sync.mutateAsync()}
-      emptyState={
-        <p className="text-sm text-muted-foreground">
-          No installation cached yet. Install the GitHub App above; the first sync runs
-          automatically.
-        </p>
-      }
-    />
+    <>
+      <CachedReposPanel
+        title="Cached repositories"
+        description="Repos are served from a Postgres cache so the create-app picker opens instantly. Webhooks invalidate it on install / repo events; a background sync re-fills stale data."
+        entries={liveEntries}
+        isLoading={cache.isLoading}
+        isError={cache.isError}
+        errorMessage={cache.error?.message}
+        isSyncing={sync.isPending || progress.status === "running"}
+        onSyncOne={(installationId) => startSync({ installationId })}
+        onSyncAll={() => startSync({})}
+        emptyState={
+          <p className="text-sm text-muted-foreground">
+            No installation cached yet. Click <strong>Sync now</strong> to import your
+            GitHub installations and their repositories.
+          </p>
+        }
+      />
+      <SyncProgressDialog
+        open={progress.open}
+        onClose={progress.close}
+        status={progress.status}
+        startedAt={progress.startedAt}
+        importedCount={progress.importedCount}
+        totalCount={progress.totalCount}
+        errorMessage={progress.errorMessage}
+        providerLabel="GitHub"
+      />
+    </>
   )
 }
 

@@ -19,6 +19,8 @@ import {
   useSyncGitLabInstallations,
 } from "../../../lib/gitlab"
 import { CachedReposPanel } from "./CachedReposPanel"
+import { SyncProgressDialog } from "./SyncProgressDialog"
+import { useSyncWithProgress } from "./useSyncWithProgress"
 
 export function GitLabPanel(): React.JSX.Element {
   const { data: config, isLoading } = useGitLabConfig()
@@ -71,30 +73,63 @@ export function GitLabPanel(): React.JSX.Element {
 
 function GitLabCacheSection(): React.JSX.Element {
   const sync = useSyncGitLabInstallations()
-  const { data, isLoading, isError, error } = useGitLabCacheStatus({
+  const cache = useGitLabCacheStatus({
     autoRefresh: sync.isPending,
   })
 
-  const entries = data?.installation ? [data.installation] : []
+  const entries = cache.data?.installation ? [cache.data.installation] : []
+  const progress = useSyncWithProgress({
+    entries,
+    isMutationError: sync.isError,
+    mutationErrorMessage: sync.error?.message,
+  })
+
+  React.useEffect(() => {
+    if (progress.status === "running") {
+      void cache.refetch()
+    }
+  }, [progress.status, cache])
+
+  async function startSync(): Promise<void> {
+    progress.begin()
+    try {
+      await sync.mutateAsync()
+    } catch (err) {
+      progress.fail(err instanceof Error ? err.message : String(err))
+      throw err
+    }
+  }
 
   return (
-    <CachedReposPanel
-      title="Cached repositories"
-      description="Repos are served from a Postgres cache so the create-app picker opens instantly. Use Sync if you just added a project on GitLab and don't see it yet."
-      entries={entries}
-      isLoading={isLoading}
-      isError={isError}
-      errorMessage={error?.message}
-      isSyncing={sync.isPending}
-      onSyncOne={() => sync.mutateAsync()}
-      onSyncAll={() => sync.mutateAsync()}
-      emptyState={
-        <p className="text-sm text-muted-foreground">
-          No GitLab projects cached yet. Connect via OAuth above; the first sync runs
-          automatically.
-        </p>
-      }
-    />
+    <>
+      <CachedReposPanel
+        title="Cached repositories"
+        description="Repos are served from a Postgres cache so the create-app picker opens instantly. Use Sync if you just added a project on GitLab and don't see it yet."
+        entries={entries}
+        isLoading={cache.isLoading}
+        isError={cache.isError}
+        errorMessage={cache.error?.message}
+        isSyncing={sync.isPending || progress.status === "running"}
+        onSyncOne={() => startSync()}
+        onSyncAll={() => startSync()}
+        emptyState={
+          <p className="text-sm text-muted-foreground">
+            No GitLab projects cached yet. Click <strong>Sync now</strong> to import your
+            projects.
+          </p>
+        }
+      />
+      <SyncProgressDialog
+        open={progress.open}
+        onClose={progress.close}
+        status={progress.status}
+        startedAt={progress.startedAt}
+        importedCount={progress.importedCount}
+        totalCount={progress.totalCount}
+        errorMessage={progress.errorMessage}
+        providerLabel="GitLab"
+      />
+    </>
   )
 }
 

@@ -30,11 +30,15 @@ export type SyncProviderReposPayload =
 export async function enqueueProviderReposSync(
   payload: SyncProviderReposPayload,
 ): Promise<void> {
-  const jobId =
+  // BullMQ rejects ":" in custom job ids (Redis key separator). Use "-".
+  const target =
     payload.provider === "github"
-      ? `github:${payload.installationId ?? "all"}`
-      : `gitlab:${payload.userId ?? "all"}`
-  await providerReposSyncQueue.add(jobId, payload, { jobId })
+      ? `github-${payload.installationId ?? "all"}`
+      : `gitlab-${payload.userId ?? "all"}`
+  // Suffix with timestamp so repeated manual syncs each enqueue a fresh job
+  // instead of being deduped against an already-running one.
+  const jobId = `${target}-${Date.now()}`
+  await providerReposSyncQueue.add(target, payload, { jobId })
 }
 
 // ---------------------------------------------------------------------------
