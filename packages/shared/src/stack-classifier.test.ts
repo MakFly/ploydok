@@ -58,14 +58,21 @@ describe("classifyStack — PHP", () => {
     )
     expect(r.stack).toBe("laravel")
     expect(r.signals).toContain("package.json")
-    // Vite ≥ 5 requires Node ≥ 20; Nixpacks defaults to 18 → CustomEvent crash.
-    expect(r.suggestedEnvVars).toEqual({ NIXPACKS_NODE_VERSION: "20" })
+    // File-backed sessions + Node 20 pin (Vite ≥ 5 requires Node 20).
+    expect(r.suggestedEnvVars).toEqual({
+      SESSION_DRIVER: "file",
+      CACHE_STORE: "file",
+      NIXPACKS_NODE_VERSION: "20",
+    })
   })
 
-  it("Laravel without package.json: no Node pin", () => {
+  it("Laravel without package.json: file-backed defaults, no Node pin", () => {
     const r = classifyStack(probes(["composer.json", "artisan"]))
     expect(r.stack).toBe("laravel")
-    expect(r.suggestedEnvVars).toEqual({})
+    expect(r.suggestedEnvVars).toEqual({
+      SESSION_DRIVER: "file",
+      CACHE_STORE: "file",
+    })
   })
 
   it("Symfony via symfony.lock → nixpacks", () => {
@@ -214,7 +221,7 @@ describe("classifyStack — suggestedEnvVars", () => {
       NIXPACKS_PHP_ROOT_DIR: "/app/public",
       NIXPACKS_PHP_FALLBACK_PATH: "/index.php",
       NIXPACKS_INSTALL_CMD:
-        "composer install --no-interaction --no-scripts --no-progress --prefer-dist --ignore-platform-reqs --optimize-autoloader",
+        "mkdir -p /var/log/nginx /var/cache/nginx && composer install --no-interaction --no-scripts --no-progress --prefer-dist --ignore-platform-reqs --optimize-autoloader",
     })
   })
 
@@ -224,9 +231,12 @@ describe("classifyStack — suggestedEnvVars", () => {
     expect(r.suggestedEnvVars.NIXPACKS_INSTALL_CMD).toContain("--no-scripts")
   })
 
-  it("Laravel: empty suggestedEnvVars (Nixpacks handles it natively)", () => {
+  it("Laravel: injects file-backed session + cache defaults", () => {
     const r = classifyStack(probes(["composer.json", "artisan"]))
-    expect(r.suggestedEnvVars).toEqual({})
+    expect(r.suggestedEnvVars).toEqual({
+      SESSION_DRIVER: "file",
+      CACHE_STORE: "file",
+    })
   })
 
   it("Django: injects PYTHON_VERSION=3.12", () => {
