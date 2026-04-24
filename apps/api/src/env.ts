@@ -1,13 +1,15 @@
 // SPDX-License-Identifier: AGPL-3.0-only
-import { randomBytes } from "node:crypto";
-import { z } from "zod";
+import { randomBytes } from "node:crypto"
+import { z } from "zod"
 
 const schema = z.object({
   NODE_ENV: z.enum(["dev", "prod", "test"]).default("dev"),
   PORT: z.coerce.number().default(3335),
   SESSION_SECRET: z.string().min(32).optional(),
   MASTER_KEY: z.string().optional(),
-  DATABASE_URL: z.string().default("postgres://ploydok:ploydok@127.0.0.1:5432/ploydok"),
+  DATABASE_URL: z
+    .string()
+    .default("postgres://ploydok:ploydok@127.0.0.1:5432/ploydok"),
   REDIS_URL: z.string().default("redis://127.0.0.1:6379/0"),
   PLOYDOK_PG_PASSWORD: z.string().optional(),
   PLOYDOK_REDIS_PASSWORD: z.string().optional(),
@@ -33,13 +35,21 @@ const schema = z.object({
   PLOYDOK_REGISTRY_USER: z.string().optional(),
   PLOYDOK_REGISTRY_PASS: z.string().optional(),
   PLOYDOK_BUILD_DIR: z.string().default(() => {
-    const home = process.env.HOME ?? "/tmp";
-    return `${home}/.ploydok-dev/builds`;
+    const home = process.env.HOME ?? "/tmp"
+    return `${home}/.ploydok-dev/builds`
   }),
-  PLOYDOK_BUILDKIT_ADDR: z.string().default("docker-container://ploydok-buildkitd"),
+  PLOYDOK_BUILDKIT_ADDR: z
+    .string()
+    .default("docker-container://ploydok-buildkitd"),
   PLOYDOK_PUBLIC_SCHEME: z.enum(["http", "https"]).optional(),
   PLOYDOK_PUBLIC_PORT: z.coerce.number().int().positive().optional(),
-});
+  STRIPE_SECRET_KEY: z.string().optional(),
+  STRIPE_WEBHOOK_SECRET: z.string().optional(),
+  STRIPE_PRO_PRICE_ID: z.string().optional(),
+  STRIPE_ENTERPRISE_PRICE_ID: z.string().optional(),
+  PLOYDOK_LICENSE_PUBLIC_KEY: z.string().optional(),
+  PLOYDOK_SHOW_LICENSE_UI: z.coerce.boolean().default(false),
+})
 
 const raw = schema.parse({
   NODE_ENV: Bun.env["NODE_ENV"],
@@ -67,9 +77,15 @@ const raw = schema.parse({
   PLOYDOK_BUILDKIT_ADDR: Bun.env["PLOYDOK_BUILDKIT_ADDR"],
   PLOYDOK_PUBLIC_SCHEME: Bun.env["PLOYDOK_PUBLIC_SCHEME"],
   PLOYDOK_PUBLIC_PORT: Bun.env["PLOYDOK_PUBLIC_PORT"],
-});
+  STRIPE_SECRET_KEY: Bun.env["STRIPE_SECRET_KEY"],
+  STRIPE_WEBHOOK_SECRET: Bun.env["STRIPE_WEBHOOK_SECRET"],
+  STRIPE_PRO_PRICE_ID: Bun.env["STRIPE_PRO_PRICE_ID"],
+  STRIPE_ENTERPRISE_PRICE_ID: Bun.env["STRIPE_ENTERPRISE_PRICE_ID"],
+  PLOYDOK_LICENSE_PUBLIC_KEY: Bun.env["PLOYDOK_LICENSE_PUBLIC_KEY"],
+  PLOYDOK_SHOW_LICENSE_UI: Bun.env["PLOYDOK_SHOW_LICENSE_UI"],
+})
 
-const isProd = raw.NODE_ENV === "prod";
+const isProd = raw.NODE_ENV === "prod"
 
 // En dev : les secrets doivent venir de apps/api/.env.local (auto-chargé par Bun).
 // Si absent, on génère à chaque boot — ce qui invalide les JWT au reload, donc on
@@ -77,45 +93,43 @@ const isProd = raw.NODE_ENV === "prod";
 function requireProdOrGenerate(
   value: string | undefined,
   name: string,
-  generator: () => string,
+  generator: () => string
 ): string {
   if (isProd) {
     if (!value) {
-      throw new Error(`[env] ${name} is required in production`);
+      throw new Error(`[env] ${name} is required in production`)
     }
-    return value;
+    return value
   }
-  if (value) return value;
+  if (value) return value
   // eslint-disable-next-line no-console
   console.warn(
     `[env] ${name} absent de .env.local — un secret aléatoire est généré pour ce boot. ` +
-      `Les JWT seront invalidés au prochain reload. Ajoute ${name} à apps/api/.env.local pour stabiliser.`,
-  );
-  return generator();
+      `Les JWT seront invalidés au prochain reload. Ajoute ${name} à apps/api/.env.local pour stabiliser.`
+  )
+  return generator()
 }
 
 const SESSION_SECRET = requireProdOrGenerate(
   raw.SESSION_SECRET,
   "SESSION_SECRET",
-  () => randomBytes(32).toString("hex"),
-);
+  () => randomBytes(32).toString("hex")
+)
 
-const MASTER_KEY = requireProdOrGenerate(
-  raw.MASTER_KEY,
-  "MASTER_KEY",
-  () => randomBytes(32).toString("base64"),
-);
+const MASTER_KEY = requireProdOrGenerate(raw.MASTER_KEY, "MASTER_KEY", () =>
+  randomBytes(32).toString("base64")
+)
 
-const sessionSecretParsed = z.string().min(32).safeParse(SESSION_SECRET);
+const sessionSecretParsed = z.string().min(32).safeParse(SESSION_SECRET)
 if (!sessionSecretParsed.success) {
-  throw new Error("[env] SESSION_SECRET must be at least 32 characters");
+  throw new Error("[env] SESSION_SECRET must be at least 32 characters")
 }
 
 // Warn in dev if DATABASE_URL still looks like a SQLite path
 if (raw.NODE_ENV !== "prod" && !raw.DATABASE_URL.startsWith("postgres")) {
   // eslint-disable-next-line no-console
   console.warn(
-    "[env] DATABASE_URL does not look like a Postgres URL. Run `make secrets-init` to generate one.",
+    "[env] DATABASE_URL does not look like a Postgres URL. Run `make secrets-init` to generate one."
   )
 }
 
@@ -143,6 +157,13 @@ export const env = {
   PLOYDOK_REGISTRY_PASS: raw.PLOYDOK_REGISTRY_PASS,
   PLOYDOK_BUILD_DIR: raw.PLOYDOK_BUILD_DIR,
   PLOYDOK_BUILDKIT_ADDR: raw.PLOYDOK_BUILDKIT_ADDR,
-  PLOYDOK_PUBLIC_SCHEME: raw.PLOYDOK_PUBLIC_SCHEME ?? (isProd ? "https" : "http"),
+  PLOYDOK_PUBLIC_SCHEME:
+    raw.PLOYDOK_PUBLIC_SCHEME ?? (isProd ? "https" : "http"),
   PLOYDOK_PUBLIC_PORT: raw.PLOYDOK_PUBLIC_PORT ?? (isProd ? undefined : 8180),
-} as const;
+  STRIPE_SECRET_KEY: raw.STRIPE_SECRET_KEY,
+  STRIPE_WEBHOOK_SECRET: raw.STRIPE_WEBHOOK_SECRET,
+  STRIPE_PRO_PRICE_ID: raw.STRIPE_PRO_PRICE_ID,
+  STRIPE_ENTERPRISE_PRICE_ID: raw.STRIPE_ENTERPRISE_PRICE_ID,
+  PLOYDOK_LICENSE_PUBLIC_KEY: raw.PLOYDOK_LICENSE_PUBLIC_KEY,
+  PLOYDOK_SHOW_LICENSE_UI: raw.PLOYDOK_SHOW_LICENSE_UI,
+} as const

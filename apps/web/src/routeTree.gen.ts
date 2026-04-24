@@ -22,6 +22,7 @@ import { Route as PublicInvitationsAcceptRouteImport } from './routes/_public/in
 import { Route as AuthedSettingsSecurityRouteImport } from './routes/_authed/settings/security'
 import { Route as AuthedSettingsRegistryRouteImport } from './routes/_authed/settings/registry'
 import { Route as AuthedSettingsNotificationsRouteImport } from './routes/_authed/settings/notifications'
+import { Route as AuthedSettingsLicenseRouteImport } from './routes/_authed/settings/license'
 import { Route as AuthedOrgsOrgSlugRouteImport } from './routes/_authed/orgs/$orgSlug'
 import { Route as AuthedDatabasesSplatRouteImport } from './routes/_authed/databases.$'
 import { Route as AuthedAppsSplatRouteImport } from './routes/_authed/apps.$'
@@ -34,13 +35,17 @@ import { Route as AuthedSettingsSecurityPostureRouteImport } from './routes/_aut
 import { Route as AuthedSettingsSecurityPasskeysRouteImport } from './routes/_authed/settings/security/passkeys'
 import { Route as AuthedSettingsSecurityPasskeyRouteImport } from './routes/_authed/settings/security/passkey'
 import { Route as AuthedSettingsGitProvidersSlugRouteImport } from './routes/_authed/settings/git-providers/$slug'
+import { Route as AuthedOrgsOrgSlugSettingsRouteImport } from './routes/_authed/orgs/$orgSlug/settings'
 import { Route as AuthedOrgsOrgSlugMembersRouteImport } from './routes/_authed/orgs/$orgSlug/members'
 import { Route as AuthedOrgsOrgSlugMarketplaceRouteImport } from './routes/_authed/orgs/$orgSlug/marketplace'
 import { Route as AuthedOrgsOrgSlugDashboardRouteImport } from './routes/_authed/orgs/$orgSlug/dashboard'
+import { Route as AuthedOrgsOrgSlugBrandingRouteImport } from './routes/_authed/orgs/$orgSlug/branding'
 import { Route as AuthedOrgsOrgSlugAuditRouteImport } from './routes/_authed/orgs/$orgSlug/audit'
 import { Route as AuthedOrgsOrgSlugServicesIndexRouteImport } from './routes/_authed/orgs/$orgSlug/services/index'
 import { Route as AuthedOrgsOrgSlugDatabasesIndexRouteImport } from './routes/_authed/orgs/$orgSlug/databases/index'
 import { Route as AuthedOrgsOrgSlugAppsIndexRouteImport } from './routes/_authed/orgs/$orgSlug/apps/index'
+import { Route as AuthedOrgsOrgSlugSettingsSsoRouteImport } from './routes/_authed/orgs/$orgSlug/settings/sso'
+import { Route as AuthedOrgsOrgSlugSettingsBillingRouteImport } from './routes/_authed/orgs/$orgSlug/settings/billing'
 import { Route as AuthedOrgsOrgSlugServicesIdRouteImport } from './routes/_authed/orgs/$orgSlug/services/$id'
 import { Route as AuthedOrgsOrgSlugDatabasesIdRouteImport } from './routes/_authed/orgs/$orgSlug/databases/$id'
 import { Route as AuthedOrgsOrgSlugAppsIdRouteImport } from './routes/_authed/orgs/$orgSlug/apps/$id'
@@ -121,6 +126,11 @@ const AuthedSettingsNotificationsRoute =
     path: '/settings/notifications',
     getParentRoute: () => AuthedRoute,
   } as any)
+const AuthedSettingsLicenseRoute = AuthedSettingsLicenseRouteImport.update({
+  id: '/settings/license',
+  path: '/settings/license',
+  getParentRoute: () => AuthedRoute,
+} as any)
 const AuthedOrgsOrgSlugRoute = AuthedOrgsOrgSlugRouteImport.update({
   id: '/orgs/$orgSlug',
   path: '/orgs/$orgSlug',
@@ -189,6 +199,12 @@ const AuthedSettingsGitProvidersSlugRoute =
     path: '/settings/git-providers/$slug',
     getParentRoute: () => AuthedRoute,
   } as any)
+const AuthedOrgsOrgSlugSettingsRoute =
+  AuthedOrgsOrgSlugSettingsRouteImport.update({
+    id: '/settings',
+    path: '/settings',
+    getParentRoute: () => AuthedOrgsOrgSlugRoute,
+  } as any)
 const AuthedOrgsOrgSlugMembersRoute =
   AuthedOrgsOrgSlugMembersRouteImport.update({
     id: '/members',
@@ -205,6 +221,12 @@ const AuthedOrgsOrgSlugDashboardRoute =
   AuthedOrgsOrgSlugDashboardRouteImport.update({
     id: '/dashboard',
     path: '/dashboard',
+    getParentRoute: () => AuthedOrgsOrgSlugRoute,
+  } as any)
+const AuthedOrgsOrgSlugBrandingRoute =
+  AuthedOrgsOrgSlugBrandingRouteImport.update({
+    id: '/branding',
+    path: '/branding',
     getParentRoute: () => AuthedOrgsOrgSlugRoute,
   } as any)
 const AuthedOrgsOrgSlugAuditRoute = AuthedOrgsOrgSlugAuditRouteImport.update({
@@ -229,6 +251,18 @@ const AuthedOrgsOrgSlugAppsIndexRoute =
     id: '/apps/',
     path: '/apps/',
     getParentRoute: () => AuthedOrgsOrgSlugRoute,
+  } as any)
+const AuthedOrgsOrgSlugSettingsSsoRoute =
+  AuthedOrgsOrgSlugSettingsSsoRouteImport.update({
+    id: '/sso',
+    path: '/sso',
+    getParentRoute: () => AuthedOrgsOrgSlugSettingsRoute,
+  } as any)
+const AuthedOrgsOrgSlugSettingsBillingRoute =
+  AuthedOrgsOrgSlugSettingsBillingRouteImport.update({
+    id: '/billing',
+    path: '/billing',
+    getParentRoute: () => AuthedOrgsOrgSlugSettingsRoute,
   } as any)
 const AuthedOrgsOrgSlugServicesIdRoute =
   AuthedOrgsOrgSlugServicesIdRouteImport.update({
@@ -330,15 +364,18 @@ export interface FileRoutesByFullPath {
   '/apps/$': typeof AuthedAppsSplatRoute
   '/databases/$': typeof AuthedDatabasesSplatRoute
   '/orgs/$orgSlug': typeof AuthedOrgsOrgSlugRouteWithChildren
+  '/settings/license': typeof AuthedSettingsLicenseRoute
   '/settings/notifications': typeof AuthedSettingsNotificationsRoute
   '/settings/registry': typeof AuthedSettingsRegistryRoute
   '/settings/security': typeof AuthedSettingsSecurityRouteWithChildren
   '/invitations/accept': typeof PublicInvitationsAcceptRoute
   '/settings/': typeof AuthedSettingsIndexRoute
   '/orgs/$orgSlug/audit': typeof AuthedOrgsOrgSlugAuditRoute
+  '/orgs/$orgSlug/branding': typeof AuthedOrgsOrgSlugBrandingRoute
   '/orgs/$orgSlug/dashboard': typeof AuthedOrgsOrgSlugDashboardRoute
   '/orgs/$orgSlug/marketplace': typeof AuthedOrgsOrgSlugMarketplaceRoute
   '/orgs/$orgSlug/members': typeof AuthedOrgsOrgSlugMembersRoute
+  '/orgs/$orgSlug/settings': typeof AuthedOrgsOrgSlugSettingsRouteWithChildren
   '/settings/git-providers/$slug': typeof AuthedSettingsGitProvidersSlugRoute
   '/settings/security/passkey': typeof AuthedSettingsSecurityPasskeyRoute
   '/settings/security/passkeys': typeof AuthedSettingsSecurityPasskeysRoute
@@ -351,6 +388,8 @@ export interface FileRoutesByFullPath {
   '/orgs/$orgSlug/apps/$id': typeof AuthedOrgsOrgSlugAppsIdRouteWithChildren
   '/orgs/$orgSlug/databases/$id': typeof AuthedOrgsOrgSlugDatabasesIdRoute
   '/orgs/$orgSlug/services/$id': typeof AuthedOrgsOrgSlugServicesIdRoute
+  '/orgs/$orgSlug/settings/billing': typeof AuthedOrgsOrgSlugSettingsBillingRoute
+  '/orgs/$orgSlug/settings/sso': typeof AuthedOrgsOrgSlugSettingsSsoRoute
   '/orgs/$orgSlug/apps/': typeof AuthedOrgsOrgSlugAppsIndexRoute
   '/orgs/$orgSlug/databases/': typeof AuthedOrgsOrgSlugDatabasesIndexRoute
   '/orgs/$orgSlug/services/': typeof AuthedOrgsOrgSlugServicesIndexRoute
@@ -376,14 +415,17 @@ export interface FileRoutesByTo {
   '/register': typeof PublicRegisterRoute
   '/apps/$': typeof AuthedAppsSplatRoute
   '/databases/$': typeof AuthedDatabasesSplatRoute
+  '/settings/license': typeof AuthedSettingsLicenseRoute
   '/settings/notifications': typeof AuthedSettingsNotificationsRoute
   '/settings/registry': typeof AuthedSettingsRegistryRoute
   '/invitations/accept': typeof PublicInvitationsAcceptRoute
   '/settings': typeof AuthedSettingsIndexRoute
   '/orgs/$orgSlug/audit': typeof AuthedOrgsOrgSlugAuditRoute
+  '/orgs/$orgSlug/branding': typeof AuthedOrgsOrgSlugBrandingRoute
   '/orgs/$orgSlug/dashboard': typeof AuthedOrgsOrgSlugDashboardRoute
   '/orgs/$orgSlug/marketplace': typeof AuthedOrgsOrgSlugMarketplaceRoute
   '/orgs/$orgSlug/members': typeof AuthedOrgsOrgSlugMembersRoute
+  '/orgs/$orgSlug/settings': typeof AuthedOrgsOrgSlugSettingsRouteWithChildren
   '/settings/git-providers/$slug': typeof AuthedSettingsGitProvidersSlugRoute
   '/settings/security/passkey': typeof AuthedSettingsSecurityPasskeyRoute
   '/settings/security/passkeys': typeof AuthedSettingsSecurityPasskeysRoute
@@ -395,6 +437,8 @@ export interface FileRoutesByTo {
   '/settings/security': typeof AuthedSettingsSecurityIndexRoute
   '/orgs/$orgSlug/databases/$id': typeof AuthedOrgsOrgSlugDatabasesIdRoute
   '/orgs/$orgSlug/services/$id': typeof AuthedOrgsOrgSlugServicesIdRoute
+  '/orgs/$orgSlug/settings/billing': typeof AuthedOrgsOrgSlugSettingsBillingRoute
+  '/orgs/$orgSlug/settings/sso': typeof AuthedOrgsOrgSlugSettingsSsoRoute
   '/orgs/$orgSlug/apps': typeof AuthedOrgsOrgSlugAppsIndexRoute
   '/orgs/$orgSlug/databases': typeof AuthedOrgsOrgSlugDatabasesIndexRoute
   '/orgs/$orgSlug/services': typeof AuthedOrgsOrgSlugServicesIndexRoute
@@ -423,15 +467,18 @@ export interface FileRoutesById {
   '/_authed/apps/$': typeof AuthedAppsSplatRoute
   '/_authed/databases/$': typeof AuthedDatabasesSplatRoute
   '/_authed/orgs/$orgSlug': typeof AuthedOrgsOrgSlugRouteWithChildren
+  '/_authed/settings/license': typeof AuthedSettingsLicenseRoute
   '/_authed/settings/notifications': typeof AuthedSettingsNotificationsRoute
   '/_authed/settings/registry': typeof AuthedSettingsRegistryRoute
   '/_authed/settings/security': typeof AuthedSettingsSecurityRouteWithChildren
   '/_public/invitations/accept': typeof PublicInvitationsAcceptRoute
   '/_authed/settings/': typeof AuthedSettingsIndexRoute
   '/_authed/orgs/$orgSlug/audit': typeof AuthedOrgsOrgSlugAuditRoute
+  '/_authed/orgs/$orgSlug/branding': typeof AuthedOrgsOrgSlugBrandingRoute
   '/_authed/orgs/$orgSlug/dashboard': typeof AuthedOrgsOrgSlugDashboardRoute
   '/_authed/orgs/$orgSlug/marketplace': typeof AuthedOrgsOrgSlugMarketplaceRoute
   '/_authed/orgs/$orgSlug/members': typeof AuthedOrgsOrgSlugMembersRoute
+  '/_authed/orgs/$orgSlug/settings': typeof AuthedOrgsOrgSlugSettingsRouteWithChildren
   '/_authed/settings/git-providers/$slug': typeof AuthedSettingsGitProvidersSlugRoute
   '/_authed/settings/security/passkey': typeof AuthedSettingsSecurityPasskeyRoute
   '/_authed/settings/security/passkeys': typeof AuthedSettingsSecurityPasskeysRoute
@@ -444,6 +491,8 @@ export interface FileRoutesById {
   '/_authed/orgs/$orgSlug/apps/$id': typeof AuthedOrgsOrgSlugAppsIdRouteWithChildren
   '/_authed/orgs/$orgSlug/databases/$id': typeof AuthedOrgsOrgSlugDatabasesIdRoute
   '/_authed/orgs/$orgSlug/services/$id': typeof AuthedOrgsOrgSlugServicesIdRoute
+  '/_authed/orgs/$orgSlug/settings/billing': typeof AuthedOrgsOrgSlugSettingsBillingRoute
+  '/_authed/orgs/$orgSlug/settings/sso': typeof AuthedOrgsOrgSlugSettingsSsoRoute
   '/_authed/orgs/$orgSlug/apps/': typeof AuthedOrgsOrgSlugAppsIndexRoute
   '/_authed/orgs/$orgSlug/databases/': typeof AuthedOrgsOrgSlugDatabasesIndexRoute
   '/_authed/orgs/$orgSlug/services/': typeof AuthedOrgsOrgSlugServicesIndexRoute
@@ -472,15 +521,18 @@ export interface FileRouteTypes {
     | '/apps/$'
     | '/databases/$'
     | '/orgs/$orgSlug'
+    | '/settings/license'
     | '/settings/notifications'
     | '/settings/registry'
     | '/settings/security'
     | '/invitations/accept'
     | '/settings/'
     | '/orgs/$orgSlug/audit'
+    | '/orgs/$orgSlug/branding'
     | '/orgs/$orgSlug/dashboard'
     | '/orgs/$orgSlug/marketplace'
     | '/orgs/$orgSlug/members'
+    | '/orgs/$orgSlug/settings'
     | '/settings/git-providers/$slug'
     | '/settings/security/passkey'
     | '/settings/security/passkeys'
@@ -493,6 +545,8 @@ export interface FileRouteTypes {
     | '/orgs/$orgSlug/apps/$id'
     | '/orgs/$orgSlug/databases/$id'
     | '/orgs/$orgSlug/services/$id'
+    | '/orgs/$orgSlug/settings/billing'
+    | '/orgs/$orgSlug/settings/sso'
     | '/orgs/$orgSlug/apps/'
     | '/orgs/$orgSlug/databases/'
     | '/orgs/$orgSlug/services/'
@@ -518,14 +572,17 @@ export interface FileRouteTypes {
     | '/register'
     | '/apps/$'
     | '/databases/$'
+    | '/settings/license'
     | '/settings/notifications'
     | '/settings/registry'
     | '/invitations/accept'
     | '/settings'
     | '/orgs/$orgSlug/audit'
+    | '/orgs/$orgSlug/branding'
     | '/orgs/$orgSlug/dashboard'
     | '/orgs/$orgSlug/marketplace'
     | '/orgs/$orgSlug/members'
+    | '/orgs/$orgSlug/settings'
     | '/settings/git-providers/$slug'
     | '/settings/security/passkey'
     | '/settings/security/passkeys'
@@ -537,6 +594,8 @@ export interface FileRouteTypes {
     | '/settings/security'
     | '/orgs/$orgSlug/databases/$id'
     | '/orgs/$orgSlug/services/$id'
+    | '/orgs/$orgSlug/settings/billing'
+    | '/orgs/$orgSlug/settings/sso'
     | '/orgs/$orgSlug/apps'
     | '/orgs/$orgSlug/databases'
     | '/orgs/$orgSlug/services'
@@ -564,15 +623,18 @@ export interface FileRouteTypes {
     | '/_authed/apps/$'
     | '/_authed/databases/$'
     | '/_authed/orgs/$orgSlug'
+    | '/_authed/settings/license'
     | '/_authed/settings/notifications'
     | '/_authed/settings/registry'
     | '/_authed/settings/security'
     | '/_public/invitations/accept'
     | '/_authed/settings/'
     | '/_authed/orgs/$orgSlug/audit'
+    | '/_authed/orgs/$orgSlug/branding'
     | '/_authed/orgs/$orgSlug/dashboard'
     | '/_authed/orgs/$orgSlug/marketplace'
     | '/_authed/orgs/$orgSlug/members'
+    | '/_authed/orgs/$orgSlug/settings'
     | '/_authed/settings/git-providers/$slug'
     | '/_authed/settings/security/passkey'
     | '/_authed/settings/security/passkeys'
@@ -585,6 +647,8 @@ export interface FileRouteTypes {
     | '/_authed/orgs/$orgSlug/apps/$id'
     | '/_authed/orgs/$orgSlug/databases/$id'
     | '/_authed/orgs/$orgSlug/services/$id'
+    | '/_authed/orgs/$orgSlug/settings/billing'
+    | '/_authed/orgs/$orgSlug/settings/sso'
     | '/_authed/orgs/$orgSlug/apps/'
     | '/_authed/orgs/$orgSlug/databases/'
     | '/_authed/orgs/$orgSlug/services/'
@@ -700,6 +764,13 @@ declare module '@tanstack/react-router' {
       preLoaderRoute: typeof AuthedSettingsNotificationsRouteImport
       parentRoute: typeof AuthedRoute
     }
+    '/_authed/settings/license': {
+      id: '/_authed/settings/license'
+      path: '/settings/license'
+      fullPath: '/settings/license'
+      preLoaderRoute: typeof AuthedSettingsLicenseRouteImport
+      parentRoute: typeof AuthedRoute
+    }
     '/_authed/orgs/$orgSlug': {
       id: '/_authed/orgs/$orgSlug'
       path: '/orgs/$orgSlug'
@@ -784,6 +855,13 @@ declare module '@tanstack/react-router' {
       preLoaderRoute: typeof AuthedSettingsGitProvidersSlugRouteImport
       parentRoute: typeof AuthedRoute
     }
+    '/_authed/orgs/$orgSlug/settings': {
+      id: '/_authed/orgs/$orgSlug/settings'
+      path: '/settings'
+      fullPath: '/orgs/$orgSlug/settings'
+      preLoaderRoute: typeof AuthedOrgsOrgSlugSettingsRouteImport
+      parentRoute: typeof AuthedOrgsOrgSlugRoute
+    }
     '/_authed/orgs/$orgSlug/members': {
       id: '/_authed/orgs/$orgSlug/members'
       path: '/members'
@@ -803,6 +881,13 @@ declare module '@tanstack/react-router' {
       path: '/dashboard'
       fullPath: '/orgs/$orgSlug/dashboard'
       preLoaderRoute: typeof AuthedOrgsOrgSlugDashboardRouteImport
+      parentRoute: typeof AuthedOrgsOrgSlugRoute
+    }
+    '/_authed/orgs/$orgSlug/branding': {
+      id: '/_authed/orgs/$orgSlug/branding'
+      path: '/branding'
+      fullPath: '/orgs/$orgSlug/branding'
+      preLoaderRoute: typeof AuthedOrgsOrgSlugBrandingRouteImport
       parentRoute: typeof AuthedOrgsOrgSlugRoute
     }
     '/_authed/orgs/$orgSlug/audit': {
@@ -832,6 +917,20 @@ declare module '@tanstack/react-router' {
       fullPath: '/orgs/$orgSlug/apps/'
       preLoaderRoute: typeof AuthedOrgsOrgSlugAppsIndexRouteImport
       parentRoute: typeof AuthedOrgsOrgSlugRoute
+    }
+    '/_authed/orgs/$orgSlug/settings/sso': {
+      id: '/_authed/orgs/$orgSlug/settings/sso'
+      path: '/sso'
+      fullPath: '/orgs/$orgSlug/settings/sso'
+      preLoaderRoute: typeof AuthedOrgsOrgSlugSettingsSsoRouteImport
+      parentRoute: typeof AuthedOrgsOrgSlugSettingsRoute
+    }
+    '/_authed/orgs/$orgSlug/settings/billing': {
+      id: '/_authed/orgs/$orgSlug/settings/billing'
+      path: '/billing'
+      fullPath: '/orgs/$orgSlug/settings/billing'
+      preLoaderRoute: typeof AuthedOrgsOrgSlugSettingsBillingRouteImport
+      parentRoute: typeof AuthedOrgsOrgSlugSettingsRoute
     }
     '/_authed/orgs/$orgSlug/services/$id': {
       id: '/_authed/orgs/$orgSlug/services/$id'
@@ -941,6 +1040,23 @@ declare module '@tanstack/react-router' {
   }
 }
 
+interface AuthedOrgsOrgSlugSettingsRouteChildren {
+  AuthedOrgsOrgSlugSettingsBillingRoute: typeof AuthedOrgsOrgSlugSettingsBillingRoute
+  AuthedOrgsOrgSlugSettingsSsoRoute: typeof AuthedOrgsOrgSlugSettingsSsoRoute
+}
+
+const AuthedOrgsOrgSlugSettingsRouteChildren: AuthedOrgsOrgSlugSettingsRouteChildren =
+  {
+    AuthedOrgsOrgSlugSettingsBillingRoute:
+      AuthedOrgsOrgSlugSettingsBillingRoute,
+    AuthedOrgsOrgSlugSettingsSsoRoute: AuthedOrgsOrgSlugSettingsSsoRoute,
+  }
+
+const AuthedOrgsOrgSlugSettingsRouteWithChildren =
+  AuthedOrgsOrgSlugSettingsRoute._addFileChildren(
+    AuthedOrgsOrgSlugSettingsRouteChildren,
+  )
+
 interface AuthedOrgsOrgSlugAppsIdSettingsRouteChildren {
   AuthedOrgsOrgSlugAppsIdSettingsAdvancedRoute: typeof AuthedOrgsOrgSlugAppsIdSettingsAdvancedRoute
   AuthedOrgsOrgSlugAppsIdSettingsProtectionRoute: typeof AuthedOrgsOrgSlugAppsIdSettingsProtectionRoute
@@ -997,9 +1113,11 @@ const AuthedOrgsOrgSlugAppsIdRouteWithChildren =
 
 interface AuthedOrgsOrgSlugRouteChildren {
   AuthedOrgsOrgSlugAuditRoute: typeof AuthedOrgsOrgSlugAuditRoute
+  AuthedOrgsOrgSlugBrandingRoute: typeof AuthedOrgsOrgSlugBrandingRoute
   AuthedOrgsOrgSlugDashboardRoute: typeof AuthedOrgsOrgSlugDashboardRoute
   AuthedOrgsOrgSlugMarketplaceRoute: typeof AuthedOrgsOrgSlugMarketplaceRoute
   AuthedOrgsOrgSlugMembersRoute: typeof AuthedOrgsOrgSlugMembersRoute
+  AuthedOrgsOrgSlugSettingsRoute: typeof AuthedOrgsOrgSlugSettingsRouteWithChildren
   AuthedOrgsOrgSlugIndexRoute: typeof AuthedOrgsOrgSlugIndexRoute
   AuthedOrgsOrgSlugAppsIdRoute: typeof AuthedOrgsOrgSlugAppsIdRouteWithChildren
   AuthedOrgsOrgSlugDatabasesIdRoute: typeof AuthedOrgsOrgSlugDatabasesIdRoute
@@ -1011,9 +1129,11 @@ interface AuthedOrgsOrgSlugRouteChildren {
 
 const AuthedOrgsOrgSlugRouteChildren: AuthedOrgsOrgSlugRouteChildren = {
   AuthedOrgsOrgSlugAuditRoute: AuthedOrgsOrgSlugAuditRoute,
+  AuthedOrgsOrgSlugBrandingRoute: AuthedOrgsOrgSlugBrandingRoute,
   AuthedOrgsOrgSlugDashboardRoute: AuthedOrgsOrgSlugDashboardRoute,
   AuthedOrgsOrgSlugMarketplaceRoute: AuthedOrgsOrgSlugMarketplaceRoute,
   AuthedOrgsOrgSlugMembersRoute: AuthedOrgsOrgSlugMembersRoute,
+  AuthedOrgsOrgSlugSettingsRoute: AuthedOrgsOrgSlugSettingsRouteWithChildren,
   AuthedOrgsOrgSlugIndexRoute: AuthedOrgsOrgSlugIndexRoute,
   AuthedOrgsOrgSlugAppsIdRoute: AuthedOrgsOrgSlugAppsIdRouteWithChildren,
   AuthedOrgsOrgSlugDatabasesIdRoute: AuthedOrgsOrgSlugDatabasesIdRoute,
@@ -1057,6 +1177,7 @@ interface AuthedRouteChildren {
   AuthedAppsSplatRoute: typeof AuthedAppsSplatRoute
   AuthedDatabasesSplatRoute: typeof AuthedDatabasesSplatRoute
   AuthedOrgsOrgSlugRoute: typeof AuthedOrgsOrgSlugRouteWithChildren
+  AuthedSettingsLicenseRoute: typeof AuthedSettingsLicenseRoute
   AuthedSettingsNotificationsRoute: typeof AuthedSettingsNotificationsRoute
   AuthedSettingsRegistryRoute: typeof AuthedSettingsRegistryRoute
   AuthedSettingsSecurityRoute: typeof AuthedSettingsSecurityRouteWithChildren
@@ -1072,6 +1193,7 @@ const AuthedRouteChildren: AuthedRouteChildren = {
   AuthedAppsSplatRoute: AuthedAppsSplatRoute,
   AuthedDatabasesSplatRoute: AuthedDatabasesSplatRoute,
   AuthedOrgsOrgSlugRoute: AuthedOrgsOrgSlugRouteWithChildren,
+  AuthedSettingsLicenseRoute: AuthedSettingsLicenseRoute,
   AuthedSettingsNotificationsRoute: AuthedSettingsNotificationsRoute,
   AuthedSettingsRegistryRoute: AuthedSettingsRegistryRoute,
   AuthedSettingsSecurityRoute: AuthedSettingsSecurityRouteWithChildren,
