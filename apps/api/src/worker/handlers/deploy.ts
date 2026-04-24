@@ -788,12 +788,20 @@ export async function handleDeploy(
         })
         if (plan) {
           const providers = plan.providers ?? []
-          if (providers.length === 0) {
+          // Canonical "plan is valid" signal = presence of build phases.
+          // `providers` is metadata that can legitimately be empty even when
+          // Nixpacks produced a full plan (observed: Laravel repos yield
+          // `providers:[]` + `variables.IS_LARAVEL=yes` + full phases).
+          const phases = plan.phases ?? {}
+          const hasPhases = Object.keys(phases).length > 0
+          if (!hasPhases && providers.length === 0) {
             throw new FatalDeployError(
               "Nixpacks ne détecte aucun provider dans ce repo — ajoute un Dockerfile, un nixpacks.toml, ou choisis un autre build_method."
             )
           }
-          onLog(`[deploy] nixpacks plan OK: providers=${providers.join(",")}`)
+          onLog(
+            `[deploy] nixpacks plan OK: providers=[${providers.join(",")}] phases=[${Object.keys(phases).join(",")}]`
+          )
         }
       } catch (planErr) {
         if (planErr instanceof FatalDeployError) throw planErr

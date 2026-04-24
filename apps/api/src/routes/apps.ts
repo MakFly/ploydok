@@ -6,7 +6,8 @@ import { z } from "zod"
 import { and, eq } from "drizzle-orm"
 import { nanoid } from "nanoid"
 import { createDb } from "@ploydok/db"
-import { projects } from "@ploydok/db"
+import { projects, secrets } from "@ploydok/db"
+import { encryptSecret } from "../secrets/crypto"
 import {
   BuildMethodSchema,
   GitProviderKindSchema,
@@ -27,10 +28,8 @@ import {
   listBuildsForApp,
   markAppDeleting,
   rotateAppWebhookSecret,
-  listEnvForApp,
   uniqueSlug,
   updateApp,
-  upsertEnvVars,
   type AppRow,
 } from "@ploydok/db/queries"
 import { listDeliveriesByApp, getDeliveryById } from "@ploydok/db/queries"
@@ -298,6 +297,7 @@ type BuildRow = {
   container_id: string | null
   commit_sha: string | null
   commit_message: string | null
+  error_message: string | null
   post_deploy_error: string | null
   started_at: Date | null
   finished_at: Date | null
@@ -314,6 +314,7 @@ function serializeBuild(row: BuildRow) {
     containerId: row.container_id,
     commitSha: row.commit_sha,
     commitMessage: row.commit_message,
+    errorMessage: row.error_message ?? null,
     postDeployError: row.post_deploy_error ?? null,
     startedAt:
       row.started_at instanceof Date
@@ -509,29 +510,39 @@ export function createAppsRouter(db: Db): Hono {
         const classification = classifyStack(probeResults)
         const suggested = classification.suggestedEnvVars
         if (Object.keys(suggested).length > 0) {
-          // Preserve any env var the user already set (e.g. APP_ENV=staging
-          // on a preview scope) — we only fill gaps. `upsertEnvVars` is a
-          // replace-all so we union with the existing set before writing.
-          const existing = await listEnvForApp(db, id)
-          const existingByKey = new Map(existing.map((e) => [e.key, e]))
-          const toInsert: Array<{
-            key: string
-            value: string
-            secret: boolean
-          }> = existing.map((e) => ({
-            key: e.key,
-            value: e.value,
-            secret: e.secret,
-          }))
+          // Write to the `secrets` table (phase=both, scope=shared) because
+          // that's what `buildEnvPairForDeploy` reads at deploy time. The
+          // legacy `env_vars` table is read by the UI but never by the
+          // deploy pipeline. User-provided values already present for the
+          // same key+scope+phase are preserved (skip-if-exists).
+          const existingRows = await db
+            .select({
+              key: secrets.key,
+              scope: secrets.scope,
+              phase: secrets.phase,
+            })
+            .from(secrets)
+            .where(eq(secrets.app_id, id))
+          const existingSet = new Set(
+            existingRows.map((r) => `${r.key}|${r.scope}|${r.phase}`)
+          )
           const injected: string[] = []
           for (const [k, v] of Object.entries(suggested)) {
-            if (!existingByKey.has(k)) {
-              toInsert.push({ key: k, value: v, secret: false })
-              injected.push(k)
-            }
-          }
-          if (injected.length > 0) {
-            await upsertEnvVars(db, id, toInsert)
+            const signature = `${k}|shared|both`
+            if (existingSet.has(signature)) continue
+            const { enc, nonce } = await encryptSecret(v)
+            await db.insert(secrets).values({
+              id: nanoid(),
+              app_id: id,
+              project_id: projectId,
+              scope: "shared",
+              phase: "both",
+              key: k,
+              value_ciphertext: enc,
+              nonce,
+              created_at: new Date(),
+            })
+            injected.push(k)
           }
           childLogger("apps-autoinject").info(
             {
@@ -539,7 +550,7 @@ export function createAppsRouter(db: Db): Hono {
               stack: classification.stack,
               injected,
               skipped: Object.keys(suggested).filter((k) =>
-                existingByKey.has(k)
+                existingSet.has(`${k}|shared|both`)
               ),
             },
             "auto-inject env vars for detected framework (user values preserved)"
