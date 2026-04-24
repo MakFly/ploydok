@@ -35,8 +35,10 @@ import { Route as AuthedSettingsSecurityPasskeyRouteImport } from './routes/_aut
 import { Route as AuthedSettingsGitProvidersSlugRouteImport } from './routes/_authed/settings/git-providers/$slug'
 import { Route as AuthedOrgsOrgSlugMarketplaceRouteImport } from './routes/_authed/orgs/$orgSlug/marketplace'
 import { Route as AuthedOrgsOrgSlugDashboardRouteImport } from './routes/_authed/orgs/$orgSlug/dashboard'
+import { Route as AuthedOrgsOrgSlugServicesIndexRouteImport } from './routes/_authed/orgs/$orgSlug/services/index'
 import { Route as AuthedOrgsOrgSlugDatabasesIndexRouteImport } from './routes/_authed/orgs/$orgSlug/databases/index'
 import { Route as AuthedOrgsOrgSlugAppsIndexRouteImport } from './routes/_authed/orgs/$orgSlug/apps/index'
+import { Route as AuthedOrgsOrgSlugServicesIdRouteImport } from './routes/_authed/orgs/$orgSlug/services/$id'
 import { Route as AuthedOrgsOrgSlugDatabasesIdRouteImport } from './routes/_authed/orgs/$orgSlug/databases/$id'
 import { Route as AuthedOrgsOrgSlugAppsIdRouteImport } from './routes/_authed/orgs/$orgSlug/apps/$id'
 import { Route as AuthedOrgsOrgSlugAppsIdIndexRouteImport } from './routes/_authed/orgs/$orgSlug/apps/$id/index'
@@ -190,6 +192,12 @@ const AuthedOrgsOrgSlugDashboardRoute =
     path: '/dashboard',
     getParentRoute: () => AuthedOrgsOrgSlugRoute,
   } as any)
+const AuthedOrgsOrgSlugServicesIndexRoute =
+  AuthedOrgsOrgSlugServicesIndexRouteImport.update({
+    id: '/services/',
+    path: '/services/',
+    getParentRoute: () => AuthedOrgsOrgSlugRoute,
+  } as any)
 const AuthedOrgsOrgSlugDatabasesIndexRoute =
   AuthedOrgsOrgSlugDatabasesIndexRouteImport.update({
     id: '/databases/',
@@ -200,6 +208,12 @@ const AuthedOrgsOrgSlugAppsIndexRoute =
   AuthedOrgsOrgSlugAppsIndexRouteImport.update({
     id: '/apps/',
     path: '/apps/',
+    getParentRoute: () => AuthedOrgsOrgSlugRoute,
+  } as any)
+const AuthedOrgsOrgSlugServicesIdRoute =
+  AuthedOrgsOrgSlugServicesIdRouteImport.update({
+    id: '/services/$id',
+    path: '/services/$id',
     getParentRoute: () => AuthedOrgsOrgSlugRoute,
   } as any)
 const AuthedOrgsOrgSlugDatabasesIdRoute =
@@ -307,8 +321,10 @@ export interface FileRoutesByFullPath {
   '/settings/security/': typeof AuthedSettingsSecurityIndexRoute
   '/orgs/$orgSlug/apps/$id': typeof AuthedOrgsOrgSlugAppsIdRouteWithChildren
   '/orgs/$orgSlug/databases/$id': typeof AuthedOrgsOrgSlugDatabasesIdRoute
+  '/orgs/$orgSlug/services/$id': typeof AuthedOrgsOrgSlugServicesIdRoute
   '/orgs/$orgSlug/apps/': typeof AuthedOrgsOrgSlugAppsIndexRoute
   '/orgs/$orgSlug/databases/': typeof AuthedOrgsOrgSlugDatabasesIndexRoute
+  '/orgs/$orgSlug/services/': typeof AuthedOrgsOrgSlugServicesIndexRoute
   '/orgs/$orgSlug/apps/$id/deployments': typeof AuthedOrgsOrgSlugAppsIdDeploymentsRoute
   '/orgs/$orgSlug/apps/$id/domains': typeof AuthedOrgsOrgSlugAppsIdDomainsRoute
   '/orgs/$orgSlug/apps/$id/env': typeof AuthedOrgsOrgSlugAppsIdEnvRoute
@@ -345,8 +361,10 @@ export interface FileRoutesByTo {
   '/settings/git-providers': typeof AuthedSettingsGitProvidersIndexRoute
   '/settings/security': typeof AuthedSettingsSecurityIndexRoute
   '/orgs/$orgSlug/databases/$id': typeof AuthedOrgsOrgSlugDatabasesIdRoute
+  '/orgs/$orgSlug/services/$id': typeof AuthedOrgsOrgSlugServicesIdRoute
   '/orgs/$orgSlug/apps': typeof AuthedOrgsOrgSlugAppsIndexRoute
   '/orgs/$orgSlug/databases': typeof AuthedOrgsOrgSlugDatabasesIndexRoute
+  '/orgs/$orgSlug/services': typeof AuthedOrgsOrgSlugServicesIndexRoute
   '/orgs/$orgSlug/apps/$id/deployments': typeof AuthedOrgsOrgSlugAppsIdDeploymentsRoute
   '/orgs/$orgSlug/apps/$id/domains': typeof AuthedOrgsOrgSlugAppsIdDomainsRoute
   '/orgs/$orgSlug/apps/$id/env': typeof AuthedOrgsOrgSlugAppsIdEnvRoute
@@ -388,8 +406,10 @@ export interface FileRoutesById {
   '/_authed/settings/security/': typeof AuthedSettingsSecurityIndexRoute
   '/_authed/orgs/$orgSlug/apps/$id': typeof AuthedOrgsOrgSlugAppsIdRouteWithChildren
   '/_authed/orgs/$orgSlug/databases/$id': typeof AuthedOrgsOrgSlugDatabasesIdRoute
+  '/_authed/orgs/$orgSlug/services/$id': typeof AuthedOrgsOrgSlugServicesIdRoute
   '/_authed/orgs/$orgSlug/apps/': typeof AuthedOrgsOrgSlugAppsIndexRoute
   '/_authed/orgs/$orgSlug/databases/': typeof AuthedOrgsOrgSlugDatabasesIndexRoute
+  '/_authed/orgs/$orgSlug/services/': typeof AuthedOrgsOrgSlugServicesIndexRoute
   '/_authed/orgs/$orgSlug/apps/$id/deployments': typeof AuthedOrgsOrgSlugAppsIdDeploymentsRoute
   '/_authed/orgs/$orgSlug/apps/$id/domains': typeof AuthedOrgsOrgSlugAppsIdDomainsRoute
   '/_authed/orgs/$orgSlug/apps/$id/env': typeof AuthedOrgsOrgSlugAppsIdEnvRoute
@@ -431,8 +451,10 @@ export interface FileRouteTypes {
     | '/settings/security/'
     | '/orgs/$orgSlug/apps/$id'
     | '/orgs/$orgSlug/databases/$id'
+    | '/orgs/$orgSlug/services/$id'
     | '/orgs/$orgSlug/apps/'
     | '/orgs/$orgSlug/databases/'
+    | '/orgs/$orgSlug/services/'
     | '/orgs/$orgSlug/apps/$id/deployments'
     | '/orgs/$orgSlug/apps/$id/domains'
     | '/orgs/$orgSlug/apps/$id/env'
@@ -469,8 +491,10 @@ export interface FileRouteTypes {
     | '/settings/git-providers'
     | '/settings/security'
     | '/orgs/$orgSlug/databases/$id'
+    | '/orgs/$orgSlug/services/$id'
     | '/orgs/$orgSlug/apps'
     | '/orgs/$orgSlug/databases'
+    | '/orgs/$orgSlug/services'
     | '/orgs/$orgSlug/apps/$id/deployments'
     | '/orgs/$orgSlug/apps/$id/domains'
     | '/orgs/$orgSlug/apps/$id/env'
@@ -511,8 +535,10 @@ export interface FileRouteTypes {
     | '/_authed/settings/security/'
     | '/_authed/orgs/$orgSlug/apps/$id'
     | '/_authed/orgs/$orgSlug/databases/$id'
+    | '/_authed/orgs/$orgSlug/services/$id'
     | '/_authed/orgs/$orgSlug/apps/'
     | '/_authed/orgs/$orgSlug/databases/'
+    | '/_authed/orgs/$orgSlug/services/'
     | '/_authed/orgs/$orgSlug/apps/$id/deployments'
     | '/_authed/orgs/$orgSlug/apps/$id/domains'
     | '/_authed/orgs/$orgSlug/apps/$id/env'
@@ -715,6 +741,13 @@ declare module '@tanstack/react-router' {
       preLoaderRoute: typeof AuthedOrgsOrgSlugDashboardRouteImport
       parentRoute: typeof AuthedOrgsOrgSlugRoute
     }
+    '/_authed/orgs/$orgSlug/services/': {
+      id: '/_authed/orgs/$orgSlug/services/'
+      path: '/services'
+      fullPath: '/orgs/$orgSlug/services/'
+      preLoaderRoute: typeof AuthedOrgsOrgSlugServicesIndexRouteImport
+      parentRoute: typeof AuthedOrgsOrgSlugRoute
+    }
     '/_authed/orgs/$orgSlug/databases/': {
       id: '/_authed/orgs/$orgSlug/databases/'
       path: '/databases'
@@ -727,6 +760,13 @@ declare module '@tanstack/react-router' {
       path: '/apps'
       fullPath: '/orgs/$orgSlug/apps/'
       preLoaderRoute: typeof AuthedOrgsOrgSlugAppsIndexRouteImport
+      parentRoute: typeof AuthedOrgsOrgSlugRoute
+    }
+    '/_authed/orgs/$orgSlug/services/$id': {
+      id: '/_authed/orgs/$orgSlug/services/$id'
+      path: '/services/$id'
+      fullPath: '/orgs/$orgSlug/services/$id'
+      preLoaderRoute: typeof AuthedOrgsOrgSlugServicesIdRouteImport
       parentRoute: typeof AuthedOrgsOrgSlugRoute
     }
     '/_authed/orgs/$orgSlug/databases/$id': {
@@ -880,8 +920,10 @@ interface AuthedOrgsOrgSlugRouteChildren {
   AuthedOrgsOrgSlugIndexRoute: typeof AuthedOrgsOrgSlugIndexRoute
   AuthedOrgsOrgSlugAppsIdRoute: typeof AuthedOrgsOrgSlugAppsIdRouteWithChildren
   AuthedOrgsOrgSlugDatabasesIdRoute: typeof AuthedOrgsOrgSlugDatabasesIdRoute
+  AuthedOrgsOrgSlugServicesIdRoute: typeof AuthedOrgsOrgSlugServicesIdRoute
   AuthedOrgsOrgSlugAppsIndexRoute: typeof AuthedOrgsOrgSlugAppsIndexRoute
   AuthedOrgsOrgSlugDatabasesIndexRoute: typeof AuthedOrgsOrgSlugDatabasesIndexRoute
+  AuthedOrgsOrgSlugServicesIndexRoute: typeof AuthedOrgsOrgSlugServicesIndexRoute
 }
 
 const AuthedOrgsOrgSlugRouteChildren: AuthedOrgsOrgSlugRouteChildren = {
@@ -890,8 +932,10 @@ const AuthedOrgsOrgSlugRouteChildren: AuthedOrgsOrgSlugRouteChildren = {
   AuthedOrgsOrgSlugIndexRoute: AuthedOrgsOrgSlugIndexRoute,
   AuthedOrgsOrgSlugAppsIdRoute: AuthedOrgsOrgSlugAppsIdRouteWithChildren,
   AuthedOrgsOrgSlugDatabasesIdRoute: AuthedOrgsOrgSlugDatabasesIdRoute,
+  AuthedOrgsOrgSlugServicesIdRoute: AuthedOrgsOrgSlugServicesIdRoute,
   AuthedOrgsOrgSlugAppsIndexRoute: AuthedOrgsOrgSlugAppsIndexRoute,
   AuthedOrgsOrgSlugDatabasesIndexRoute: AuthedOrgsOrgSlugDatabasesIndexRoute,
+  AuthedOrgsOrgSlugServicesIndexRoute: AuthedOrgsOrgSlugServicesIndexRoute,
 }
 
 const AuthedOrgsOrgSlugRouteWithChildren =

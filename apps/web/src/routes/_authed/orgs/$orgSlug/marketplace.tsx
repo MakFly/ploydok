@@ -1,6 +1,6 @@
 // SPDX-License-Identifier: AGPL-3.0-only
 import * as React from "react"
-import { createFileRoute } from "@tanstack/react-router"
+import { createFileRoute, useRouter } from "@tanstack/react-router"
 import { useQuery } from "@tanstack/react-query"
 import {
   RiExternalLinkLine,
@@ -20,6 +20,8 @@ import {
 } from "@workspace/ui/components/dialog"
 import { ShellPage, ShellPanel } from "../../../../components/layout/AppShell"
 import { useCurrentOrganization } from "../../../../lib/organizations"
+import { useInstallService } from "../../../../lib/services"
+import { InstallDialog } from "../../../../components/services/InstallDialog"
 
 export const Route = createFileRoute("/_authed/orgs/$orgSlug/marketplace")({
   component: MarketplacePage,
@@ -267,8 +269,12 @@ function TemplateDialog({
   template,
   onClose,
 }: TemplateDialogProps): React.JSX.Element {
+  const router = useRouter()
+  const organization = useCurrentOrganization()
   const { data, isLoading, error } = useTemplateDetail(template?.id ?? null)
   const [copied, setCopied] = React.useState(false)
+  const [confirmOpen, setConfirmOpen] = React.useState(false)
+  const installService = useInstallService()
 
   React.useEffect(() => {
     if (!copied) return
@@ -286,117 +292,154 @@ function TemplateDialog({
     }
   }
 
+  const handleInstall = async (): Promise<void> => {
+    if (!template || !data?.dockerCompose || !organization) return
+    const result = await installService.mutateAsync({
+      projectId: organization.id,
+      templateId: template.id,
+      templateVersion: template.version,
+      name: template.name,
+      compose: data.dockerCompose,
+    })
+    setConfirmOpen(false)
+    onClose()
+    await router.navigate({
+      to: "/orgs/$orgSlug/services/$id",
+      params: { orgSlug: organization.slug, id: result.service.id },
+    })
+  }
+
   return (
-    <Dialog
-      open={Boolean(template)}
-      onOpenChange={(open) => (!open ? onClose() : null)}
-    >
-      <DialogContent className="sm:max-w-3xl">
-        {template ? (
-          <>
-            <DialogHeader>
-              <DialogTitle className="flex items-center gap-2">
-                {template.name}
-                <span className="text-xs font-normal text-muted-foreground">
-                  v{template.version}
-                </span>
-              </DialogTitle>
-              <DialogDescription>{template.description}</DialogDescription>
-            </DialogHeader>
+    <>
+      <Dialog
+        open={Boolean(template)}
+        onOpenChange={(open) => (!open ? onClose() : null)}
+      >
+        <DialogContent className="sm:max-w-3xl">
+          {template ? (
+            <>
+              <DialogHeader>
+                <DialogTitle className="flex items-center gap-2">
+                  {template.name}
+                  <span className="text-xs font-normal text-muted-foreground">
+                    v{template.version}
+                  </span>
+                </DialogTitle>
+                <DialogDescription>{template.description}</DialogDescription>
+              </DialogHeader>
 
-            <div className="flex flex-wrap gap-2 text-xs">
-              {template.tags?.map((tag) => (
-                <span
-                  key={tag}
-                  className="rounded bg-muted px-2 py-0.5 text-muted-foreground"
-                >
-                  {tag}
-                </span>
-              ))}
-            </div>
-
-            <div className="rounded-md border border-amber-500/30 bg-amber-500/10 px-3 py-2 text-xs text-amber-900 dark:text-amber-200">
-              Installation automatique <strong>bientôt disponible</strong>. Pour
-              l'instant, copie la docker-compose et déploie-la via ton runtime
-              Docker — aucun service Ploydok existant n'est impacté.
-            </div>
-
-            <div className="flex min-h-[12rem] flex-col gap-2">
-              <div className="flex items-center justify-between">
-                <span className="text-xs font-medium tracking-wide text-muted-foreground uppercase">
-                  docker-compose.yml
-                </span>
-                <Button
-                  type="button"
-                  size="sm"
-                  variant="outline"
-                  onClick={() => void handleCopy()}
-                  disabled={!data?.dockerCompose}
-                >
-                  <RiFileCopyLine className="size-4" />
-                  {copied ? "Copié" : "Copier"}
-                </Button>
+              <div className="flex flex-wrap gap-2 text-xs">
+                {template.tags?.map((tag) => (
+                  <span
+                    key={tag}
+                    className="rounded bg-muted px-2 py-0.5 text-muted-foreground"
+                  >
+                    {tag}
+                  </span>
+                ))}
               </div>
-              {isLoading ? (
-                <div className="h-40 animate-pulse rounded-md bg-muted" />
-              ) : error ? (
-                <p
-                  role="alert"
-                  className="rounded-md border border-destructive/30 bg-destructive/10 px-3 py-2 text-xs text-destructive"
-                >
-                  Impossible de charger les fichiers du template (
-                  {(error as Error).message}).
-                </p>
-              ) : (
-                <pre className="max-h-80 overflow-auto rounded-md bg-muted p-3 text-[11px] leading-relaxed text-muted-foreground">
-                  <code>{data?.dockerCompose ?? ""}</code>
-                </pre>
-              )}
-            </div>
 
-            <DialogFooter className="flex-wrap gap-2 sm:justify-between">
-              <div className="flex flex-wrap gap-2">
-                {template.links?.github ? (
-                  <a
-                    href={template.links.github}
-                    target="_blank"
-                    rel="noreferrer noopener"
-                    className="inline-flex h-8 items-center gap-1 rounded-md border border-border px-3 text-xs hover:bg-accent"
+              <div className="flex min-h-[12rem] flex-col gap-2">
+                <div className="flex items-center justify-between">
+                  <span className="text-xs font-medium tracking-wide text-muted-foreground uppercase">
+                    docker-compose.yml
+                  </span>
+                  <Button
+                    type="button"
+                    size="sm"
+                    variant="outline"
+                    onClick={() => void handleCopy()}
+                    disabled={!data?.dockerCompose}
                   >
-                    <RiExternalLinkLine className="size-3.5" />
-                    GitHub
-                  </a>
-                ) : null}
-                {template.links?.website ? (
-                  <a
-                    href={template.links.website}
-                    target="_blank"
-                    rel="noreferrer noopener"
-                    className="inline-flex h-8 items-center gap-1 rounded-md border border-border px-3 text-xs hover:bg-accent"
+                    <RiFileCopyLine className="size-4" />
+                    {copied ? "Copié" : "Copier"}
+                  </Button>
+                </div>
+                {isLoading ? (
+                  <div className="h-40 animate-pulse rounded-md bg-muted" />
+                ) : error ? (
+                  <p
+                    role="alert"
+                    className="rounded-md border border-destructive/30 bg-destructive/10 px-3 py-2 text-xs text-destructive"
                   >
-                    <RiExternalLinkLine className="size-3.5" />
-                    Site
-                  </a>
-                ) : null}
-                {template.links?.docs ? (
-                  <a
-                    href={template.links.docs}
-                    target="_blank"
-                    rel="noreferrer noopener"
-                    className="inline-flex h-8 items-center gap-1 rounded-md border border-border px-3 text-xs hover:bg-accent"
-                  >
-                    <RiExternalLinkLine className="size-3.5" />
-                    Docs
-                  </a>
-                ) : null}
+                    Impossible de charger les fichiers du template (
+                    {(error as Error).message}).
+                  </p>
+                ) : (
+                  <pre className="max-h-80 overflow-auto rounded-md bg-muted p-3 text-[11px] leading-relaxed text-muted-foreground">
+                    <code>{data?.dockerCompose ?? ""}</code>
+                  </pre>
+                )}
               </div>
-              <Button type="button" variant="outline" onClick={onClose}>
-                Fermer
-              </Button>
-            </DialogFooter>
-          </>
-        ) : null}
-      </DialogContent>
-    </Dialog>
+
+              <DialogFooter className="flex-wrap gap-2 sm:justify-between">
+                <div className="flex flex-wrap gap-2">
+                  {template.links?.github ? (
+                    <a
+                      href={template.links.github}
+                      target="_blank"
+                      rel="noreferrer noopener"
+                      className="inline-flex h-8 items-center gap-1 rounded-md border border-border px-3 text-xs hover:bg-accent"
+                    >
+                      <RiExternalLinkLine className="size-3.5" />
+                      GitHub
+                    </a>
+                  ) : null}
+                  {template.links?.website ? (
+                    <a
+                      href={template.links.website}
+                      target="_blank"
+                      rel="noreferrer noopener"
+                      className="inline-flex h-8 items-center gap-1 rounded-md border border-border px-3 text-xs hover:bg-accent"
+                    >
+                      <RiExternalLinkLine className="size-3.5" />
+                      Site
+                    </a>
+                  ) : null}
+                  {template.links?.docs ? (
+                    <a
+                      href={template.links.docs}
+                      target="_blank"
+                      rel="noreferrer noopener"
+                      className="inline-flex h-8 items-center gap-1 rounded-md border border-border px-3 text-xs hover:bg-accent"
+                    >
+                      <RiExternalLinkLine className="size-3.5" />
+                      Docs
+                    </a>
+                  ) : null}
+                </div>
+                <div className="flex gap-2">
+                  <Button type="button" variant="outline" onClick={onClose}>
+                    Fermer
+                  </Button>
+                  <Button
+                    type="button"
+                    onClick={() => setConfirmOpen(true)}
+                    disabled={
+                      !data?.dockerCompose ||
+                      !organization ||
+                      installService.isPending
+                    }
+                  >
+                    {installService.isPending ? "Installation…" : "Install"}
+                  </Button>
+                </div>
+              </DialogFooter>
+            </>
+          ) : null}
+        </DialogContent>
+      </Dialog>
+
+      {template ? (
+        <InstallDialog
+          open={confirmOpen}
+          templateName={template.name}
+          templateVersion={template.version}
+          isPending={installService.isPending}
+          onConfirm={() => void handleInstall()}
+          onCancel={() => setConfirmOpen(false)}
+        />
+      ) : null}
+    </>
   )
 }
