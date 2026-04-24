@@ -141,21 +141,29 @@ export function NotificationBell(): React.JSX.Element {
             </button>
           </div>
 
-          {/* List */}
+          {/* List — only unread items. Read items stay in `state.items` so
+              the dedup-by-id check still works against SSE replay, but the
+              dropdown stays focused on what the user hasn't seen yet. */}
           <div className="max-h-96 overflow-y-auto">
-            {state.items.length === 0 ? (
-              <p className="text-muted-foreground px-3 py-6 text-center text-xs">
-                Aucune notification
-              </p>
-            ) : (
-              <ul className="divide-border divide-y">
-                {state.items.map((item) => (
-                  <li key={item.id}>
-                    <NotificationItem item={item} />
-                  </li>
-                ))}
-              </ul>
-            )}
+            {(() => {
+              const unread = state.items.filter((it) => it.t > state.lastReadAt)
+              if (unread.length === 0) {
+                return (
+                  <p className="text-muted-foreground px-3 py-6 text-center text-xs">
+                    Aucune nouvelle notification
+                  </p>
+                )
+              }
+              return (
+                <ul className="divide-border divide-y">
+                  {unread.map((item) => (
+                    <li key={item.id}>
+                      <NotificationItem item={item} />
+                    </li>
+                  ))}
+                </ul>
+              )
+            })()}
           </div>
         </div>
       ) : null}
