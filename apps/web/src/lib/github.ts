@@ -203,3 +203,49 @@ export function useRevokeInstallation() {
     },
   });
 }
+
+// ---------------------------------------------------------------------------
+// Cache status — exposes per-installation freshness + repo count from DB.
+// ---------------------------------------------------------------------------
+
+export interface CacheStatusEntry {
+  id: string;
+  externalId: string;
+  accountLogin: string;
+  avatarUrl: string | null;
+  htmlUrl: string | null;
+  lastSyncedAt: string;
+  repoCount: number;
+  ageMs: number;
+  status: "fresh" | "stale";
+}
+
+export interface CacheStatusResponse {
+  installations: Array<CacheStatusEntry>;
+  staleThresholdMs: number;
+}
+
+export function useGitHubCacheStatus(opts: { autoRefresh?: boolean } = {}) {
+  return useQuery<CacheStatusResponse, ApiError>({
+    queryKey: ["github", "cache-status"],
+    queryFn: () => apiFetch<CacheStatusResponse>("/github/installations/cache-status"),
+    staleTime: 5_000,
+    refetchInterval: opts.autoRefresh ? 3_000 : false,
+  });
+}
+
+export function useSyncGitHubInstallations() {
+  const qc = useQueryClient();
+  return useMutation<{ enqueued: true }, ApiError, { installationId?: string } | void>({
+    mutationFn: (vars) =>
+      apiFetch<{ enqueued: true }>("/github/installations/sync", {
+        method: "POST",
+        body: JSON.stringify(vars ?? {}),
+        headers: { "content-type": "application/json" },
+      }),
+    onSuccess: () => {
+      qc.invalidateQueries({ queryKey: ["github", "cache-status"] });
+      qc.invalidateQueries({ queryKey: ["github", "repos"] });
+    },
+  });
+}
