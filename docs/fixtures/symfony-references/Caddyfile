@@ -1,0 +1,40 @@
+# Inner Caddyfile for FrankenPHP when the container runs behind Ploydok's
+# outer Caddy. TLS + HTTP/3 are handled upstream, so we disable auto_https
+# and bind plain HTTP on :80.
+#
+# Worker mode is activated through the FRANKENPHP_CONFIG env var in the
+# Dockerfile, not here — keeping server config and worker config orthogonal
+# matches the pattern recommended by the FrankenPHP team (frankenphp.dev/docs/worker).
+
+{
+	frankenphp
+	auto_https off
+	admin off
+	log {
+		output stdout
+		format json
+		level INFO
+	}
+	servers {
+		# Ploydok fronts traffic, so trust the private-range proxy chain for
+		# real client IP extraction (X-Forwarded-For / X-Real-IP).
+		trusted_proxies static private_ranges
+	}
+}
+
+:80 {
+	root * public/
+	encode zstd br gzip
+
+	# In FrankenPHP worker mode the Symfony kernel is kept in memory and handles
+	# all routing itself — no try_files rewrite needed (it would shadow the worker).
+	php_server
+
+	header {
+		X-Frame-Options       "SAMEORIGIN"
+		X-Content-Type-Options "nosniff"
+		Referrer-Policy       "strict-origin-when-cross-origin"
+		-Server
+		-X-Powered-By
+	}
+}
