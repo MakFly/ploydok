@@ -243,21 +243,28 @@ export async function handleDeploy(
   // Create build record.
   // Normalize app.build_method:
   //   - legacy "docker" aliases to "dockerfile"
-  //   - "compose" / "railpack" are not yet implemented — reject early.
+  //   - "compose" is not yet implemented — reject early (sprint 3.3).
+  //   - "railpack" is supported first-class since Wave 3 (PLAN-build-strategy-v2).
   const rawMethod = app.build_method ?? "auto"
-  if (rawMethod === "compose" || rawMethod === "railpack") {
+  if (rawMethod === "compose") {
     throw new FatalDeployError(
       `build_method="${rawMethod}" is not yet supported (planned sprint 3.3)`
     )
   }
-  const normalizedMethod: "docker" | "nixpacks" | "auto" =
+  const normalizedMethod: "docker" | "nixpacks" | "railpack" | "auto" =
     rawMethod === "docker" || rawMethod === "dockerfile"
       ? "docker"
       : rawMethod === "nixpacks"
         ? "nixpacks"
-        : "auto"
+        : rawMethod === "railpack"
+          ? "railpack"
+          : "auto"
   const resolvedBuildMethod =
-    normalizedMethod === "nixpacks" ? "nixpacks" : "docker"
+    normalizedMethod === "nixpacks"
+      ? "nixpacks"
+      : normalizedMethod === "railpack"
+        ? "railpack"
+        : "docker"
   const buildId = nanoid()
   await insertBuild(db, {
     id: buildId,
@@ -541,7 +548,9 @@ export async function handleDeploy(
 
     // 2. Detect build method.
     const detectedOverride =
-      normalizedMethod === "docker" || normalizedMethod === "nixpacks"
+      normalizedMethod === "docker" ||
+      normalizedMethod === "nixpacks" ||
+      normalizedMethod === "railpack"
         ? normalizedMethod
         : "auto"
     const detected = await detectBuildMethod({
@@ -713,6 +722,53 @@ export async function handleDeploy(
       gcKeepLast(repo, 3).catch((gcErr) => {
         log.warn({ gcErr, repo }, "post-build GC failed (non-fatal)")
       })
+    } else if (detected.method === "railpack") {
+      // Railpack path (Wave 3 — iso Dokploy): newer Go-based builder by
+      // Railway that uses Caddy instead of nginx for PHP. Same host-side
+      // docker daemon semantics as nixpacks (imageRef not pushRef).
+      const railpackCache = path.join(
+        env.PLOYDOK_BUILD_DIR,
+        app.id,
+        ".railpack-cache"
+      )
+      log.info({ buildId, imageRef, pushRef }, "starting railpack build")
+      try {
+        const { railpackBuild } = await import("../railpack")
+        await railpackBuild({
+          workspacePath,
+          tag: imageRef,
+          cacheDir: railpackCache,
+          ...(app.root_dir !== null && { rootDir: app.root_dir }),
+          ...(Object.keys(buildEnv).length > 0 && { buildEnv }),
+          onLog,
+        })
+      } catch (rpErr) {
+        throw classifyAgentError(rpErr)
+      }
+
+      // Push to local registry (same pattern as nixpacks path).
+      onLog(`[deploy] pushing image to ${imageRef}`)
+      const pushProc = Bun.spawn(["docker", "push", imageRef], {
+        stdout: "pipe",
+        stderr: "pipe",
+      })
+      const pushStdout = await new Response(pushProc.stdout).text()
+      const pushStderr = await new Response(pushProc.stderr).text()
+      for (const line of (pushStdout + pushStderr).split("\n")) {
+        if (line) onLog(line)
+      }
+      const pushCode = await pushProc.exited
+      if (pushCode !== 0) {
+        throw new Error(
+          `docker push failed (exit ${pushCode}) for ${imageRef}: ${pushStderr.trim()}`
+        )
+      }
+      log.info({ buildId, imageRef }, "railpack build + push done")
+      await updateBuildStatus(db, buildId, "running", { imageTag: imageRef })
+
+      gcKeepLast(repo, 3).catch((gcErr) => {
+        log.warn({ gcErr, repo }, "post-build GC failed (non-fatal)")
+      })
     } else {
       // Nixpacks path
       const nixpacksCache = path.join(
@@ -720,6 +776,34 @@ export async function handleDeploy(
         app.id,
         ".nixpacks-cache"
       )
+      // Pre-check: run `nixpacks plan` to preview what Nixpacks sees. If no
+      // provider matched, fail fast with a precise message instead of
+      // letting a multi-minute build crash on an empty plan.
+      try {
+        const { nixpacksPlan } = await import("../nixpacks")
+        const plan = await nixpacksPlan({
+          workspacePath,
+          ...(app.root_dir !== null && { rootDir: app.root_dir }),
+          ...(Object.keys(buildEnv).length > 0 && { buildEnv }),
+        })
+        if (plan) {
+          const providers = plan.providers ?? []
+          if (providers.length === 0) {
+            throw new FatalDeployError(
+              "Nixpacks ne détecte aucun provider dans ce repo — ajoute un Dockerfile, un nixpacks.toml, ou choisis un autre build_method."
+            )
+          }
+          onLog(`[deploy] nixpacks plan OK: providers=${providers.join(",")}`)
+        }
+      } catch (planErr) {
+        if (planErr instanceof FatalDeployError) throw planErr
+        // Plan check failed for an unknown reason — don't block the build,
+        // let the real nixpacks run produce the canonical error.
+        log.warn(
+          { planErr, buildId },
+          "nixpacks plan pre-check failed (non-fatal, proceeding with build)"
+        )
+      }
       log.info({ buildId, imageRef, pushRef }, "starting nixpacks build")
       try {
         // Unlike buildctl (which runs inside the buildkitd compose container
