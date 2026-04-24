@@ -17,6 +17,8 @@ import { startPurgeWebhookSecretsCron, stopPurgeWebhookSecretsCron } from "./job
 import { startCertExpiryCheckCron, stopCertExpiryCheckCron } from "./jobs/cert-expiry-check"
 import { startRotateDatabasesCron, stopRotateDatabasesCron } from "./jobs/rotate-databases"
 import { startBackupDatabasesCron, stopBackupDatabasesCron } from "./jobs/backup-databases"
+import { handleSyncProviderRepos } from "./handlers/sync-provider-repos"
+import type { SyncProviderReposPayload } from "./handlers/sync-provider-repos"
 
 // ---------------------------------------------------------------------------
 // Types
@@ -121,6 +123,17 @@ export function startWorker(
         logger.info({ jobId: job.id, domainId: payload.domainId }, "domain.verify done")
       },
       { connection, concurrency: 5 },
+    ),
+
+    new Worker(
+      "provider.repos.sync",
+      async (job) => {
+        logger.info({ jobId: job.id, data: job.data }, "provider.repos.sync job started")
+        const payload = job.data as SyncProviderReposPayload
+        await handleSyncProviderRepos(db, payload)
+        logger.info({ jobId: job.id }, "provider.repos.sync done")
+      },
+      { connection, concurrency: 2 },
     ),
   ]
 

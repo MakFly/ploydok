@@ -26,4 +26,12 @@ const domainVerifyDefaults = {
 }
 export const domainVerifyQueue = new Queue("domain.verify", { connection, defaultJobOptions: domainVerifyDefaults })
 
-export type QueueName = "deploy" | "gc.registry" | "cleanup.build" | "app.delete" | "domain.verify"
+const providerReposSyncDefaults = {
+  removeOnComplete: 100,
+  removeOnFail: 200,
+  attempts: 3,
+  backoff: { type: "exponential" as const, delay: 5000 },
+}
+export const providerReposSyncQueue = new Queue("provider.repos.sync", { connection, defaultJobOptions: providerReposSyncDefaults })
+
+export type QueueName = "deploy" | "gc.registry" | "cleanup.build" | "app.delete" | "domain.verify" | "provider.repos.sync"
