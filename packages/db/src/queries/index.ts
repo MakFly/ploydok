@@ -10,3 +10,4 @@ export * from "./registry_credentials";
 export * from "./users";
 export * from "./webhook-deliveries";
 export * from "./provider-repos";
+export * from "./notification-read-state";

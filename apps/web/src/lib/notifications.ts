@@ -1,5 +1,6 @@
 // SPDX-License-Identifier: AGPL-3.0-only
 import { useEffect, useReducer } from "react"
+import { apiFetch } from "./api"
 import { useEventsConnected, useEventsSubscription } from "./events-provider"
 
 // ---------------------------------------------------------------------------
@@ -33,7 +34,12 @@ export interface NotificationEvent {
 
 export interface NotificationsState {
   items: Array<NotificationEvent>
+  /** Number of items strictly newer than `lastReadAt`. */
   unreadCount: number
+  /** Server-persisted cursor — events with t <= lastReadAt are pre-read. */
+  lastReadAt: number
+  /** True once the cursor has been hydrated from the API at least once. */
+  hydrated: boolean
   connected: boolean
 }
 
@@ -43,12 +49,15 @@ type Action =
   | { type: "connect" }
   | { type: "disconnect" }
   | { type: "push"; payload: NotificationEvent }
-  | { type: "markAllRead" }
+  | { type: "hydrate"; lastReadAt: number }
+  | { type: "markAllRead"; at: number }
   | { type: "clear" }
 
 const initialState: NotificationsState = {
   items: [],
   unreadCount: 0,
+  lastReadAt: 0,
+  hydrated: false,
   connected: false,
 }
 
@@ -63,20 +72,32 @@ export function notificationsReducer(
     case "disconnect":
       return { ...state, connected: false }
 
+    case "hydrate": {
+      // Recompute unreadCount against the server cursor.
+      const unread = state.items.filter((it) => it.t > action.lastReadAt).length
+      return {
+        ...state,
+        lastReadAt: action.lastReadAt,
+        unreadCount: unread,
+        hydrated: true,
+      }
+    }
+
     case "push": {
       // Dedup by event id — SSE replay on reconnect can re-deliver the same
       // event, and a future at-least-once bus would too.
       if (state.items.some((it) => it.id === action.payload.id)) return state
       const items = [action.payload, ...state.items].slice(0, MAX_ITEMS)
+      const isUnread = action.payload.t > state.lastReadAt
       return {
         ...state,
         items,
-        unreadCount: state.unreadCount + 1,
+        unreadCount: isUnread ? state.unreadCount + 1 : state.unreadCount,
       }
     }
 
     case "markAllRead":
-      return { ...state, unreadCount: 0 }
+      return { ...state, unreadCount: 0, lastReadAt: action.at }
 
     case "clear":
       return { ...state, items: [], unreadCount: 0 }
@@ -88,6 +109,8 @@ export function notificationsReducer(
 
 // ---------------------------------------------------------------------------
 // Hook — s'abonne au stream /events partagé via EventsProvider.
+// Persiste le curseur "lu jusqu'à" côté serveur (POST /events/mark-read) pour
+// que le compteur ne se ré-incrémente pas après refresh.
 // ---------------------------------------------------------------------------
 
 export function useNotifications(): {
@@ -103,6 +126,23 @@ export function useNotifications(): {
     dispatch({ type: connected ? "connect" : "disconnect" })
   }, [connected])
 
+  // Hydrate the read cursor from the server on mount. Without this, every
+  // refresh resets unreadCount to 0 then the SSE replay re-bumps it.
+  useEffect(() => {
+    let cancelled = false
+    void (async () => {
+      try {
+        const res = await apiFetch<{ lastReadAt: string | null }>("/events/read-state")
+        if (cancelled) return
+        const ms = res.lastReadAt ? new Date(res.lastReadAt).getTime() : 0
+        dispatch({ type: "hydrate", lastReadAt: ms })
+      } catch {
+        // First boot or network blip — leave the optimistic 0 in place.
+      }
+    })()
+    return () => { cancelled = true }
+  }, [])
+
   // Un abonnement par type — appels stables dans le même ordre à chaque render.
   const push = (payload: NotificationEvent) => dispatch({ type: "push", payload })
   useEventsSubscription<NotificationEvent>("build.started", push)
@@ -117,7 +157,17 @@ export function useNotifications(): {
   useEventsSubscription<NotificationEvent>("provider.sync.completed", push)
   useEventsSubscription<NotificationEvent>("provider.sync.failed", push)
 
-  const markAllRead = () => dispatch({ type: "markAllRead" })
+  const markAllRead = () => {
+    const at = Date.now()
+    dispatch({ type: "markAllRead", at })
+    // Fire-and-forget: a failed POST falls back to client-only state,
+    // which the next hydrate() will reconcile.
+    void apiFetch("/events/mark-read", {
+      method: "POST",
+      headers: { "content-type": "application/json" },
+      body: JSON.stringify({ at: new Date(at).toISOString() }),
+    }).catch(() => {})
+  }
   const clear = () => dispatch({ type: "clear" })
 
   return { state, markAllRead, clear }
