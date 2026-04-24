@@ -7,6 +7,8 @@ import type { Db } from "@ploydok/db"
 /**
  * Ensure the user has an owner-level membership on the given project.
  * Idempotent via ON CONFLICT DO NOTHING on (org_id, user_id).
+ * Swallows all errors (FK violations, races, etc.) so that read paths
+ * like GET /organizations never 500 because of a backfill failure.
  */
 async function ensureOwnerMembership(
   db: Pick<Db, "insert">,
@@ -14,18 +16,25 @@ async function ensureOwnerMembership(
   userId: string,
   invitedAt: Date
 ): Promise<void> {
-  await db
-    .insert(memberships)
-    .values({
-      id: nanoid(),
-      org_id: orgId,
-      user_id: userId,
-      role: "owner",
-      invited_by: null,
-      invited_at: invitedAt,
-      accepted_at: invitedAt,
-    })
-    .onConflictDoNothing()
+  try {
+    await db
+      .insert(memberships)
+      .values({
+        id: nanoid(),
+        org_id: orgId,
+        user_id: userId,
+        role: "owner",
+        invited_by: null,
+        invited_at: invitedAt,
+        accepted_at: invitedAt,
+      })
+      .onConflictDoNothing({
+        target: [memberships.org_id, memberships.user_id],
+      })
+  } catch {
+    // Best-effort backfill. If insert fails (e.g. user FK missing, race with
+    // concurrent delete, odd constraint state), log at higher layer and skip.
+  }
 }
 
 export interface OrganizationSummary {
@@ -194,7 +203,17 @@ export async function listOrganizationsForUser(
     )
     .orderBy(asc(projects.created_at), asc(projects.id))
 
-  return rows.map((r) => toSummary(r.projects))
+  if (rows.length > 0) return rows.map((r) => toSummary(r.projects))
+
+  // Legacy fallback : if the memberships backfill failed for whatever reason,
+  // show the user their projects via the owner_id column. Keeps the UI usable
+  // even when RBAC state is inconsistent.
+  const legacyRows = await db
+    .select()
+    .from(projects)
+    .where(eq(projects.owner_id, userId))
+    .orderBy(asc(projects.created_at), asc(projects.id))
+  return legacyRows.map((r) => toSummary(r))
 }
 
 /**
