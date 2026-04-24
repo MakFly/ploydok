@@ -4,6 +4,7 @@ import { createHash, createHmac, randomBytes } from "node:crypto";
 import { createDb } from "@ploydok/db";
 import {
   deleteGitHubAppConfig,
+  getCacheStatus,
   getGitHubAppConfig,
   getInstallationStaleness,
   listInstallations,
@@ -271,6 +272,33 @@ githubRouter.post("/installations/sync", async (c) => {
 
   log.info({ installationId }, "manual github sync enqueued");
   return c.json({ enqueued: true }, 202);
+});
+
+// ---------------------------------------------------------------------------
+// GET /github/installations/cache-status  (auth required)
+// Returns the freshness + cached repo count for every github installation.
+// ---------------------------------------------------------------------------
+
+const STALE_THRESHOLD_MS = 10 * 60 * 1000;
+
+githubRouter.get("/installations/cache-status", async (c) => {
+  const rows = await getCacheStatus(db, "github");
+  const now = Date.now();
+  return c.json({
+    installations: rows.map((r) => ({
+      id: r.id,
+      externalId: r.externalId,
+      accountLogin: r.accountLogin,
+      avatarUrl: r.avatarUrl,
+      htmlUrl: r.htmlUrl,
+      lastSyncedAt: r.lastSyncedAt.toISOString(),
+      repoCount: r.repoCount,
+      ageMs: now - r.lastSyncedAt.getTime(),
+      status:
+        now - r.lastSyncedAt.getTime() > STALE_THRESHOLD_MS ? "stale" : "fresh",
+    })),
+    staleThresholdMs: STALE_THRESHOLD_MS,
+  });
 });
 
 // ---------------------------------------------------------------------------

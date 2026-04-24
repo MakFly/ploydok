@@ -5,6 +5,7 @@ import { createDb } from "@ploydok/db";
 import {
   deleteGitLabConfig,
   deleteGitLabTokens,
+  getCacheStatus,
   getGitLabConfig,
   getGitLabTokens,
   getInstallationStaleness,
@@ -253,6 +254,54 @@ gitlabRouter.delete("/connect", async (c) => {
   if (!user) return c.json({ error: "unauthenticated" }, 401);
   await deleteGitLabTokens(db, user.id);
   return c.json({ ok: true });
+});
+
+// ---------------------------------------------------------------------------
+// POST /gitlab/installations/sync — manual force-refresh of the cached repos
+// for the current user.
+// ---------------------------------------------------------------------------
+
+gitlabRouter.post("/installations/sync", async (c) => {
+  const user = c.get("user") ?? null;
+  if (!user) return c.json({ error: "unauthenticated" }, 401);
+  await enqueueProviderReposSync({ provider: "gitlab", userId: user.id });
+  log.info({ userId: user.id }, "manual gitlab sync enqueued");
+  return c.json({ enqueued: true }, 202);
+});
+
+// ---------------------------------------------------------------------------
+// GET /gitlab/installations/cache-status — freshness + repo count for the
+// current user's cached installation.
+// ---------------------------------------------------------------------------
+
+gitlabRouter.get("/installations/cache-status", async (c) => {
+  const user = c.get("user") ?? null;
+  if (!user) return c.json({ error: "unauthenticated" }, 401);
+
+  const installationId = `gitlab:user:${user.id}`;
+  const rows = await getCacheStatus(db, "gitlab", installationId);
+  const now = Date.now();
+
+  return c.json({
+    installation:
+      rows[0] != null
+        ? {
+            id: rows[0].id,
+            externalId: rows[0].externalId,
+            accountLogin: rows[0].accountLogin,
+            avatarUrl: rows[0].avatarUrl,
+            htmlUrl: rows[0].htmlUrl,
+            lastSyncedAt: rows[0].lastSyncedAt.toISOString(),
+            repoCount: rows[0].repoCount,
+            ageMs: now - rows[0].lastSyncedAt.getTime(),
+            status:
+              now - rows[0].lastSyncedAt.getTime() > STALE_THRESHOLD_MS
+                ? "stale"
+                : "fresh",
+          }
+        : null,
+    staleThresholdMs: STALE_THRESHOLD_MS,
+  });
 });
 
 // ---------------------------------------------------------------------------
