@@ -1,41 +1,42 @@
 // SPDX-License-Identifier: AGPL-3.0-only
-import { Hono } from "hono";
-import { HTTPException } from "hono/http-exception";
-import { cors } from "hono/cors";
-import { nanoid } from "nanoid";
-import { eq } from "drizzle-orm";
-import type { Context, Next } from "hono";
-import { env } from "./env";
-import { createDb } from "@ploydok/db";
-import { users, passkeys, totp_secrets } from "@ploydok/db";
-import { createAuthRouter } from "./routes/auth";
-import { requireAuth, type AuthUser } from "./auth/middleware";
-import { countActive } from "./auth/backup-codes";
-import { createDebugRouter } from "./debug/index.js";
-import { getSharedAgent, getSharedCaddy } from "./debug/singletons.js";
-import { AgentError, GrpcStatus } from "./agent/index.js";
-import { childLogger } from "./logger";
-import { appsRouter } from "./routes/apps";
-import { appsEnvRouter } from "./routes/apps-env";
-import { appsDomainsRouter } from "./routes/apps-domains";
-import { githubRouter } from "./routes/github";
-import { gitlabRouter } from "./routes/gitlab";
-import { registryCredentialsRouter } from "./routes/registry-credentials";
-import { wsRouter } from "./routes/ws";
-import { wsExecRouter } from "./routes/apps-exec";
-import { eventsRouter } from "./routes/events";
-import { monitoringRouter, startMonitoringLoop } from "./routes/monitoring";
+import { Hono } from "hono"
+import { HTTPException } from "hono/http-exception"
+import { cors } from "hono/cors"
+import { nanoid } from "nanoid"
+import { eq } from "drizzle-orm"
+import type { Context, Next } from "hono"
+import { env } from "./env"
+import { createDb } from "@ploydok/db"
+import { users, passkeys, totp_secrets } from "@ploydok/db"
+import { createAuthRouter } from "./routes/auth"
+import { requireAuth, type AuthUser } from "./auth/middleware"
+import { countActive } from "./auth/backup-codes"
+import { createDebugRouter } from "./debug/index.js"
+import { getSharedAgent, getSharedCaddy } from "./debug/singletons.js"
+import { AgentError, GrpcStatus } from "./agent/index.js"
+import { childLogger } from "./logger"
+import { appsRouter } from "./routes/apps"
+import { appsEnvRouter } from "./routes/apps-env"
+import { appsDomainsRouter } from "./routes/apps-domains"
+import { githubRouter } from "./routes/github"
+import { gitlabRouter } from "./routes/gitlab"
+import { registryCredentialsRouter } from "./routes/registry-credentials"
+import { wsRouter } from "./routes/ws"
+import { wsExecRouter } from "./routes/apps-exec"
+import { eventsRouter } from "./routes/events"
+import { monitoringRouter, startMonitoringLoop } from "./routes/monitoring"
 import { notificationsRouter } from "./routes/notifications"
-import { secretsRouter } from "./routes/secrets";
-import { createDatabasesRouter } from "./routes/databases";
-import { createBackupsRouter } from "./routes/backups";
-import { createAppsDatabasesLinkRouter } from "./routes/apps-databases-link";
-import { appsProtectionRouter } from "./routes/apps-protection";
-import { createOrganizationsRouter } from "./routes/organizations";
-import { getDefaultOrganizationForUser } from "./services/organizations";
+import { secretsRouter } from "./routes/secrets"
+import { createDatabasesRouter } from "./routes/databases"
+import { createBackupsRouter } from "./routes/backups"
+import { createAppsDatabasesLinkRouter } from "./routes/apps-databases-link"
+import { appsProtectionRouter } from "./routes/apps-protection"
+import { createOrganizationsRouter } from "./routes/organizations"
+import { createServicesRouter } from "./routes/services"
+import { getDefaultOrganizationForUser } from "./services/organizations"
 
-const httpLog = childLogger("http");
-const errorLog = childLogger("error");
+const httpLog = childLogger("http")
+const errorLog = childLogger("error")
 
 // ---------------------------------------------------------------------------
 // CI-only auth bypass
@@ -50,8 +51,7 @@ const errorLog = childLogger("error");
 // ---------------------------------------------------------------------------
 
 const CI_AUTH_BYPASS =
-  env.NODE_ENV !== "prod" &&
-  Bun.env["PLOYDOK_DEBUG_UNAUTHENTICATED"] === "1";
+  env.NODE_ENV !== "prod" && Bun.env["PLOYDOK_DEBUG_UNAUTHENTICATED"] === "1"
 
 /**
  * Injects a fake AuthUser into the Hono context when CI_AUTH_BYPASS is active.
@@ -61,61 +61,61 @@ const CI_AUTH_BYPASS =
  * during integration testing. It is skipped entirely in production.
  */
 function ciBypassAuth(c: Context, next: Next) {
-  const userId = c.req.header("x-test-user") ?? "ci-test-user";
+  const userId = c.req.header("x-test-user") ?? "ci-test-user"
   // eslint-disable-next-line @typescript-eslint/no-explicit-any
-  (c as any).set("user", {
+  ;(c as any).set("user", {
     id: userId,
     email: "ci@test.local",
     display_name: "CI Test User",
     session_id: "ci-session",
-  } satisfies AuthUser);
-  return next();
+  } satisfies AuthUser)
+  return next()
 }
 
 // ---------------------------------------------------------------------------
 // Helpers
 // ---------------------------------------------------------------------------
 
-const SAFE_METHODS = new Set(["GET", "HEAD", "OPTIONS"]);
+const SAFE_METHODS = new Set(["GET", "HEAD", "OPTIONS"])
 
 // ---------------------------------------------------------------------------
 // DB instance (singleton for the app)
 // ---------------------------------------------------------------------------
 
-const db = createDb(env.DATABASE_URL);
+const db = createDb(env.DATABASE_URL)
 
 // ---------------------------------------------------------------------------
 // App
 // ---------------------------------------------------------------------------
 
-type AppVariables = { reqId: string; user?: AuthUser };
-export const app = new Hono<{ Variables: AppVariables }>();
+type AppVariables = { reqId: string; user?: AuthUser }
+export const app = new Hono<{ Variables: AppVariables }>()
 
 // 1. Logger middleware global — loggue toutes les requêtes, même en cas de throw.
 //    Injecte un req_id pour corréler logs + réponse (header `x-request-id`).
 app.use("*", async (c, next) => {
-  const start = Date.now();
-  const incoming = c.req.raw.headers.get("x-request-id");
-  const reqId = incoming && incoming.length <= 64 ? incoming : nanoid(12);
-  c.set("reqId", reqId);
+  const start = Date.now()
+  const incoming = c.req.raw.headers.get("x-request-id")
+  const reqId = incoming && incoming.length <= 64 ? incoming : nanoid(12)
+  c.set("reqId", reqId)
 
   try {
-    await next();
+    await next()
   } finally {
-    const dur = Date.now() - start;
-    const status = c.res.status;
-    c.res.headers.set("x-request-id", reqId);
+    const dur = Date.now() - start
+    const status = c.res.status
+    c.res.headers.set("x-request-id", reqId)
 
     // Skip les preflights CORS et /health pour limiter le bruit.
-    if (c.req.method === "OPTIONS" || c.req.path === "/health") return;
+    if (c.req.method === "OPTIONS" || c.req.path === "/health") return
 
-    const msg = `${c.req.method} ${c.req.path} ${status} ${dur}ms`;
-    const meta = { req_id: reqId };
-    if (status >= 500) httpLog.error(meta, msg);
-    else if (status >= 400) httpLog.warn(meta, msg);
-    else httpLog.info(meta, msg);
+    const msg = `${c.req.method} ${c.req.path} ${status} ${dur}ms`
+    const meta = { req_id: reqId }
+    if (status >= 500) httpLog.error(meta, msg)
+    else if (status >= 400) httpLog.warn(meta, msg)
+    else httpLog.info(meta, msg)
   }
-});
+})
 
 // 2. CORS strict
 app.use(
@@ -124,52 +124,52 @@ app.use(
     // Autorise WEB_ORIGIN en CORS standard et les requêtes same-origin / SSR
     // sans header Origin (TanStack Start server fetch) — jamais de wildcard.
     origin: (origin) => {
-      if (!origin) return env.WEB_ORIGIN;
-      return origin === env.WEB_ORIGIN ? origin : null;
+      if (!origin) return env.WEB_ORIGIN
+      return origin === env.WEB_ORIGIN ? origin : null
     },
     credentials: true,
     allowMethods: ["GET", "POST", "PUT", "PATCH", "DELETE"],
     allowHeaders: ["content-type", "x-csrf-token"],
-  }),
-);
+  })
+)
 
 // 3. CSRF double-submit token (skip safe methods and the csrf-issue route)
 // In CI (PLOYDOK_DEBUG_UNAUTHENTICATED=1, non-prod), CSRF is bypassed for /debug/* routes.
 app.use("*", async (c, next) => {
   if (SAFE_METHODS.has(c.req.method)) {
-    return next();
+    return next()
   }
 
   // CI bypass: skip CSRF check for debug routes when auth bypass is active.
   // SECURITY: CI_AUTH_BYPASS is false in production (NODE_ENV === "prod").
   if (CI_AUTH_BYPASS && c.req.path.startsWith("/debug/")) {
-    return next();
+    return next()
   }
 
   // /auth/refresh est protégé par le cookie refresh HttpOnly (non lisible par JS,
   // donc inutilisable en CSRF). Pas de double-submit requis ici — évite les
   // races entre GET /auth/csrf (set cookie) et POST /auth/refresh qui suivent.
   if (c.req.path === "/auth/refresh") {
-    return next();
+    return next()
   }
 
   // /github/webhook est signé HMAC-SHA256 par GitHub — GitHub ne peut pas
   // envoyer le double-submit token. L'authenticité est garantie par la signature.
   if (c.req.path === "/github/webhook") {
-    return next();
+    return next()
   }
 
   // /gitlab/webhook est authentifié par `X-Gitlab-Token` (shared secret) et
   // /gitlab/callback est un redirect OAuth (depuis gitlab.com) — aucun des
   // deux ne peut attacher le double-submit token.
   if (c.req.path === "/gitlab/webhook" || c.req.path === "/gitlab/callback") {
-    return next();
+    return next()
   }
 
   // /auth/dev-login is gated hard by NODE_ENV !== "prod" inside the handler
   // and by a loopback-Origin check. No CSRF cookie exists yet at first call.
   if (c.req.path === "/auth/dev-login" && env.NODE_ENV !== "prod") {
-    return next();
+    return next()
   }
 
   // /auth/backup-codes/consume est un endpoint de login (aucune session active,
@@ -177,128 +177,144 @@ app.use("*", async (c, next) => {
   // du middleware CORS en amont, rate-limit, et le secret du backup code lui-même.
   // Cohérent avec /auth/dev-login.
   if (c.req.path === "/auth/backup-codes/consume") {
-    return next();
+    return next()
   }
 
-  const cookieCsrf = getCookieValue(c.req.raw.headers.get("cookie") ?? "", "csrf");
-  const headerCsrf = c.req.raw.headers.get("x-csrf-token");
+  const cookieCsrf = getCookieValue(
+    c.req.raw.headers.get("cookie") ?? "",
+    "csrf"
+  )
+  const headerCsrf = c.req.raw.headers.get("x-csrf-token")
 
   if (!cookieCsrf || !headerCsrf || cookieCsrf !== headerCsrf) {
     return c.json(
-      { error: { code: "CSRF_MISMATCH", message: "Invalid or missing CSRF token" } },
-      403,
-    );
+      {
+        error: {
+          code: "CSRF_MISMATCH",
+          message: "Invalid or missing CSRF token",
+        },
+      },
+      403
+    )
   }
 
-  return next();
-});
+  return next()
+})
 
 // 4. Global error handler — attrape toute exception non capturée.
 app.onError((err, c) => {
-  const reqId = c.get("reqId") ?? "unknown";
+  const reqId = c.get("reqId") ?? "unknown"
   // HTTPException de Hono porte son propre status — on le respecte.
-  const status =
-    err instanceof HTTPException ? err.status : 500;
+  const status = err instanceof HTTPException ? err.status : 500
   const code =
     (err as { code?: string }).code ??
-    (err instanceof HTTPException ? "HTTP_EXCEPTION" : "INTERNAL_ERROR");
+    (err instanceof HTTPException ? "HTTP_EXCEPTION" : "INTERNAL_ERROR")
   const message =
     env.NODE_ENV === "prod" && status >= 500
       ? "An unexpected error occurred"
-      : err.message;
+      : err.message
 
   errorLog.error(
-    { err, req_id: reqId, path: c.req.path, method: c.req.method, status, code },
-    "unhandled error",
-  );
+    {
+      err,
+      req_id: reqId,
+      path: c.req.path,
+      method: c.req.method,
+      status,
+      code,
+    },
+    "unhandled error"
+  )
 
-  return c.json({ error: { code, message, req_id: reqId } }, status);
-});
+  return c.json({ error: { code, message, req_id: reqId } }, status)
+})
 
 // 5. Not found handler explicite pour consistence.
 app.notFound((c) => {
-  const reqId = c.get("reqId") ?? "unknown";
+  const reqId = c.get("reqId") ?? "unknown"
   return c.json(
-    { error: { code: "NOT_FOUND", message: "Route introuvable", req_id: reqId } },
-    404,
-  );
-});
+    {
+      error: { code: "NOT_FOUND", message: "Route introuvable", req_id: reqId },
+    },
+    404
+  )
+})
 
 // ---------------------------------------------------------------------------
 // Routes
 // ---------------------------------------------------------------------------
 
 // Health
-app.get("/health", (c) => c.json({ ok: true, version: "0.0.1" }));
+app.get("/health", (c) => c.json({ ok: true, version: "0.0.1" }))
 
 // Test-only routes pour exercer le middleware logger + error handler.
 // SECURITY: actifs UNIQUEMENT si NODE_ENV=test.
 if (env.NODE_ENV === "test") {
   app.get("/__test/throw", () => {
-    throw new Error("boom");
-  });
+    throw new Error("boom")
+  })
   app.get("/__test/http-exception", () => {
-    throw new HTTPException(418, { message: "I'm a teapot" });
-  });
+    throw new HTTPException(418, { message: "I'm a teapot" })
+  })
 }
 
 // CSRF token issuance — GET so it bypasses the CSRF middleware above
 app.get("/auth/csrf", (c) => {
-  const token = crypto.randomUUID();
+  const token = crypto.randomUUID()
   // httpOnly: false is intentional for the double-submit pattern —
   // JavaScript must be able to read the cookie to attach it as a header.
-  const secure = env.NODE_ENV === "prod" ? "; Secure" : "";
-  c.header("Set-Cookie", `csrf=${token}; Path=/; SameSite=Lax${secure}`);
-  return c.json({ token });
-});
+  const secure = env.NODE_ENV === "prod" ? "; Secure" : ""
+  c.header("Set-Cookie", `csrf=${token}; Path=/; SameSite=Lax${secure}`)
+  return c.json({ token })
+})
 
 // Auth routes (replaces stubs)
-const authRouter = createAuthRouter(db);
-app.route("/", authRouter);
+const authRouter = createAuthRouter(db)
+app.route("/", authRouter)
 
 // Debug routes (spawn-nginx, etc.)
 // In CI (PLOYDOK_DEBUG_UNAUTHENTICATED=1, non-prod), auth is bypassed via a fake user.
 // SECURITY: CI_AUTH_BYPASS is false in production (NODE_ENV === "prod").
-const debugRouter = createDebugRouter();
-app.use("/debug/*", CI_AUTH_BYPASS ? ciBypassAuth : requireAuth(db));
-app.route("/debug", debugRouter);
+const debugRouter = createDebugRouter()
+app.use("/debug/*", CI_AUTH_BYPASS ? ciBypassAuth : requireAuth(db))
+app.route("/debug", debugRouter)
 
 // Apps routes — auth enforced per-endpoint inside the router.
 // Order matters: specific sub-routers (env, domains) are mounted before
 // the main appsRouter to avoid path shadowing on `/:id`.
-app.use("/apps/*", requireAuth(db));
-app.route("/apps", appsEnvRouter);
-app.route("/apps", appsDomainsRouter);
-app.route("/apps", appsProtectionRouter);
-app.route("/apps", appsRouter);
+app.use("/apps/*", requireAuth(db))
+app.route("/apps", appsEnvRouter)
+app.route("/apps", appsDomainsRouter)
+app.route("/apps", appsProtectionRouter)
+app.route("/apps", appsRouter)
 
 // GitHub App routes — auth enforced per-endpoint inside the router.
 // /github/app/callback is public (GitHub redirects here after manifest flow).
 // /github/webhook is public (signed by GitHub HMAC — CSRF exempted above).
 // Legacy OAuth routes are 410 Gone — stubs, no auth required.
-app.use("/github/repos/*", requireAuth(db));
-app.use("/github/app/manifest", requireAuth(db));
-app.use("/github/app/config", requireAuth(db));
-app.use("/github/installations", requireAuth(db));
-app.use("/github/installations/*", requireAuth(db));
-app.route("/github", githubRouter);
+app.use("/github/repos/*", requireAuth(db))
+app.use("/github/app/manifest", requireAuth(db))
+app.use("/github/app/config", requireAuth(db))
+app.use("/github/installations", requireAuth(db))
+app.use("/github/installations/*", requireAuth(db))
+app.route("/github", githubRouter)
 
 // GitLab provider routes — auth enforced per-endpoint.
 // /gitlab/webhook and /gitlab/callback are public (see CSRF exemptions above).
-app.use("/gitlab/config", requireAuth(db));
-app.use("/gitlab/connect", requireAuth(db));
-app.use("/gitlab/repos", requireAuth(db));
-app.use("/gitlab/repos/*", requireAuth(db));
-app.route("/gitlab", gitlabRouter);
+app.use("/gitlab/config", requireAuth(db))
+app.use("/gitlab/connect", requireAuth(db))
+app.use("/gitlab/repos", requireAuth(db))
+app.use("/gitlab/repos/*", requireAuth(db))
+app.route("/gitlab", gitlabRouter)
 
 // Registry credentials — all endpoints require auth.
-app.use("/registry/credentials", requireAuth(db));
-app.use("/registry/credentials/*", requireAuth(db));
-app.route("/registry/credentials", registryCredentialsRouter);
+app.use("/registry/credentials", requireAuth(db))
+app.use("/registry/credentials/*", requireAuth(db))
+app.route("/registry/credentials", registryCredentialsRouter)
 
 // WebSocket upgrade routes — auth is cookie-based, verified inside the handler.
-app.route("/ws", wsRouter);
-app.route("/ws", wsExecRouter);
+app.route("/ws", wsRouter)
+app.route("/ws", wsExecRouter)
 app.use("/events", requireAuth(db))
 app.use("/events/*", requireAuth(db))
 app.route("/events", eventsRouter)
@@ -328,6 +344,11 @@ app.use("/organizations/*", requireAuth(db))
 app.use("/organizations", requireAuth(db))
 app.route("/organizations", createOrganizationsRouter(db))
 
+// Services (marketplace) — all endpoints require auth.
+app.use("/services/*", requireAuth(db))
+app.use("/services", requireAuth(db))
+app.route("/services", createServicesRouter(db))
+
 // Backups — all endpoints require auth.
 app.use("/databases/*/backups*", requireAuth(db))
 app.use("/databases/*/backup-config*", requireAuth(db))
@@ -343,41 +364,45 @@ app.route("/apps", createAppsDatabasesLinkRouter(db))
 // /me — requires auth
 app.get("/me", requireAuth(db), async (c) => {
   // eslint-disable-next-line @typescript-eslint/no-explicit-any
-  const user = (c as any).get("user") as AuthUser;
+  const user = (c as any).get("user") as AuthUser
   // eslint-disable-next-line @typescript-eslint/no-explicit-any
-  const accessExpiresAt = ((c as any).get("access_exp") as number | undefined) ?? 0;
+  const accessExpiresAt =
+    ((c as any).get("access_exp") as number | undefined) ?? 0
 
   const passkeyRows = await db
     .select({ id: passkeys.id })
     .from(passkeys)
-    .where(eq(passkeys.user_id, user.id));
+    .where(eq(passkeys.user_id, user.id))
 
-  const passkeyCount = passkeyRows.length;
-  const backupCount = await countActive(db, user.id);
+  const passkeyCount = passkeyRows.length
+  const backupCount = await countActive(db, user.id)
 
   const totpRows = await db
     .select({ verified_at: totp_secrets.verified_at })
     .from(totp_secrets)
     .where(eq(totp_secrets.user_id, user.id))
-    .limit(1);
-  const hasTotp = Boolean(totpRows[0]?.verified_at);
+    .limit(1)
+  const hasTotp = Boolean(totpRows[0]?.verified_at)
 
   const userRows = await db
     .select()
     .from(users)
     .where(eq(users.id, user.id))
-    .limit(1);
+    .limit(1)
 
-  const fullUser = userRows[0];
+  const fullUser = userRows[0]
   if (!fullUser) {
-    return c.json({ error: { code: "NOT_FOUND", message: "User not found" } }, 404);
+    return c.json(
+      { error: { code: "NOT_FOUND", message: "User not found" } },
+      404
+    )
   }
 
   const defaultOrganization = await getDefaultOrganizationForUser(
     db,
     fullUser.id,
-    fullUser.display_name,
-  );
+    fullUser.display_name
+  )
 
   return c.json({
     id: fullUser.id,
@@ -390,8 +415,8 @@ app.get("/me", requireAuth(db), async (c) => {
     has_backup_codes: backupCount >= 1,
     has_totp: hasTotp,
     needs_second_factor: passkeyCount < 2 && backupCount < 1 && !hasTotp,
-  });
-});
+  })
+})
 
 // ---------------------------------------------------------------------------
 // Utility
@@ -399,8 +424,8 @@ app.get("/me", requireAuth(db), async (c) => {
 
 function getCookieValue(cookieHeader: string, name: string): string | null {
   for (const part of cookieHeader.split(";")) {
-    const [k, v] = part.trim().split("=");
-    if (k === name && v !== undefined) return decodeURIComponent(v);
+    const [k, v] = part.trim().split("=")
+    if (k === name && v !== undefined) return decodeURIComponent(v)
   }
-  return null;
+  return null
 }
