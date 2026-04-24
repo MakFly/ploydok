@@ -127,6 +127,50 @@ export async function getInstallationStaleness(
   }
 }
 
+export interface CacheStatusRow {
+  id: string
+  externalId: string
+  accountLogin: string
+  avatarUrl: string | null
+  htmlUrl: string | null
+  lastSyncedAt: Date
+  repoCount: number
+}
+
+export async function getCacheStatus(
+  db: Db,
+  provider: "github" | "gitlab",
+  installationIdFilter?: string,
+): Promise<CacheStatusRow[]> {
+  const where = installationIdFilter
+    ? and(
+        eq(provider_installations.provider, provider),
+        eq(provider_installations.id, installationIdFilter),
+      )
+    : eq(provider_installations.provider, provider)
+
+  const rows = await db
+    .select({
+      id: provider_installations.id,
+      externalId: provider_installations.external_id,
+      accountLogin: provider_installations.account_login,
+      avatarUrl: provider_installations.avatar_url,
+      htmlUrl: provider_installations.html_url,
+      lastSyncedAt: provider_installations.last_synced_at,
+      repoCount: sql<number>`count(${provider_repos.id})::int`,
+    })
+    .from(provider_installations)
+    .leftJoin(
+      provider_repos,
+      eq(provider_repos.installation_id, provider_installations.id),
+    )
+    .where(where)
+    .groupBy(provider_installations.id)
+    .orderBy(asc(provider_installations.account_login))
+
+  return rows
+}
+
 // ---------------------------------------------------------------------------
 // Repos mutations
 // ---------------------------------------------------------------------------
