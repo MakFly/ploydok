@@ -194,7 +194,7 @@ describe("nixpacksBuild", () => {
     ).rejects.toThrow(/nixpacks build failed \(exit 1\)/)
   })
 
-  it("injects --docker-cache-from and --docker-cache-to when dockerCacheRef + cacheDir are provided", async () => {
+  it("injects --incremental-cache-image when dockerCacheRef + cacheDir are provided", async () => {
     spawnSpy = spyOn(Bun, "spawn").mockReturnValue(
       fakeBunProcess({}) as ReturnType<typeof Bun.spawn>,
     )
@@ -216,20 +216,11 @@ describe("nixpacksBuild", () => {
     const buildCall = spawnMock.mock.calls[0]
     const cmd = buildCall![0] as string[]
 
-    // --docker-cache-from must carry the exact registry reference
-    const cacheFromFlag = cmd.find((a) =>
-      a.startsWith("--docker-cache-from="),
-    )
-    expect(cacheFromFlag).toBe(`--docker-cache-from=${dockerCacheRef}`)
-
-    // --docker-cache-to must point to the local cacheDir with mode=max
-    const cacheToFlag = cmd.find((a) => a.startsWith("--docker-cache-to="))
-    expect(cacheToFlag).toBe(
-      `--docker-cache-to=type=local,dest=${cacheDir},mode=max`,
-    )
+    const flag = cmd.find((a) => a.startsWith("--incremental-cache-image="))
+    expect(flag).toBe(`--incremental-cache-image=${dockerCacheRef}`)
   })
 
-  it("does NOT inject docker cache flags when dockerCacheRef is absent", async () => {
+  it("does NOT inject --incremental-cache-image when dockerCacheRef is absent", async () => {
     spawnSpy = spyOn(Bun, "spawn").mockReturnValue(
       fakeBunProcess({}) as ReturnType<typeof Bun.spawn>,
     )
@@ -239,7 +230,6 @@ describe("nixpacksBuild", () => {
       tag: "127.0.0.1:5000/app-abc:sha123",
       cacheKey: "app-abc",
       cacheDir: path.join(tmpDir, ".nixpacks-cache"),
-      // no dockerCacheRef
     })
 
     const spawnMock = spawnSpy as unknown as {
@@ -247,11 +237,10 @@ describe("nixpacksBuild", () => {
     }
     const buildCall = spawnMock.mock.calls[0]
     const cmd = buildCall![0] as string[]
-    expect(cmd.some((a) => a.startsWith("--docker-cache-from="))).toBe(false)
-    expect(cmd.some((a) => a.startsWith("--docker-cache-to="))).toBe(false)
+    expect(cmd.some((a) => a.startsWith("--incremental-cache-image="))).toBe(false)
   })
 
-  it("does NOT inject docker cache flags when cacheDir is absent", async () => {
+  it("does NOT inject --incremental-cache-image when cacheDir is absent", async () => {
     spawnSpy = spyOn(Bun, "spawn").mockReturnValue(
       fakeBunProcess({}) as ReturnType<typeof Bun.spawn>,
     )
@@ -261,7 +250,6 @@ describe("nixpacksBuild", () => {
       tag: "127.0.0.1:5000/app-abc:sha123",
       cacheKey: "app-abc",
       dockerCacheRef: "127.0.0.1:5000/app-abc:cache",
-      // no cacheDir
     })
 
     const spawnMock = spawnSpy as unknown as {
@@ -269,8 +257,7 @@ describe("nixpacksBuild", () => {
     }
     const buildCall = spawnMock.mock.calls[0]
     const cmd = buildCall![0] as string[]
-    expect(cmd.some((a) => a.startsWith("--docker-cache-from="))).toBe(false)
-    expect(cmd.some((a) => a.startsWith("--docker-cache-to="))).toBe(false)
+    expect(cmd.some((a) => a.startsWith("--incremental-cache-image="))).toBe(false)
   })
 
   it("passes optional installCmd, buildCmd, startCmd flags", async () => {

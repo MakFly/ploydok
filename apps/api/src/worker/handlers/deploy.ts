@@ -300,6 +300,12 @@ export async function handleDeploy(
   fs.mkdirSync(logDir, { recursive: true });
   const logStream = fs.createWriteStream(logPath, { flags: "a" });
 
+  // Persist log_path early so a crash before the finally block still leaves
+  // a resolvable pointer — the on-disk file exists from the moment the stream
+  // is opened; the download endpoint then serves partial logs even when the
+  // worker is killed (SIGKILL, OOM, dev-server restart, …).
+  await updateBuildStatus(db, buildId, "running", { logPath });
+
   // Track final outcome so the finally block can write log_path once.
   let finalStatus: "succeeded" | "succeeded_with_warning" | "failed" = "succeeded";
   let finalPatch: { finishedAt: Date; errorMessage?: string; containerId?: string; postDeployError?: string } = { finishedAt: new Date() };
