@@ -10,7 +10,7 @@
 //   polls agent.listContainers() toutes les 5s
 //   diff avec le snapshot précédent (par container.id)
 //   n'émet sur eventBus (channel user:{userId}) QUE si container.status change
-//   le userId est résolu via label ploydok.app_id → resolveAppOwner()
+//   le userId est résolu via runtime ownership (app or database)
 
 import { Hono } from "hono"
 import { z } from "zod"
@@ -21,11 +21,12 @@ import {
   ContainerSnapshotSchema,
   PLANS,
   type ContainerSnapshot,
+  type ContainerKind,
   type ContainerStatus,
   type MonitoringOverview,
   type PlanName,
 } from "@ploydok/shared"
-import { apps, projects } from "@ploydok/db"
+import { apps, databases, projects } from "@ploydok/db"
 import { and, eq } from "drizzle-orm"
 import { resolveAppOwner } from "@ploydok/db/queries"
 import { createDb } from "@ploydok/db"
@@ -98,6 +99,29 @@ async function snapshotFromAgent(): Promise<MonitoringOverview> {
   return { containers, generated_at: now }
 }
 
+async function resolveContainerOwner(
+  db: ReturnType<typeof createDb>,
+  container: Pick<ContainerSnapshot, "kind" | "app_id">,
+): Promise<string | null> {
+  if (!container.app_id) return null
+
+  if (container.kind === "app" || container.kind === undefined) {
+    return resolveAppOwner(db, container.app_id)
+  }
+
+  if (container.kind === "database") {
+    const rows = await db
+      .select({ owner_id: projects.owner_id })
+      .from(databases)
+      .innerJoin(projects, eq(databases.project_id, projects.id))
+      .where(eq(databases.id, container.app_id))
+      .limit(1)
+    return rows[0]?.owner_id ?? null
+  }
+
+  return null
+}
+
 // ---------------------------------------------------------------------------
 // GET /overview
 // ---------------------------------------------------------------------------
@@ -115,12 +139,10 @@ monitoringRouter.get("/overview", async (c) => {
   try {
     const overview = await snapshotFromAgent()
     const db = createDb(env.DATABASE_URL)
-    // Keep only app containers that belong to the authenticated user.
-    // Infra containers (no app_id) are excluded from the user-facing overview.
+    // Keep only runtime containers owned by the authenticated user.
     const owned: typeof overview.containers = []
     for (const ct of overview.containers) {
-      if (!ct.app_id) continue
-      const ownerId = await resolveAppOwner(db, ct.app_id)
+      const ownerId = await resolveContainerOwner(db, ct)
       if (ownerId === user.id) owned.push(ct)
     }
     return c.json({ ...overview, containers: owned })
@@ -258,9 +280,9 @@ monitoringRouter.post("/ping/:id", async (c) => {
   const overview = await snapshotFromAgent()
   const container = overview.containers.find((ct) => ct.id === id)
 
-  if (!container?.app_id) {
+  if (!container?.app_id || container.kind !== "app") {
     return c.json(
-      { error: { code: "FORBIDDEN", message: "Infra container, no ownership" } },
+      { error: { code: "FORBIDDEN", message: "Ping is only available for app containers" } },
       403,
     )
   }
@@ -306,7 +328,7 @@ export async function monitoringTick(
   agent: Agent,
   publish: typeof eventBus.publish,
   prev: Map<string, ContainerStatus>,
-  resolveOwner: (appId: string) => Promise<string | null>,
+  resolveOwner: (kind: ContainerKind | undefined, runtimeId: string) => Promise<string | null>,
 ): Promise<void> {
   const now = Date.now()
   const { containers: protoContainers } = await agent.listContainers({ kindFilter: "" })
@@ -342,14 +364,14 @@ export async function monitoringTick(
       (prevStatus !== undefined && prevStatus !== currentStatus) ||
       (prevStatus === undefined && currentStatus === "running")
 
-    if (shouldEmit && container.kind === "app" && container.app_id) {
+    if (shouldEmit && container.app_id && (container.kind === "app" || container.kind === "database")) {
       try {
-        const userId = await resolveOwner(container.app_id)
+        const userId = await resolveOwner(container.kind, container.app_id)
         if (userId) {
           publish(`user:${userId}`, {
             id: nanoid(),
             type: "container.health",
-            appId: container.app_id,
+            ...(container.kind === "app" ? { appId: container.app_id } : {}),
             message:
               prevStatus === undefined
                 ? `Container ${container.name} appeared: ${currentStatus}`
@@ -372,7 +394,8 @@ export function startMonitoringLoop(db: ReturnType<typeof createDb>): void {
   if (loopHandle !== null) return
 
   const agent = getSharedAgent()
-  const resolveOwner = (appId: string) => resolveAppOwner(db, appId)
+  const resolveOwner = (kind: ContainerKind | undefined, runtimeId: string) =>
+    resolveContainerOwner(db, { kind, app_id: runtimeId })
 
   loopHandle = setInterval(() => {
     monitoringTick(agent, eventBus.publish.bind(eventBus), prevById, resolveOwner)

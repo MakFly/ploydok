@@ -32,13 +32,13 @@ function AppOverviewTab(): React.JSX.Element {
 
   if (isLoading)
     return (
-      <div className="w-full px-4 py-6 md:px-6 md:py-8">
+      <div className="w-full px-4 py-6 md:px-8 md:py-8">
         <OverviewSkeleton />
       </div>
     )
   if (error || !app) {
     return (
-      <div className="w-full px-4 py-6 md:px-6 md:py-8">
+      <div className="w-full px-4 py-6 md:px-8 md:py-8">
         <p className="text-sm text-destructive" role="alert">
           Failed to load app: {error?.message ?? "Not found"}
         </p>
@@ -47,7 +47,7 @@ function AppOverviewTab(): React.JSX.Element {
   }
 
   return (
-    <div className="w-full space-y-4 px-4 py-6 md:space-y-6 md:px-6 md:py-8">
+    <div className="w-full space-y-4 px-4 py-6 md:space-y-6 md:px-8 md:py-8">
       <section className="grid gap-4 lg:grid-cols-3">
         <div className="lg:col-span-2">
           <AppMonitoringCard appId={id} appStatus={app.status} />

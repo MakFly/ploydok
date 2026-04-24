@@ -1,21 +1,12 @@
 // SPDX-License-Identifier: AGPL-3.0-only
 import * as React from "react"
 import { useParams, createFileRoute } from "@tanstack/react-router"
-import {
-  RiCheckboxCircleLine,
-  RiGitBranchLine,
-  RiPulseLine,
-  RiRocket2Line,
-  RiTerminalBoxLine,
-  RiTimeLine,
-} from "@remixicon/react"
 import { toast } from "sonner"
 import {
   Alert,
   AlertDescription,
   AlertTitle,
 } from "@workspace/ui/components/alert"
-import { Badge } from "@workspace/ui/components/badge"
 import { Button } from "@workspace/ui/components/button"
 import {
   Card,
@@ -26,20 +17,21 @@ import {
   CardHeader,
   CardTitle,
 } from "@workspace/ui/components/card"
-import {
-  Field,
-  FieldContent,
-  FieldDescription,
-  FieldGroup,
-  FieldLabel,
-} from "@workspace/ui/components/field"
 import { Input } from "@workspace/ui/components/input"
+import { Label } from "@workspace/ui/components/label"
+import {
+  Select,
+  SelectContent,
+  SelectGroup,
+  SelectItem,
+  SelectTrigger,
+  SelectValue,
+} from "@workspace/ui/components/select"
 import { Textarea } from "@workspace/ui/components/textarea"
-import { Separator } from "@workspace/ui/components/separator"
 import { Skeleton } from "@workspace/ui/components/skeleton"
 import { Switch } from "@workspace/ui/components/switch"
 import { cn } from "@workspace/ui/lib/utils"
-import { AppStatusBadge } from "../../../../../../../components/apps/AppStatusBadge"
+import { ChannelList } from "../../../../../../../components/notifications/ChannelList"
 import { useApp } from "../../../../../../../lib/apps"
 import type { AppSettingsPatch } from "../../../../../../../lib/apps"
 import { useUpdateAppSettings } from "../../../../../../../lib/apps-mutations"
@@ -72,83 +64,68 @@ interface FieldDef {
   key: StringPatchKey
   label: string
   placeholder: string
-  description: string
+  hint?: string
   mono?: boolean
+  options?: Array<FieldOption>
 }
 
+interface FieldOption {
+  value: string
+  label: string
+}
+
+const BUILD_METHOD_OPTIONS: Array<FieldOption> = [
+  { value: "auto", label: "Auto-detect" },
+  { value: "dockerfile", label: "Dockerfile" },
+  { value: "nixpacks", label: "Nixpacks" },
+]
+
 const FIELDS: Array<FieldDef> = [
+  { key: "branch", label: "Branch", placeholder: "main" },
+  { key: "rootDir", label: "Root directory", placeholder: "/", mono: true },
   {
-    key: "branch",
-    label: "Branch",
-    placeholder: "main",
-    description: "Branch watched for automatic build decisions and previews.",
-  },
-  {
-    key: "rootDir",
-    label: "Root directory",
-    placeholder: "/",
-    description:
-      "Relative path used as the workspace root before install and build.",
+    key: "buildMethod",
+    label: "Build method",
+    placeholder: "auto",
+    hint: "auto · dockerfile · nixpacks",
     mono: true,
+    options: BUILD_METHOD_OPTIONS,
   },
   {
     key: "dockerfilePath",
     label: "Dockerfile path",
     placeholder: "Dockerfile",
-    description:
-      "Explicit Dockerfile location when the app should not rely on autodetect.",
     mono: true,
   },
   {
     key: "nixpacksConfigPath",
     label: "Nixpacks config",
     placeholder: "nixpacks.toml",
-    description:
-      "Optional Nixpacks config file path when autodetect needs framework-specific overrides.",
     mono: true,
   },
-  {
-    key: "nodeVersion",
-    label: "Node version",
-    placeholder: "22",
-    description: "Pinned Node version used by the Nixpacks builder.",
-    mono: true,
-  },
+  { key: "nodeVersion", label: "Node version", placeholder: "22", mono: true },
   {
     key: "installCommand",
     label: "Install command",
     placeholder: "npm install",
-    description: "Dependency bootstrap command run before the build step.",
     mono: true,
   },
   {
     key: "buildCommand",
     label: "Build command",
     placeholder: "npm run build",
-    description: "Compile or package command executed for each deployment.",
     mono: true,
   },
   {
     key: "startCommand",
     label: "Start command",
     placeholder: "npm start",
-    description:
-      "Entry command used to launch the runtime process after build.",
-    mono: true,
-  },
-  {
-    key: "buildMethod",
-    label: "Build method",
-    placeholder: "auto | docker | nixpacks",
-    description: "Execution strategy used by Ploydok to build the app image.",
     mono: true,
   },
   {
     key: "healthcheckPath",
     label: "Healthcheck path",
     placeholder: "/",
-    description:
-      "HTTP path probed to confirm the app is ready after deployment.",
     mono: true,
   },
 ]
@@ -211,9 +188,7 @@ function AppSettingsGeneral(): React.JSX.Element {
     )
   }
 
-  const handleCancel = (): void => {
-    setEditing(false)
-    setFormError(null)
+  const resetForm = (): void => {
     setFormData({
       branch: app.branch,
       rootDir: app.rootDir,
@@ -230,9 +205,14 @@ function AppSettingsGeneral(): React.JSX.Element {
     })
   }
 
+  const handleCancel = (): void => {
+    setEditing(false)
+    setFormError(null)
+    resetForm()
+  }
+
   const handleSave = async (): Promise<void> => {
     setFormError(null)
-
     try {
       await update.mutateAsync(formData)
       setEditing(false)
@@ -259,88 +239,69 @@ function AppSettingsGeneral(): React.JSX.Element {
   }
 
   return (
-    <div className="grid w-full gap-6 md:grid-cols-2">
-      <Card className="border border-border/70 bg-background/95">
-        <CardHeader className="gap-3 border-b border-border/60 pb-5">
-          <div className="flex flex-col gap-3 lg:flex-row lg:items-start lg:justify-between">
-            <div className="flex max-w-2xl flex-col gap-2">
-              <div className="flex flex-wrap items-center gap-2">
-                <Badge variant="outline">Build Profile</Badge>
-                <Badge variant="secondary">{app.buildMethod ?? "auto"}</Badge>
-              </div>
-              <CardTitle className="font-heading text-2xl">
-                Build and runtime configuration
-              </CardTitle>
-              <CardDescription className="text-sm leading-6">
-                Set the exact path, commands, and health endpoint used by the
-                deployment pipeline. The read mode is intentionally compact;
-                edit mode expands into a cleaner operator form.
-              </CardDescription>
-            </div>
-
-            <CardAction>
-              {!editing ? (
-                <Button
-                  size="sm"
-                  variant="outline"
-                  onClick={() => setEditing(true)}
-                >
-                  Edit profile
-                </Button>
-              ) : null}
-            </CardAction>
-          </div>
+    <div className="grid w-full gap-6 sm:grid-cols-2 xl:grid-cols-3">
+      <Card className="sm:col-span-2 xl:col-span-2">
+        <CardHeader>
+          <CardTitle>Build & runtime</CardTitle>
+          <CardDescription>
+            Commands and paths used by the deployment pipeline.
+          </CardDescription>
+          <CardAction>
+            {!editing ? (
+              <Button
+                size="sm"
+                variant="outline"
+                onClick={() => setEditing(true)}
+              >
+                Edit
+              </Button>
+            ) : null}
+          </CardAction>
         </CardHeader>
 
-        <CardContent className="flex flex-col gap-4 py-5">
-          <FieldGroup>
-            {FIELDS.map((field) => (
-              <SettingsField
-                key={field.key}
-                field={field}
-                value={String(formData[field.key] ?? "")}
-                editing={editing}
-                onChange={(value) =>
-                  setFormData((previous) => ({
-                    ...previous,
-                    [field.key]: value || undefined,
-                  }))
-                }
-              />
-            ))}
-
-            <HealthcheckPortField
-              inputId="setting-runtime-port"
-              label="Runtime port"
-              description="Port exposed by the application process inside the container."
-              value={formData.runtimePort ?? null}
+        <CardContent className="grid gap-4 md:grid-cols-2">
+          {FIELDS.map((field) => (
+            <SettingsField
+              key={field.key}
+              field={field}
+              value={String(formData[field.key] ?? "")}
               editing={editing}
               onChange={(value) =>
                 setFormData((previous) => ({
                   ...previous,
-                  runtimePort: value,
+                  [field.key]: value || undefined,
                 }))
               }
             />
+          ))}
 
-            <HealthcheckPortField
-              inputId="setting-healthcheck-port"
-              label="Healthcheck port"
-              description="Optional readiness probe port. Leave empty to probe the runtime port."
-              value={formData.healthcheckPort ?? null}
-              editing={editing}
-              onChange={(value) =>
-                setFormData((previous) => ({
-                  ...previous,
-                  healthcheckPort: value,
-                }))
-              }
-            />
-          </FieldGroup>
+          <PortField
+            inputId="setting-runtime-port"
+            label="Runtime port"
+            value={formData.runtimePort ?? null}
+            editing={editing}
+            onChange={(value) =>
+              setFormData((previous) => ({ ...previous, runtimePort: value }))
+            }
+          />
+
+          <PortField
+            inputId="setting-healthcheck-port"
+            label="Healthcheck port"
+            hint="Leave empty to reuse runtime port"
+            value={formData.healthcheckPort ?? null}
+            editing={editing}
+            onChange={(value) =>
+              setFormData((previous) => ({
+                ...previous,
+                healthcheckPort: value,
+              }))
+            }
+          />
 
           {formError ? (
-            <Alert variant="destructive">
-              <AlertTitle>Could not save the profile</AlertTitle>
+            <Alert variant="destructive" className="md:col-span-2">
+              <AlertTitle>Could not save</AlertTitle>
               <AlertDescription>{formError}</AlertDescription>
             </Alert>
           ) : null}
@@ -350,7 +311,7 @@ function AppSettingsGeneral(): React.JSX.Element {
           <CardFooter className="justify-end gap-2">
             <Button
               size="sm"
-              variant="outline"
+              variant="ghost"
               onClick={handleCancel}
               disabled={update.isPending}
             >
@@ -361,183 +322,90 @@ function AppSettingsGeneral(): React.JSX.Element {
               onClick={() => void handleSave()}
               disabled={update.isPending}
             >
-              {update.isPending ? "Saving..." : "Save changes"}
+              {update.isPending ? "Saving…" : "Save"}
             </Button>
           </CardFooter>
         ) : null}
       </Card>
 
-      <Card className="border border-border/70 bg-background/95">
-        <CardHeader className="gap-3 border-b border-border/60 pb-5">
-          <div className="flex flex-col gap-2">
-            <div className="flex flex-wrap items-center gap-2">
-              <Badge
-                variant={
-                  autoSettings.autoDeployEnabled ? "secondary" : "outline"
-                }
-              >
-                {autoSettings.autoDeployEnabled
-                  ? "Auto deploy on"
-                  : "Auto deploy off"}
-              </Badge>
-              {autoSettings.coalescePushes ? (
-                <Badge variant="outline">Coalescing enabled</Badge>
-              ) : null}
-            </div>
-            <CardTitle className="font-heading text-2xl">
-              Delivery automation
-            </CardTitle>
-            <CardDescription className="text-sm leading-6">
-              Control when pushes become deployments and how webhook traffic is
-              reduced before it reaches the build queue.
-            </CardDescription>
-          </div>
+      <Card>
+        <CardHeader>
+          <CardTitle>Auto-deploy</CardTitle>
+          <CardDescription>
+            How pushes turn into deployments. Changes save instantly.
+          </CardDescription>
         </CardHeader>
 
-        <CardContent className="flex flex-col gap-4 py-5">
-          <div className="flex flex-col gap-3">
-            <AutoDeployToggle
-              id="auto-deploy-enabled"
-              title="Redeploy automatically on each push"
-              description="Create a deployment whenever the tracked branch receives a new commit."
-              checked={autoSettings.autoDeployEnabled}
-              onCheckedChange={(value) =>
-                void handleSwitchChange("autoDeployEnabled", value)
-              }
-            />
-            <AutoDeployToggle
-              id="post-commit-status"
-              title="Post build status on pull request"
-              description="Report build outcomes back to the provider so reviewers see deployment health immediately."
-              checked={autoSettings.postCommitStatus}
-              onCheckedChange={(value) =>
-                void handleSwitchChange("postCommitStatus", value)
-              }
-            />
-            <AutoDeployToggle
-              id="coalesce-pushes"
-              title="Merge rapid pushes"
-              description="Collapse bursts of commits into one effective deployment request to keep the queue stable."
-              checked={autoSettings.coalescePushes}
-              onCheckedChange={(value) =>
-                void handleSwitchChange("coalescePushes", value)
-              }
-            />
-            <AutoDeployToggle
-              id="deploy-on-tag"
-              title="Deploy on tag push"
-              description="Listen to matching tag references in addition to the main tracked branch."
-              checked={autoSettings.deployOnTag}
-              onCheckedChange={(value) =>
-                void handleSwitchChange("deployOnTag", value)
-              }
-            />
-          </div>
+        <CardContent className="flex flex-col divide-y divide-border">
+          <ToggleRow
+            id="auto-deploy-enabled"
+            title="Deploy on push"
+            description="Trigger a deployment whenever the tracked branch receives a commit."
+            checked={autoSettings.autoDeployEnabled}
+            onCheckedChange={(value) =>
+              void handleSwitchChange("autoDeployEnabled", value)
+            }
+          />
+          <ToggleRow
+            id="post-commit-status"
+            title="Post status on PR"
+            description="Report build outcome to the Git provider."
+            checked={autoSettings.postCommitStatus}
+            onCheckedChange={(value) =>
+              void handleSwitchChange("postCommitStatus", value)
+            }
+          />
+          <ToggleRow
+            id="coalesce-pushes"
+            title="Coalesce rapid pushes"
+            description="Collapse bursts of commits into a single deployment."
+            checked={autoSettings.coalescePushes}
+            onCheckedChange={(value) =>
+              void handleSwitchChange("coalescePushes", value)
+            }
+          />
+          <ToggleRow
+            id="deploy-on-tag"
+            title="Deploy on tag"
+            description="Also deploy when a matching tag is pushed."
+            checked={autoSettings.deployOnTag}
+            onCheckedChange={(value) =>
+              void handleSwitchChange("deployOnTag", value)
+            }
+          />
 
           {autoSettings.deployOnTag ? (
-            <>
-              <Separator />
-              <FieldGroup>
-                <Field className="rounded-2xl border border-border/70 bg-muted/30 p-4">
-                  <FieldContent className="gap-1">
-                    <FieldLabel htmlFor="tag-pattern">Tag pattern</FieldLabel>
-                    <FieldDescription>
-                      Optional pattern used to limit which tags can trigger a
-                      deployment.
-                    </FieldDescription>
-                  </FieldContent>
-                  <Input
-                    id="tag-pattern"
-                    value={autoSettings.tagPattern ?? ""}
-                    placeholder="v* or release-*"
-                    className="font-mono"
-                    onChange={(event) => {
-                      const value = event.target.value
-                      setAutoSettings((previous) => ({
-                        ...previous,
-                        tagPattern: value || undefined,
-                      }))
-                    }}
-                    onBlur={() =>
-                      void handleSwitchChange(
-                        "tagPattern",
-                        autoSettings.tagPattern ?? ""
-                      )
-                    }
-                  />
-                </Field>
-              </FieldGroup>
-            </>
+            <div className="flex flex-col gap-2 pt-4">
+              <Label htmlFor="tag-pattern">Tag pattern</Label>
+              <Input
+                id="tag-pattern"
+                value={autoSettings.tagPattern ?? ""}
+                placeholder="v* or release-*"
+                className="font-mono"
+                onChange={(event) => {
+                  const value = event.target.value
+                  setAutoSettings((previous) => ({
+                    ...previous,
+                    tagPattern: value || undefined,
+                  }))
+                }}
+                onBlur={() =>
+                  void handleSwitchChange(
+                    "tagPattern",
+                    autoSettings.tagPattern ?? ""
+                  )
+                }
+              />
+            </div>
           ) : null}
         </CardContent>
       </Card>
 
       <DeployHooksCard appId={id} app={app} />
 
-      <Card className="relative overflow-hidden border border-border/70 bg-background/95">
-        <div
-          aria-hidden="true"
-          className="pointer-events-none absolute inset-x-0 top-0 h-24 bg-[radial-gradient(circle_at_top_left,var(--color-chart-1),transparent_36%),radial-gradient(circle_at_bottom_right,var(--color-muted),transparent_42%)] opacity-20"
-        />
-        <CardHeader className="relative gap-3 border-b border-border/60 pb-5">
-          <Badge variant="outline" className="w-fit">
-            Runtime Snapshot
-          </Badge>
-          <CardTitle className="font-heading text-xl">
-            Current deployment posture
-          </CardTitle>
-          <CardDescription>
-            A quick read on the values that matter when something behaves
-            differently in production.
-          </CardDescription>
-        </CardHeader>
-        <CardContent className="relative flex flex-col gap-3 py-5">
-          <InsightRow
-            label="Status"
-            value={<AppStatusBadge status={app.status} />}
-            icon={<RiRocket2Line className="size-4" />}
-          />
-          <InsightRow
-            label="Tracked branch"
-            value={app.branch ?? "main"}
-            icon={<RiGitBranchLine className="size-4" />}
-          />
-          <InsightRow
-            label="Build method"
-            value={app.buildMethod ?? "auto"}
-            icon={<RiTerminalBoxLine className="size-4" />}
-          />
-          <InsightRow
-            label="Healthcheck"
-            value={`${app.healthcheckPath ?? "/"} · ${app.healthcheckPort ?? 3000}`}
-            icon={<RiPulseLine className="size-4" />}
-          />
-        </CardContent>
-      </Card>
-
-      <Card size="sm" className="border border-border/70 bg-muted/30">
-        <CardHeader className="gap-2">
-          <CardTitle>Decision checklist</CardTitle>
-          <CardDescription>
-            The routing path for incoming changes stays easy to reason about.
-          </CardDescription>
-        </CardHeader>
-        <CardContent className="flex flex-col gap-3">
-          <ChecklistItem text="Tracked branch is aligned with the provider webhook." />
-          <ChecklistItem text="Build/start commands reflect the current runtime." />
-          <ChecklistItem text="Healthcheck path and port match the app listener." />
-          <ChecklistItem text="Tag deploys are constrained when release branches coexist." />
-        </CardContent>
-      </Card>
-
-      <Alert className="md:col-span-2">
-        <RiTimeLine />
-        <AlertTitle>Operator note</AlertTitle>
-        <AlertDescription>
-          Auto-deploy toggles save instantly. The build profile card keeps an
-          explicit edit mode so command changes stay deliberate and reviewable.
-        </AlertDescription>
-      </Alert>
+      <div className="sm:col-span-2 xl:col-span-3">
+        <ChannelList appId={id} />
+      </div>
     </div>
   )
 }
@@ -553,47 +421,86 @@ function SettingsField({
   editing: boolean
   onChange: (value: string) => void
 }): React.JSX.Element {
-  return (
-    <Field
-      orientation="responsive"
-      className="rounded-2xl border border-border/70 bg-background/80 p-4"
-    >
-      <FieldContent className="gap-1">
-        <FieldLabel htmlFor={`setting-${field.key}`}>{field.label}</FieldLabel>
-        <FieldDescription>{field.description}</FieldDescription>
-      </FieldContent>
+  const inputId = `setting-${field.key}`
+  const displayValue = getFieldDisplayValue(field, value)
+  const normalizedValue = normalizeFieldValue(field, value)
+  const hasUnsupportedValue =
+    Boolean(value) &&
+    Boolean(field.options) &&
+    !field.options?.some((option) => option.value === normalizedValue)
 
-      {editing ? (
+  return (
+    <div className="flex flex-col gap-1.5">
+      <Label htmlFor={inputId}>{field.label}</Label>
+      {editing && field.options && !hasUnsupportedValue ? (
+        <Select value={normalizedValue} onValueChange={onChange}>
+          <SelectTrigger
+            id={inputId}
+            className={cn(field.mono && "font-mono")}
+            aria-label={field.label}
+          >
+            <SelectValue placeholder={field.placeholder} />
+          </SelectTrigger>
+          <SelectContent>
+            <SelectGroup>
+              {field.options.map((option) => (
+                <SelectItem key={option.value} value={option.value}>
+                  {option.label}
+                </SelectItem>
+              ))}
+            </SelectGroup>
+          </SelectContent>
+        </Select>
+      ) : editing ? (
         <Input
-          id={`setting-${field.key}`}
+          id={inputId}
           type="text"
           value={value}
           placeholder={field.placeholder}
-          className={cn(field.mono ? "font-mono" : "")}
+          className={cn(field.mono && "font-mono")}
           onChange={(event) => onChange(event.target.value)}
         />
       ) : (
         <ReadOnlyValue
-          value={value}
+          value={displayValue}
           placeholder={field.placeholder}
           mono={field.mono}
         />
       )}
-    </Field>
+      {field.hint ? (
+        <p className="text-xs text-muted-foreground">{field.hint}</p>
+      ) : null}
+    </div>
   )
 }
 
-function HealthcheckPortField({
+function normalizeFieldValue(field: FieldDef, value: string): string {
+  if (field.key === "buildMethod") {
+    if (!value) return "auto"
+    return value === "docker" ? "dockerfile" : value
+  }
+  return value
+}
+
+function getFieldDisplayValue(field: FieldDef, value: string): string {
+  const normalizedValue = normalizeFieldValue(field, value)
+  return (
+    field.options?.find((option) => option.value === normalizedValue)?.label ??
+    value
+  )
+}
+
+function PortField({
   inputId,
   label,
-  description,
+  hint,
   value,
   editing,
   onChange,
 }: {
   inputId: string
   label: string
-  description: string
+  hint?: string
   value: number | null
   editing: boolean
   onChange: (value: number | null) => void
@@ -605,7 +512,6 @@ function HealthcheckPortField({
       onChange(null)
       return
     }
-
     const parsed = Number.parseInt(raw, 10)
     if (Number.isFinite(parsed) && parsed >= 1 && parsed <= 65535) {
       onChange(parsed)
@@ -613,15 +519,8 @@ function HealthcheckPortField({
   }
 
   return (
-    <Field
-      orientation="responsive"
-      className="rounded-2xl border border-border/70 bg-background/80 p-4"
-    >
-      <FieldContent className="gap-1">
-        <FieldLabel htmlFor={inputId}>{label}</FieldLabel>
-        <FieldDescription>{description}</FieldDescription>
-      </FieldContent>
-
+    <div className="flex flex-col gap-1.5">
+      <Label htmlFor={inputId}>{label}</Label>
       {editing ? (
         <Input
           id={inputId}
@@ -636,7 +535,8 @@ function HealthcheckPortField({
       ) : (
         <ReadOnlyValue value={displayValue} placeholder="3000" mono />
       )}
-    </Field>
+      {hint ? <p className="text-xs text-muted-foreground">{hint}</p> : null}
+    </div>
   )
 }
 
@@ -652,9 +552,9 @@ function ReadOnlyValue({
   return (
     <div
       className={cn(
-        "min-w-0 rounded-xl border border-border/70 bg-muted/30 px-3 py-2.5 text-sm font-medium",
-        mono ? "font-mono" : "",
-        value ? "text-foreground" : "text-muted-foreground italic"
+        "min-w-0 rounded-md border bg-muted/40 px-3 py-2 text-sm",
+        mono && "font-mono",
+        value ? "text-foreground" : "text-muted-foreground"
       )}
     >
       <span className="block truncate">{value || placeholder}</span>
@@ -662,7 +562,7 @@ function ReadOnlyValue({
   )
 }
 
-function AutoDeployToggle({
+function ToggleRow({
   id,
   title,
   description,
@@ -676,53 +576,19 @@ function AutoDeployToggle({
   onCheckedChange: (value: boolean) => void
 }): React.JSX.Element {
   return (
-    <Field
-      orientation="horizontal"
-      className="items-start rounded-2xl border border-border/70 bg-background/80 px-4 py-4"
-    >
-      <FieldContent className="gap-1">
-        <FieldLabel htmlFor={id}>{title}</FieldLabel>
-        <FieldDescription>{description}</FieldDescription>
-      </FieldContent>
+    <div className="flex items-start justify-between gap-4 py-3 first:pt-0 last:pb-0">
+      <div className="flex flex-col gap-0.5">
+        <Label htmlFor={id} className="cursor-pointer">
+          {title}
+        </Label>
+        <p className="text-sm text-muted-foreground">{description}</p>
+      </div>
       <Switch
         id={id}
         checked={checked}
         aria-label={title}
         onCheckedChange={onCheckedChange}
       />
-    </Field>
-  )
-}
-
-function InsightRow({
-  label,
-  value,
-  icon,
-}: {
-  label: string
-  value: React.ReactNode
-  icon: React.ReactNode
-}): React.JSX.Element {
-  return (
-    <div className="flex items-start gap-3 rounded-xl border border-border/70 bg-background/85 px-3 py-3">
-      <span className="mt-0.5 flex size-8 shrink-0 items-center justify-center rounded-full bg-muted text-muted-foreground">
-        {icon}
-      </span>
-      <div className="flex min-w-0 flex-1 flex-col gap-1">
-        <p className="text-[11px] tracking-[0.18em] text-muted-foreground uppercase">
-          {label}
-        </p>
-        <div className="min-w-0 text-sm font-medium">{value}</div>
-      </div>
-    </div>
-  )
-}
-
-function ChecklistItem({ text }: { text: string }): React.JSX.Element {
-  return (
-    <div className="flex items-start gap-2 text-sm leading-6">
-      <RiCheckboxCircleLine className="mt-1 size-4 shrink-0 text-muted-foreground" />
-      <span>{text}</span>
     </div>
   )
 }
@@ -738,7 +604,9 @@ function DeployHooksCard({
   const [editing, setEditing] = React.useState(false)
   const [preHook, setPreHook] = React.useState(app.hooksPreDeploy ?? "")
   const [postHook, setPostHook] = React.useState(app.hooksPostDeploy ?? "")
-  const [timeoutS, setTimeoutS] = React.useState(String(app.hooksTimeoutS ?? 300))
+  const [timeoutS, setTimeoutS] = React.useState(
+    String(app.hooksTimeoutS ?? 300)
+  )
   const [formError, setFormError] = React.useState<string | null>(null)
 
   React.useEffect(() => {
@@ -771,119 +639,76 @@ function DeployHooksCard({
   }
 
   return (
-    <Card className="border border-border/70 bg-background/95">
-      <CardHeader className="gap-3 border-b border-border/60 pb-5">
-        <div className="flex flex-col gap-3 lg:flex-row lg:items-start lg:justify-between">
-          <div className="flex max-w-2xl flex-col gap-2">
-            <div className="flex flex-wrap items-center gap-2">
-              <Badge variant="outline">Deploy Hooks</Badge>
-              {(app.hooksPreDeploy || app.hooksPostDeploy) ? (
-                <Badge variant="secondary">Active</Badge>
-              ) : (
-                <Badge variant="outline" className="text-muted-foreground">None configured</Badge>
-              )}
-            </div>
-            <CardTitle className="font-heading text-2xl">
-              Pre and post-deploy hooks
-            </CardTitle>
-            <CardDescription className="text-sm leading-6">
-              Shell commands run inside the just-built container before (pre) and
-              after (post) the blue-green swap. Pre-deploy failure aborts the
-              deploy. Post-deploy failure marks the build succeeded-with-warning.
-            </CardDescription>
-          </div>
-          <CardAction>
-            {!editing ? (
-              <Button size="sm" variant="outline" onClick={() => setEditing(true)}>
-                Edit hooks
-              </Button>
-            ) : null}
-          </CardAction>
-        </div>
+    <Card>
+      <CardHeader>
+        <CardTitle>Deploy hooks</CardTitle>
+        <CardDescription>
+          Shell commands run inside the new container around the blue-green
+          swap. Pre-deploy failure aborts the deploy.
+        </CardDescription>
+        <CardAction>
+          {!editing ? (
+            <Button
+              size="sm"
+              variant="outline"
+              onClick={() => setEditing(true)}
+            >
+              Edit
+            </Button>
+          ) : null}
+        </CardAction>
       </CardHeader>
 
-      <CardContent className="flex flex-col gap-4 py-5">
-        <FieldGroup>
-          <Field
-            orientation="vertical"
-            className="rounded-2xl border border-border/70 bg-background/80 p-4"
-          >
-            <FieldContent className="gap-1">
-              <FieldLabel htmlFor="hook-pre">Pre-deploy command</FieldLabel>
-              <FieldDescription>
-                Runs before the Caddy swap. Non-zero exit aborts the deployment.
-              </FieldDescription>
-            </FieldContent>
-            {editing ? (
-              <Textarea
-                id="hook-pre"
-                value={preHook}
-                placeholder="./scripts/migrate.sh"
-                className="font-mono text-sm"
-                rows={3}
-                onChange={(e) => setPreHook(e.target.value)}
-              />
-            ) : (
-              <div className="rounded-xl border border-border/70 bg-muted/30 px-3 py-2.5 font-mono text-sm text-muted-foreground">
-                {preHook || <span className="italic">None</span>}
-              </div>
-            )}
-          </Field>
+      <CardContent className="flex flex-col gap-4">
+        <div className="flex flex-col gap-1.5">
+          <Label htmlFor="hook-pre">Pre-deploy</Label>
+          {editing ? (
+            <Textarea
+              id="hook-pre"
+              value={preHook}
+              placeholder="./scripts/migrate.sh"
+              className="font-mono text-sm"
+              rows={3}
+              onChange={(e) => setPreHook(e.target.value)}
+            />
+          ) : (
+            <ReadOnlyValue value={preHook} placeholder="None" mono />
+          )}
+        </div>
 
-          <Field
-            orientation="vertical"
-            className="rounded-2xl border border-border/70 bg-background/80 p-4"
-          >
-            <FieldContent className="gap-1">
-              <FieldLabel htmlFor="hook-post">Post-deploy command</FieldLabel>
-              <FieldDescription>
-                Runs after the swap succeeds. Failure marks build as succeeded-with-warning.
-              </FieldDescription>
-            </FieldContent>
-            {editing ? (
-              <Textarea
-                id="hook-post"
-                value={postHook}
-                placeholder="./scripts/smoke-test.sh"
-                className="font-mono text-sm"
-                rows={3}
-                onChange={(e) => setPostHook(e.target.value)}
-              />
-            ) : (
-              <div className="rounded-xl border border-border/70 bg-muted/30 px-3 py-2.5 font-mono text-sm text-muted-foreground">
-                {postHook || <span className="italic">None</span>}
-              </div>
-            )}
-          </Field>
+        <div className="flex flex-col gap-1.5">
+          <Label htmlFor="hook-post">Post-deploy</Label>
+          {editing ? (
+            <Textarea
+              id="hook-post"
+              value={postHook}
+              placeholder="./scripts/smoke-test.sh"
+              className="font-mono text-sm"
+              rows={3}
+              onChange={(e) => setPostHook(e.target.value)}
+            />
+          ) : (
+            <ReadOnlyValue value={postHook} placeholder="None" mono />
+          )}
+        </div>
 
-          <Field
-            orientation="responsive"
-            className="rounded-2xl border border-border/70 bg-background/80 p-4"
-          >
-            <FieldContent className="gap-1">
-              <FieldLabel htmlFor="hook-timeout">Hook timeout (seconds)</FieldLabel>
-              <FieldDescription>
-                Maximum time before the hook container is force-removed (default 300s).
-              </FieldDescription>
-            </FieldContent>
-            {editing ? (
-              <Input
-                id="hook-timeout"
-                type="number"
-                min={10}
-                max={3600}
-                value={timeoutS}
-                placeholder="300"
-                className="font-mono"
-                onChange={(e) => setTimeoutS(e.target.value)}
-              />
-            ) : (
-              <div className="min-w-0 rounded-xl border border-border/70 bg-muted/30 px-3 py-2.5 font-mono text-sm font-medium">
-                {timeoutS}s
-              </div>
-            )}
-          </Field>
-        </FieldGroup>
+        <div className="flex flex-col gap-1.5">
+          <Label htmlFor="hook-timeout">Timeout (seconds)</Label>
+          {editing ? (
+            <Input
+              id="hook-timeout"
+              type="number"
+              min={10}
+              max={3600}
+              value={timeoutS}
+              placeholder="300"
+              className="font-mono"
+              onChange={(e) => setTimeoutS(e.target.value)}
+            />
+          ) : (
+            <ReadOnlyValue value={`${timeoutS}s`} placeholder="300s" mono />
+          )}
+        </div>
 
         {formError ? (
           <Alert variant="destructive">
@@ -897,7 +722,7 @@ function DeployHooksCard({
         <CardFooter className="justify-end gap-2">
           <Button
             size="sm"
-            variant="outline"
+            variant="ghost"
             onClick={handleCancel}
             disabled={update.isPending}
           >
@@ -908,7 +733,7 @@ function DeployHooksCard({
             onClick={() => void handleSave()}
             disabled={update.isPending}
           >
-            {update.isPending ? "Saving..." : "Save hooks"}
+            {update.isPending ? "Saving…" : "Save"}
           </Button>
         </CardFooter>
       ) : null}
@@ -918,37 +743,26 @@ function DeployHooksCard({
 
 function SettingsSkeleton(): React.JSX.Element {
   return (
-    <div className="grid w-full gap-6 md:grid-cols-2">
-      <Card className="border border-border/70 bg-background/95">
-        <CardHeader className="gap-3">
-          <Skeleton className="h-5 w-28" />
-          <Skeleton className="h-8 w-72" />
-          <Skeleton className="h-4 w-full max-w-2xl" />
-        </CardHeader>
-        <CardContent className="flex flex-col gap-4">
-          {Array.from({ length: 6 }).map((_, index) => (
-            <Skeleton key={index} className="h-20 rounded-2xl" />
-          ))}
-        </CardContent>
-      </Card>
-      <Card className="border border-border/70 bg-background/95">
-        <CardHeader className="gap-3">
-          <Skeleton className="h-5 w-32" />
-          <Skeleton className="h-8 w-56" />
-        </CardHeader>
-        <CardContent className="flex flex-col gap-3">
-          {Array.from({ length: 4 }).map((_, index) => (
-            <Skeleton key={index} className="h-16 rounded-xl" />
-          ))}
-        </CardContent>
-      </Card>
-      <Skeleton className="h-64 rounded-2xl" />
-      <Skeleton className="h-56 rounded-2xl" />
-      <Skeleton className="h-28 rounded-2xl md:col-span-2" />
+    <div className="grid w-full gap-6 sm:grid-cols-2 xl:grid-cols-3">
+      {Array.from({ length: 3 }).map((_, index) => (
+        <Card key={index} className={index === 0 ? "sm:col-span-2 xl:col-span-2" : undefined}>
+          <CardHeader>
+            <Skeleton className="h-5 w-40" />
+            <Skeleton className="h-4 w-72" />
+          </CardHeader>
+          <CardContent className="flex flex-col gap-3">
+            <Skeleton className="h-10 w-full" />
+            <Skeleton className="h-10 w-full" />
+            <Skeleton className="h-10 w-full" />
+          </CardContent>
+        </Card>
+      ))}
     </div>
   )
 }
 
-export const Route = createFileRoute("/_authed/orgs/$orgSlug/apps/$id/settings/")({
+export const Route = createFileRoute(
+  "/_authed/orgs/$orgSlug/apps/$id/settings/"
+)({
   component: AppSettingsGeneral,
 })

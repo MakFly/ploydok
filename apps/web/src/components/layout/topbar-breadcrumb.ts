@@ -14,13 +14,30 @@ export function extractAppName(
   matches: ReadonlyArray<MatchWithLoader>
 ): string | null {
   const appMatch = matches.find(
-    (m) => m.routeId === "/_authed/apps/$id" || m.routeId === "/_authed/orgs/$orgSlug/apps/$id"
+    (m) =>
+      m.routeId === "/_authed/apps/$id" ||
+      m.routeId === "/_authed/orgs/$orgSlug/apps/$id"
   )
   if (!appMatch) return null
   const data = appMatch.loaderData as
     | { app?: { name?: string | null } }
     | undefined
   return data?.app?.name ?? null
+}
+
+export function extractAppStatus(
+  matches: ReadonlyArray<MatchWithLoader>
+): string | null {
+  const appMatch = matches.find(
+    (m) =>
+      m.routeId === "/_authed/apps/$id" ||
+      m.routeId === "/_authed/orgs/$orgSlug/apps/$id"
+  )
+  if (!appMatch) return null
+  const data = appMatch.loaderData as
+    | { app?: { status?: string | null } }
+    | undefined
+  return data?.app?.status ?? null
 }
 
 function normalizePathname(pathname: string): string {
@@ -43,7 +60,8 @@ export function resolveTopbarBreadcrumb(
   let normalized = normalizePathname(pathname)
   if (normalized.startsWith("/orgs/")) {
     const parts = normalized.split("/").filter(Boolean)
-    normalized = parts.length > 2 ? `/${parts.slice(2).join("/")}` : "/dashboard"
+    normalized =
+      parts.length > 2 ? `/${parts.slice(2).join("/")}` : "/dashboard"
   }
 
   if (normalized === "/dashboard") {
@@ -56,6 +74,10 @@ export function resolveTopbarBreadcrumb(
 
   if (normalized === "/monitoring") {
     return [{ label: "Monitoring" }]
+  }
+
+  if (normalized === "/marketplace") {
+    return [{ label: "Marketplace" }]
   }
 
   if (normalized === "/settings") {
@@ -117,10 +139,7 @@ export function resolveTopbarBreadcrumb(
   }
 
   if (normalized.startsWith("/databases/")) {
-    return [
-      { label: "Databases", to: "/databases" },
-      { label: "Database" },
-    ]
+    return [{ label: "Databases", to: "/databases" }, { label: "Database" }]
   }
 
   if (normalized.startsWith("/apps/")) {
