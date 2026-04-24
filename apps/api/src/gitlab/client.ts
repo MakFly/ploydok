@@ -86,6 +86,21 @@ export class GitLabProvider implements GitProvider {
     return body.map(mapGitLabBranch);
   }
 
+  async fileExists(
+    token: string,
+    fullName: string,
+    filePath: string,
+    ref: string,
+  ): Promise<boolean> {
+    const project = encodeURIComponent(fullName);
+    const file = encodeURIComponent(filePath);
+    const url = `${this.apiBase}/projects/${project}/repository/files/${file}?ref=${encodeURIComponent(ref)}`;
+    const res = await fetch(url, { method: "HEAD", headers: this.headers(token) });
+    if (res.status === 200) return true;
+    if (res.status === 404) return false;
+    throw new Error(`GitLab /projects/${fullName}/repository/files/${filePath} returned ${res.status}`);
+  }
+
   /** Build a clone URL embedding the OAuth token (for `git clone`). */
   cloneUrlWithToken(fullName: string, token: string): string {
     const host = new URL(this.instanceUrl).host;

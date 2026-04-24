@@ -240,6 +240,48 @@ githubRouter.get("/repos/:owner/:repo/branches", async (c) => {
 });
 
 // ---------------------------------------------------------------------------
+// GET /github/repos/:owner/:repo/file-exists?path=&ref=  (auth required)
+// Probes whether a file exists at the given path on the given branch.
+// Used by the create-app wizard to auto-detect a Dockerfile.
+// ---------------------------------------------------------------------------
+
+githubRouter.get("/repos/:owner/:repo/file-exists", async (c) => {
+  const owner = c.req.param("owner");
+  const repo = c.req.param("repo");
+  const fullName = `${owner}/${repo}`;
+  const filePath = c.req.query("path");
+  const ref = c.req.query("ref");
+
+  if (!filePath || !ref) {
+    return c.json({ error: "missing_path_or_ref" }, 400);
+  }
+
+  const config = await getGitHubAppConfig(db);
+  if (!config) {
+    return c.json({ error: "github_app_not_configured" }, 503);
+  }
+
+  const installations = await listAppInstallations().catch(() => []);
+  if (installations.length === 0) {
+    return c.json({ exists: false });
+  }
+
+  const match = installations.find((i) => i.accountLogin.toLowerCase() === owner.toLowerCase());
+  const candidates = match ? [match] : installations;
+
+  for (const inst of candidates) {
+    try {
+      const exists = await ghProvider.fileExists(String(inst.id), fullName, filePath, ref);
+      return c.json({ exists });
+    } catch (err) {
+      log.warn({ err, installationId: inst.id, fullName, filePath }, "fileExists failed; trying next");
+    }
+  }
+
+  return c.json({ error: "repo_not_accessible", detail: fullName }, 404);
+});
+
+// ---------------------------------------------------------------------------
 // GET /github/installations  (auth required)
 // Lists every account/org where the Ploydok GitHub App is installed.
 // ---------------------------------------------------------------------------

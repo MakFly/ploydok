@@ -308,6 +308,29 @@ gitlabRouter.get("/repos/:fullName{.+}/branches", async (c) => {
   }
 });
 
+gitlabRouter.get("/repos/:fullName{.+}/file-exists", async (c) => {
+  const user = c.get("user") ?? null;
+  if (!user) return c.json({ error: "unauthenticated" }, 401);
+
+  const ctx = await getProviderAndTokenForUser(user.id);
+  if (!ctx) return c.json({ error: "gitlab_not_connected" }, 412);
+
+  const fullName = c.req.param("fullName");
+  const filePath = c.req.query("path");
+  const ref = c.req.query("ref");
+  if (!filePath || !ref) {
+    return c.json({ error: "missing_path_or_ref" }, 400);
+  }
+
+  try {
+    const exists = await ctx.provider.fileExists(ctx.accessToken, fullName, filePath, ref);
+    return c.json({ exists });
+  } catch (err) {
+    log.error({ err, fullName, filePath }, "fileExists failed");
+    return c.json({ error: "gitlab_api_error" }, 502);
+  }
+});
+
 // ---------------------------------------------------------------------------
 // Webhook receiver — GitLab sends `X-Gitlab-Token` header (plain shared secret).
 // ---------------------------------------------------------------------------

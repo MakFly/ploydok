@@ -62,6 +62,8 @@ export interface GitProvider {
   ): Promise<{ repos: GitRepo[]; hasMore: boolean }>;
   getRepo(token: string, fullName: string): Promise<GitRepo>;
   listBranches(token: string, fullName: string): Promise<GitBranch[]>;
+  /** Check whether a file exists at the given path on the given ref/branch. */
+  fileExists(token: string, fullName: string, filePath: string, ref: string): Promise<boolean>;
   /** Build a clone URL embedding the token (for `git clone`). */
   cloneUrlWithToken(fullName: string, token: string): string;
   /** Constant-time signature/token verification for incoming webhooks. */
