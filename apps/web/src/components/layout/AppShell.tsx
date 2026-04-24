@@ -14,6 +14,7 @@ import {
   RiCloseLine,
   RiDashboardLine,
   RiDatabase2Line,
+  RiFileListLine,
   RiLogoutBoxRLine,
   RiPulseLine,
   RiSettings3Line,
@@ -21,6 +22,7 @@ import {
   RiShieldCheckLine,
   RiSidebarFoldLine,
   RiSparkling2Line,
+  RiTeamLine,
 } from "@remixicon/react"
 import { Button } from "@workspace/ui/components/button"
 import {
@@ -112,6 +114,11 @@ const primaryNav: Array<NavItem> = [
     comingSoon: true,
     tooltip: "Agent IA custom — déploie, debug et opère via prompt",
   },
+]
+
+const workspaceNav: Array<NavItem> = [
+  { label: "Members", icon: RiTeamLine },
+  { label: "Audit", icon: RiFileListLine },
 ]
 
 const secondaryNav: Array<NavItem> = [
@@ -387,6 +394,23 @@ export function AppShell({
     return item
   })
 
+  const workspaceNavItems = workspaceNav.map((item) => {
+    if (!currentOrgSlug) {
+      return {
+        ...item,
+        comingSoon: true,
+        tooltip: "Sélectionne un workspace",
+      }
+    }
+    if (item.label === "Members") {
+      return { ...item, to: organizationPath(currentOrgSlug, "members") }
+    }
+    if (item.label === "Audit") {
+      return { ...item, to: organizationPath(currentOrgSlug, "audit") }
+    }
+    return item
+  })
+
   const handleOrganizationChange = async (nextSlug: string): Promise<void> => {
     if (!nextSlug || nextSlug === currentOrgSlug) return
     await router.navigate({
@@ -604,6 +628,58 @@ export function AppShell({
                               </span>
                               <span className="ml-auto font-mono text-[9px] font-light tracking-wide uppercase opacity-60 group-data-[sidebar-state=collapsed]/shell:hidden">
                                 soon
+                              </span>
+                            </span>
+                          </li>
+                        )
+                      }
+                      const active = isNavActive(pathname, item.to)
+                      return (
+                        <li key={item.label} className="relative">
+                          <Link
+                            to={item.to}
+                            title={item.label}
+                            className={cx(
+                              "flex h-10 w-full items-center gap-2 overflow-hidden rounded-md px-[11px] py-2 text-sm transition-colors outline-none",
+                              "group-data-[sidebar-state=collapsed]/shell:size-8 group-data-[sidebar-state=collapsed]/shell:justify-center group-data-[sidebar-state=collapsed]/shell:p-0",
+                              active
+                                ? "bg-sidebar-accent font-medium text-sidebar-accent-foreground"
+                                : "text-sidebar-foreground hover:bg-sidebar-accent/60"
+                            )}
+                          >
+                            <Icon className="size-4 shrink-0" />
+                            <span className="truncate group-data-[sidebar-state=collapsed]/shell:hidden">
+                              {item.label}
+                            </span>
+                          </Link>
+                        </li>
+                      )
+                    })}
+                  </ul>
+                </div>
+
+                {/* Workspace group */}
+                <div className="p-2">
+                  <div className="flex h-8 shrink-0 items-center overflow-hidden px-2 text-xs font-medium text-muted-foreground group-data-[sidebar-state=collapsed]/shell:opacity-0">
+                    Workspace
+                  </div>
+                  <ul className="flex w-full min-w-0 flex-col">
+                    {workspaceNavItems.map((item) => {
+                      const Icon = item.icon
+                      if (item.comingSoon || !item.to) {
+                        return (
+                          <li key={item.label} className="relative">
+                            <span
+                              title={item.tooltip ?? "Bientôt disponible"}
+                              aria-disabled="true"
+                              className={cx(
+                                "flex h-10 w-full cursor-not-allowed items-center gap-2 overflow-hidden rounded-md px-[11px] py-2 text-sm text-sidebar-foreground/50 outline-none",
+                                "group-data-[sidebar-state=collapsed]/shell:size-8 group-data-[sidebar-state=collapsed]/shell:justify-center group-data-[sidebar-state=collapsed]/shell:p-0"
+                              )}
+                            >
+                              <Icon className="size-4 shrink-0" />
+                              <span className="truncate group-data-[sidebar-state=collapsed]/shell:hidden">
+                                {item.label}
                               </span>
                             </span>
                           </li>
