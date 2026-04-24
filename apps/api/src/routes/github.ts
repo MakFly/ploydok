@@ -5,8 +5,12 @@ import { createDb } from "@ploydok/db";
 import {
   deleteGitHubAppConfig,
   getGitHubAppConfig,
+  getInstallationStaleness,
+  listInstallations,
+  listRepos,
   saveGitHubAppConfig,
 } from "@ploydok/db/queries";
+import type { ProviderRepoRow } from "@ploydok/db/queries";
 import { decryptField, encryptField } from "../github/app-credentials";
 import { buildManifest } from "../github/manifest";
 import { childLogger } from "../logger";
@@ -16,6 +20,7 @@ import { listAppInstallations, revokeAppInstallation } from "../github/installat
 import { handleWebhook, verifySignature } from "../github/webhook";
 import { findRecentByPayloadHash, insertDelivery } from "../webhooks/deliveries";
 import { githubWebhookRateLimit } from "../webhooks/rate-limiters";
+import { enqueueProviderReposSync } from "../worker/handlers/sync-provider-repos";
 import { env } from "../env";
 
 // ---------------------------------------------------------------------------
@@ -112,6 +117,23 @@ function getApiOrigin(): string {
 }
 
 // ---------------------------------------------------------------------------
+// DB → wire format helpers
+// ---------------------------------------------------------------------------
+
+function dbRowToWire(row: ProviderRepoRow) {
+  return {
+    id: row.id,
+    fullName: row.full_name,
+    description: row.description ?? null,
+    private: row.private,
+    defaultBranch: row.default_branch ?? "main",
+    cloneUrl: row.html_url
+      ? row.html_url.replace(/\/?$/, ".git")
+      : `https://github.com/${row.full_name}.git`,
+  };
+}
+
+// ---------------------------------------------------------------------------
 // GET /github/repos?page=1&per_page=30&search=  (auth required)
 // ---------------------------------------------------------------------------
 
@@ -125,31 +147,73 @@ githubRouter.get("/repos", async (c) => {
     return c.json({ error: "github_app_not_configured" }, 503);
   }
 
-  let installations;
-  try {
-    installations = await listAppInstallations();
-  } catch (err) {
-    log.error({ err }, "listAppInstallations failed");
-    return c.json({ error: "github_api_error", detail: String(err) }, 502);
+  const installUrl = `${getApiOrigin()}/github/installations/start`;
+
+  const dbInstallations = await listInstallations(db, "github");
+
+  if (dbInstallations.length === 0) {
+    // Fire a background sync so the cache is populated for the next request.
+    void enqueueProviderReposSync({ provider: "github" }).catch((err) =>
+      log.warn({ err }, "enqueue on empty installations failed"),
+    );
+
+    // Try a live fetch with a 3s timeout so first-time users don't see an empty list.
+    let liveInstallations: Awaited<ReturnType<typeof listAppInstallations>> = [];
+    try {
+      liveInstallations = await Promise.race([
+        listAppInstallations(),
+        new Promise<never>((_, reject) => setTimeout(() => reject(new Error("timeout")), 3000)),
+      ]);
+    } catch {
+      // Timeout or API error — fall through to empty response.
+    }
+
+    if (liveInstallations.length === 0) {
+      return c.json({
+        repos: [],
+        page,
+        perPage,
+        hasMore: false,
+        needsInstall: true,
+        installUrl,
+      });
+    }
   }
 
-  if (installations.length === 0) {
-    return c.json({
-      repos: [],
-      page,
-      perPage,
-      hasMore: false,
-      needsInstall: true,
-      installUrl: `${getApiOrigin()}/github/installations/start`,
-    });
+  // Stale-while-revalidate: if the most stale installation was synced >10 min ago, enqueue.
+  const staleness = await getInstallationStaleness(db, "github");
+  if (staleness.mostStaleAt && Date.now() - staleness.mostStaleAt.getTime() > 10 * 60_000) {
+    void enqueueProviderReposSync({ provider: "github" }).catch((err) =>
+      log.warn({ err }, "stale-while-revalidate enqueue failed"),
+    );
   }
 
-  type Repo = Awaited<ReturnType<typeof ghProvider.listRepos>>["repos"][number];
-
-  // Fast path: exact "owner/repo" match → single GET /repos/:owner/:repo (skips
-  // full pagination walk, works even if the repo is beyond the first page).
+  // Fast path: exact "owner/repo" match → try DB first, then live API fallback.
   if (search && search.includes("/")) {
-    for (const inst of installations) {
+    const dbExact = await listRepos(db, {
+      provider: "github",
+      search, // narrowed to string by the if-guard above
+      limit: 1,
+      offset: 0,
+    });
+
+    const exactRow = dbExact.rows.find(
+      (r) => r.full_name.toLowerCase() === search.toLowerCase(),
+    );
+
+    if (exactRow) {
+      return c.json({
+        repos: [dbRowToWire(exactRow)],
+        page: 1,
+        perPage,
+        hasMore: false,
+        installUrl,
+      });
+    }
+
+    // DB miss — try live API per installation.
+    const liveInstallations = await listAppInstallations().catch(() => []);
+    for (const inst of liveInstallations) {
       try {
         const repo = await ghProvider.getRepo(String(inst.id), search);
         return c.json({
@@ -157,51 +221,56 @@ githubRouter.get("/repos", async (c) => {
           page: 1,
           perPage,
           hasMore: false,
-          installUrl: `${getApiOrigin()}/github/installations/start`,
+          installUrl,
         });
       } catch {
         // not found on this installation, try the next one
       }
     }
-    // fall through to full scan (also catches substring matches in fullName)
+    // fall through to paginated DB scan
   }
 
-  // Fetch every page across every installation so users with >100 repos don't
-  // see a truncated list (GitHub /installation/repositories returns 100 max per page).
-  const MAX_PAGES_PER_INSTALL = 20; // safety cap: 2000 repos/install
-  const merged = new Map<string, Repo>();
-  for (const inst of installations) {
-    for (let p = 1; p <= MAX_PAGES_PER_INSTALL; p++) {
-      try {
-        const res = await ghProvider.listRepos(String(inst.id), { page: p, perPage: 100 });
-        for (const r of res.repos) merged.set(r.fullName, r);
-        if (!res.hasMore) break;
-      } catch (err) {
-        log.warn({ err, installationId: inst.id, page: p }, "listRepos page failed");
-        break;
-      }
-    }
-  }
+  const offset = (page - 1) * perPage;
+  const { rows, total } = await listRepos(db, {
+    provider: "github",
+    ...(search !== undefined ? { search } : {}),
+    limit: perPage,
+    offset,
+  });
 
-  let all = [...merged.values()];
-  if (search) {
-    const q = search.toLowerCase();
-    all = all.filter(
-      (r) =>
-        r.fullName.toLowerCase().includes(q) ||
-        (r.description?.toLowerCase().includes(q) ?? false),
-    );
-  }
-
-  const start = (page - 1) * perPage;
-  const slice = all.slice(start, start + perPage);
   return c.json({
-    repos: slice,
+    repos: rows.map(dbRowToWire),
     page,
     perPage,
-    hasMore: all.length > start + perPage,
-    installUrl: `${getApiOrigin()}/github/installations/start`,
+    hasMore: total > offset + rows.length,
+    installUrl,
   });
+});
+
+// ---------------------------------------------------------------------------
+// POST /github/installations/sync  (auth required)
+// Force a full refresh of the repo cache for one or all installations.
+// ---------------------------------------------------------------------------
+
+githubRouter.post("/installations/sync", async (c) => {
+  let body: { installationId?: string } = {};
+  try {
+    const raw = await c.req.json().catch(() => ({}));
+    if (raw && typeof raw === "object") body = raw as { installationId?: string };
+  } catch {
+    // body is optional — ignore parse errors
+  }
+
+  const installationId =
+    typeof body.installationId === "string" ? body.installationId : undefined;
+
+  await enqueueProviderReposSync({
+    provider: "github",
+    ...(installationId !== undefined ? { installationId } : {}),
+  });
+
+  log.info({ installationId }, "manual github sync enqueued");
+  return c.json({ enqueued: true }, 202);
 });
 
 // ---------------------------------------------------------------------------
@@ -606,8 +675,8 @@ githubRouter.post("/webhook", githubWebhookRateLimit, async (c) => {
 
   // Respond 200 quickly — process async to avoid GitHub timeout (10s)
   queueMicrotask(() =>
-    handleWebhook(db, event, payload, deliveryId, { payloadHash, rawBodyBuffer }).catch((err) =>
-      log.error({ err, event, deliveryId }, "webhook handler failed"),
+    handleWebhook(db, event, payload, deliveryId, { payloadHash, rawBodyBuffer }, { enqueue: enqueueProviderReposSync }).catch(
+      (err) => log.error({ err, event, deliveryId }, "webhook handler failed"),
     ),
   );
 
