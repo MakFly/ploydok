@@ -111,7 +111,22 @@ export function CachedReposPanel(props: CachedReposPanelProps): React.JSX.Elemen
             Failed to load cache status: {errorMessage ?? "unknown error"}
           </p>
         ) : entries.length === 0 ? (
-          <div className="p-6">{emptyState}</div>
+          <div className="space-y-3 p-6">
+            {emptyState}
+            {onSyncAll && (
+              <Button
+                variant="outline"
+                size="sm"
+                onClick={() => void handleAll()}
+                disabled={isSyncing}
+              >
+                <RiRefreshLine
+                  className={`mr-1.5 size-3.5 ${isSyncing ? "animate-spin" : ""}`}
+                />
+                {isSyncing ? "Syncing..." : "Sync now"}
+              </Button>
+            )}
+          </div>
         ) : (
           <ul className="divide-y divide-border">
             {entries.map((e) => (
