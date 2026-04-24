@@ -148,6 +148,13 @@
       "when": 1777068770072,
       "tag": "0020_skinny_demogoblin",
       "breakpoints": true
+    },
+    {
+      "idx": 21,
+      "version": "7",
+      "when": 1777069553877,
+      "tag": "0021_neat_talos",
+      "breakpoints": true
     }
   ]
 }

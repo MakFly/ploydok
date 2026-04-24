@@ -1,201 +1,388 @@
 // SPDX-License-Identifier: AGPL-3.0-only
-import { describe, it, expect, beforeEach } from "bun:test";
-import { Hono } from "hono";
-import { requireAuth, requireSecondFactor } from "./middleware";
-import { signAccessToken, buildCookieStr, ACCESS_COOKIE, ACCESS_MAX_AGE } from "./jwt";
-import { users, passkeys, backup_codes, totp_secrets } from "@ploydok/db";
-import type { Db } from "@ploydok/db";
-import { nanoid } from "nanoid";
-import { makeTestDb, TEST_PG_URL } from "../test/db-helpers";
+import { describe, it, expect, beforeEach } from "bun:test"
+import { Hono } from "hono"
+import { requireAuth, requireSecondFactor, requireRole } from "./middleware"
+import {
+  signAccessToken,
+  buildCookieStr,
+  ACCESS_COOKIE,
+  ACCESS_MAX_AGE,
+} from "./jwt"
+import { users, passkeys, backup_codes, totp_secrets } from "@ploydok/db"
+import type { Db } from "@ploydok/db"
+import { nanoid } from "nanoid"
+import { makeTestDb, TEST_PG_URL } from "../test/db-helpers"
 
-const skip = !TEST_PG_URL;
-if (skip) console.log("[middleware.test] PLOYDOK_TEST_PG_URL not set — skipping");
+const skip = !TEST_PG_URL
+if (skip)
+  console.log("[middleware.test] PLOYDOK_TEST_PG_URL not set — skipping")
 
 // ---------------------------------------------------------------------------
 // Tests
 // ---------------------------------------------------------------------------
 
 describe.skipIf(skip)("requireAuth middleware", () => {
-  let db: Db;
-  let userId: string;
+  let db: Db
+  let userId: string
 
   beforeEach(async () => {
-    const result = await makeTestDb();
-    db = result.db;
-    userId = `mw-${nanoid(6)}`;
-    const now = new Date();
-    await db.insert(users).values({
-      id: userId,
-      email: `user-${userId}@test.com`,
-      display_name: "Test User",
-      created_at: now,
-      updated_at: now,
-      recovery_token_hash: null,
-      recovery_expires_at: null,
-    }).onConflictDoNothing();
-  });
+    const result = await makeTestDb()
+    db = result.db
+    userId = `mw-${nanoid(6)}`
+    const now = new Date()
+    await db
+      .insert(users)
+      .values({
+        id: userId,
+        email: `user-${userId}@test.com`,
+        display_name: "Test User",
+        created_at: now,
+        updated_at: now,
+        recovery_token_hash: null,
+        recovery_expires_at: null,
+      })
+      .onConflictDoNothing()
+  })
 
   it("returns 401 without cookie", async () => {
-    const app = new Hono();
-    app.get("/protected", requireAuth(db), (c) => c.json({ ok: true }));
+    const app = new Hono()
+    app.get("/protected", requireAuth(db), (c) => c.json({ ok: true }))
 
-    const res = await app.request("/protected");
-    expect(res.status).toBe(401);
-    const body = await res.json() as { error: { code: string } };
-    expect(body.error.code).toBe("UNAUTHENTICATED");
-  });
+    const res = await app.request("/protected")
+    expect(res.status).toBe(401)
+    const body = (await res.json()) as { error: { code: string } }
+    expect(body.error.code).toBe("UNAUTHENTICATED")
+  })
 
   it("returns 200 with valid access token cookie", async () => {
-    const token = await signAccessToken({ userId, email: `user-${userId}@test.com`, sessionId: "sess-1" });
+    const token = await signAccessToken({
+      userId,
+      email: `user-${userId}@test.com`,
+      sessionId: "sess-1",
+    })
 
-    const app = new Hono();
+    const app = new Hono()
     app.get("/protected", requireAuth(db), (c) => {
       // eslint-disable-next-line @typescript-eslint/no-explicit-any
-      const user = (c as any).get("user") as { id: string };
-      return c.json({ ok: true, userId: user.id });
-    });
+      const user = (c as any).get("user") as { id: string }
+      return c.json({ ok: true, userId: user.id })
+    })
 
     const res = await app.request("/protected", {
       headers: { cookie: `${ACCESS_COOKIE}=${encodeURIComponent(token)}` },
-    });
-    expect(res.status).toBe(200);
-    const body = (await res.json()) as { ok: boolean; userId: string };
-    expect(body.ok).toBe(true);
-    expect(body.userId).toBe(userId);
-  });
+    })
+    expect(res.status).toBe(200)
+    const body = (await res.json()) as { ok: boolean; userId: string }
+    expect(body.ok).toBe(true)
+    expect(body.userId).toBe(userId)
+  })
 
   it("returns 401 with tampered token", async () => {
-    const token = await signAccessToken({ userId, email: "x@x.com", sessionId: "s" });
-    const parts = token.split(".");
-    parts[1] = "tampered";
-    const bad = parts.join(".");
+    const token = await signAccessToken({
+      userId,
+      email: "x@x.com",
+      sessionId: "s",
+    })
+    const parts = token.split(".")
+    parts[1] = "tampered"
+    const bad = parts.join(".")
 
-    const app = new Hono();
-    app.get("/protected", requireAuth(db), (c) => c.json({ ok: true }));
+    const app = new Hono()
+    app.get("/protected", requireAuth(db), (c) => c.json({ ok: true }))
 
     const res = await app.request("/protected", {
       headers: { cookie: `${ACCESS_COOKIE}=${encodeURIComponent(bad)}` },
-    });
-    expect(res.status).toBe(401);
-  });
-});
+    })
+    expect(res.status).toBe(401)
+  })
+})
 
 describe.skipIf(skip)("requireSecondFactor middleware", () => {
-  let db: Db;
-  let userId: string;
+  let db: Db
+  let userId: string
 
   beforeEach(async () => {
-    const result = await makeTestDb();
-    db = result.db;
-    userId = `sf-${nanoid(6)}`;
-    const now = new Date();
-    await db.insert(users).values({
-      id: userId,
-      email: `user-${userId}@test.com`,
-      display_name: "Test User",
-      created_at: now,
-      updated_at: now,
-      recovery_token_hash: null,
-      recovery_expires_at: null,
-    }).onConflictDoNothing();
-  });
+    const result = await makeTestDb()
+    db = result.db
+    userId = `sf-${nanoid(6)}`
+    const now = new Date()
+    await db
+      .insert(users)
+      .values({
+        id: userId,
+        email: `user-${userId}@test.com`,
+        display_name: "Test User",
+        created_at: now,
+        updated_at: now,
+        recovery_token_hash: null,
+        recovery_expires_at: null,
+      })
+      .onConflictDoNothing()
+  })
 
   async function makeApp() {
-    const token = await signAccessToken({ userId, email: `user-${userId}@test.com`, sessionId: "s" });
-    const app = new Hono();
-    app.get(
-      "/secure",
-      requireAuth(db),
-      requireSecondFactor(db),
-      (c) => c.json({ ok: true }),
-    );
-    return { app, token };
+    const token = await signAccessToken({
+      userId,
+      email: `user-${userId}@test.com`,
+      sessionId: "s",
+    })
+    const app = new Hono()
+    app.get("/secure", requireAuth(db), requireSecondFactor(db), (c) =>
+      c.json({ ok: true })
+    )
+    return { app, token }
   }
 
   it("returns 403 SECOND_FACTOR_REQUIRED when user has 0 passkeys and 0 backup codes", async () => {
-    const { app, token } = await makeApp();
+    const { app, token } = await makeApp()
     const res = await app.request("/secure", {
       headers: { cookie: `${ACCESS_COOKIE}=${encodeURIComponent(token)}` },
-    });
-    expect(res.status).toBe(403);
-    const body = await res.json() as { error: { code: string } };
-    expect(body.error.code).toBe("SECOND_FACTOR_REQUIRED");
-  });
+    })
+    expect(res.status).toBe(403)
+    const body = (await res.json()) as { error: { code: string } }
+    expect(body.error.code).toBe("SECOND_FACTOR_REQUIRED")
+  })
 
   it("returns 200 when user has >= 2 passkeys", async () => {
-    const now = new Date();
+    const now = new Date()
     await db.insert(passkeys).values([
       {
-        id: nanoid(), user_id: userId, credential_id: `cred-1-${userId}`,
-        public_key: Buffer.from("pk1"), counter: 0, transports: "[]",
-        device_name: "Device 1", created_at: now, last_used_at: now,
+        id: nanoid(),
+        user_id: userId,
+        credential_id: `cred-1-${userId}`,
+        public_key: Buffer.from("pk1"),
+        counter: 0,
+        transports: "[]",
+        device_name: "Device 1",
+        created_at: now,
+        last_used_at: now,
       },
       {
-        id: nanoid(), user_id: userId, credential_id: `cred-2-${userId}`,
-        public_key: Buffer.from("pk2"), counter: 0, transports: "[]",
-        device_name: "Device 2", created_at: now, last_used_at: now,
+        id: nanoid(),
+        user_id: userId,
+        credential_id: `cred-2-${userId}`,
+        public_key: Buffer.from("pk2"),
+        counter: 0,
+        transports: "[]",
+        device_name: "Device 2",
+        created_at: now,
+        last_used_at: now,
       },
-    ]);
+    ])
 
-    const { app, token } = await makeApp();
+    const { app, token } = await makeApp()
     const res = await app.request("/secure", {
       headers: { cookie: `${ACCESS_COOKIE}=${encodeURIComponent(token)}` },
-    });
-    expect(res.status).toBe(200);
-  });
+    })
+    expect(res.status).toBe(200)
+  })
 
   it("returns 200 when user has 1 passkey + 1 backup code", async () => {
-    const now = new Date();
+    const now = new Date()
     await db.insert(passkeys).values({
-      id: nanoid(), user_id: userId, credential_id: `cred-3-${userId}`,
-      public_key: Buffer.from("pk3"), counter: 0, transports: "[]",
-      device_name: null, created_at: now, last_used_at: now,
-    });
+      id: nanoid(),
+      user_id: userId,
+      credential_id: `cred-3-${userId}`,
+      public_key: Buffer.from("pk3"),
+      counter: 0,
+      transports: "[]",
+      device_name: null,
+      created_at: now,
+      last_used_at: now,
+    })
     await db.insert(backup_codes).values({
-      id: nanoid(), user_id: userId, code_hash: "fakehash",
-      consumed_at: null, created_at: now,
-    });
+      id: nanoid(),
+      user_id: userId,
+      code_hash: "fakehash",
+      consumed_at: null,
+      created_at: now,
+    })
 
-    const { app, token } = await makeApp();
+    const { app, token } = await makeApp()
     const res = await app.request("/secure", {
       headers: { cookie: `${ACCESS_COOKIE}=${encodeURIComponent(token)}` },
-    });
-    expect(res.status).toBe(200);
-  });
+    })
+    expect(res.status).toBe(200)
+  })
 
   it("returns 200 when user has TOTP verified (no passkeys, no backup codes)", async () => {
-    const now = new Date();
+    const now = new Date()
     await db.insert(totp_secrets).values({
       id: nanoid(),
       user_id: userId,
       secret_encrypted: JSON.stringify({ enc: "dGVzdA==", nonce: "bm9uY2U=" }),
       verified_at: now,
       created_at: now,
-    });
+    })
 
-    const { app, token } = await makeApp();
+    const { app, token } = await makeApp()
     const res = await app.request("/secure", {
       headers: { cookie: `${ACCESS_COOKIE}=${encodeURIComponent(token)}` },
-    });
-    expect(res.status).toBe(200);
-  });
+    })
+    expect(res.status).toBe(200)
+  })
 
   it("returns 403 when user has TOTP enrolled but not yet verified", async () => {
-    const now = new Date();
+    const now = new Date()
     await db.insert(totp_secrets).values({
       id: nanoid(),
       user_id: userId,
       secret_encrypted: JSON.stringify({ enc: "dGVzdA==", nonce: "bm9uY2U=" }),
       verified_at: null,
       created_at: now,
-    });
+    })
 
-    const { app, token } = await makeApp();
+    const { app, token } = await makeApp()
     const res = await app.request("/secure", {
       headers: { cookie: `${ACCESS_COOKIE}=${encodeURIComponent(token)}` },
-    });
-    expect(res.status).toBe(403);
-    const body = await res.json() as { error: { code: string } };
-    expect(body.error.code).toBe("SECOND_FACTOR_REQUIRED");
-  });
-});
+    })
+    expect(res.status).toBe(403)
+    const body = (await res.json()) as { error: { code: string } }
+    expect(body.error.code).toBe("SECOND_FACTOR_REQUIRED")
+  })
+})
+
+describe.skipIf(skip)("requireRole middleware", () => {
+  let db: Db
+  let userId: string
+  let orgId: string
+
+  beforeEach(async () => {
+    const result = await makeTestDb()
+    db = result.db
+    userId = `role-${nanoid(6)}`
+    orgId = `org-${nanoid(6)}`
+    const now = new Date()
+
+    // Create user
+    await db
+      .insert(users)
+      .values({
+        id: userId,
+        email: `user-${userId}@test.com`,
+        display_name: "Test User",
+        created_at: now,
+        updated_at: now,
+        recovery_token_hash: null,
+        recovery_expires_at: null,
+      })
+      .onConflictDoNothing()
+
+    // Create org
+    const { projects } = await import("@ploydok/db")
+    await db
+      .insert(projects)
+      .values({
+        id: orgId,
+        owner_id: userId,
+        name: "Test Org",
+        slug: `org-${orgId}`,
+        created_at: now,
+      })
+      .onConflictDoNothing()
+  })
+
+  it("returns 401 without auth", async () => {
+    const app = new Hono()
+    app.get("/protected/:orgId", requireRole(db, ["owner"]), (c) =>
+      c.json({ ok: true })
+    )
+
+    const res = await app.request(`/protected/${orgId}`)
+    expect(res.status).toBe(401)
+  })
+
+  it("returns 403 when user has no membership", async () => {
+    const token = await signAccessToken({
+      userId,
+      email: `user-${userId}@test.com`,
+      sessionId: "s",
+    })
+    const otherOrgId = `other-${nanoid(6)}`
+
+    const app = new Hono()
+    app.get(
+      "/protected/:orgId",
+      requireAuth(db),
+      requireRole(db, ["owner"]),
+      (c) => c.json({ ok: true })
+    )
+
+    const res = await app.request(`/protected/${otherOrgId}`, {
+      headers: { cookie: `${ACCESS_COOKIE}=${encodeURIComponent(token)}` },
+    })
+    expect(res.status).toBe(403)
+  })
+
+  it("returns 200 when user has required role", async () => {
+    const token = await signAccessToken({
+      userId,
+      email: `user-${userId}@test.com`,
+      sessionId: "s",
+    })
+    const { memberships } = await import("@ploydok/db")
+    const now = new Date()
+
+    // Add membership with owner role
+    await db
+      .insert(memberships)
+      .values({
+        id: nanoid(),
+        org_id: orgId,
+        user_id: userId,
+        role: "owner",
+        invited_at: now,
+        accepted_at: now,
+      })
+      .onConflictDoNothing()
+
+    const app = new Hono()
+    app.get(
+      "/protected/:orgId",
+      requireAuth(db),
+      requireRole(db, ["owner"]),
+      (c) => c.json({ ok: true })
+    )
+
+    const res = await app.request(`/protected/${orgId}`, {
+      headers: { cookie: `${ACCESS_COOKIE}=${encodeURIComponent(token)}` },
+    })
+    expect(res.status).toBe(200)
+  })
+
+  it("returns 403 when user has wrong role", async () => {
+    const token = await signAccessToken({
+      userId,
+      email: `user-${userId}@test.com`,
+      sessionId: "s",
+    })
+    const { memberships } = await import("@ploydok/db")
+    const now = new Date()
+
+    // Add membership with member role (not owner)
+    await db
+      .insert(memberships)
+      .values({
+        id: nanoid(),
+        org_id: orgId,
+        user_id: userId,
+        role: "member",
+        invited_at: now,
+        accepted_at: now,
+      })
+      .onConflictDoNothing()
+
+    const app = new Hono()
+    app.get(
+      "/protected/:orgId",
+      requireAuth(db),
+      requireRole(db, ["owner"]),
+      (c) => c.json({ ok: true })
+    )
+
+    const res = await app.request(`/protected/${orgId}`, {
+      headers: { cookie: `${ACCESS_COOKIE}=${encodeURIComponent(token)}` },
+    })
+    expect(res.status).toBe(403)
+  })
+})

@@ -32,6 +32,8 @@ import { createBackupsRouter } from "./routes/backups"
 import { createAppsDatabasesLinkRouter } from "./routes/apps-databases-link"
 import { appsProtectionRouter } from "./routes/apps-protection"
 import { createOrganizationsRouter } from "./routes/organizations"
+import { createMembershipsRouter } from "./routes/memberships"
+import { createInvitationsRouter } from "./routes/invitations"
 import { createServicesRouter } from "./routes/services"
 import { auditRouter } from "./routes/audit"
 import { getDefaultOrganizationForUser } from "./services/organizations"
@@ -349,6 +351,14 @@ app.route("/databases", createDatabasesRouter(db))
 app.use("/organizations/*", requireAuth(db))
 app.use("/organizations", requireAuth(db))
 app.route("/organizations", createOrganizationsRouter(db))
+
+// Memberships — all endpoints require auth.
+app.use("/orgs/*", requireAuth(db))
+app.route("/orgs", createMembershipsRouter(db))
+
+// Invitations — /invitations/preview is public, /invitations/accept requires auth.
+app.route("/invitations", createInvitationsRouter(db))
+app.use("/invitations/accept", requireAuth(db))
 
 // Services (marketplace) — all endpoints require auth.
 app.use("/services/*", requireAuth(db))

@@ -138,6 +138,10 @@ export function resolveTopbarBreadcrumb(
     return [{ label: "Databases" }]
   }
 
+  if (normalized === "/members") {
+    return [{ label: "Members" }]
+  }
+
   if (normalized.startsWith("/databases/")) {
     return [{ label: "Databases", to: "/databases" }, { label: "Database" }]
   }

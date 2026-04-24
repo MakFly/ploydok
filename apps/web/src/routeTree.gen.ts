@@ -18,6 +18,7 @@ import { Route as AuthedMonitoringRouteImport } from './routes/_authed/monitorin
 import { Route as AuthedGuideRouteImport } from './routes/_authed/guide'
 import { Route as AuthedDashboardRouteImport } from './routes/_authed/dashboard'
 import { Route as AuthedSettingsIndexRouteImport } from './routes/_authed/settings/index'
+import { Route as PublicInvitationsAcceptRouteImport } from './routes/_public/invitations/accept'
 import { Route as AuthedSettingsSecurityRouteImport } from './routes/_authed/settings/security'
 import { Route as AuthedSettingsRegistryRouteImport } from './routes/_authed/settings/registry'
 import { Route as AuthedSettingsNotificationsRouteImport } from './routes/_authed/settings/notifications'
@@ -33,6 +34,7 @@ import { Route as AuthedSettingsSecurityPostureRouteImport } from './routes/_aut
 import { Route as AuthedSettingsSecurityPasskeysRouteImport } from './routes/_authed/settings/security/passkeys'
 import { Route as AuthedSettingsSecurityPasskeyRouteImport } from './routes/_authed/settings/security/passkey'
 import { Route as AuthedSettingsGitProvidersSlugRouteImport } from './routes/_authed/settings/git-providers/$slug'
+import { Route as AuthedOrgsOrgSlugMembersRouteImport } from './routes/_authed/orgs/$orgSlug/members'
 import { Route as AuthedOrgsOrgSlugMarketplaceRouteImport } from './routes/_authed/orgs/$orgSlug/marketplace'
 import { Route as AuthedOrgsOrgSlugDashboardRouteImport } from './routes/_authed/orgs/$orgSlug/dashboard'
 import { Route as AuthedOrgsOrgSlugAuditRouteImport } from './routes/_authed/orgs/$orgSlug/audit'
@@ -97,6 +99,11 @@ const AuthedSettingsIndexRoute = AuthedSettingsIndexRouteImport.update({
   id: '/settings/',
   path: '/settings/',
   getParentRoute: () => AuthedRoute,
+} as any)
+const PublicInvitationsAcceptRoute = PublicInvitationsAcceptRouteImport.update({
+  id: '/invitations/accept',
+  path: '/invitations/accept',
+  getParentRoute: () => PublicRoute,
 } as any)
 const AuthedSettingsSecurityRoute = AuthedSettingsSecurityRouteImport.update({
   id: '/settings/security',
@@ -181,6 +188,12 @@ const AuthedSettingsGitProvidersSlugRoute =
     id: '/settings/git-providers/$slug',
     path: '/settings/git-providers/$slug',
     getParentRoute: () => AuthedRoute,
+  } as any)
+const AuthedOrgsOrgSlugMembersRoute =
+  AuthedOrgsOrgSlugMembersRouteImport.update({
+    id: '/members',
+    path: '/members',
+    getParentRoute: () => AuthedOrgsOrgSlugRoute,
   } as any)
 const AuthedOrgsOrgSlugMarketplaceRoute =
   AuthedOrgsOrgSlugMarketplaceRouteImport.update({
@@ -320,10 +333,12 @@ export interface FileRoutesByFullPath {
   '/settings/notifications': typeof AuthedSettingsNotificationsRoute
   '/settings/registry': typeof AuthedSettingsRegistryRoute
   '/settings/security': typeof AuthedSettingsSecurityRouteWithChildren
+  '/invitations/accept': typeof PublicInvitationsAcceptRoute
   '/settings/': typeof AuthedSettingsIndexRoute
   '/orgs/$orgSlug/audit': typeof AuthedOrgsOrgSlugAuditRoute
   '/orgs/$orgSlug/dashboard': typeof AuthedOrgsOrgSlugDashboardRoute
   '/orgs/$orgSlug/marketplace': typeof AuthedOrgsOrgSlugMarketplaceRoute
+  '/orgs/$orgSlug/members': typeof AuthedOrgsOrgSlugMembersRoute
   '/settings/git-providers/$slug': typeof AuthedSettingsGitProvidersSlugRoute
   '/settings/security/passkey': typeof AuthedSettingsSecurityPasskeyRoute
   '/settings/security/passkeys': typeof AuthedSettingsSecurityPasskeysRoute
@@ -363,10 +378,12 @@ export interface FileRoutesByTo {
   '/databases/$': typeof AuthedDatabasesSplatRoute
   '/settings/notifications': typeof AuthedSettingsNotificationsRoute
   '/settings/registry': typeof AuthedSettingsRegistryRoute
+  '/invitations/accept': typeof PublicInvitationsAcceptRoute
   '/settings': typeof AuthedSettingsIndexRoute
   '/orgs/$orgSlug/audit': typeof AuthedOrgsOrgSlugAuditRoute
   '/orgs/$orgSlug/dashboard': typeof AuthedOrgsOrgSlugDashboardRoute
   '/orgs/$orgSlug/marketplace': typeof AuthedOrgsOrgSlugMarketplaceRoute
+  '/orgs/$orgSlug/members': typeof AuthedOrgsOrgSlugMembersRoute
   '/settings/git-providers/$slug': typeof AuthedSettingsGitProvidersSlugRoute
   '/settings/security/passkey': typeof AuthedSettingsSecurityPasskeyRoute
   '/settings/security/passkeys': typeof AuthedSettingsSecurityPasskeysRoute
@@ -409,10 +426,12 @@ export interface FileRoutesById {
   '/_authed/settings/notifications': typeof AuthedSettingsNotificationsRoute
   '/_authed/settings/registry': typeof AuthedSettingsRegistryRoute
   '/_authed/settings/security': typeof AuthedSettingsSecurityRouteWithChildren
+  '/_public/invitations/accept': typeof PublicInvitationsAcceptRoute
   '/_authed/settings/': typeof AuthedSettingsIndexRoute
   '/_authed/orgs/$orgSlug/audit': typeof AuthedOrgsOrgSlugAuditRoute
   '/_authed/orgs/$orgSlug/dashboard': typeof AuthedOrgsOrgSlugDashboardRoute
   '/_authed/orgs/$orgSlug/marketplace': typeof AuthedOrgsOrgSlugMarketplaceRoute
+  '/_authed/orgs/$orgSlug/members': typeof AuthedOrgsOrgSlugMembersRoute
   '/_authed/settings/git-providers/$slug': typeof AuthedSettingsGitProvidersSlugRoute
   '/_authed/settings/security/passkey': typeof AuthedSettingsSecurityPasskeyRoute
   '/_authed/settings/security/passkeys': typeof AuthedSettingsSecurityPasskeysRoute
@@ -456,10 +475,12 @@ export interface FileRouteTypes {
     | '/settings/notifications'
     | '/settings/registry'
     | '/settings/security'
+    | '/invitations/accept'
     | '/settings/'
     | '/orgs/$orgSlug/audit'
     | '/orgs/$orgSlug/dashboard'
     | '/orgs/$orgSlug/marketplace'
+    | '/orgs/$orgSlug/members'
     | '/settings/git-providers/$slug'
     | '/settings/security/passkey'
     | '/settings/security/passkeys'
@@ -499,10 +520,12 @@ export interface FileRouteTypes {
     | '/databases/$'
     | '/settings/notifications'
     | '/settings/registry'
+    | '/invitations/accept'
     | '/settings'
     | '/orgs/$orgSlug/audit'
     | '/orgs/$orgSlug/dashboard'
     | '/orgs/$orgSlug/marketplace'
+    | '/orgs/$orgSlug/members'
     | '/settings/git-providers/$slug'
     | '/settings/security/passkey'
     | '/settings/security/passkeys'
@@ -544,10 +567,12 @@ export interface FileRouteTypes {
     | '/_authed/settings/notifications'
     | '/_authed/settings/registry'
     | '/_authed/settings/security'
+    | '/_public/invitations/accept'
     | '/_authed/settings/'
     | '/_authed/orgs/$orgSlug/audit'
     | '/_authed/orgs/$orgSlug/dashboard'
     | '/_authed/orgs/$orgSlug/marketplace'
+    | '/_authed/orgs/$orgSlug/members'
     | '/_authed/settings/git-providers/$slug'
     | '/_authed/settings/security/passkey'
     | '/_authed/settings/security/passkeys'
@@ -646,6 +671,13 @@ declare module '@tanstack/react-router' {
       fullPath: '/settings/'
       preLoaderRoute: typeof AuthedSettingsIndexRouteImport
       parentRoute: typeof AuthedRoute
+    }
+    '/_public/invitations/accept': {
+      id: '/_public/invitations/accept'
+      path: '/invitations/accept'
+      fullPath: '/invitations/accept'
+      preLoaderRoute: typeof PublicInvitationsAcceptRouteImport
+      parentRoute: typeof PublicRoute
     }
     '/_authed/settings/security': {
       id: '/_authed/settings/security'
@@ -751,6 +783,13 @@ declare module '@tanstack/react-router' {
       fullPath: '/settings/git-providers/$slug'
       preLoaderRoute: typeof AuthedSettingsGitProvidersSlugRouteImport
       parentRoute: typeof AuthedRoute
+    }
+    '/_authed/orgs/$orgSlug/members': {
+      id: '/_authed/orgs/$orgSlug/members'
+      path: '/members'
+      fullPath: '/orgs/$orgSlug/members'
+      preLoaderRoute: typeof AuthedOrgsOrgSlugMembersRouteImport
+      parentRoute: typeof AuthedOrgsOrgSlugRoute
     }
     '/_authed/orgs/$orgSlug/marketplace': {
       id: '/_authed/orgs/$orgSlug/marketplace'
@@ -960,6 +999,7 @@ interface AuthedOrgsOrgSlugRouteChildren {
   AuthedOrgsOrgSlugAuditRoute: typeof AuthedOrgsOrgSlugAuditRoute
   AuthedOrgsOrgSlugDashboardRoute: typeof AuthedOrgsOrgSlugDashboardRoute
   AuthedOrgsOrgSlugMarketplaceRoute: typeof AuthedOrgsOrgSlugMarketplaceRoute
+  AuthedOrgsOrgSlugMembersRoute: typeof AuthedOrgsOrgSlugMembersRoute
   AuthedOrgsOrgSlugIndexRoute: typeof AuthedOrgsOrgSlugIndexRoute
   AuthedOrgsOrgSlugAppsIdRoute: typeof AuthedOrgsOrgSlugAppsIdRouteWithChildren
   AuthedOrgsOrgSlugDatabasesIdRoute: typeof AuthedOrgsOrgSlugDatabasesIdRoute
@@ -973,6 +1013,7 @@ const AuthedOrgsOrgSlugRouteChildren: AuthedOrgsOrgSlugRouteChildren = {
   AuthedOrgsOrgSlugAuditRoute: AuthedOrgsOrgSlugAuditRoute,
   AuthedOrgsOrgSlugDashboardRoute: AuthedOrgsOrgSlugDashboardRoute,
   AuthedOrgsOrgSlugMarketplaceRoute: AuthedOrgsOrgSlugMarketplaceRoute,
+  AuthedOrgsOrgSlugMembersRoute: AuthedOrgsOrgSlugMembersRoute,
   AuthedOrgsOrgSlugIndexRoute: AuthedOrgsOrgSlugIndexRoute,
   AuthedOrgsOrgSlugAppsIdRoute: AuthedOrgsOrgSlugAppsIdRouteWithChildren,
   AuthedOrgsOrgSlugDatabasesIdRoute: AuthedOrgsOrgSlugDatabasesIdRoute,
@@ -1046,12 +1087,14 @@ interface PublicRouteChildren {
   PublicLoginRoute: typeof PublicLoginRoute
   PublicRegisterRoute: typeof PublicRegisterRoute
   PublicIndexRoute: typeof PublicIndexRoute
+  PublicInvitationsAcceptRoute: typeof PublicInvitationsAcceptRoute
 }
 
 const PublicRouteChildren: PublicRouteChildren = {
   PublicLoginRoute: PublicLoginRoute,
   PublicRegisterRoute: PublicRegisterRoute,
   PublicIndexRoute: PublicIndexRoute,
+  PublicInvitationsAcceptRoute: PublicInvitationsAcceptRoute,
 }
 
 const PublicRouteWithChildren =
