@@ -45,7 +45,10 @@ const BUILD_STATUS_LABEL: Record<BuildStatus, string> = {
   cancelled: "Cancelled",
 }
 
-const IN_PROGRESS_STATUSES: ReadonlySet<BuildStatus> = new Set(["pending", "running"])
+const IN_PROGRESS_STATUSES: ReadonlySet<BuildStatus> = new Set([
+  "pending",
+  "running",
+])
 
 export function formatDuration(startMs?: number, endMs?: number): string {
   if (!startMs) return "—"
@@ -100,6 +103,8 @@ export interface DeploymentsTableProps {
   onSelectBuild: (buildId: string) => void
   /** Called when user confirms rollback on a build. */
   onRollback: (build: Build) => void
+  /** Called when user confirms cancel on an in-progress build. */
+  onCancel?: (build: Build) => void
   /** Loading state — shows skeleton rows when true. */
   isLoading?: boolean
 }
@@ -112,10 +117,18 @@ interface RowActionsProps {
   build: Build
   onSelectBuild: (id: string) => void
   onRollback: (build: Build) => void
+  onCancel?: (build: Build) => void
 }
 
-function RowActions({ build, onSelectBuild, onRollback }: RowActionsProps): React.JSX.Element {
-  const canRollback = build.status === "succeeded" || build.status === "succeeded_with_warning"
+function RowActions({
+  build,
+  onSelectBuild,
+  onRollback,
+  onCancel,
+}: RowActionsProps): React.JSX.Element {
+  const canRollback =
+    build.status === "succeeded" || build.status === "succeeded_with_warning"
+  const canCancel = IN_PROGRESS_STATUSES.has(build.status)
 
   return (
     <DropdownMenu>
@@ -128,18 +141,44 @@ function RowActions({ build, onSelectBuild, onRollback }: RowActionsProps): Reac
         </button>
       </DropdownMenuTrigger>
       <DropdownMenuContent align="end">
-        <DropdownMenuItem
-          onClick={() => onSelectBuild(build.id)}
-        >
+        <DropdownMenuItem onClick={() => onSelectBuild(build.id)}>
           View logs
         </DropdownMenuItem>
         <DropdownMenuSeparator />
+        {canCancel && onCancel ? (
+          <AlertDialog>
+            <AlertDialogTrigger asChild>
+              <DropdownMenuItem onSelect={(e) => e.preventDefault()}>
+                Cancel deployment
+              </DropdownMenuItem>
+            </AlertDialogTrigger>
+            <AlertDialogContent>
+              <AlertDialogHeader>
+                <AlertDialogTitle>Cancel this deployment?</AlertDialogTitle>
+                <AlertDialogDescription>
+                  Mark build{" "}
+                  <span className="font-mono">{build.id.slice(0, 8)}</span> as
+                  cancelled and stop scheduling new work. A build already mid
+                  push will finish its current phase, but no further steps will
+                  run.
+                </AlertDialogDescription>
+              </AlertDialogHeader>
+              <AlertDialogFooter>
+                <AlertDialogCancel>Keep running</AlertDialogCancel>
+                <AlertDialogAction
+                  variant="destructive"
+                  onClick={() => onCancel(build)}
+                >
+                  Cancel deployment
+                </AlertDialogAction>
+              </AlertDialogFooter>
+            </AlertDialogContent>
+          </AlertDialog>
+        ) : null}
         {canRollback ? (
           <AlertDialog>
             <AlertDialogTrigger asChild>
-              <DropdownMenuItem
-                onSelect={(e) => e.preventDefault()}
-              >
+              <DropdownMenuItem onSelect={(e) => e.preventDefault()}>
                 Rollback to this build
               </DropdownMenuItem>
             </AlertDialogTrigger>
@@ -165,9 +204,7 @@ function RowActions({ build, onSelectBuild, onRollback }: RowActionsProps): Reac
             </AlertDialogContent>
           </AlertDialog>
         ) : (
-          <DropdownMenuItem disabled>
-            Rollback (unavailable)
-          </DropdownMenuItem>
+          <DropdownMenuItem disabled>Rollback (unavailable)</DropdownMenuItem>
         )}
       </DropdownMenuContent>
     </DropdownMenu>
@@ -181,6 +218,7 @@ function RowActions({ build, onSelectBuild, onRollback }: RowActionsProps): Reac
 function makeColumns(
   onSelectBuild: (id: string) => void,
   onRollback: (build: Build) => void,
+  onCancel?: (build: Build) => void
 ): Array<ColumnDef<Build>> {
   return [
     {
@@ -190,7 +228,7 @@ function makeColumns(
         const sha = row.original.commitSha
         const msg = row.original.commitMessage
         return (
-          <div className="flex flex-col gap-0.5 min-w-0">
+          <div className="flex min-w-0 flex-col gap-0.5">
             {sha ? (
               <span className="font-mono text-xs">{sha.slice(0, 7)}</span>
             ) : (
@@ -198,7 +236,7 @@ function makeColumns(
             )}
             {msg ? (
               <span
-                className="text-xs text-muted-foreground truncate max-w-[240px]"
+                className="max-w-[240px] truncate text-xs text-muted-foreground"
                 title={msg}
               >
                 {truncate(msg, 60)}
@@ -222,10 +260,17 @@ function makeColumns(
               "inline-flex items-center gap-1.5 rounded-full px-2 py-0.5 text-xs font-medium",
               BUILD_STATUS_CLASS[status],
             ].join(" ")}
-            title={isWarning && postDeployError ? `Post-deploy hook failed: ${postDeployError}` : undefined}
+            title={
+              isWarning && postDeployError
+                ? `Post-deploy hook failed: ${postDeployError}`
+                : undefined
+            }
           >
             {inProgress && (
-              <RiLoader4Line className="size-3 animate-spin" aria-hidden="true" />
+              <RiLoader4Line
+                className="size-3 animate-spin"
+                aria-hidden="true"
+              />
             )}
             {BUILD_STATUS_LABEL[status] ?? status}
           </span>
@@ -270,14 +315,12 @@ function makeColumns(
       id: "actions",
       header: "",
       cell: ({ row }) => (
-        <div
-          className="flex justify-end"
-          onClick={(e) => e.stopPropagation()}
-        >
+        <div className="flex justify-end" onClick={(e) => e.stopPropagation()}>
           <RowActions
             build={row.original}
             onSelectBuild={onSelectBuild}
             onRollback={onRollback}
+            onCancel={onCancel}
           />
         </div>
       ),
@@ -293,11 +336,12 @@ export function DeploymentsTable({
   builds,
   onSelectBuild,
   onRollback,
+  onCancel,
   isLoading,
 }: DeploymentsTableProps): React.JSX.Element {
   const columns = React.useMemo(
-    () => makeColumns(onSelectBuild, onRollback),
-    [onSelectBuild, onRollback],
+    () => makeColumns(onSelectBuild, onRollback, onCancel),
+    [onSelectBuild, onRollback, onCancel]
   )
 
   if (isLoading) {
@@ -307,7 +351,7 @@ export function DeploymentsTable({
   if (!builds || builds.length === 0) {
     return (
       <div className="flex flex-col items-center justify-center rounded-lg border border-dashed border-border bg-muted/20 py-16 text-center">
-        <p className="text-sm font-medium mb-1">No deployments yet</p>
+        <p className="mb-1 text-sm font-medium">No deployments yet</p>
         <p className="text-sm text-muted-foreground">
           Trigger a deploy to start your first deployment.
         </p>
@@ -331,10 +375,10 @@ export function DeploymentsTable({
 
 function DeploymentsTableSkeleton(): React.JSX.Element {
   return (
-    <div className="rounded-lg border border-border overflow-hidden animate-pulse">
+    <div className="animate-pulse overflow-hidden rounded-lg border border-border">
       <div className="h-10 bg-muted/40" />
       {[...Array<null>(4)].map((_, i) => (
-        <div key={i} className="flex gap-4 px-4 py-3 border-t border-border/60">
+        <div key={i} className="flex gap-4 border-t border-border/60 px-4 py-3">
           <div className="h-4 w-16 rounded bg-muted" />
           <div className="h-4 w-20 rounded bg-muted" />
           <div className="h-4 w-12 rounded bg-muted" />

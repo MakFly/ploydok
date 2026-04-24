@@ -1,17 +1,28 @@
 // SPDX-License-Identifier: AGPL-3.0-only
 import * as React from "react"
-import { useNavigate, useParams, useRouterState, useSearch, createFileRoute } from "@tanstack/react-router"
+import {
+  useNavigate,
+  useParams,
+  useRouterState,
+  useSearch,
+  createFileRoute,
+} from "@tanstack/react-router"
 import { DeploymentsTable } from "../../../../../../components/apps/DeploymentsTable"
 import { BuildLogDrawer } from "../../../../../../components/apps/BuildLogDrawer"
 import { useBuilds } from "../../../../../../lib/apps"
-import { useRollbackApp } from "../../../../../../lib/apps-mutations"
+import {
+  useRollbackApp,
+  useCancelBuild,
+} from "../../../../../../lib/apps-mutations"
 import type { Build } from "@ploydok/shared"
 
 interface DeploymentsSearch {
   build?: string
 }
 
-function validateDeploymentsSearch(search: Record<string, unknown>): DeploymentsSearch {
+function validateDeploymentsSearch(
+  search: Record<string, unknown>
+): DeploymentsSearch {
   return {
     build: typeof search["build"] === "string" ? search["build"] : undefined,
   }
@@ -19,18 +30,25 @@ function validateDeploymentsSearch(search: Record<string, unknown>): Deployments
 
 function AppDeploymentsTab(): React.JSX.Element {
   const { id } = useParams({ strict: false }) as { id: string }
-  const { build: selectedBuildId } = useSearch({ strict: false }) as DeploymentsSearch
+  const { build: selectedBuildId } = useSearch({
+    strict: false,
+  }) as DeploymentsSearch
   const navigate = useNavigate()
-  const pathname = useRouterState({ select: (state) => state.location.pathname })
+  const pathname = useRouterState({
+    select: (state) => state.location.pathname,
+  })
 
   const { data: builds, isLoading, error } = useBuilds(id)
   const rollback = useRollbackApp(id)
+  const cancelBuild = useCancelBuild(id)
 
   const handleSelectBuild = React.useCallback(
     (buildId: string) => {
-      void navigate({ href: `${pathname}?build=${encodeURIComponent(buildId)}` })
+      void navigate({
+        href: `${pathname}?build=${encodeURIComponent(buildId)}`,
+      })
     },
-    [navigate, pathname],
+    [navigate, pathname]
   )
 
   const handleCloseDrawer = React.useCallback(() => {
@@ -41,7 +59,14 @@ function AppDeploymentsTab(): React.JSX.Element {
     (build: Build) => {
       rollback.mutate({ buildId: build.id })
     },
-    [rollback],
+    [rollback]
+  )
+
+  const handleCancel = React.useCallback(
+    (build: Build) => {
+      cancelBuild.mutate({ buildId: build.id })
+    },
+    [cancelBuild]
   )
 
   if (error) {
@@ -61,6 +86,7 @@ function AppDeploymentsTab(): React.JSX.Element {
         isLoading={isLoading}
         onSelectBuild={handleSelectBuild}
         onRollback={handleRollback}
+        onCancel={handleCancel}
       />
 
       <BuildLogDrawer
@@ -72,7 +98,9 @@ function AppDeploymentsTab(): React.JSX.Element {
   )
 }
 
-export const Route = createFileRoute("/_authed/orgs/$orgSlug/apps/$id/deployments")({
+export const Route = createFileRoute(
+  "/_authed/orgs/$orgSlug/apps/$id/deployments"
+)({
   validateSearch: validateDeploymentsSearch,
   component: AppDeploymentsTab,
 })
