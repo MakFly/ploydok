@@ -12,7 +12,7 @@ export const ContainerStatusSchema = z.enum([
 ])
 export type ContainerStatus = z.infer<typeof ContainerStatusSchema>
 
-export const ContainerKindSchema = z.enum(["app", "infra", "agent"])
+export const ContainerKindSchema = z.enum(["app", "infra", "agent", "database"])
 export type ContainerKind = z.infer<typeof ContainerKindSchema>
 
 export const ContainerColorSchema = z.enum(["blue", "green"])
@@ -29,7 +29,7 @@ export const ContainerSnapshotSchema = z.object({
   mem_limit_bytes: z.number().int().nonnegative(),
   restart_count: z.number().int().nonnegative(),
   kind: ContainerKindSchema.optional(), // absent si inconnu
-  app_id: z.string().optional(), // présent si kind === "app"
+  app_id: z.string().optional(), // app id for app containers, db id for database containers
   color: ContainerColorSchema.optional(), // présent si kind === "app"
   last_ping_ms: z.number().int().nonnegative().optional(),
   last_ping_ok: z.boolean().optional(),

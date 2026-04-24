@@ -8,12 +8,11 @@ import {
   RiNotification3Line,
   RiRefreshLine,
 } from "@remixicon/react"
-import {
-  
-  
-  useNotifications
-} from "../../lib/notifications"
-import type {NotificationEvent, NotificationType} from "../../lib/notifications";
+import { useNavigate } from "@tanstack/react-router"
+import { resolveNotificationHref } from "../../lib/notification-destinations"
+import { useNotifications } from "../../lib/notifications"
+import { useCurrentOrganizationSlug } from "../../lib/organizations"
+import type { NotificationEvent, NotificationType } from "../../lib/notifications"
 
 function cx(...values: Array<string | false | null | undefined>): string {
   return values.filter(Boolean).join(" ")
@@ -44,20 +43,50 @@ function notificationIcon(type: NotificationType): React.JSX.Element {
   return <RiInformationLine className="mt-0.5 size-4 shrink-0 text-muted-foreground" />
 }
 
-function NotificationItem({ item }: { item: NotificationEvent }): React.JSX.Element {
+function NotificationItemContent({ item }: { item: NotificationEvent }): React.JSX.Element {
   return (
-    <div className="flex items-start gap-2 px-3 py-2">
+    <>
       {notificationIcon(item.type)}
       <div className="min-w-0 flex-1">
-        <p className="text-xs leading-5">{item.message}</p>
+        <p className="break-words text-xs leading-5">{item.message}</p>
         <p className="text-muted-foreground text-[10px]">{relativeTime(item.t)}</p>
       </div>
-    </div>
+    </>
+  )
+}
+
+function NotificationItem({
+  item,
+  href,
+  onNavigate,
+}: {
+  item: NotificationEvent
+  href: string | null
+  onNavigate: (href: string) => void
+}): React.JSX.Element {
+  if (!href) {
+    return (
+      <div className="flex items-start gap-2 px-3 py-2">
+        <NotificationItemContent item={item} />
+      </div>
+    )
+  }
+
+  return (
+    <button
+      type="button"
+      onClick={() => onNavigate(href)}
+      className="hover:bg-muted/70 focus-visible:bg-muted/70 flex w-full items-start gap-2 px-3 py-2 text-left outline-none transition-colors"
+    >
+      <NotificationItemContent item={item} />
+    </button>
   )
 }
 
 export function NotificationBell(): React.JSX.Element {
   const { state, markAllRead, clear } = useNotifications()
+  const navigate = useNavigate()
+  const orgSlug = useCurrentOrganizationSlug()
   const [open, setOpen] = React.useState(false)
   const containerRef = React.useRef<HTMLDivElement>(null)
 
@@ -67,6 +96,14 @@ export function NotificationBell(): React.JSX.Element {
   const handleToggle = (): void => {
     setOpen((v) => !v)
   }
+
+  const handleNavigate = React.useCallback(
+    (href: string): void => {
+      setOpen(false)
+      void navigate({ href })
+    },
+    [navigate],
+  )
 
   // Mark all read when the popover closes (open: true → false).
   const prevOpenRef = React.useRef(open)
@@ -128,7 +165,7 @@ export function NotificationBell(): React.JSX.Element {
 
       {/* Dropdown */}
       {open ? (
-        <div className="border-border bg-popover absolute right-0 top-full z-50 mt-2 w-80 overflow-hidden rounded-md border shadow-md">
+        <div className="border-border bg-popover absolute right-0 top-full z-50 mt-2 w-[min(20rem,calc(100vw-2rem))] overflow-hidden rounded-md border shadow-md">
           {/* Header */}
           <div className="border-border flex items-center justify-between border-b px-3 py-2">
             <span className="text-xs font-semibold">Notifications</span>
@@ -158,7 +195,11 @@ export function NotificationBell(): React.JSX.Element {
                 <ul className="divide-border divide-y">
                   {unread.map((item) => (
                     <li key={item.id}>
-                      <NotificationItem item={item} />
+                      <NotificationItem
+                        item={item}
+                        href={resolveNotificationHref(item, orgSlug)}
+                        onNavigate={handleNavigate}
+                      />
                     </li>
                   ))}
                 </ul>

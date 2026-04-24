@@ -33,6 +33,7 @@ import { Route as AuthedSettingsSecurityPostureRouteImport } from './routes/_aut
 import { Route as AuthedSettingsSecurityPasskeysRouteImport } from './routes/_authed/settings/security/passkeys'
 import { Route as AuthedSettingsSecurityPasskeyRouteImport } from './routes/_authed/settings/security/passkey'
 import { Route as AuthedSettingsGitProvidersSlugRouteImport } from './routes/_authed/settings/git-providers/$slug'
+import { Route as AuthedOrgsOrgSlugMarketplaceRouteImport } from './routes/_authed/orgs/$orgSlug/marketplace'
 import { Route as AuthedOrgsOrgSlugDashboardRouteImport } from './routes/_authed/orgs/$orgSlug/dashboard'
 import { Route as AuthedOrgsOrgSlugDatabasesIndexRouteImport } from './routes/_authed/orgs/$orgSlug/databases/index'
 import { Route as AuthedOrgsOrgSlugAppsIndexRouteImport } from './routes/_authed/orgs/$orgSlug/apps/index'
@@ -48,9 +49,7 @@ import { Route as AuthedOrgsOrgSlugAppsIdDomainsRouteImport } from './routes/_au
 import { Route as AuthedOrgsOrgSlugAppsIdDeploymentsRouteImport } from './routes/_authed/orgs/$orgSlug/apps/$id/deployments'
 import { Route as AuthedOrgsOrgSlugAppsIdSettingsIndexRouteImport } from './routes/_authed/orgs/$orgSlug/apps/$id/settings/index'
 import { Route as AuthedOrgsOrgSlugAppsIdSettingsWebhooksRouteImport } from './routes/_authed/orgs/$orgSlug/apps/$id/settings/webhooks'
-import { Route as AuthedOrgsOrgSlugAppsIdSettingsWebhookSecretRouteImport } from './routes/_authed/orgs/$orgSlug/apps/$id/settings/webhook-secret'
 import { Route as AuthedOrgsOrgSlugAppsIdSettingsProtectionRouteImport } from './routes/_authed/orgs/$orgSlug/apps/$id/settings/protection'
-import { Route as AuthedOrgsOrgSlugAppsIdSettingsNotificationsRouteImport } from './routes/_authed/orgs/$orgSlug/apps/$id/settings/notifications'
 
 const PublicRoute = PublicRouteImport.update({
   id: '/_public',
@@ -179,6 +178,12 @@ const AuthedSettingsGitProvidersSlugRoute =
     path: '/settings/git-providers/$slug',
     getParentRoute: () => AuthedRoute,
   } as any)
+const AuthedOrgsOrgSlugMarketplaceRoute =
+  AuthedOrgsOrgSlugMarketplaceRouteImport.update({
+    id: '/marketplace',
+    path: '/marketplace',
+    getParentRoute: () => AuthedOrgsOrgSlugRoute,
+  } as any)
 const AuthedOrgsOrgSlugDashboardRoute =
   AuthedOrgsOrgSlugDashboardRouteImport.update({
     id: '/dashboard',
@@ -268,22 +273,10 @@ const AuthedOrgsOrgSlugAppsIdSettingsWebhooksRoute =
     path: '/webhooks',
     getParentRoute: () => AuthedOrgsOrgSlugAppsIdSettingsRoute,
   } as any)
-const AuthedOrgsOrgSlugAppsIdSettingsWebhookSecretRoute =
-  AuthedOrgsOrgSlugAppsIdSettingsWebhookSecretRouteImport.update({
-    id: '/webhook-secret',
-    path: '/webhook-secret',
-    getParentRoute: () => AuthedOrgsOrgSlugAppsIdSettingsRoute,
-  } as any)
 const AuthedOrgsOrgSlugAppsIdSettingsProtectionRoute =
   AuthedOrgsOrgSlugAppsIdSettingsProtectionRouteImport.update({
     id: '/protection',
     path: '/protection',
-    getParentRoute: () => AuthedOrgsOrgSlugAppsIdSettingsRoute,
-  } as any)
-const AuthedOrgsOrgSlugAppsIdSettingsNotificationsRoute =
-  AuthedOrgsOrgSlugAppsIdSettingsNotificationsRouteImport.update({
-    id: '/notifications',
-    path: '/notifications',
     getParentRoute: () => AuthedOrgsOrgSlugAppsIdSettingsRoute,
   } as any)
 
@@ -302,6 +295,7 @@ export interface FileRoutesByFullPath {
   '/settings/security': typeof AuthedSettingsSecurityRouteWithChildren
   '/settings/': typeof AuthedSettingsIndexRoute
   '/orgs/$orgSlug/dashboard': typeof AuthedOrgsOrgSlugDashboardRoute
+  '/orgs/$orgSlug/marketplace': typeof AuthedOrgsOrgSlugMarketplaceRoute
   '/settings/git-providers/$slug': typeof AuthedSettingsGitProvidersSlugRoute
   '/settings/security/passkey': typeof AuthedSettingsSecurityPasskeyRoute
   '/settings/security/passkeys': typeof AuthedSettingsSecurityPasskeysRoute
@@ -323,9 +317,7 @@ export interface FileRoutesByFullPath {
   '/orgs/$orgSlug/apps/$id/settings': typeof AuthedOrgsOrgSlugAppsIdSettingsRouteWithChildren
   '/orgs/$orgSlug/apps/$id/shell': typeof AuthedOrgsOrgSlugAppsIdShellRoute
   '/orgs/$orgSlug/apps/$id/': typeof AuthedOrgsOrgSlugAppsIdIndexRoute
-  '/orgs/$orgSlug/apps/$id/settings/notifications': typeof AuthedOrgsOrgSlugAppsIdSettingsNotificationsRoute
   '/orgs/$orgSlug/apps/$id/settings/protection': typeof AuthedOrgsOrgSlugAppsIdSettingsProtectionRoute
-  '/orgs/$orgSlug/apps/$id/settings/webhook-secret': typeof AuthedOrgsOrgSlugAppsIdSettingsWebhookSecretRoute
   '/orgs/$orgSlug/apps/$id/settings/webhooks': typeof AuthedOrgsOrgSlugAppsIdSettingsWebhooksRoute
   '/orgs/$orgSlug/apps/$id/settings/': typeof AuthedOrgsOrgSlugAppsIdSettingsIndexRoute
 }
@@ -342,6 +334,7 @@ export interface FileRoutesByTo {
   '/settings/registry': typeof AuthedSettingsRegistryRoute
   '/settings': typeof AuthedSettingsIndexRoute
   '/orgs/$orgSlug/dashboard': typeof AuthedOrgsOrgSlugDashboardRoute
+  '/orgs/$orgSlug/marketplace': typeof AuthedOrgsOrgSlugMarketplaceRoute
   '/settings/git-providers/$slug': typeof AuthedSettingsGitProvidersSlugRoute
   '/settings/security/passkey': typeof AuthedSettingsSecurityPasskeyRoute
   '/settings/security/passkeys': typeof AuthedSettingsSecurityPasskeysRoute
@@ -361,9 +354,7 @@ export interface FileRoutesByTo {
   '/orgs/$orgSlug/apps/$id/overview': typeof AuthedOrgsOrgSlugAppsIdOverviewRoute
   '/orgs/$orgSlug/apps/$id/shell': typeof AuthedOrgsOrgSlugAppsIdShellRoute
   '/orgs/$orgSlug/apps/$id': typeof AuthedOrgsOrgSlugAppsIdIndexRoute
-  '/orgs/$orgSlug/apps/$id/settings/notifications': typeof AuthedOrgsOrgSlugAppsIdSettingsNotificationsRoute
   '/orgs/$orgSlug/apps/$id/settings/protection': typeof AuthedOrgsOrgSlugAppsIdSettingsProtectionRoute
-  '/orgs/$orgSlug/apps/$id/settings/webhook-secret': typeof AuthedOrgsOrgSlugAppsIdSettingsWebhookSecretRoute
   '/orgs/$orgSlug/apps/$id/settings/webhooks': typeof AuthedOrgsOrgSlugAppsIdSettingsWebhooksRoute
   '/orgs/$orgSlug/apps/$id/settings': typeof AuthedOrgsOrgSlugAppsIdSettingsIndexRoute
 }
@@ -385,6 +376,7 @@ export interface FileRoutesById {
   '/_authed/settings/security': typeof AuthedSettingsSecurityRouteWithChildren
   '/_authed/settings/': typeof AuthedSettingsIndexRoute
   '/_authed/orgs/$orgSlug/dashboard': typeof AuthedOrgsOrgSlugDashboardRoute
+  '/_authed/orgs/$orgSlug/marketplace': typeof AuthedOrgsOrgSlugMarketplaceRoute
   '/_authed/settings/git-providers/$slug': typeof AuthedSettingsGitProvidersSlugRoute
   '/_authed/settings/security/passkey': typeof AuthedSettingsSecurityPasskeyRoute
   '/_authed/settings/security/passkeys': typeof AuthedSettingsSecurityPasskeysRoute
@@ -406,9 +398,7 @@ export interface FileRoutesById {
   '/_authed/orgs/$orgSlug/apps/$id/settings': typeof AuthedOrgsOrgSlugAppsIdSettingsRouteWithChildren
   '/_authed/orgs/$orgSlug/apps/$id/shell': typeof AuthedOrgsOrgSlugAppsIdShellRoute
   '/_authed/orgs/$orgSlug/apps/$id/': typeof AuthedOrgsOrgSlugAppsIdIndexRoute
-  '/_authed/orgs/$orgSlug/apps/$id/settings/notifications': typeof AuthedOrgsOrgSlugAppsIdSettingsNotificationsRoute
   '/_authed/orgs/$orgSlug/apps/$id/settings/protection': typeof AuthedOrgsOrgSlugAppsIdSettingsProtectionRoute
-  '/_authed/orgs/$orgSlug/apps/$id/settings/webhook-secret': typeof AuthedOrgsOrgSlugAppsIdSettingsWebhookSecretRoute
   '/_authed/orgs/$orgSlug/apps/$id/settings/webhooks': typeof AuthedOrgsOrgSlugAppsIdSettingsWebhooksRoute
   '/_authed/orgs/$orgSlug/apps/$id/settings/': typeof AuthedOrgsOrgSlugAppsIdSettingsIndexRoute
 }
@@ -429,6 +419,7 @@ export interface FileRouteTypes {
     | '/settings/security'
     | '/settings/'
     | '/orgs/$orgSlug/dashboard'
+    | '/orgs/$orgSlug/marketplace'
     | '/settings/git-providers/$slug'
     | '/settings/security/passkey'
     | '/settings/security/passkeys'
@@ -450,9 +441,7 @@ export interface FileRouteTypes {
     | '/orgs/$orgSlug/apps/$id/settings'
     | '/orgs/$orgSlug/apps/$id/shell'
     | '/orgs/$orgSlug/apps/$id/'
-    | '/orgs/$orgSlug/apps/$id/settings/notifications'
     | '/orgs/$orgSlug/apps/$id/settings/protection'
-    | '/orgs/$orgSlug/apps/$id/settings/webhook-secret'
     | '/orgs/$orgSlug/apps/$id/settings/webhooks'
     | '/orgs/$orgSlug/apps/$id/settings/'
   fileRoutesByTo: FileRoutesByTo
@@ -469,6 +458,7 @@ export interface FileRouteTypes {
     | '/settings/registry'
     | '/settings'
     | '/orgs/$orgSlug/dashboard'
+    | '/orgs/$orgSlug/marketplace'
     | '/settings/git-providers/$slug'
     | '/settings/security/passkey'
     | '/settings/security/passkeys'
@@ -488,9 +478,7 @@ export interface FileRouteTypes {
     | '/orgs/$orgSlug/apps/$id/overview'
     | '/orgs/$orgSlug/apps/$id/shell'
     | '/orgs/$orgSlug/apps/$id'
-    | '/orgs/$orgSlug/apps/$id/settings/notifications'
     | '/orgs/$orgSlug/apps/$id/settings/protection'
-    | '/orgs/$orgSlug/apps/$id/settings/webhook-secret'
     | '/orgs/$orgSlug/apps/$id/settings/webhooks'
     | '/orgs/$orgSlug/apps/$id/settings'
   id:
@@ -511,6 +499,7 @@ export interface FileRouteTypes {
     | '/_authed/settings/security'
     | '/_authed/settings/'
     | '/_authed/orgs/$orgSlug/dashboard'
+    | '/_authed/orgs/$orgSlug/marketplace'
     | '/_authed/settings/git-providers/$slug'
     | '/_authed/settings/security/passkey'
     | '/_authed/settings/security/passkeys'
@@ -532,9 +521,7 @@ export interface FileRouteTypes {
     | '/_authed/orgs/$orgSlug/apps/$id/settings'
     | '/_authed/orgs/$orgSlug/apps/$id/shell'
     | '/_authed/orgs/$orgSlug/apps/$id/'
-    | '/_authed/orgs/$orgSlug/apps/$id/settings/notifications'
     | '/_authed/orgs/$orgSlug/apps/$id/settings/protection'
-    | '/_authed/orgs/$orgSlug/apps/$id/settings/webhook-secret'
     | '/_authed/orgs/$orgSlug/apps/$id/settings/webhooks'
     | '/_authed/orgs/$orgSlug/apps/$id/settings/'
   fileRoutesById: FileRoutesById
@@ -714,6 +701,13 @@ declare module '@tanstack/react-router' {
       preLoaderRoute: typeof AuthedSettingsGitProvidersSlugRouteImport
       parentRoute: typeof AuthedRoute
     }
+    '/_authed/orgs/$orgSlug/marketplace': {
+      id: '/_authed/orgs/$orgSlug/marketplace'
+      path: '/marketplace'
+      fullPath: '/orgs/$orgSlug/marketplace'
+      preLoaderRoute: typeof AuthedOrgsOrgSlugMarketplaceRouteImport
+      parentRoute: typeof AuthedOrgsOrgSlugRoute
+    }
     '/_authed/orgs/$orgSlug/dashboard': {
       id: '/_authed/orgs/$orgSlug/dashboard'
       path: '/dashboard'
@@ -819,13 +813,6 @@ declare module '@tanstack/react-router' {
       preLoaderRoute: typeof AuthedOrgsOrgSlugAppsIdSettingsWebhooksRouteImport
       parentRoute: typeof AuthedOrgsOrgSlugAppsIdSettingsRoute
     }
-    '/_authed/orgs/$orgSlug/apps/$id/settings/webhook-secret': {
-      id: '/_authed/orgs/$orgSlug/apps/$id/settings/webhook-secret'
-      path: '/webhook-secret'
-      fullPath: '/orgs/$orgSlug/apps/$id/settings/webhook-secret'
-      preLoaderRoute: typeof AuthedOrgsOrgSlugAppsIdSettingsWebhookSecretRouteImport
-      parentRoute: typeof AuthedOrgsOrgSlugAppsIdSettingsRoute
-    }
     '/_authed/orgs/$orgSlug/apps/$id/settings/protection': {
       id: '/_authed/orgs/$orgSlug/apps/$id/settings/protection'
       path: '/protection'
@@ -833,32 +820,19 @@ declare module '@tanstack/react-router' {
       preLoaderRoute: typeof AuthedOrgsOrgSlugAppsIdSettingsProtectionRouteImport
       parentRoute: typeof AuthedOrgsOrgSlugAppsIdSettingsRoute
     }
-    '/_authed/orgs/$orgSlug/apps/$id/settings/notifications': {
-      id: '/_authed/orgs/$orgSlug/apps/$id/settings/notifications'
-      path: '/notifications'
-      fullPath: '/orgs/$orgSlug/apps/$id/settings/notifications'
-      preLoaderRoute: typeof AuthedOrgsOrgSlugAppsIdSettingsNotificationsRouteImport
-      parentRoute: typeof AuthedOrgsOrgSlugAppsIdSettingsRoute
-    }
   }
 }
 
 interface AuthedOrgsOrgSlugAppsIdSettingsRouteChildren {
-  AuthedOrgsOrgSlugAppsIdSettingsNotificationsRoute: typeof AuthedOrgsOrgSlugAppsIdSettingsNotificationsRoute
   AuthedOrgsOrgSlugAppsIdSettingsProtectionRoute: typeof AuthedOrgsOrgSlugAppsIdSettingsProtectionRoute
-  AuthedOrgsOrgSlugAppsIdSettingsWebhookSecretRoute: typeof AuthedOrgsOrgSlugAppsIdSettingsWebhookSecretRoute
   AuthedOrgsOrgSlugAppsIdSettingsWebhooksRoute: typeof AuthedOrgsOrgSlugAppsIdSettingsWebhooksRoute
   AuthedOrgsOrgSlugAppsIdSettingsIndexRoute: typeof AuthedOrgsOrgSlugAppsIdSettingsIndexRoute
 }
 
 const AuthedOrgsOrgSlugAppsIdSettingsRouteChildren: AuthedOrgsOrgSlugAppsIdSettingsRouteChildren =
   {
-    AuthedOrgsOrgSlugAppsIdSettingsNotificationsRoute:
-      AuthedOrgsOrgSlugAppsIdSettingsNotificationsRoute,
     AuthedOrgsOrgSlugAppsIdSettingsProtectionRoute:
       AuthedOrgsOrgSlugAppsIdSettingsProtectionRoute,
-    AuthedOrgsOrgSlugAppsIdSettingsWebhookSecretRoute:
-      AuthedOrgsOrgSlugAppsIdSettingsWebhookSecretRoute,
     AuthedOrgsOrgSlugAppsIdSettingsWebhooksRoute:
       AuthedOrgsOrgSlugAppsIdSettingsWebhooksRoute,
     AuthedOrgsOrgSlugAppsIdSettingsIndexRoute:
@@ -902,6 +876,7 @@ const AuthedOrgsOrgSlugAppsIdRouteWithChildren =
 
 interface AuthedOrgsOrgSlugRouteChildren {
   AuthedOrgsOrgSlugDashboardRoute: typeof AuthedOrgsOrgSlugDashboardRoute
+  AuthedOrgsOrgSlugMarketplaceRoute: typeof AuthedOrgsOrgSlugMarketplaceRoute
   AuthedOrgsOrgSlugIndexRoute: typeof AuthedOrgsOrgSlugIndexRoute
   AuthedOrgsOrgSlugAppsIdRoute: typeof AuthedOrgsOrgSlugAppsIdRouteWithChildren
   AuthedOrgsOrgSlugDatabasesIdRoute: typeof AuthedOrgsOrgSlugDatabasesIdRoute
@@ -911,6 +886,7 @@ interface AuthedOrgsOrgSlugRouteChildren {
 
 const AuthedOrgsOrgSlugRouteChildren: AuthedOrgsOrgSlugRouteChildren = {
   AuthedOrgsOrgSlugDashboardRoute: AuthedOrgsOrgSlugDashboardRoute,
+  AuthedOrgsOrgSlugMarketplaceRoute: AuthedOrgsOrgSlugMarketplaceRoute,
   AuthedOrgsOrgSlugIndexRoute: AuthedOrgsOrgSlugIndexRoute,
   AuthedOrgsOrgSlugAppsIdRoute: AuthedOrgsOrgSlugAppsIdRouteWithChildren,
   AuthedOrgsOrgSlugDatabasesIdRoute: AuthedOrgsOrgSlugDatabasesIdRoute,

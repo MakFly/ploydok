@@ -201,8 +201,8 @@ export function createDatabasesRouter(db: Db): Hono<any, any, any> {
     })
   })
 
-  // POST /databases/:id/reveal — TOTP required, returns connection string
-  router.post("/:id/reveal", totpMiddleware, async (c) => {
+  // POST /databases/:id/reveal — returns connection string (client-side confirmation only)
+  router.post("/:id/reveal", async (c) => {
     const user = getUser(c)
     const dbId = c.req.param("id")
 

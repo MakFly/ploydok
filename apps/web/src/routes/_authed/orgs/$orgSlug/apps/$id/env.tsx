@@ -15,6 +15,25 @@ import type { SecretPhase, SecretScope } from "../../../../../../lib/secrets"
 
 const SCOPES: SecretScope[] = ["shared", "prod", "preview", "dev"]
 
+const SCOPE_LABELS: Record<SecretScope, { label: string; hint: string }> = {
+  shared: {
+    label: "All environments",
+    hint: "Injected into production, preview and development builds.",
+  },
+  prod: {
+    label: "Production",
+    hint: "Only injected when the app is deployed on the production branch.",
+  },
+  preview: {
+    label: "Preview",
+    hint: "Only injected into preview deployments (PR / feature branches).",
+  },
+  dev: {
+    label: "Development",
+    hint: "Only injected when running the app locally with the Ploydok CLI.",
+  },
+}
+
 function AppEnvTab(): React.JSX.Element {
   const { id: appId } = useParams({ strict: false }) as { id: string }
   const [activeScope, setActiveScope] = React.useState<SecretScope>("shared")
@@ -40,7 +59,7 @@ function AppEnvTab(): React.JSX.Element {
   }
 
   return (
-    <div className="w-full space-y-4 px-4 py-6 md:px-6 md:py-8">
+    <div className="w-full space-y-4 px-4 py-6 md:px-8 md:py-8">
       {/* Toolbar */}
       <div className="flex items-center justify-between gap-3">
         <h2 className="text-sm font-medium text-muted-foreground">Encrypted secrets — AES-256-GCM at rest</h2>
@@ -74,11 +93,15 @@ function AppEnvTab(): React.JSX.Element {
       <Tabs value={activeScope} onValueChange={(v) => setActiveScope(v as SecretScope)}>
         <TabsList>
           {SCOPES.map((s) => (
-            <TabsTrigger key={s} value={s}>
-              {s}
+            <TabsTrigger key={s} value={s} title={SCOPE_LABELS[s].hint}>
+              {SCOPE_LABELS[s].label}
             </TabsTrigger>
           ))}
         </TabsList>
+
+        <p className="mt-2 text-xs text-muted-foreground">
+          {SCOPE_LABELS[activeScope].hint}
+        </p>
 
         {SCOPES.map((s) => (
           <TabsContent key={s} value={s}>

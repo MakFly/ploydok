@@ -233,6 +233,8 @@ export function useLogStream({
             return
           }
           setError(null)
+          setLines([])
+          counterRef.current = 0
           for (const raw of result.lines) appendLine(raw)
         })
         .catch((err: unknown) => {

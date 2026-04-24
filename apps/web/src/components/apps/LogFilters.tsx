@@ -279,7 +279,7 @@ export function useLogFilters(
   defaults?: Partial<LogFiltersState>,
 ): [LogFiltersState, (next: Partial<LogFiltersState>) => void] {
   const [state, setState] = React.useState<LogFiltersState>({
-    volume: 1000,
+    volume: 100,
     level: "all",
     search: "",
     paused: false,

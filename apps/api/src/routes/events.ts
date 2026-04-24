@@ -6,13 +6,16 @@
 // The user is available via c.get("user").
 //
 // Stream lifecycle:
-//   1. Replay last 20 events for channel user:{userId}.
+//   1. Replay last 20 events for channel user:{userId}, filtered by the
+//      persisted last_read_at cursor so already-read events don't re-inflate
+//      the client badge after a reconnect.
 //   2. Subscribe to live events on the same channel.
-//   3. Send a heartbeat ping every 30 s.
+//   3. Send a heartbeat ping every HEARTBEAT_INTERVAL_MS.
 //   4. On abort: clear heartbeat + unsubscribe.
 
 import { Hono } from "hono"
 import { streamSSE } from "hono/streaming"
+import { z } from "zod"
 import { createDb } from "@ploydok/db"
 import { getReadState, markNotificationsRead } from "@ploydok/db/queries"
 import { eventBus } from "../worker/event-bus"
@@ -39,7 +42,7 @@ const REPLAY_LIMIT = 20
 export const eventsRouter = new Hono<{ Variables: { user?: AuthUser } }>()
 
 // GET / — SSE stream for the authenticated user
-eventsRouter.get("/", (c) => {
+eventsRouter.get("/", async (c) => {
   const user = c.get("user") as AuthUser | undefined
 
   if (!user) {
@@ -50,11 +53,17 @@ eventsRouter.get("/", (c) => {
   }
 
   const channel = `user:${user.id}`
+  const lastReadAt = await getReadState(db, user.id)
+  const cursorMs = lastReadAt?.getTime() ?? 0
 
   return streamSSE(c, async (stream) => {
-    // 1. Replay buffered history.
+    // 1. Replay buffered history, skipping events already covered by the
+    // persisted last_read_at cursor. Prevents the badge from re-inflating on
+    // every SSE reconnect while still letting the client dedup by id if the
+    // same event arrives again via the live subscription.
     const history = eventBus.replay(channel, REPLAY_LIMIT)
     for (const event of history) {
+      if (event.t <= cursorMs) continue
       await stream.writeSSE({
         data: JSON.stringify(event),
         event: event.type,
@@ -75,7 +84,7 @@ eventsRouter.get("/", (c) => {
         })
     })
 
-    // 3. Heartbeat every 30 s.
+    // 3. Heartbeat every HEARTBEAT_INTERVAL_MS.
     const hb = setInterval(() => {
       stream
         .writeSSE({ event: "ping", data: String(Date.now()) })
@@ -116,6 +125,10 @@ eventsRouter.get("/read-state", async (c) => {
 // (defaults to "now"). The bell calls this whenever its dropdown closes.
 // ---------------------------------------------------------------------------
 
+const MarkReadBody = z.object({
+  at: z.string().datetime().optional(),
+})
+
 eventsRouter.post("/mark-read", async (c) => {
   const user = c.get("user") as AuthUser | undefined
   if (!user) {
@@ -124,17 +137,15 @@ eventsRouter.post("/mark-read", async (c) => {
       401,
     )
   }
-  let body: { at?: string } = {}
-  try {
-    const raw = await c.req.json().catch(() => ({}))
-    if (raw && typeof raw === "object") body = raw as { at?: string }
-  } catch {
-    // body is optional
+  const raw = await c.req.json().catch(() => ({}))
+  const parsed = MarkReadBody.safeParse(raw)
+  if (!parsed.success) {
+    return c.json(
+      { error: { code: "BAD_REQUEST", message: "invalid 'at' timestamp" } },
+      400,
+    )
   }
-  const at = body.at ? new Date(body.at) : new Date()
-  if (Number.isNaN(at.getTime())) {
-    return c.json({ error: { code: "BAD_REQUEST", message: "invalid 'at' timestamp" } }, 400)
-  }
+  const at = parsed.data.at ? new Date(parsed.data.at) : new Date()
   await markNotificationsRead(db, user.id, at)
   return c.json({ lastReadAt: at.toISOString() })
 })

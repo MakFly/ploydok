@@ -485,6 +485,9 @@ function FilterBar({
           <Chip active={kind === "app"} onClick={() => onKindChange("app")}>
             App
           </Chip>
+          <Chip active={kind === "database"} onClick={() => onKindChange("database")}>
+            Database
+          </Chip>
           <Chip active={kind === "infra"} onClick={() => onKindChange("infra")}>
             Infra
           </Chip>

@@ -301,8 +301,11 @@ describe("monitoringTick — diff loop logic", () => {
         }),
     } as unknown as Parameters<typeof monitoringTick>[0]
 
-    await monitoringTick(fakeAgent, fakePub as typeof eventBus.publish, prev, () =>
-      Promise.resolve("user-1"),
+    await monitoringTick(
+      fakeAgent,
+      fakePub as typeof eventBus.publish,
+      prev,
+      (_kind, _runtimeId) => Promise.resolve("user-1"),
     )
 
     // First tick with status "running" must emit (catches blue-green new container).
@@ -342,8 +345,11 @@ describe("monitoringTick — diff loop logic", () => {
         }),
     } as unknown as Parameters<typeof monitoringTick>[0]
 
-    await monitoringTick(fakeAgent, eventBus.publish.bind(eventBus), prev, () =>
-      Promise.resolve("user-1"),
+    await monitoringTick(
+      fakeAgent,
+      eventBus.publish.bind(eventBus),
+      prev,
+      (_kind, _runtimeId) => Promise.resolve("user-1"),
     )
 
     // First tick with non-running status must NOT emit.
@@ -386,8 +392,11 @@ describe("monitoringTick — diff loop logic", () => {
         }),
     } as unknown as Parameters<typeof monitoringTick>[0]
 
-    await monitoringTick(fakeAgent, fakePub as typeof eventBus.publish, prev, () =>
-      Promise.resolve("user-1"),
+    await monitoringTick(
+      fakeAgent,
+      fakePub as typeof eventBus.publish,
+      prev,
+      (_kind, _runtimeId) => Promise.resolve("user-1"),
     )
 
     expect(publishedEvents.length).toBe(1)
@@ -434,11 +443,64 @@ describe("monitoringTick — diff loop logic", () => {
         }),
     } as unknown as Parameters<typeof monitoringTick>[0]
 
-    await monitoringTick(fakeAgent, fakePub as typeof eventBus.publish, prev, () =>
-      Promise.resolve("user-1"),
+    await monitoringTick(
+      fakeAgent,
+      fakePub as typeof eventBus.publish,
+      prev,
+      (_kind, _runtimeId) => Promise.resolve("user-1"),
     )
 
     // Infra containers must NOT publish events.
     expect(publishedEvents.length).toBe(0)
+  })
+
+  it("emits database container events for the owning user", async () => {
+    const prev = new Map<string, ContainerStatus>()
+
+    const publishedEvents: Parameters<typeof eventBus.publish>[] = []
+    const fakePub = (channel: string, event: Parameters<typeof eventBus.publish>[1]) => {
+      publishedEvents.push([channel, event])
+    }
+
+    const fakeAgent = {
+      listContainers: () =>
+        Promise.resolve({
+          containers: [
+            {
+              id: "ctr-db",
+              name: "ploydok-db-app",
+              image: "postgres:16-alpine",
+              status: "running",
+              uptimeS: 30,
+              cpuPct: 1.5,
+              memBytes: 4096,
+              memLimitBytes: 8192,
+              restartCount: 0,
+              kind: "database",
+              appId: "db-123",
+              color: "",
+              lastPingMs: 0,
+              lastPingOk: false,
+              lastSeenMs: 0,
+            },
+          ],
+        }),
+    } as unknown as Parameters<typeof monitoringTick>[0]
+
+    await monitoringTick(
+      fakeAgent,
+      fakePub as typeof eventBus.publish,
+      prev,
+      (kind, runtimeId) =>
+        Promise.resolve(kind === "database" && runtimeId === "db-123" ? "user-1" : null),
+    )
+
+    expect(publishedEvents.length).toBe(1)
+    const [channel, event] = publishedEvents[0]!
+    expect(channel).toBe("user:user-1")
+    expect(event.type).toBe("container.health")
+    expect(event.appId).toBeUndefined()
+    expect((event.data as { container: { kind?: string } }).container.kind).toBe("database")
+    expect(prev.get("ctr-db")).toBe("running")
   })
 })

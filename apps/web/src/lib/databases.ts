@@ -146,10 +146,9 @@ export function useDeleteDatabase() {
 
 export function useRevealDatabase() {
   return useMutation({
-    mutationFn: async ({ id, totpCode }: { id: string; totpCode: string }) => {
+    mutationFn: async ({ id }: { id: string }) => {
       const data = await apiFetch<{ connection_string: string }>(`/databases/${id}/reveal`, {
         method: "POST",
-        headers: { "X-TOTP-Code": totpCode },
       })
       return data.connection_string
     },
@@ -175,7 +174,7 @@ export function useLinkDatabase() {
       })
     },
     onSuccess: (_data, vars) => {
-      qc.invalidateQueries({ queryKey: ["secrets", vars.appId] })
+      qc.invalidateQueries({ queryKey: ["apps", vars.appId, "secrets"] })
       qc.invalidateQueries({ queryKey: databaseKeys.all })
       toast.success("Database linked to app")
     },
@@ -217,7 +216,7 @@ export function useUnlinkDatabase() {
       })
     },
     onSuccess: (_data, vars) => {
-      qc.invalidateQueries({ queryKey: ["secrets", vars.appId] })
+      qc.invalidateQueries({ queryKey: ["apps", vars.appId, "secrets"] })
       qc.invalidateQueries({ queryKey: databaseKeys.all })
       toast.success("Database unlinked")
     },

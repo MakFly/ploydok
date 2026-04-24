@@ -62,6 +62,34 @@ export function truncate(text: string, maxLen: number): string {
   return text.slice(0, maxLen - 1) + "…"
 }
 
+// Live-ticking duration cell. `formatDuration` reads `Date.now()` when the
+// build has no `finishedAt`, but React only re-renders on state changes —
+// so without a ticker the column was frozen until the next SSE-driven
+// refetch. A per-row 1s interval (only enabled while the build is in
+// progress) keeps the displayed value coherent with the wall clock.
+function LiveDurationCell({
+  startedAt,
+  finishedAt,
+  inProgress,
+}: {
+  startedAt?: number
+  finishedAt?: number
+  inProgress: boolean
+}): React.JSX.Element {
+  const [, forceTick] = React.useReducer((n: number) => n + 1, 0)
+  React.useEffect(() => {
+    if (!inProgress) return
+    const id = setInterval(forceTick, 1000)
+    return () => clearInterval(id)
+  }, [inProgress])
+
+  return (
+    <span className="text-xs text-muted-foreground">
+      {formatDuration(startedAt, finishedAt)}
+    </span>
+  )
+}
+
 // ---------------------------------------------------------------------------
 // Props
 // ---------------------------------------------------------------------------
@@ -207,11 +235,16 @@ function makeColumns(
     {
       id: "duration",
       header: "Duration",
-      cell: ({ row }) => (
-        <span className="text-xs text-muted-foreground">
-          {formatDuration(row.original.startedAt, row.original.finishedAt)}
-        </span>
-      ),
+      cell: ({ row }) => {
+        const inProgress = IN_PROGRESS_STATUSES.has(row.original.status)
+        return (
+          <LiveDurationCell
+            startedAt={row.original.startedAt}
+            finishedAt={row.original.finishedAt}
+            inProgress={inProgress}
+          />
+        )
+      },
     },
     {
       id: "method",

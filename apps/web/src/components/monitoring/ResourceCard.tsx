@@ -63,6 +63,11 @@ function KindBadge({
       label: "INFRA",
       cls: "bg-violet-500/10 text-violet-600 border-violet-500/20 dark:text-violet-400",
     },
+    database: {
+      icon: RiServerLine,
+      label: "DB",
+      cls: "bg-cyan-500/10 text-cyan-700 border-cyan-500/20 dark:text-cyan-300",
+    },
     agent: {
       icon: RiSettings3Line,
       label: "AGENT",

@@ -4,7 +4,7 @@
 //
 // Channels:
 //   user:{userId}        — structured notification events for a user
-//   monitoring:{userId}  — health/monitoring events for a user's apps
+//                          (also carries container health + provider sync)
 //
 // Usage:
 //   import { eventBus } from "./event-bus";

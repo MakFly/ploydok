@@ -2,6 +2,16 @@
 import * as React from "react"
 import { toast } from "sonner"
 import {
+  AlertDialog,
+  AlertDialogAction,
+  AlertDialogCancel,
+  AlertDialogContent,
+  AlertDialogDescription,
+  AlertDialogFooter,
+  AlertDialogHeader,
+  AlertDialogTitle,
+} from "@workspace/ui/components/alert-dialog"
+import {
   Dialog,
   DialogContent,
   DialogDescription,
@@ -22,7 +32,6 @@ interface RevealConnectionDialogProps {
 }
 
 export function RevealConnectionDialog({ databaseId, onClose }: RevealConnectionDialogProps): React.JSX.Element {
-  const [totpCode, setTotpCode] = React.useState("")
   const [connString, setConnString] = React.useState<string | null>(null)
   const [countdown, setCountdown] = React.useState(0)
   const timerRef = React.useRef<ReturnType<typeof setInterval> | null>(null)
@@ -51,17 +60,22 @@ export function RevealConnectionDialog({ databaseId, onClose }: RevealConnection
   function handleClose() {
     if (timerRef.current) clearInterval(timerRef.current)
     setConnString(null)
-    setTotpCode("")
     onClose()
   }
 
-  function handleReveal() {
-    if (!databaseId || totpCode.length < 6) return
-    reveal({ id: databaseId, totpCode }, {
-      onSuccess: (value) => {
-        setConnString(value)
+  function handleConfirm() {
+    if (!databaseId) return
+    reveal(
+      { id: databaseId },
+      {
+        onSuccess: (value) => {
+          setConnString(value)
+        },
+        onError: (err: Error) => {
+          toast.error(err.message || "Reveal failed")
+        },
       },
-    })
+    )
   }
 
   function handleCopy() {
@@ -69,64 +83,64 @@ export function RevealConnectionDialog({ databaseId, onClose }: RevealConnection
     navigator.clipboard.writeText(connString).then(() => toast.success("Copied!"))
   }
 
+  const isOpen = Boolean(databaseId)
+
+  // Step 1 — confirmation (no secret yet)
+  if (!connString) {
+    return (
+      <AlertDialog open={isOpen} onOpenChange={(v) => !v && handleClose()}>
+        <AlertDialogContent>
+          <AlertDialogHeader>
+            <AlertDialogTitle>Reveal connection string?</AlertDialogTitle>
+            <AlertDialogDescription>
+              The connection string contains sensitive credentials. It will stay visible for 30 seconds, then auto-hide. Make sure no one is looking over your shoulder.
+            </AlertDialogDescription>
+          </AlertDialogHeader>
+          <AlertDialogFooter>
+            <AlertDialogCancel onClick={handleClose}>Cancel</AlertDialogCancel>
+            <AlertDialogAction
+              onClick={(e) => {
+                e.preventDefault()
+                handleConfirm()
+              }}
+              disabled={isPending}
+            >
+              {isPending ? "Revealing…" : "Reveal"}
+            </AlertDialogAction>
+          </AlertDialogFooter>
+        </AlertDialogContent>
+      </AlertDialog>
+    )
+  }
+
+  // Step 2 — secret shown
   return (
-    <Dialog open={Boolean(databaseId)} onOpenChange={(v) => !v && handleClose()}>
+    <Dialog open={isOpen} onOpenChange={(v) => !v && handleClose()}>
       <DialogContent className="sm:max-w-lg">
         <DialogHeader>
-          <DialogTitle>Reveal connection string</DialogTitle>
+          <DialogTitle>Connection string</DialogTitle>
           <DialogDescription>
-            Enter your TOTP code to reveal the connection string. It will be hidden after 30 seconds.
+            Auto-hide in {countdown}s.
           </DialogDescription>
         </DialogHeader>
-
-        <div className="flex flex-col gap-4">
-          {!connString ? (
-            <div className="flex flex-col gap-2">
-              <Label htmlFor="totp-code">TOTP code</Label>
-              <Input
-                id="totp-code"
-                type="text"
-                inputMode="numeric"
-                maxLength={6}
-                placeholder="000000"
-                value={totpCode}
-                onChange={(e) => setTotpCode(e.target.value)}
-                onKeyDown={(e) => e.key === "Enter" && handleReveal()}
-              />
-            </div>
-          ) : (
-            <div className="flex flex-col gap-2">
-              <Label>Connection string</Label>
-              <div className="flex gap-2">
-                <Input
-                  readOnly
-                  value={connString}
-                  className="font-mono text-xs"
-                  type="text"
-                />
-                <Button size="sm" variant="outline" onClick={handleCopy}>
-                  Copy
-                </Button>
-              </div>
-              <span className="text-xs text-muted-foreground">
-                Hidden in {countdown}s
-              </span>
-            </div>
-          )}
+        <div className="flex flex-col gap-2">
+          <Label>Connection string</Label>
+          <div className="flex gap-2">
+            <Input
+              readOnly
+              value={connString}
+              className="font-mono text-xs"
+              type="text"
+            />
+            <Button size="sm" variant="outline" onClick={handleCopy}>
+              Copy
+            </Button>
+          </div>
         </div>
-
         <DialogFooter>
           <Button variant="outline" onClick={handleClose}>
             Close
           </Button>
-          {!connString && (
-            <Button
-              onClick={handleReveal}
-              disabled={isPending || totpCode.length < 6}
-            >
-              {isPending ? "Verifying..." : "Reveal"}
-            </Button>
-          )}
         </DialogFooter>
       </DialogContent>
     </Dialog>

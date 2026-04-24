@@ -311,5 +311,47 @@ describe("nixpacksBuild", () => {
     expect(cmd).toContain(path.join(tmpDir, "nixpacks.toml"))
     expect(spawnEnv?.["NIXPACKS_NODE_VERSION"]).toBe("22")
     expect(spawnEnv?.["NEXT_PUBLIC_API_URL"]).toBe("https://api.example.com")
+    // buildEnv values must also reach the Dockerfile via `--env K=V`.
+    expect(cmd).toContain("NEXT_PUBLIC_API_URL=https://api.example.com")
+  })
+
+  it("injects NPM_CONFIG_LEGACY_PEER_DEPS=true into build env by default", async () => {
+    let spawnEnv: Record<string, string> | undefined
+    spawnSpy = spyOn(Bun, "spawn").mockImplementation(((...args: unknown[]) => {
+      const opts = (args.length === 1 ? args[0] : args[1]) as { env?: Record<string, string> } | undefined
+      spawnEnv = opts?.env
+      return fakeBunProcess({}) as ReturnType<typeof Bun.spawn>
+    }) as typeof Bun.spawn)
+
+    await nixpacksMod.nixpacksBuild({
+      workspacePath: tmpDir,
+      tag: "127.0.0.1:5000/app-abc:sha123",
+    })
+
+    const spawnMock = spawnSpy as unknown as {
+      mock: { calls: Array<[unknown[], unknown]> }
+    }
+    const buildCall = spawnMock.mock.calls[0]
+    const cmd = buildCall![0] as string[]
+    expect(spawnEnv?.["NPM_CONFIG_LEGACY_PEER_DEPS"]).toBe("true")
+    expect(cmd).toContain("--env")
+    expect(cmd).toContain("NPM_CONFIG_LEGACY_PEER_DEPS=true")
+  })
+
+  it("allows buildEnv to override NPM_CONFIG_LEGACY_PEER_DEPS", async () => {
+    let spawnEnv: Record<string, string> | undefined
+    spawnSpy = spyOn(Bun, "spawn").mockImplementation(((...args: unknown[]) => {
+      const opts = (args.length === 1 ? args[0] : args[1]) as { env?: Record<string, string> } | undefined
+      spawnEnv = opts?.env
+      return fakeBunProcess({}) as ReturnType<typeof Bun.spawn>
+    }) as typeof Bun.spawn)
+
+    await nixpacksMod.nixpacksBuild({
+      workspacePath: tmpDir,
+      tag: "127.0.0.1:5000/app-abc:sha123",
+      buildEnv: { NPM_CONFIG_LEGACY_PEER_DEPS: "false" },
+    })
+
+    expect(spawnEnv?.["NPM_CONFIG_LEGACY_PEER_DEPS"]).toBe("false")
   })
 })

@@ -1,5 +1,6 @@
 // SPDX-License-Identifier: AGPL-3.0-only
 import { useEffect, useReducer } from "react"
+import { toast } from "sonner"
 import { apiFetch } from "./api"
 import { useEventsConnected, useEventsSubscription } from "./events-provider"
 
@@ -51,6 +52,7 @@ type Action =
   | { type: "push"; payload: NotificationEvent }
   | { type: "hydrate"; lastReadAt: number }
   | { type: "markAllRead"; at: number }
+  | { type: "markAllReadRollback"; lastReadAt: number }
   | { type: "clear" }
 
 const initialState: NotificationsState = {
@@ -99,6 +101,13 @@ export function notificationsReducer(
     case "markAllRead":
       return { ...state, unreadCount: 0, lastReadAt: action.at }
 
+    case "markAllReadRollback": {
+      // Restore a previous cursor after a failed POST /events/mark-read,
+      // then recompute unreadCount against it.
+      const unread = state.items.filter((it) => it.t > action.lastReadAt).length
+      return { ...state, lastReadAt: action.lastReadAt, unreadCount: unread }
+    }
+
     case "clear":
       return { ...state, items: [], unreadCount: 0 }
 
@@ -128,19 +137,36 @@ export function useNotifications(): {
 
   // Hydrate the read cursor from the server on mount. Without this, every
   // refresh resets unreadCount to 0 then the SSE replay re-bumps it.
+  // Retry once after 2 s on failure: a transient 401 during token refresh or
+  // a cold-start network blip would otherwise strand the cursor at 0 and
+  // leave the badge inflated until the user clicks "mark all read".
   useEffect(() => {
     let cancelled = false
-    void (async () => {
+    let retryTimer: ReturnType<typeof setTimeout> | null = null
+
+    const run = async (attempt: number): Promise<void> => {
       try {
         const res = await apiFetch<{ lastReadAt: string | null }>("/events/read-state")
         if (cancelled) return
         const ms = res.lastReadAt ? new Date(res.lastReadAt).getTime() : 0
         dispatch({ type: "hydrate", lastReadAt: ms })
-      } catch {
-        // First boot or network blip — leave the optimistic 0 in place.
+      } catch (err) {
+        if (cancelled) return
+        if (attempt === 0) {
+          retryTimer = setTimeout(() => {
+            if (!cancelled) void run(1)
+          }, 2000)
+          return
+        }
+        console.warn("notifications: failed to hydrate read cursor", err)
       }
-    })()
-    return () => { cancelled = true }
+    }
+
+    void run(0)
+    return () => {
+      cancelled = true
+      if (retryTimer) clearTimeout(retryTimer)
+    }
   }, [])
 
   // Un abonnement par type — appels stables dans le même ordre à chaque render.
@@ -158,6 +184,7 @@ export function useNotifications(): {
   useEventsSubscription<NotificationEvent>("provider.sync.failed", push)
 
   const markAllRead = () => {
+    const previousLastReadAt = state.lastReadAt
     const at = Date.now()
     dispatch({ type: "markAllRead", at })
     // apiFetch already JSON-stringifies the body — pass the object directly,
@@ -167,10 +194,12 @@ export function useNotifications(): {
       method: "POST",
       body: { at: new Date(at).toISOString() },
     }).catch((err) => {
-      // Surface the failure: a silent catch hid the bug for too long. The UI
-      // already optimistically marked read, but the cursor won't survive a
-      // refresh until the user retries.
+      // Revert the optimistic update: without this the badge reappears at
+      // the next refresh (the server still serves the old cursor) and the
+      // user loses the "I cleared it" signal.
       console.warn("notifications: failed to persist read cursor", err)
+      dispatch({ type: "markAllReadRollback", lastReadAt: previousLastReadAt })
+      toast.error("Impossible de marquer comme lu. Réessaie.")
     })
   }
   const clear = () => dispatch({ type: "clear" })
