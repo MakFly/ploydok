@@ -160,13 +160,18 @@ export function useNotifications(): {
   const markAllRead = () => {
     const at = Date.now()
     dispatch({ type: "markAllRead", at })
-    // Fire-and-forget: a failed POST falls back to client-only state,
-    // which the next hydrate() will reconcile.
+    // apiFetch already JSON-stringifies the body — pass the object directly,
+    // not a pre-encoded string (double-encoding made the server fall back to
+    // an empty body and the cursor was never persisted).
     void apiFetch("/events/mark-read", {
       method: "POST",
-      headers: { "content-type": "application/json" },
-      body: JSON.stringify({ at: new Date(at).toISOString() }),
-    }).catch(() => {})
+      body: { at: new Date(at).toISOString() },
+    }).catch((err) => {
+      // Surface the failure: a silent catch hid the bug for too long. The UI
+      // already optimistically marked read, but the cursor won't survive a
+      // refresh until the user retries.
+      console.warn("notifications: failed to persist read cursor", err)
+    })
   }
   const clear = () => dispatch({ type: "clear" })
 
