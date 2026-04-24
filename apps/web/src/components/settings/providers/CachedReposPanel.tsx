@@ -35,6 +35,12 @@ export interface CachedReposPanelProps {
   onSyncOne?: (id: string) => Promise<unknown>
   onSyncAll?: () => Promise<unknown>
   isSyncing: boolean
+  /**
+   * Scope of an in-flight sync: `"all"` highlights every row, an installation
+   * id highlights only that one. Used to show "Syncing" instead of the
+   * server-computed Fresh/Stale pill while the worker is writing.
+   */
+  syncingScope?: "all" | string
   emptyState: React.ReactNode
 }
 
@@ -51,6 +57,7 @@ export function CachedReposPanel(props: CachedReposPanelProps): React.JSX.Elemen
     onSyncOne,
     onSyncAll,
     isSyncing,
+    syncingScope,
     emptyState,
   } = props
 
@@ -135,6 +142,7 @@ export function CachedReposPanel(props: CachedReposPanelProps): React.JSX.Elemen
                 entry={e}
                 pending={pendingId === e.id}
                 disabled={isSyncing}
+                syncing={syncingScope === "all" || syncingScope === e.id}
                 onSync={onSyncOne ? () => void handleOne(e.id) : undefined}
               />
             ))}
@@ -151,11 +159,13 @@ function CacheRow({
   entry,
   pending,
   disabled,
+  syncing,
   onSync,
 }: {
   entry: CachedReposEntry
   pending: boolean
   disabled: boolean
+  syncing: boolean
   onSync?: () => void
 }): React.JSX.Element {
   return (
@@ -174,7 +184,7 @@ function CacheRow({
       <div className="min-w-0 flex-1">
         <div className="flex items-center gap-2">
           <p className="truncate text-sm font-medium">{entry.accountLogin}</p>
-          <StatusPill status={entry.status} />
+          <StatusPill status={syncing ? "syncing" : entry.status} />
         </div>
         <p className="text-xs text-muted-foreground">
           {entry.repoCount} {entry.repoCount === 1 ? "repo" : "repos"} cached · synced{" "}
@@ -190,16 +200,24 @@ function CacheRow({
           disabled={pending || disabled}
         >
           <RiRefreshLine
-            className={`mr-1.5 size-3.5 ${pending ? "animate-spin" : ""}`}
+            className={`mr-1.5 size-3.5 ${pending || syncing ? "animate-spin" : ""}`}
           />
-          {pending ? "Syncing..." : "Sync"}
+          {pending || syncing ? "Syncing..." : "Sync"}
         </Button>
       )}
     </li>
   )
 }
 
-function StatusPill({ status }: { status: "fresh" | "stale" }): React.JSX.Element {
+function StatusPill({ status }: { status: "fresh" | "stale" | "syncing" }): React.JSX.Element {
+  if (status === "syncing") {
+    return (
+      <span className="inline-flex items-center gap-1 font-mono text-[10px] tracking-wide text-blue-600 uppercase dark:text-blue-400">
+        <RiRefreshLine className="size-3 animate-spin" />
+        Syncing
+      </span>
+    )
+  }
   if (status === "fresh") {
     return (
       <span className="inline-flex items-center gap-1 font-mono text-[10px] tracking-wide text-emerald-600 uppercase dark:text-emerald-400">
