@@ -12,17 +12,17 @@ export interface CaddyTlsOptions {
 export interface CaddyConfig {
   apps?: {
     http?: {
-      servers?: Record<string, CaddyServer>;
-    };
+      servers?: Record<string, CaddyServer>
+    }
     layer4?: {
-      servers?: Record<string, CaddyLayer4Server>;
-    };
+      servers?: Record<string, CaddyLayer4Server>
+    }
     tls?: {
       automation?: {
         policies?: CaddyTlsPolicy[]
       }
     }
-  };
+  }
 }
 
 export interface CaddyTlsPolicy {
@@ -38,48 +38,48 @@ export interface CaddyTlsPolicy {
 }
 
 export interface CaddyServer {
-  listen?: string[];
-  routes?: CaddyRoute[];
+  listen?: string[]
+  routes?: CaddyRoute[]
   automatic_https?: {
-    disable?: boolean;
-    skip?: string[];
-  };
+    disable?: boolean
+    skip?: string[]
+  }
 }
 
 export interface CaddyLayer4Server {
-  listen?: string[];
-  routes?: CaddyLayer4Route[];
+  listen?: string[]
+  routes?: CaddyLayer4Route[]
 }
 
 export interface CaddyLayer4Route {
-  "@id"?: string;
-  match?: CaddyLayer4Match[];
-  handle?: CaddyLayer4Handler[];
+  "@id"?: string
+  match?: CaddyLayer4Match[]
+  handle?: CaddyLayer4Handler[]
 }
 
 export interface CaddyLayer4Match {
-  tls?: Record<string, unknown>;
+  tls?: Record<string, unknown>
 }
 
-export type CaddyLayer4Handler = CaddyLayer4ProxyHandler;
+export type CaddyLayer4Handler = CaddyLayer4ProxyHandler
 
 export interface CaddyLayer4ProxyHandler {
-  handler: "proxy";
-  upstreams: Array<{ dial: string[] }>;
+  handler: "proxy"
+  upstreams: Array<{ dial: string[] }>
 }
 
 export interface CaddyRoute {
-  "@id"?: string;
-  match?: CaddyMatch[];
-  handle?: CaddyHandler[];
-  terminal?: boolean;
+  "@id"?: string
+  match?: CaddyMatch[]
+  handle?: CaddyHandler[]
+  terminal?: boolean
 }
 
 export interface CaddyMatch {
-  host?: string[];
+  host?: string[]
   remote_ip?: {
-    ranges: string[];
-  };
+    ranges: string[]
+  }
 }
 
 export type CaddyHandler =
@@ -87,53 +87,55 @@ export type CaddyHandler =
   | CaddyStaticResponseHandler
   | CaddyAuthenticationHandler
   | CaddySubrouteHandler
-  | CaddyRateLimitHandler;
+  | CaddyRateLimitHandler
+  | Record<string, unknown>
 
 export interface CaddyReverseProxyHandler {
-  handler: "reverse_proxy";
-  upstreams: Array<{ dial: string }>;
+  handler: "reverse_proxy"
+  upstreams: Array<{ dial: string }>
 }
 
 export interface CaddyStaticResponseHandler {
-  handler: "static_response";
-  status_code?: number;
-  body?: string;
+  handler: "static_response"
+  status_code?: number
+  body?: string
 }
 
 export interface CaddyAuthenticationHandler {
-  handler: "authentication";
+  handler: "authentication"
   providers: {
     http_basic: {
-      accounts: Array<{ username: string; password: string }>;
-    };
-  };
+      accounts: Array<{ username: string; password: string }>
+    }
+  }
 }
 
 export interface CaddySubrouteHandler {
-  handler: "subroute";
-  routes: CaddyRoute[];
+  handler: "subroute"
+  routes: CaddyRoute[]
 }
 
 export interface CaddyRateLimitHandler {
-  handler: "rate_limit";
+  handler: "rate_limit"
   rate_limits: {
     [key: string]: {
-      key: string;
-      window: string;
-      max_events: number;
-    };
-  };
+      key: string
+      window: string
+      max_events: number
+    }
+  }
 }
 
 /** Middlewares per-app to inject before reverse_proxy */
 export interface CaddyMiddlewares {
   basicAuth?: {
-    user: string;
+    user: string
     /** bcrypt hash of the password */
-    pass_hash: string;
-  };
-  ipAllowlist?: string[];
+    pass_hash: string
+  }
+  ipAllowlist?: string[]
   rateLimit?: {
-    rps: number;
-  };
+    rps: number
+  }
+  extraHandlers?: unknown[]
 }

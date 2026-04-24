@@ -7,28 +7,30 @@ import type {
   CaddyMiddlewares,
   CaddyRoute,
   CaddyTlsOptions,
-} from "./types.js";
+} from "./types.js"
 
 export class CaddyClient {
-  private readonly baseUrl: string;
-  private bootstrapL4InFlight: Promise<void> | null = null;
+  private readonly baseUrl: string
+  private bootstrapL4InFlight: Promise<void> | null = null
 
   constructor(baseUrl = "http://127.0.0.1:2020") {
     // Remove trailing slash for consistent URL building
-    this.baseUrl = baseUrl.replace(/\/$/, "");
+    this.baseUrl = baseUrl.replace(/\/$/, "")
   }
 
   /**
    * GET /config/ — returns the full Caddy runtime config.
    */
   async getConfig(): Promise<CaddyConfig> {
-    const res = await fetch(`${this.baseUrl}/config/`);
+    const res = await fetch(`${this.baseUrl}/config/`)
     if (!res.ok) {
-      throw new Error(`CaddyClient.getConfig failed: ${res.status} ${await res.text()}`);
+      throw new Error(
+        `CaddyClient.getConfig failed: ${res.status} ${await res.text()}`
+      )
     }
     // Caddy returns null when config is empty
-    const body = (await res.json()) as CaddyConfig | null;
-    return body ?? {};
+    const body = (await res.json()) as CaddyConfig | null
+    return body ?? {}
   }
 
   /**
@@ -40,8 +42,11 @@ export class CaddyClient {
    * Build the handler array for a route, injecting middlewares before reverse_proxy.
    * Order: rate_limit → ip_allowlist (subroute) → basicauth → reverse_proxy
    */
-  buildHandlers(upstream: string, middlewares?: CaddyMiddlewares): CaddyHandler[] {
-    const handlers: CaddyHandler[] = [];
+  buildHandlers(
+    upstream: string,
+    middlewares?: CaddyMiddlewares
+  ): CaddyHandler[] {
+    const handlers: CaddyHandler[] = []
 
     if (middlewares?.rateLimit && middlewares.rateLimit.rps > 0) {
       handlers.push({
@@ -53,7 +58,7 @@ export class CaddyClient {
             max_events: middlewares.rateLimit.rps,
           },
         },
-      });
+      })
     }
 
     if (middlewares?.ipAllowlist && middlewares.ipAllowlist.length > 0) {
@@ -70,7 +75,7 @@ export class CaddyClient {
             terminal: true,
           },
         ],
-      });
+      })
     }
 
     if (middlewares?.basicAuth) {
@@ -86,15 +91,19 @@ export class CaddyClient {
             ],
           },
         },
-      });
+      })
+    }
+
+    if (middlewares?.extraHandlers && middlewares.extraHandlers.length > 0) {
+      handlers.push(...(middlewares.extraHandlers as CaddyHandler[]))
     }
 
     handlers.push({
       handler: "reverse_proxy",
       upstreams: [{ dial: upstream }],
-    });
+    })
 
-    return handlers;
+    return handlers
   }
 
   async upsertRoute({
@@ -104,22 +113,26 @@ export class CaddyClient {
     tls,
     middlewares,
   }: {
-    host: string;
-    upstream: string;
-    appId: string;
-    tls?: CaddyTlsOptions;
-    middlewares?: CaddyMiddlewares;
+    host: string
+    upstream: string
+    appId: string
+    tls?: CaddyTlsOptions
+    middlewares?: CaddyMiddlewares
   }): Promise<void> {
-    const routeId = `ploydok-${appId}`;
+    const routeId = `ploydok-${appId}`
 
     // Idempotent : garantit que la structure srv0 existe avant PATCH/POST.
     // Sans ça, Caddy renvoie "invalid traversal path" au premier upsert.
-    await this.ensureBootstrap();
+    await this.ensureBootstrap()
 
     // When DNS-01 is requested, register the TLS automation policy in Caddy
     // so the ACME client uses the DNS challenge for this hostname.
     if (tls?.mode === "dns01" && tls.provider) {
-      await this.upsertDns01TlsPolicy(host, tls.provider, tls.providerConfig ?? {})
+      await this.upsertDns01TlsPolicy(
+        host,
+        tls.provider,
+        tls.providerConfig ?? {}
+      )
     }
 
     const route: CaddyRoute = {
@@ -127,17 +140,17 @@ export class CaddyClient {
       match: [{ host: [host] }],
       handle: this.buildHandlers(upstream, middlewares),
       terminal: true,
-    };
+    }
 
     // Try to PATCH an existing route first
     const patchRes = await fetch(`${this.baseUrl}/id/${routeId}`, {
       method: "PATCH",
       headers: { "Content-Type": "application/json" },
       body: JSON.stringify(route),
-    });
+    })
 
     if (patchRes.ok) {
-      return;
+      return
     }
 
     // Route not found → POST to append
@@ -148,37 +161,37 @@ export class CaddyClient {
           method: "POST",
           headers: { "Content-Type": "application/json" },
           body: JSON.stringify(route),
-        },
-      );
+        }
+      )
       if (!postRes.ok) {
         throw new Error(
-          `CaddyClient.upsertRoute POST failed: ${postRes.status} ${await postRes.text()}`,
-        );
+          `CaddyClient.upsertRoute POST failed: ${postRes.status} ${await postRes.text()}`
+        )
       }
-      return;
+      return
     }
 
     throw new Error(
-      `CaddyClient.upsertRoute PATCH failed: ${patchRes.status} ${await patchRes.text()}`,
-    );
+      `CaddyClient.upsertRoute PATCH failed: ${patchRes.status} ${await patchRes.text()}`
+    )
   }
 
   /**
    * Remove a route by appId. Idempotent: 404 is treated as success.
    */
   async removeRoute(appId: string): Promise<void> {
-    const routeId = `ploydok-${appId}`;
+    const routeId = `ploydok-${appId}`
     const res = await fetch(`${this.baseUrl}/id/${routeId}`, {
       method: "DELETE",
-    });
+    })
 
     if (res.ok || res.status === 404) {
-      return;
+      return
     }
 
     throw new Error(
-      `CaddyClient.removeRoute failed: ${res.status} ${await res.text()}`,
-    );
+      `CaddyClient.removeRoute failed: ${res.status} ${await res.text()}`
+    )
   }
 
   // ---------------------------------------------------------------------------
@@ -197,10 +210,10 @@ export class CaddyClient {
   async setUpstream(
     appId: string,
     host: string,
-    upstream: { host: string; port: number },
+    upstream: { host: string; port: number }
   ): Promise<void> {
-    const dial = `${upstream.host}:${upstream.port}`;
-    await this.upsertRoute({ host, upstream: dial, appId });
+    const dial = `${upstream.host}:${upstream.port}`
+    await this.upsertRoute({ host, upstream: dial, appId })
   }
 
   /**
@@ -208,38 +221,41 @@ export class CaddyClient {
    * does not exist / has no reverse_proxy handler.
    */
   async getUpstream(
-    appId: string,
+    appId: string
   ): Promise<{ host: string; port: number } | null> {
-    const routeId = `ploydok-${appId}`;
+    const routeId = `ploydok-${appId}`
 
-    const res = await fetch(`${this.baseUrl}/id/${routeId}`);
-    if (res.status === 404) return null;
+    const res = await fetch(`${this.baseUrl}/id/${routeId}`)
+    if (res.status === 404) return null
     if (!res.ok) {
-      throw new Error(`CaddyClient.getUpstream failed: ${res.status} ${await res.text()}`);
+      throw new Error(
+        `CaddyClient.getUpstream failed: ${res.status} ${await res.text()}`
+      )
     }
 
-    let route: CaddyRoute;
+    let route: CaddyRoute
     try {
-      route = (await res.json()) as CaddyRoute;
+      route = (await res.json()) as CaddyRoute
     } catch {
-      return null;
+      return null
     }
 
     // Find the first reverse_proxy handle and extract its first upstream dial.
     for (const handle of route.handle ?? []) {
       if (handle.handler === "reverse_proxy") {
-        const dial = handle.upstreams?.[0]?.dial ?? "";
-        if (!dial) return null;
+        const rp = handle as { upstreams?: Array<{ dial?: string }> }
+        const dial = rp.upstreams?.[0]?.dial ?? ""
+        if (!dial) return null
         // dial format: "host:port"
-        const colonIdx = dial.lastIndexOf(":");
-        if (colonIdx === -1) return null;
-        const h = dial.slice(0, colonIdx);
-        const p = parseInt(dial.slice(colonIdx + 1), 10);
-        if (!h || isNaN(p)) return null;
-        return { host: h, port: p };
+        const colonIdx = dial.lastIndexOf(":")
+        if (colonIdx === -1) return null
+        const h = dial.slice(0, colonIdx)
+        const p = parseInt(dial.slice(colonIdx + 1), 10)
+        if (!h || isNaN(p)) return null
+        return { host: h, port: p }
       }
     }
-    return null;
+    return null
   }
 
   /**
@@ -247,7 +263,7 @@ export class CaddyClient {
    * Delegates to the existing `removeRoute` method.
    */
   async removeUpstream(appId: string): Promise<void> {
-    return this.removeRoute(appId);
+    return this.removeRoute(appId)
   }
 
   /**
@@ -255,11 +271,11 @@ export class CaddyClient {
    * Idempotent: no-op if srv0 already exists.
    */
   async ensureBootstrap(): Promise<void> {
-    const config = await this.getConfig();
+    const config = await this.getConfig()
 
     // Already bootstrapped
     if (config.apps?.http?.servers?.["srv0"]) {
-      return;
+      return
     }
 
     // srv0 sur :80, auto_https off → dev HTTP pur. En prod une config
@@ -268,7 +284,7 @@ export class CaddyClient {
       listen: [":80"],
       routes: [],
       automatic_https: { disable: true },
-    };
+    }
 
     // Chirurgical : on remonte progressivement jusqu'au niveau d'ancêtre
     // existant, et on crée srv0 avec le minimum de payload. Aucune requête
@@ -276,60 +292,72 @@ export class CaddyClient {
     // créés via PUT, jamais POST/PATCH sur /config/apps).
     if (config.apps?.http?.servers) {
       // servers existe → on ajoute juste srv0
-      await this.putOrFail(`/config/apps/http/servers/srv0`, srv0, "servers.srv0");
-      return;
+      await this.putOrFail(
+        `/config/apps/http/servers/srv0`,
+        srv0,
+        "servers.srv0"
+      )
+      return
     }
     if (config.apps?.http) {
       // http existe → on crée servers avec srv0
-      await this.putOrFail(`/config/apps/http/servers`, { srv0 }, "http.servers");
-      return;
+      await this.putOrFail(
+        `/config/apps/http/servers`,
+        { srv0 },
+        "http.servers"
+      )
+      return
     }
     if (config.apps) {
       // apps existe → on crée http avec servers+srv0
       await this.putOrFail(
         `/config/apps/http`,
         { servers: { srv0 } },
-        "apps.http",
-      );
-      return;
+        "apps.http"
+      )
+      return
     }
     // Config totalement vide → POST /config/apps est sûr (rien à écraser).
     await this.putOrFail(
       `/config/apps`,
       { http: { servers: { srv0 } } },
-      "apps",
-    );
+      "apps"
+    )
   }
 
   async ensureLayer4Bootstrap(): Promise<void> {
     // Dedup concurrent callers: two database spawns racing through
     // upsertTcpProxy would each read the config and both issue a PUT
     // on /config/apps/layer4, silently clobbering peer server entries.
-    if (this.bootstrapL4InFlight) return this.bootstrapL4InFlight;
+    if (this.bootstrapL4InFlight) return this.bootstrapL4InFlight
     this.bootstrapL4InFlight = this.doEnsureLayer4Bootstrap().finally(() => {
-      this.bootstrapL4InFlight = null;
-    });
-    return this.bootstrapL4InFlight;
+      this.bootstrapL4InFlight = null
+    })
+    return this.bootstrapL4InFlight
   }
 
   private async doEnsureLayer4Bootstrap(): Promise<void> {
-    const config = await this.getConfig();
+    const config = await this.getConfig()
 
     if (config.apps?.layer4?.servers) {
-      return;
+      return
     }
 
     if (config.apps?.layer4) {
-      await this.putOrFail(`/config/apps/layer4/servers`, {}, "layer4.servers");
-      return;
+      await this.putOrFail(`/config/apps/layer4/servers`, {}, "layer4.servers")
+      return
     }
 
     if (config.apps) {
-      await this.putOrFail(`/config/apps/layer4`, { servers: {} }, "apps.layer4");
-      return;
+      await this.putOrFail(
+        `/config/apps/layer4`,
+        { servers: {} },
+        "apps.layer4"
+      )
+      return
     }
 
-    await this.putOrFail(`/config/apps`, { layer4: { servers: {} } }, "apps");
+    await this.putOrFail(`/config/apps`, { layer4: { servers: {} } }, "apps")
   }
 
   async upsertTcpProxy({
@@ -337,11 +365,11 @@ export class CaddyClient {
     listenPort,
     upstream,
   }: {
-    serverId: string;
-    listenPort: number;
-    upstream: string;
+    serverId: string
+    listenPort: number
+    upstream: string
   }): Promise<void> {
-    await this.ensureLayer4Bootstrap();
+    await this.ensureLayer4Bootstrap()
 
     const route: CaddyLayer4Route = {
       "@id": serverId,
@@ -351,27 +379,34 @@ export class CaddyClient {
           upstreams: [{ dial: [upstream] }],
         },
       ],
-    };
+    }
 
     const server: CaddyLayer4Server = {
       listen: [`:${listenPort}`],
       routes: [route],
-    };
+    }
 
-    await this.putOrFail(`/config/apps/layer4/servers/${serverId}`, server, `layer4.servers.${serverId}`);
+    await this.putOrFail(
+      `/config/apps/layer4/servers/${serverId}`,
+      server,
+      `layer4.servers.${serverId}`
+    )
   }
 
   async removeTcpProxy(serverId: string): Promise<void> {
-    await this.ensureLayer4Bootstrap();
-    const res = await fetch(`${this.baseUrl}/config/apps/layer4/servers/${serverId}`, {
-      method: "DELETE",
-    });
+    await this.ensureLayer4Bootstrap()
+    const res = await fetch(
+      `${this.baseUrl}/config/apps/layer4/servers/${serverId}`,
+      {
+        method: "DELETE",
+      }
+    )
 
-    if (res.ok || res.status === 404) return;
+    if (res.ok || res.status === 404) return
 
     throw new Error(
-      `CaddyClient.removeTcpProxy failed: ${res.status} ${await res.text()}`,
-    );
+      `CaddyClient.removeTcpProxy failed: ${res.status} ${await res.text()}`
+    )
   }
 
   /**
@@ -381,14 +416,14 @@ export class CaddyClient {
   async upsertDns01TlsPolicy(
     hostname: string,
     provider: string,
-    providerConfig: Record<string, string>,
+    providerConfig: Record<string, string>
   ): Promise<void> {
     const config = await this.getConfig()
     const existingPolicies = config.apps?.tls?.automation?.policies ?? []
 
     // Remove any existing policy for this exact hostname to avoid duplicates
     const filtered = existingPolicies.filter(
-      (p) => !(p.subjects?.length === 1 && p.subjects[0] === hostname),
+      (p) => !(p.subjects?.length === 1 && p.subjects[0] === hostname)
     )
 
     const newPolicy = {
@@ -411,7 +446,11 @@ export class CaddyClient {
     const updatedPolicies = [...filtered, newPolicy]
 
     // Ensure apps.tls path exists then PUT policies
-    await this.putOrFail("/config/apps/tls/automation/policies", updatedPolicies, "tls.automation.policies")
+    await this.putOrFail(
+      "/config/apps/tls/automation/policies",
+      updatedPolicies,
+      "tls.automation.policies"
+    )
   }
 
   /**
@@ -420,7 +459,7 @@ export class CaddyClient {
   buildDns01TlsPolicy(
     hostname: string,
     provider: string,
-    providerConfig: Record<string, string>,
+    providerConfig: Record<string, string>
   ): object {
     return {
       subjects: [hostname],
@@ -440,15 +479,19 @@ export class CaddyClient {
     }
   }
 
-  private async putOrFail(path: string, body: unknown, label: string): Promise<void> {
+  private async putOrFail(
+    path: string,
+    body: unknown,
+    label: string
+  ): Promise<void> {
     const res = await fetch(`${this.baseUrl}${path}`, {
       method: "PUT",
       headers: { "Content-Type": "application/json" },
       body: JSON.stringify(body),
-    });
-    if (res.ok) return;
+    })
+    if (res.ok) return
     throw new Error(
-      `CaddyClient.ensureBootstrap failed creating ${label}: ${res.status} ${await res.text()}`,
-    );
+      `CaddyClient.ensureBootstrap failed creating ${label}: ${res.status} ${await res.text()}`
+    )
   }
 }

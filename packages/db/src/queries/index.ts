@@ -1,6 +1,7 @@
 // SPDX-License-Identifier: AGPL-3.0-only
 export * from "./app-owner"
 export * from "./apps"
+export * from "./audit"
 export * from "./builds"
 export * from "./domains"
 export * from "./env"

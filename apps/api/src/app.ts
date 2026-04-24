@@ -33,6 +33,7 @@ import { createAppsDatabasesLinkRouter } from "./routes/apps-databases-link"
 import { appsProtectionRouter } from "./routes/apps-protection"
 import { createOrganizationsRouter } from "./routes/organizations"
 import { createServicesRouter } from "./routes/services"
+import { auditRouter } from "./routes/audit"
 import { getDefaultOrganizationForUser } from "./services/organizations"
 
 const httpLog = childLogger("http")
@@ -329,6 +330,11 @@ if (env.NODE_ENV !== "test") {
 // Notifications channels — all endpoints require auth.
 app.use("/notifications/*", requireAuth(db))
 app.route("/notifications", notificationsRouter)
+
+// Audit — all endpoints require auth.
+app.use("/audit", requireAuth(db))
+app.use("/audit/*", requireAuth(db))
+app.route("/audit", auditRouter)
 
 // Secrets — all endpoints require auth. Mounted before /apps to avoid shadowing.
 app.use("/apps/*/secrets*", requireAuth(db))
