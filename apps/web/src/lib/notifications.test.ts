@@ -19,12 +19,16 @@ function makeEvent(id: string): NotificationEvent {
 const connectedState: NotificationsState = {
   items: [],
   unreadCount: 0,
+  lastReadAt: 0,
+  hydrated: true,
   connected: true,
 }
 
 const disconnectedState: NotificationsState = {
   items: [],
   unreadCount: 0,
+  lastReadAt: 0,
+  hydrated: true,
   connected: false,
 }
 
@@ -125,7 +129,7 @@ describe("notificationsReducer / markAllRead", () => {
     let state = connectedState
     state = notificationsReducer(state, { type: "push", payload: makeEvent("m1") })
     state = notificationsReducer(state, { type: "push", payload: makeEvent("m2") })
-    state = notificationsReducer(state, { type: "markAllRead" })
+    state = notificationsReducer(state, { type: "markAllRead", at: Date.now() })
     expect(state.unreadCount).toBe(0)
     // Items are retained.
     expect(state.items).toHaveLength(2)

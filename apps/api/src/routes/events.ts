@@ -13,8 +13,13 @@
 
 import { Hono } from "hono"
 import { streamSSE } from "hono/streaming"
+import { createDb } from "@ploydok/db"
+import { getReadState, markNotificationsRead } from "@ploydok/db/queries"
 import { eventBus } from "../worker/event-bus"
+import { env } from "../env"
 import type { AuthUser } from "../auth/middleware"
+
+const db = createDb(env.DATABASE_URL)
 
 // ---------------------------------------------------------------------------
 // Constants
@@ -86,4 +91,50 @@ eventsRouter.get("/", (c) => {
       })
     })
   })
+})
+
+// ---------------------------------------------------------------------------
+// GET /events/read-state — last_read_at cursor for the notification bell.
+// ---------------------------------------------------------------------------
+
+eventsRouter.get("/read-state", async (c) => {
+  const user = c.get("user") as AuthUser | undefined
+  if (!user) {
+    return c.json(
+      { error: { code: "UNAUTHENTICATED", message: "Authentication required" } },
+      401,
+    )
+  }
+  const lastReadAt = await getReadState(db, user.id)
+  return c.json({
+    lastReadAt: lastReadAt?.toISOString() ?? null,
+  })
+})
+
+// ---------------------------------------------------------------------------
+// POST /events/mark-read — bumps last_read_at to the supplied timestamp
+// (defaults to "now"). The bell calls this whenever its dropdown closes.
+// ---------------------------------------------------------------------------
+
+eventsRouter.post("/mark-read", async (c) => {
+  const user = c.get("user") as AuthUser | undefined
+  if (!user) {
+    return c.json(
+      { error: { code: "UNAUTHENTICATED", message: "Authentication required" } },
+      401,
+    )
+  }
+  let body: { at?: string } = {}
+  try {
+    const raw = await c.req.json().catch(() => ({}))
+    if (raw && typeof raw === "object") body = raw as { at?: string }
+  } catch {
+    // body is optional
+  }
+  const at = body.at ? new Date(body.at) : new Date()
+  if (Number.isNaN(at.getTime())) {
+    return c.json({ error: { code: "BAD_REQUEST", message: "invalid 'at' timestamp" } }, 400)
+  }
+  await markNotificationsRead(db, user.id, at)
+  return c.json({ lastReadAt: at.toISOString() })
 })

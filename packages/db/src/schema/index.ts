@@ -33,3 +33,4 @@ export type { BackupConfigRow, BackupConfigInsert } from './backup_configs';
 export { backups } from './backups';
 export type { BackupRow, BackupInsert } from './backups';
 export * from './provider_repos';
+export { notification_read_state } from './notification-read-state';

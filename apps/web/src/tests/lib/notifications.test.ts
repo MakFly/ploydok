@@ -23,12 +23,16 @@ function makeEvent(id: string): NotificationEvent {
 const connected: NotificationsState = {
   items: [],
   unreadCount: 0,
+  lastReadAt: 0,
+  hydrated: true,
   connected: true,
 }
 
 const disconnected: NotificationsState = {
   items: [],
   unreadCount: 0,
+  lastReadAt: 0,
+  hydrated: true,
   connected: false,
 }
 
@@ -98,7 +102,7 @@ describe("notificationsReducer", () => {
     })
     expect(state.unreadCount).toBe(2)
 
-    const next = notificationsReducer(state, { type: "markAllRead" })
+    const next = notificationsReducer(state, { type: "markAllRead", at: Date.now() })
     expect(next.unreadCount).toBe(0)
     expect(next.items.length).toBe(2) // items untouched
   })
