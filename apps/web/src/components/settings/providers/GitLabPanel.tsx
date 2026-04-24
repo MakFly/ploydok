@@ -87,7 +87,7 @@ function GitLabCacheSection(): React.JSX.Element {
       errorMessage={error?.message}
       isSyncing={sync.isPending}
       onSyncOne={() => sync.mutateAsync()}
-      onSyncAll={undefined}
+      onSyncAll={() => sync.mutateAsync()}
       emptyState={
         <p className="text-sm text-muted-foreground">
           No GitLab projects cached yet. Connect via OAuth above; the first sync runs
