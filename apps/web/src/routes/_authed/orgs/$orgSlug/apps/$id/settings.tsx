@@ -3,7 +3,6 @@ import * as React from "react"
 import {
   Link,
   Outlet,
-  useNavigate,
   useParams,
   useRouterState,
   createFileRoute,
@@ -16,53 +15,32 @@ import { organizationPath, useCurrentOrganizationSlug } from "../../../../../../
 function AppSettingsLayout(): React.JSX.Element {
   const { id } = useParams({ strict: false }) as { id: string }
   const currentOrgSlug = useCurrentOrganizationSlug()
-  const navigate = useNavigate()
   const pathname = useRouterState({
     select: (state) => state.location.pathname,
   })
   const { data: app } = useApp(id)
 
+  const buildPath = (suffix: string): string =>
+    currentOrgSlug
+      ? organizationPath(currentOrgSlug, `apps/${id}/settings${suffix}`)
+      : `/apps/${id}/settings${suffix}`
+
   const tabs = [
-    {
-      value: "general",
-      to: currentOrgSlug ? organizationPath(currentOrgSlug, `apps/${id}/settings`) : `/apps/${id}/settings`,
-      label: "General",
-      exact: true,
-    },
-    {
-      value: "webhooks",
-      to: currentOrgSlug ? organizationPath(currentOrgSlug, `apps/${id}/settings/webhooks`) : `/apps/${id}/settings/webhooks`,
-      label: "Webhooks",
-      exact: false,
-    },
-    {
-      value: "secret",
-      to: currentOrgSlug ? organizationPath(currentOrgSlug, `apps/${id}/settings/webhook-secret`) : `/apps/${id}/settings/webhook-secret`,
-      label: "Secret",
-      exact: false,
-    },
-    {
-      value: "notifications",
-      to: currentOrgSlug ? organizationPath(currentOrgSlug, `apps/${id}/settings/notifications`) : `/apps/${id}/settings/notifications`,
-      label: "Notifications",
-      exact: false,
-    },
-    {
-      value: "protection",
-      to: currentOrgSlug ? organizationPath(currentOrgSlug, `apps/${id}/settings/protection`) : `/apps/${id}/settings/protection`,
-      label: "Protection",
-      exact: false,
-    },
+    { value: "general", to: buildPath(""), label: "General", exact: true },
+    { value: "webhooks", to: buildPath("/webhooks"), label: "Webhooks", exact: false },
+    { value: "secret", to: buildPath("/webhook-secret"), label: "Secret", exact: false },
+    { value: "notifications", to: buildPath("/notifications"), label: "Notifications", exact: false },
+    { value: "protection", to: buildPath("/protection"), label: "Protection", exact: false },
   ]
 
   const activeTab =
     tabs.find(({ to, exact }) =>
-      exact ? pathname === to || pathname === `${to}/` : pathname.startsWith(to)
+      exact ? pathname === to || pathname === `${to}/` : pathname.startsWith(to),
     )?.value ?? "general"
 
   return (
-    <div className="flex w-full flex-col gap-6 pb-10">
-      <div className="flex flex-col gap-2">
+    <div className="w-full px-4 py-6 md:px-6 md:py-8">
+      <header className="flex flex-col gap-2">
         <div className="flex flex-wrap items-center gap-3">
           <h1 className="font-heading text-2xl leading-tight">Settings</h1>
           {app ? <AppStatusBadge status={app.status} /> : null}
@@ -70,16 +48,9 @@ function AppSettingsLayout(): React.JSX.Element {
         <p className="text-sm text-muted-foreground">
           {app?.name ?? "Application"} configuration and webhook controls.
         </p>
-      </div>
+      </header>
 
-      <Tabs
-        value={activeTab}
-        onValueChange={(value) => {
-          const next = tabs.find((tab) => tab.value === value)
-          if (!next) return
-          void navigate({ href: next.to })
-        }}
-      >
+      <Tabs value={activeTab} className="mt-6 gap-6">
         <TabsList>
           {tabs.map((tab) => (
             <TabsTrigger key={tab.value} value={tab.value} asChild>
@@ -89,7 +60,9 @@ function AppSettingsLayout(): React.JSX.Element {
         </TabsList>
       </Tabs>
 
-      <Outlet />
+      <div className="mt-6">
+        <Outlet />
+      </div>
     </div>
   )
 }

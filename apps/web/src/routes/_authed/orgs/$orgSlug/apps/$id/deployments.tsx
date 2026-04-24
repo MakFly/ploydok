@@ -46,14 +46,16 @@ function AppDeploymentsTab(): React.JSX.Element {
 
   if (error) {
     return (
-      <p className="text-sm text-destructive" role="alert">
-        Failed to load deployments: {error.message}
-      </p>
+      <div className="w-full px-4 py-6 md:px-6 md:py-8">
+        <p className="text-sm text-destructive" role="alert">
+          Failed to load deployments: {error.message}
+        </p>
+      </div>
     )
   }
 
   return (
-    <div className="space-y-4">
+    <div className="w-full space-y-4 px-4 py-6 md:px-6 md:py-8">
       <DeploymentsTable
         builds={builds ?? []}
         isLoading={isLoading}

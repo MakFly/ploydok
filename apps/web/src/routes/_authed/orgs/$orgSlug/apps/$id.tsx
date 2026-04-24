@@ -36,7 +36,7 @@ function AppDetailLayout(): React.JSX.Element {
         className={
           isLogsRoute
             ? "flex flex-1 min-w-0 min-h-0 flex-col overflow-hidden"
-            : "flex-1 min-w-0 px-4 py-4 md:px-6 md:py-6"
+            : "flex-1 min-w-0"
         }
       >
         <Outlet />

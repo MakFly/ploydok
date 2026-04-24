@@ -40,7 +40,7 @@ function AppEnvTab(): React.JSX.Element {
   }
 
   return (
-    <div className="mx-auto w-full max-w-5xl space-y-4 py-6">
+    <div className="w-full space-y-4 px-4 py-6 md:px-6 md:py-8">
       {/* Toolbar */}
       <div className="flex items-center justify-between gap-3">
         <h2 className="text-sm font-medium text-muted-foreground">Encrypted secrets — AES-256-GCM at rest</h2>
