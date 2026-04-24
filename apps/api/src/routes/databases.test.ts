@@ -7,21 +7,28 @@ import type { Db } from "@ploydok/db"
 // ── Mocks ─────────────────────────────────────────────────────────────────────
 
 mock.module("../auth/second-factor", () => ({
-  requireTotpVerified: mock(() => async (_c: unknown, next: () => Promise<void>) => {
-    await next()
-  }),
+  requireTotpVerified: mock(
+    () => async (_c: unknown, next: () => Promise<void>) => {
+      await next()
+    }
+  ),
 }))
 
 mock.module("../databases/spawner", () => ({
   spawnDatabase: mock(async () => ({
     id: "db-test-id",
     containerId: "container-123",
-    connectionString: "postgres://ploydok:secret@ploydok-db-db-test-id:5432/app",
+    connectionString:
+      "postgres://ploydok:secret@ploydok-db-db-test-id:5432/app",
   })),
-  getConnectionString: mock(async () => "postgres://ploydok:secret@ploydok-db-db-test-id:5432/app"),
+  getConnectionString: mock(
+    async () => "postgres://ploydok:secret@ploydok-db-db-test-id:5432/app"
+  ),
   startDatabaseContainer: mock(async () => {}),
   stopDatabaseContainer: mock(async () => {}),
-  recreateDatabaseContainer: mock(async (_db: unknown, row: Record<string, unknown>) => row),
+  recreateDatabaseContainer: mock(
+    async (_db: unknown, row: Record<string, unknown>) => row
+  ),
   removeDatabasePublicProxy: mock(async () => {}),
 }))
 
@@ -62,7 +69,12 @@ mock.module("../env", () => ({
 
 // ── Helpers ───────────────────────────────────────────────────────────────────
 
-const fakeUser = { id: "user-1", email: "t@t.com", display_name: "T", session_id: "s" }
+const fakeUser = {
+  id: "user-1",
+  email: "t@t.com",
+  display_name: "T",
+  session_id: "s",
+}
 
 function makeChain(result: unknown[]) {
   const chain = {
@@ -74,16 +86,20 @@ function makeChain(result: unknown[]) {
   return chain
 }
 
-function buildDb(overrides: Partial<{
-  selectResult: unknown[]
-  dbRow: unknown
-}> = {}) {
+function buildDb(
+  overrides: Partial<{
+    selectResult: unknown[]
+    dbRow: unknown
+  }> = {}
+) {
   const { dbRow = null } = overrides
 
   const db: Record<string, unknown> = {
     select: mock(() => makeChain(dbRow ? [{ db: dbRow }] : [])),
     insert: mock(() => ({ values: mock(async () => {}) })),
-    update: mock(() => ({ set: mock(() => ({ where: mock(async () => {}) })) })),
+    update: mock(() => ({
+      set: mock(() => ({ where: mock(async () => {}) })),
+    })),
     delete: mock(() => ({ where: mock(async () => {}) })),
   }
   return db as unknown as Db
@@ -114,27 +130,48 @@ describe("POST /databases validation", () => {
   it("returns 400 on invalid kind", async () => {
     const db = buildDb({ dbRow: { id: "proj-1" } })
     const app = wrapRouter(db)
-    const res = await app.fetch(req("POST", "/", { projectId: "proj-1", kind: "sqlite", name: "mydb", plan: "small" }))
+    const res = await app.fetch(
+      req("POST", "/", {
+        projectId: "proj-1",
+        kind: "sqlite",
+        name: "mydb",
+        plan: "small",
+      })
+    )
     expect(res.status).toBe(400)
-    const data = await res.json() as { error: { code: string } }
+    const data = (await res.json()) as { error: { code: string } }
     expect(data.error.code).toBe("VALIDATION_ERROR")
   })
 
   it("returns 400 on invalid name (uppercase)", async () => {
     const db = buildDb({ dbRow: { id: "proj-1" } })
     const app = wrapRouter(db)
-    const res = await app.fetch(req("POST", "/", { projectId: "proj-1", kind: "postgres", name: "MyDB", plan: "small" }))
+    const res = await app.fetch(
+      req("POST", "/", {
+        projectId: "proj-1",
+        kind: "postgres",
+        name: "MyDB",
+        plan: "small",
+      })
+    )
     expect(res.status).toBe(400)
-    const data = await res.json() as { error: { code: string } }
+    const data = (await res.json()) as { error: { code: string } }
     expect(data.error.code).toBe("VALIDATION_ERROR")
   })
 
   it("returns 400 on invalid plan", async () => {
     const db = buildDb({ dbRow: { id: "proj-1" } })
     const app = wrapRouter(db)
-    const res = await app.fetch(req("POST", "/", { projectId: "proj-1", kind: "postgres", name: "mydb", plan: "xlarge" }))
+    const res = await app.fetch(
+      req("POST", "/", {
+        projectId: "proj-1",
+        kind: "postgres",
+        name: "mydb",
+        plan: "xlarge",
+      })
+    )
     expect(res.status).toBe(400)
-    const data = await res.json() as { error: { code: string } }
+    const data = (await res.json()) as { error: { code: string } }
     expect(data.error.code).toBe("VALIDATION_ERROR")
   })
 })
@@ -157,16 +194,20 @@ describe("DELETE /databases/:id", () => {
   it("returns 400 if confirm string is wrong", async () => {
     const db = buildDb({ dbRow: mockDatabaseRow })
     const app = wrapRouter(db)
-    const res = await app.fetch(req("DELETE", "/db-test-id", { confirm: "wrong" }))
+    const res = await app.fetch(
+      req("DELETE", "/db-test-id", { confirm: "wrong" })
+    )
     expect(res.status).toBe(400)
-    const data = await res.json() as { error: { code: string } }
+    const data = (await res.json()) as { error: { code: string } }
     expect(data.error.code).toBe("CONFIRM_REQUIRED")
   })
 
   it("returns 404 if database not found", async () => {
     const db = buildDb({ dbRow: null })
     const app = wrapRouter(db)
-    const res = await app.fetch(req("DELETE", "/nonexistent", { confirm: "delete nonexistent" }))
+    const res = await app.fetch(
+      req("DELETE", "/nonexistent", { confirm: "delete nonexistent" })
+    )
     expect(res.status).toBe(404)
   })
 })
@@ -175,15 +216,19 @@ describe("GET /databases", () => {
   it("returns 200 with array", async () => {
     const db: Record<string, unknown> = {
       select: mock(() => {
-        const chain = {
+        const chain: Record<string, unknown> = {
           from: () => chain,
           innerJoin: () => chain,
           where: () => Promise.resolve([]),
+          then: (onFulfilled: (v: unknown[]) => unknown) =>
+            Promise.resolve([]).then(onFulfilled),
         }
         return chain
       }),
       insert: mock(() => ({ values: mock(async () => {}) })),
-      update: mock(() => ({ set: mock(() => ({ where: mock(async () => {}) })) })),
+      update: mock(() => ({
+        set: mock(() => ({ where: mock(async () => {}) })),
+      })),
       delete: mock(() => ({ where: mock(async () => {}) })),
     }
     const app = wrapRouter(db as unknown as Db)
@@ -227,7 +272,12 @@ describe("POST /databases/:id lifecycle", () => {
   it("updates network settings", async () => {
     const db = buildDb({ dbRow: mockDatabaseRow })
     const app = wrapRouter(db)
-    const res = await app.fetch(req("PATCH", "/db-test-id/network", { exposureMode: "public_proxy", publicEnabled: true }))
+    const res = await app.fetch(
+      req("PATCH", "/db-test-id/network", {
+        exposureMode: "public_proxy",
+        publicEnabled: true,
+      })
+    )
     expect(res.status).toBe(200)
   })
 })

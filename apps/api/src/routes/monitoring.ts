@@ -26,8 +26,8 @@ import {
   type MonitoringOverview,
   type PlanName,
 } from "@ploydok/shared"
-import { apps, databases, projects } from "@ploydok/db"
-import { and, eq } from "drizzle-orm"
+import { apps, databases, projects, memberships } from "@ploydok/db"
+import { and, eq, isNotNull } from "drizzle-orm"
 import { resolveAppOwner } from "@ploydok/db/queries"
 import { createDb } from "@ploydok/db"
 import { env } from "../env"
@@ -64,7 +64,9 @@ export const monitoringRouter = new Hono<{ Variables: { user?: AuthUser } }>()
 
 async function snapshotFromAgent(): Promise<MonitoringOverview> {
   const agent = getSharedAgent()
-  const { containers: protoContainers } = await agent.listContainers({ kindFilter: "" })
+  const { containers: protoContainers } = await agent.listContainers({
+    kindFilter: "",
+  })
 
   const containers: ContainerSnapshot[] = []
   const now = Date.now()
@@ -92,7 +94,10 @@ async function snapshotFromAgent(): Promise<MonitoringOverview> {
     if (parsed.success) {
       containers.push(parsed.data)
     } else {
-      log.warn({ containerId: c.id, issues: parsed.error.issues }, "snapshot validation failed — skipping container")
+      log.warn(
+        { containerId: c.id, issues: parsed.error.issues },
+        "snapshot validation failed — skipping container"
+      )
     }
   }
 
@@ -101,7 +106,7 @@ async function snapshotFromAgent(): Promise<MonitoringOverview> {
 
 async function resolveContainerOwner(
   db: ReturnType<typeof createDb>,
-  container: Pick<ContainerSnapshot, "kind" | "app_id">,
+  container: Pick<ContainerSnapshot, "kind" | "app_id">
 ): Promise<string | null> {
   if (!container.app_id) return null
 
@@ -131,8 +136,10 @@ monitoringRouter.get("/overview", async (c) => {
 
   if (!user) {
     return c.json(
-      { error: { code: "UNAUTHENTICATED", message: "Authentication required" } },
-      401,
+      {
+        error: { code: "UNAUTHENTICATED", message: "Authentication required" },
+      },
+      401
     )
   }
 
@@ -153,7 +160,7 @@ monitoringRouter.get("/overview", async (c) => {
         generated_at: Date.now(),
         error: agentErrorPayload(err),
       },
-      503,
+      503
     )
   }
 })
@@ -178,8 +185,10 @@ monitoringRouter.get("/fleet/quotas", async (c) => {
   const user = c.get("user") as AuthUser | undefined
   if (!user) {
     return c.json(
-      { error: { code: "UNAUTHENTICATED", message: "Authentication required" } },
-      401,
+      {
+        error: { code: "UNAUTHENTICATED", message: "Authentication required" },
+      },
+      401
     )
   }
 
@@ -194,7 +203,14 @@ monitoringRouter.get("/fleet/quotas", async (c) => {
     })
     .from(apps)
     .innerJoin(projects, eq(apps.project_id, projects.id))
-    .where(and(eq(projects.owner_id, user.id)))
+    .innerJoin(
+      memberships,
+      and(
+        eq(memberships.org_id, projects.id),
+        eq(memberships.user_id, user.id),
+        isNotNull(memberships.accepted_at)
+      )
+    )
 
   let cpuSum = 0
   let memSum = 0
@@ -244,8 +260,10 @@ monitoringRouter.post("/ping/:id", async (c) => {
 
   if (!user) {
     return c.json(
-      { error: { code: "UNAUTHENTICATED", message: "Authentication required" } },
-      401,
+      {
+        error: { code: "UNAUTHENTICATED", message: "Authentication required" },
+      },
+      401
     )
   }
 
@@ -256,14 +274,23 @@ monitoringRouter.post("/ping/:id", async (c) => {
   try {
     bodyRaw = await c.req.json()
   } catch {
-    return c.json({ error: { code: "INVALID_BODY", message: "Invalid JSON body" } }, 400)
+    return c.json(
+      { error: { code: "INVALID_BODY", message: "Invalid JSON body" } },
+      400
+    )
   }
 
   const parsed = PingBodySchema.safeParse(bodyRaw)
   if (!parsed.success) {
     return c.json(
-      { error: { code: "VALIDATION_ERROR", message: "Invalid request body", details: parsed.error.issues } },
-      400,
+      {
+        error: {
+          code: "VALIDATION_ERROR",
+          message: "Invalid request body",
+          details: parsed.error.issues,
+        },
+      },
+      400
     )
   }
 
@@ -271,8 +298,13 @@ monitoringRouter.post("/ping/:id", async (c) => {
 
   if (RESERVED_PORTS.has(port)) {
     return c.json(
-      { error: { code: "FORBIDDEN_PORT", message: "Port is reserved for internal infrastructure" } },
-      400,
+      {
+        error: {
+          code: "FORBIDDEN_PORT",
+          message: "Port is reserved for internal infrastructure",
+        },
+      },
+      400
     )
   }
 
@@ -282,8 +314,13 @@ monitoringRouter.post("/ping/:id", async (c) => {
 
   if (!container?.app_id || container.kind !== "app") {
     return c.json(
-      { error: { code: "FORBIDDEN", message: "Ping is only available for app containers" } },
-      403,
+      {
+        error: {
+          code: "FORBIDDEN",
+          message: "Ping is only available for app containers",
+        },
+      },
+      403
     )
   }
 
@@ -291,8 +328,10 @@ monitoringRouter.post("/ping/:id", async (c) => {
   const ownerId = await resolveAppOwner(db, container.app_id)
   if (ownerId !== user.id) {
     return c.json(
-      { error: { code: "FORBIDDEN", message: "You do not own this container" } },
-      403,
+      {
+        error: { code: "FORBIDDEN", message: "You do not own this container" },
+      },
+      403
     )
   }
 
@@ -328,10 +367,15 @@ export async function monitoringTick(
   agent: Agent,
   publish: typeof eventBus.publish,
   prev: Map<string, ContainerStatus>,
-  resolveOwner: (kind: ContainerKind | undefined, runtimeId: string) => Promise<string | null>,
+  resolveOwner: (
+    kind: ContainerKind | undefined,
+    runtimeId: string
+  ) => Promise<string | null>
 ): Promise<void> {
   const now = Date.now()
-  const { containers: protoContainers } = await agent.listContainers({ kindFilter: "" })
+  const { containers: protoContainers } = await agent.listContainers({
+    kindFilter: "",
+  })
 
   for (const c of protoContainers) {
     const raw = {
@@ -364,7 +408,11 @@ export async function monitoringTick(
       (prevStatus !== undefined && prevStatus !== currentStatus) ||
       (prevStatus === undefined && currentStatus === "running")
 
-    if (shouldEmit && container.app_id && (container.kind === "app" || container.kind === "database")) {
+    if (
+      shouldEmit &&
+      container.app_id &&
+      (container.kind === "app" || container.kind === "database")
+    ) {
       try {
         const userId = await resolveOwner(container.kind, container.app_id)
         if (userId) {
@@ -381,7 +429,10 @@ export async function monitoringTick(
           })
         }
       } catch (err) {
-        log.warn({ containerId: container.id, err }, "resolveOwner failed during monitoring tick")
+        log.warn(
+          { containerId: container.id, err },
+          "resolveOwner failed during monitoring tick"
+        )
       }
     }
     // Infra/agent containers: skip.
@@ -398,10 +449,18 @@ export function startMonitoringLoop(db: ReturnType<typeof createDb>): void {
     resolveContainerOwner(db, { kind, app_id: runtimeId })
 
   loopHandle = setInterval(() => {
-    monitoringTick(agent, eventBus.publish.bind(eventBus), prevById, resolveOwner)
+    monitoringTick(
+      agent,
+      eventBus.publish.bind(eventBus),
+      prevById,
+      resolveOwner
+    )
       .then(() => {
         if (consecutiveFailures > 0) {
-          log.info({ afterFailures: consecutiveFailures }, "monitoring tick recovered")
+          log.info(
+            { afterFailures: consecutiveFailures },
+            "monitoring tick recovered"
+          )
           consecutiveFailures = 0
         }
       })
@@ -411,7 +470,10 @@ export function startMonitoringLoop(db: ReturnType<typeof createDb>): void {
         if (consecutiveFailures <= 2) {
           log.warn({ err, consecutiveFailures }, "monitoring tick error")
         } else {
-          log.debug({ err, consecutiveFailures }, "monitoring tick error (silenced)")
+          log.debug(
+            { err, consecutiveFailures },
+            "monitoring tick error (silenced)"
+          )
         }
       })
   }, 5_000)

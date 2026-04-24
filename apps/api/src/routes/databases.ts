@@ -1,8 +1,8 @@
 // SPDX-License-Identifier: AGPL-3.0-only
 import { Hono } from "hono"
 import { z } from "zod"
-import { and, eq } from "drizzle-orm"
-import { databases, app_db_links, projects } from "@ploydok/db"
+import { and, eq, isNotNull } from "drizzle-orm"
+import { databases, app_db_links, projects, memberships } from "@ploydok/db"
 import { createDb } from "@ploydok/db"
 import type { DatabaseRow, Db } from "@ploydok/db"
 import { env } from "../env"
@@ -15,7 +15,11 @@ import {
   startDatabaseContainer,
   stopDatabaseContainer,
 } from "../databases/spawner"
-import { rotatePassword, RotationInProgressError, RotationFailedError } from "../databases/rotation"
+import {
+  rotatePassword,
+  RotationInProgressError,
+  RotationFailedError,
+} from "../databases/rotation"
 import { getSharedAgent } from "../debug/singletons"
 import { childLogger } from "../logger"
 import type { AuthUser } from "../auth/middleware"
@@ -33,23 +37,38 @@ const KindEnum = z.enum(["postgres", "mysql", "mariadb", "redis", "mongo"])
 const PlanEnum = z.enum(["small", "medium", "large"])
 const ExposureModeEnum = z.enum(["internal", "direct_port", "public_proxy"])
 
-const CreateDatabaseBody = z.object({
-  organizationId: z.string().min(1).optional(),
-  projectId: z.string().min(1),
-  kind: KindEnum,
-  name: z.string().min(1).max(64).regex(/^[a-z0-9-]+$/, "Name must be lowercase alphanumeric with dashes"),
-  plan: PlanEnum,
-  exposureMode: ExposureModeEnum.optional(),
-  publicEnabled: z.boolean().optional(),
-}).or(z.object({
-  organizationId: z.string().min(1),
-  projectId: z.string().min(1).optional(),
-  kind: KindEnum,
-  name: z.string().min(1).max(64).regex(/^[a-z0-9-]+$/, "Name must be lowercase alphanumeric with dashes"),
-  plan: PlanEnum,
-  exposureMode: ExposureModeEnum.optional(),
-  publicEnabled: z.boolean().optional(),
-}))
+const CreateDatabaseBody = z
+  .object({
+    organizationId: z.string().min(1).optional(),
+    projectId: z.string().min(1),
+    kind: KindEnum,
+    name: z
+      .string()
+      .min(1)
+      .max(64)
+      .regex(/^[a-z0-9-]+$/, "Name must be lowercase alphanumeric with dashes"),
+    plan: PlanEnum,
+    exposureMode: ExposureModeEnum.optional(),
+    publicEnabled: z.boolean().optional(),
+  })
+  .or(
+    z.object({
+      organizationId: z.string().min(1),
+      projectId: z.string().min(1).optional(),
+      kind: KindEnum,
+      name: z
+        .string()
+        .min(1)
+        .max(64)
+        .regex(
+          /^[a-z0-9-]+$/,
+          "Name must be lowercase alphanumeric with dashes"
+        ),
+      plan: PlanEnum,
+      exposureMode: ExposureModeEnum.optional(),
+      publicEnabled: z.boolean().optional(),
+    })
+  )
 
 const UpdateNetworkBody = z.object({
   exposureMode: ExposureModeEnum.default("internal"),
@@ -86,16 +105,20 @@ function listShape(row: DatabaseRow) {
   }
 }
 
-async function getDbForUser(
-  db: Db,
-  dbId: string,
-  userId: string,
-) {
+async function getDbForUser(db: Db, dbId: string, userId: string) {
   const rows = await db
     .select({ db: databases })
     .from(databases)
     .innerJoin(projects, eq(databases.project_id, projects.id))
-    .where(and(eq(databases.id, dbId), eq(projects.owner_id, userId)))
+    .innerJoin(
+      memberships,
+      and(
+        eq(memberships.org_id, projects.id),
+        eq(memberships.user_id, userId),
+        isNotNull(memberships.accepted_at)
+      )
+    )
+    .where(eq(databases.id, dbId))
     .limit(1)
   return rows[0]?.db ?? null
 }
@@ -111,23 +134,40 @@ export function createDatabasesRouter(db: Db): Hono<any, any, any> {
     const body = await c.req.json().catch(() => null)
     const parsed = CreateDatabaseBody.safeParse(body)
     if (!parsed.success) {
-      return c.json({ error: { code: "VALIDATION_ERROR", message: parsed.error.message } }, 400)
+      return c.json(
+        { error: { code: "VALIDATION_ERROR", message: parsed.error.message } },
+        400
+      )
     }
     const { kind, name, plan } = parsed.data
     const exposureMode = parsed.data.exposureMode ?? "internal"
     const publicEnabled = parsed.data.publicEnabled ?? false
-    const requestedOrganizationId = parsed.data.organizationId ?? parsed.data.projectId
+    const requestedOrganizationId =
+      parsed.data.organizationId ?? parsed.data.projectId
     const projectId = requestedOrganizationId
       ? requestedOrganizationId
-      : (await ensureDefaultOrganizationForUser(db, user.id, user.display_name)).id
+      : (await ensureDefaultOrganizationForUser(db, user.id, user.display_name))
+          .id
 
     const projectRows = await db
       .select({ id: projects.id })
       .from(projects)
-      .where(and(eq(projects.id, projectId), eq(projects.owner_id, user.id)))
+      .innerJoin(
+        memberships,
+        and(
+          eq(memberships.org_id, projects.id),
+          eq(memberships.user_id, user.id),
+          eq(memberships.role, "owner"),
+          isNotNull(memberships.accepted_at)
+        )
+      )
+      .where(eq(projects.id, projectId))
       .limit(1)
     if (!projectRows[0]) {
-      return c.json({ error: { code: "NOT_FOUND", message: "Project not found" } }, 404)
+      return c.json(
+        { error: { code: "NOT_FOUND", message: "Project not found" } },
+        404
+      )
     }
 
     try {
@@ -143,7 +183,10 @@ export function createDatabasesRouter(db: Db): Hono<any, any, any> {
       return c.json({ id: result.id }, 201)
     } catch (err) {
       log.error({ err, projectId, kind, name }, "database spawn failed")
-      return c.json({ error: { code: "SPAWN_ERROR", message: "Failed to spawn database" } }, 500)
+      return c.json(
+        { error: { code: "SPAWN_ERROR", message: "Failed to spawn database" } },
+        500
+      )
     }
   })
 
@@ -152,16 +195,24 @@ export function createDatabasesRouter(db: Db): Hono<any, any, any> {
     const user = getUser(c)
     const projectId = c.req.query("projectId") ?? c.req.query("organizationId")
 
-    const conditions = [eq(projects.owner_id, user.id)]
-    if (projectId) {
-      conditions.push(eq(databases.project_id, projectId))
-    }
-
-    const rows = await db
+    let query = db
       .select({ db: databases })
       .from(databases)
       .innerJoin(projects, eq(databases.project_id, projects.id))
-      .where(and(...conditions))
+      .innerJoin(
+        memberships,
+        and(
+          eq(memberships.org_id, projects.id),
+          eq(memberships.user_id, user.id),
+          isNotNull(memberships.accepted_at)
+        )
+      )
+
+    if (projectId) {
+      query = query.where(eq(databases.project_id, projectId)) as typeof query
+    }
+
+    const rows = await query
 
     return c.json(rows.map((row) => listShape(row.db)))
   })
@@ -173,11 +224,17 @@ export function createDatabasesRouter(db: Db): Hono<any, any, any> {
 
     const row = await getDbForUser(db, dbId, user.id)
     if (!row) {
-      return c.json({ error: { code: "NOT_FOUND", message: "Database not found" } }, 404)
+      return c.json(
+        { error: { code: "NOT_FOUND", message: "Database not found" } },
+        404
+      )
     }
 
     const links = await db
-      .select({ app_id: app_db_links.app_id, env_prefix: app_db_links.env_prefix })
+      .select({
+        app_id: app_db_links.app_id,
+        env_prefix: app_db_links.env_prefix,
+      })
       .from(app_db_links)
       .where(eq(app_db_links.database_id, dbId))
 
@@ -191,11 +248,11 @@ export function createDatabasesRouter(db: Db): Hono<any, any, any> {
         },
         public: row.public_enabled
           ? {
-            exposure_mode: row.exposure_mode,
-            host: row.public_host,
-            port: row.public_port,
-            url: row.public_url,
-          }
+              exposure_mode: row.exposure_mode,
+              host: row.public_host,
+              port: row.public_port,
+              url: row.public_url,
+            }
           : null,
       },
     })
@@ -208,14 +265,25 @@ export function createDatabasesRouter(db: Db): Hono<any, any, any> {
 
     const row = await getDbForUser(db, dbId!, user.id)
     if (!row) {
-      return c.json({ error: { code: "NOT_FOUND", message: "Database not found" } }, 404)
+      return c.json(
+        { error: { code: "NOT_FOUND", message: "Database not found" } },
+        404
+      )
     }
 
     try {
       const connectionString = await getConnectionString(row)
       return c.json({ connection_string: connectionString })
     } catch {
-      return c.json({ error: { code: "UNAVAILABLE", message: "Connection string not available" } }, 503)
+      return c.json(
+        {
+          error: {
+            code: "UNAVAILABLE",
+            message: "Connection string not available",
+          },
+        },
+        503
+      )
     }
   })
 
@@ -231,10 +299,16 @@ export function createDatabasesRouter(db: Db): Hono<any, any, any> {
     const dbId = c.req.param("id")
     const row = await getDbForUser(db, dbId!, user.id)
     if (!row) {
-      return c.json({ error: { code: "NOT_FOUND", message: "Database not found" } }, 404)
+      return c.json(
+        { error: { code: "NOT_FOUND", message: "Database not found" } },
+        404
+      )
     }
     if (BUSY_STATUSES.has(row.status)) {
-      return c.json({ error: { code: "CONFLICT", message: "Database is busy" } }, 409)
+      return c.json(
+        { error: { code: "CONFLICT", message: "Database is busy" } },
+        409
+      )
     }
 
     try {
@@ -242,7 +316,10 @@ export function createDatabasesRouter(db: Db): Hono<any, any, any> {
       return c.json({ ok: true })
     } catch (err) {
       log.error({ err, dbId: row.id }, "start database failed")
-      return c.json({ error: { code: "START_FAILED", message: "Start failed" } }, 500)
+      return c.json(
+        { error: { code: "START_FAILED", message: "Start failed" } },
+        500
+      )
     }
   })
 
@@ -251,10 +328,16 @@ export function createDatabasesRouter(db: Db): Hono<any, any, any> {
     const dbId = c.req.param("id")
     const row = await getDbForUser(db, dbId!, user.id)
     if (!row) {
-      return c.json({ error: { code: "NOT_FOUND", message: "Database not found" } }, 404)
+      return c.json(
+        { error: { code: "NOT_FOUND", message: "Database not found" } },
+        404
+      )
     }
     if (BUSY_STATUSES.has(row.status)) {
-      return c.json({ error: { code: "CONFLICT", message: "Database is busy" } }, 409)
+      return c.json(
+        { error: { code: "CONFLICT", message: "Database is busy" } },
+        409
+      )
     }
 
     try {
@@ -262,7 +345,10 @@ export function createDatabasesRouter(db: Db): Hono<any, any, any> {
       return c.json({ ok: true })
     } catch (err) {
       log.error({ err, dbId: row.id }, "stop database failed")
-      return c.json({ error: { code: "STOP_FAILED", message: "Stop failed" } }, 500)
+      return c.json(
+        { error: { code: "STOP_FAILED", message: "Stop failed" } },
+        500
+      )
     }
   })
 
@@ -271,22 +357,34 @@ export function createDatabasesRouter(db: Db): Hono<any, any, any> {
     const dbId = c.req.param("id")
     const row = await getDbForUser(db, dbId!, user.id)
     if (!row) {
-      return c.json({ error: { code: "NOT_FOUND", message: "Database not found" } }, 404)
+      return c.json(
+        { error: { code: "NOT_FOUND", message: "Database not found" } },
+        404
+      )
     }
     if (BUSY_STATUSES.has(row.status)) {
-      return c.json({ error: { code: "CONFLICT", message: "Database is busy" } }, 409)
+      return c.json(
+        { error: { code: "CONFLICT", message: "Database is busy" } },
+        409
+      )
     }
 
     try {
       await recreateDatabaseContainer(db, row, {
-        exposureMode: row.exposure_mode as "internal" | "direct_port" | "public_proxy",
+        exposureMode: row.exposure_mode as
+          | "internal"
+          | "direct_port"
+          | "public_proxy",
         publicEnabled: row.public_enabled,
         ownerId: user.id,
       })
       return c.json({ ok: true })
     } catch (err) {
       log.error({ err, dbId: row.id }, "restart database failed")
-      return c.json({ error: { code: "RESTART_FAILED", message: "Restart failed" } }, 500)
+      return c.json(
+        { error: { code: "RESTART_FAILED", message: "Restart failed" } },
+        500
+      )
     }
   })
 
@@ -295,29 +393,47 @@ export function createDatabasesRouter(db: Db): Hono<any, any, any> {
     const dbId = c.req.param("id")
     const row = await getDbForUser(db, dbId!, user.id)
     if (!row) {
-      return c.json({ error: { code: "NOT_FOUND", message: "Database not found" } }, 404)
+      return c.json(
+        { error: { code: "NOT_FOUND", message: "Database not found" } },
+        404
+      )
     }
     if (BUSY_STATUSES.has(row.status)) {
-      return c.json({ error: { code: "CONFLICT", message: "Database is busy" } }, 409)
+      return c.json(
+        { error: { code: "CONFLICT", message: "Database is busy" } },
+        409
+      )
     }
 
     const body = await c.req.json().catch(() => null)
     const parsed = UpdateNetworkBody.safeParse(body)
     if (!parsed.success) {
-      return c.json({ error: { code: "VALIDATION_ERROR", message: parsed.error.message } }, 400)
+      return c.json(
+        { error: { code: "VALIDATION_ERROR", message: parsed.error.message } },
+        400
+      )
     }
     const nextNetwork = parsed.data
 
     try {
       const nextRow = await recreateDatabaseContainer(db, row, {
         exposureMode: nextNetwork.exposureMode,
-        publicEnabled: nextNetwork.publicEnabled && nextNetwork.exposureMode !== "internal",
+        publicEnabled:
+          nextNetwork.publicEnabled && nextNetwork.exposureMode !== "internal",
         ownerId: user.id,
       })
       return c.json({ ok: true, database: listShape(nextRow) })
     } catch (err) {
       log.error({ err, dbId: row.id }, "network update failed")
-      return c.json({ error: { code: "NETWORK_UPDATE_FAILED", message: "Network update failed" } }, 500)
+      return c.json(
+        {
+          error: {
+            code: "NETWORK_UPDATE_FAILED",
+            message: "Network update failed",
+          },
+        },
+        500
+      )
     }
   })
 
@@ -330,7 +446,10 @@ export function createDatabasesRouter(db: Db): Hono<any, any, any> {
       : 200
     const row = await getDbForUser(db, dbId!, user.id)
     if (!row) {
-      return c.json({ error: { code: "NOT_FOUND", message: "Database not found" } }, 404)
+      return c.json(
+        { error: { code: "NOT_FOUND", message: "Database not found" } },
+        404
+      )
     }
     if (!row.container_id) {
       return c.json({ lines: [], containerFound: false })
@@ -338,18 +457,24 @@ export function createDatabasesRouter(db: Db): Hono<any, any, any> {
 
     try {
       const agent = getSharedAgent()
-      const lines: Array<{ t: number; line: string; stream?: "stdout" | "stderr" }> = []
+      const lines: Array<{
+        t: number
+        line: string
+        stream?: "stdout" | "stderr"
+      }> = []
       for await (const line of agent.containerLogs({
         containerId: row.container_id,
         follow: false,
         sinceUnix: 0,
         tail,
       })) {
-        const entry: { t: number; line: string; stream?: "stdout" | "stderr" } = {
-          t: Date.parse(line.timestamp) || Date.now(),
-          line: line.line,
-        }
-        if (line.stream === "stdout" || line.stream === "stderr") entry.stream = line.stream
+        const entry: { t: number; line: string; stream?: "stdout" | "stderr" } =
+          {
+            t: Date.parse(line.timestamp) || Date.now(),
+            line: line.line,
+          }
+        if (line.stream === "stdout" || line.stream === "stderr")
+          entry.stream = line.stream
         lines.push(entry)
       }
       return c.json({ lines, containerFound: true })
@@ -364,7 +489,10 @@ export function createDatabasesRouter(db: Db): Hono<any, any, any> {
     const dbId = c.req.param("id")
     const row = await getDbForUser(db, dbId!, user.id)
     if (!row) {
-      return c.json({ error: { code: "NOT_FOUND", message: "Database not found" } }, 404)
+      return c.json(
+        { error: { code: "NOT_FOUND", message: "Database not found" } },
+        404
+      )
     }
     if (!row.container_id) {
       return c.json({ containerFound: false })
@@ -372,7 +500,10 @@ export function createDatabasesRouter(db: Db): Hono<any, any, any> {
 
     try {
       const agent = getSharedAgent()
-      for await (const frame of agent.containerStats({ containerId: row.container_id, stream: false })) {
+      for await (const frame of agent.containerStats({
+        containerId: row.container_id,
+        stream: false,
+      })) {
         return c.json({
           containerFound: true,
           stats: {
@@ -399,12 +530,22 @@ export function createDatabasesRouter(db: Db): Hono<any, any, any> {
 
     const row = await getDbForUser(db, dbId!, user.id)
     if (!row) {
-      return c.json({ error: { code: "NOT_FOUND", message: "Database not found" } }, 404)
+      return c.json(
+        { error: { code: "NOT_FOUND", message: "Database not found" } },
+        404
+      )
     }
 
     try {
       const result = await rotatePassword(db, row.id, { reason: "manual" })
-      log.info({ dbId: row.id, userId: user.id, appsRedeployed: result.appsRedeployed }, "manual rotation triggered")
+      log.info(
+        {
+          dbId: row.id,
+          userId: user.id,
+          appsRedeployed: result.appsRedeployed,
+        },
+        "manual rotation triggered"
+      )
       return c.json({
         ok: true,
         rotatedAt: result.rotatedAt.toISOString(),
@@ -412,13 +553,26 @@ export function createDatabasesRouter(db: Db): Hono<any, any, any> {
       })
     } catch (err) {
       if (err instanceof RotationInProgressError) {
-        return c.json({ error: { code: "CONFLICT", message: "Rotation already in progress" } }, 409)
+        return c.json(
+          {
+            error: {
+              code: "CONFLICT",
+              message: "Rotation already in progress",
+            },
+          },
+          409
+        )
       }
       if (err instanceof RotationFailedError) {
         log.error({ err, dbId: row.id }, "rotation failed — rolled back")
         return c.json(
-          { error: { code: "ROTATION_FAILED", message: "Rotation failed — rolled back to previous password" } },
-          500,
+          {
+            error: {
+              code: "ROTATION_FAILED",
+              message: "Rotation failed — rolled back to previous password",
+            },
+          },
+          500
         )
       }
       const msg = err instanceof Error ? err.message : String(err)
@@ -434,7 +588,10 @@ export function createDatabasesRouter(db: Db): Hono<any, any, any> {
 
     const row = await getDbForUser(db, dbId!, user.id)
     if (!row) {
-      return c.json({ error: { code: "NOT_FOUND", message: "Database not found" } }, 404)
+      return c.json(
+        { error: { code: "NOT_FOUND", message: "Database not found" } },
+        404
+      )
     }
 
     const body = await c.req.json().catch(() => null)
@@ -447,7 +604,7 @@ export function createDatabasesRouter(db: Db): Hono<any, any, any> {
             message: `Send { "confirm": "delete ${row.name}" } to confirm deletion`,
           },
         },
-        400,
+        400
       )
     }
 
@@ -455,10 +612,20 @@ export function createDatabasesRouter(db: Db): Hono<any, any, any> {
 
     if (row.container_id) {
       try {
-        await agent.containerStop({ containerId: row.container_id, timeoutSeconds: 10 })
-        await agent.containerRemove({ containerId: row.container_id, force: false, removeVolumes: false })
+        await agent.containerStop({
+          containerId: row.container_id,
+          timeoutSeconds: 10,
+        })
+        await agent.containerRemove({
+          containerId: row.container_id,
+          force: false,
+          removeVolumes: false,
+        })
       } catch (err) {
-        log.warn({ err, dbId, containerId: row.container_id }, "container stop/remove warning")
+        log.warn(
+          { err, dbId, containerId: row.container_id },
+          "container stop/remove warning"
+        )
       }
     }
 
