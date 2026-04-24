@@ -29,8 +29,8 @@
 
 import { Hono } from "hono"
 import { createBunWebSocket } from "hono/bun"
-import { eq } from "drizzle-orm"
-import { createDb, apps, projects } from "@ploydok/db"
+import { eq, and, isNotNull } from "drizzle-orm"
+import { createDb, apps, projects, memberships } from "@ploydok/db"
 import { verifyAccessToken, ACCESS_COOKIE } from "../auth/jwt"
 import { env } from "../env"
 import { getSharedAgent } from "../debug/singletons"
@@ -47,13 +47,14 @@ const log = childLogger("exec")
 // BunWebSocket adapter
 // ---------------------------------------------------------------------------
 
-export const { upgradeWebSocket, websocket: wsExecHandler } = createBunWebSocket()
+export const { upgradeWebSocket, websocket: wsExecHandler } =
+  createBunWebSocket()
 
 // ---------------------------------------------------------------------------
 // Constants
 // ---------------------------------------------------------------------------
 
-const IDLE_TIMEOUT_MS = 600_000   // 10 min
+const IDLE_TIMEOUT_MS = 600_000 // 10 min
 const ABSOLUTE_TIMEOUT_MS = 3_600_000 // 1 h
 const SHELL = "/bin/sh"
 
@@ -83,7 +84,9 @@ function parseCookies(header: string): Record<string, string> {
  * Verifies the access cookie and returns the user id.
  * Returns null if the token is missing or invalid.
  */
-export async function getUserIdFromRequest(req: Request): Promise<string | null> {
+export async function getUserIdFromRequest(
+  req: Request
+): Promise<string | null> {
   const cookieHeader = req.headers.get("cookie") ?? ""
   const cookies = parseCookies(cookieHeader)
   const token = cookies[ACCESS_COOKIE]
@@ -101,17 +104,30 @@ export async function getUserIdFromRequest(req: Request): Promise<string | null>
 // ---------------------------------------------------------------------------
 
 /**
- * Returns true if `userId` owns the project that contains `appId`.
+ * Returns true if `userId` is an owner (role='owner') of the project that contains `appId`.
+ * Shell access is owner-only.
  */
-export async function userOwnsApp(appId: string, userId: string): Promise<boolean> {
+export async function userOwnsApp(
+  appId: string,
+  userId: string
+): Promise<boolean> {
   const projectRows = await db
-    .select({ owner_id: projects.owner_id })
+    .select({ id: projects.id })
     .from(projects)
     .innerJoin(apps, eq(apps.project_id, projects.id))
+    .innerJoin(
+      memberships,
+      and(
+        eq(memberships.org_id, projects.id),
+        eq(memberships.user_id, userId),
+        eq(memberships.role, "owner"),
+        isNotNull(memberships.accepted_at)
+      )
+    )
     .where(eq(apps.id, appId))
     .limit(1)
 
-  return projectRows[0]?.owner_id === userId
+  return projectRows.length > 0
 }
 
 // ---------------------------------------------------------------------------
@@ -122,7 +138,11 @@ export async function userOwnsApp(appId: string, userId: string): Promise<boolea
  * Constructs the ExecStart frame to send as the first gRPC message.
  * Exported for unit testing.
  */
-export function buildStartFrame(containerId: string, cols: number, rows: number): ExecFrame {
+export function buildStartFrame(
+  containerId: string,
+  cols: number,
+  rows: number
+): ExecFrame {
   return {
     start: {
       containerId,
@@ -150,7 +170,9 @@ wsExecRouter.get(
 
     // Per-connection state
     let closed = false
-    let execSession: ReturnType<ReturnType<typeof getSharedAgent>["containerExec"]> | null = null
+    let execSession: ReturnType<
+      ReturnType<typeof getSharedAgent>["containerExec"]
+    > | null = null
     let idleTimer: ReturnType<typeof setTimeout> | null = null
     let absoluteTimer: ReturnType<typeof setTimeout> | null = null
     let startMs = 0
@@ -160,20 +182,38 @@ wsExecRouter.get(
     function resetIdle() {
       if (idleTimer) clearTimeout(idleTimer)
       idleTimer = setTimeout(() => {
-        log.info({ userId: sessionUserId, appId, containerId: sessionContainerId }, "exec.idle_timeout")
+        log.info(
+          { userId: sessionUserId, appId, containerId: sessionContainerId },
+          "exec.idle_timeout"
+        )
         closeSession(null, 1001, "idle timeout")
       }, IDLE_TIMEOUT_MS)
     }
 
-    function closeSession(ws: { close(code: number, reason?: string): void } | null, code: number, reason: string, exitCode?: number) {
+    function closeSession(
+      ws: { close(code: number, reason?: string): void } | null,
+      code: number,
+      reason: string,
+      exitCode?: number
+    ) {
       if (closed) return
       closed = true
 
-      if (idleTimer) { clearTimeout(idleTimer); idleTimer = null }
-      if (absoluteTimer) { clearTimeout(absoluteTimer); absoluteTimer = null }
+      if (idleTimer) {
+        clearTimeout(idleTimer)
+        idleTimer = null
+      }
+      if (absoluteTimer) {
+        clearTimeout(absoluteTimer)
+        absoluteTimer = null
+      }
 
       if (execSession) {
-        try { execSession.close() } catch { /* ignore */ }
+        try {
+          execSession.close()
+        } catch {
+          /* ignore */
+        }
         execSession = null
       }
 
@@ -186,7 +226,7 @@ wsExecRouter.get(
             durationMs: Date.now() - startMs,
             exitCode: exitCode ?? null,
           },
-          "exec.end",
+          "exec.end"
         )
       }
 
@@ -274,11 +314,14 @@ wsExecRouter.get(
             }
           } catch (err) {
             if (!closed) {
-              const msg = err instanceof Error ? err.message : "gRPC stream error"
+              const msg =
+                err instanceof Error ? err.message : "gRPC stream error"
               log.error({ err, userId, appId, containerId }, "exec.grpc_error")
               try {
                 ws.send(JSON.stringify({ type: "error", message: msg }))
-              } catch { /* ignore */ }
+              } catch {
+                /* ignore */
+              }
               closeSession(ws, 1011, "internal error")
             }
           }
@@ -293,7 +336,8 @@ wsExecRouter.get(
 
         // Binary → stdin
         if (data instanceof ArrayBuffer || data instanceof Uint8Array) {
-          const bytes = data instanceof ArrayBuffer ? new Uint8Array(data) : data
+          const bytes =
+            data instanceof ArrayBuffer ? new Uint8Array(data) : data
           execSession.send({ stdin: bytes })
           return
         }
@@ -307,7 +351,10 @@ wsExecRouter.get(
               parsed !== null &&
               (parsed as { type?: unknown }).type === "resize"
             ) {
-              const { cols: c, rows: r } = parsed as { cols?: unknown; rows?: unknown }
+              const { cols: c, rows: r } = parsed as {
+                cols?: unknown
+                rows?: unknown
+              }
               if (typeof c === "number" && typeof r === "number") {
                 execSession.send({
                   resize: { cols: Math.max(1, c), rows: Math.max(1, r) },
@@ -324,5 +371,5 @@ wsExecRouter.get(
         closeSession(null, 1000, "client closed")
       },
     }
-  }),
+  })
 )

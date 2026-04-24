@@ -34,6 +34,9 @@ function makeDb(appOverride?: Partial<typeof fakeApp>): Db {
     select: () => ({
       from: () => ({
         innerJoin: () => ({
+          innerJoin: () => ({
+            where: () => ({ limit: () => Promise.resolve([{ app }]) }),
+          }),
           where: () => ({ limit: () => Promise.resolve([{ app }]) }),
         }),
         where: () => ({ limit: () => Promise.resolve([]) }),
@@ -91,6 +94,9 @@ describe("GET /apps/:id/protection", () => {
       select: () => ({
         from: () => ({
           innerJoin: () => ({
+            innerJoin: () => ({
+              where: () => ({ limit: () => Promise.resolve([]) }),
+            }),
             where: () => ({ limit: () => Promise.resolve([]) }),
           }),
         }),
@@ -155,6 +161,9 @@ describe("GET /apps/:id/caddy-extra", () => {
       select: () => ({
         from: () => ({
           innerJoin: () => ({
+            innerJoin: () => ({
+              where: () => ({ limit: () => Promise.resolve([]) }),
+            }),
             where: () => ({ limit: () => Promise.resolve([]) }),
           }),
         }),
@@ -215,6 +224,9 @@ describe("PATCH /apps/:id/caddy-extra", () => {
       select: () => ({
         from: () => ({
           innerJoin: () => ({
+            innerJoin: () => ({
+              where: () => ({ limit: () => Promise.resolve([]) }),
+            }),
             where: () => ({ limit: () => Promise.resolve([]) }),
           }),
         }),

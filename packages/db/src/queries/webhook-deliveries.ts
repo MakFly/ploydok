@@ -1,6 +1,6 @@
 // SPDX-License-Identifier: AGPL-3.0-only
-import { and, count, desc, eq, lt } from "drizzle-orm"
-import { apps, projects, webhook_deliveries } from "../schema"
+import { and, count, desc, eq, lt, isNotNull } from "drizzle-orm"
+import { apps, projects, webhook_deliveries, memberships } from "../schema"
 import type { Db } from "../client"
 
 export type DeliveryRow = typeof webhook_deliveries.$inferSelect
@@ -42,7 +42,7 @@ export interface DeliverySummary {
  */
 export async function findRecentEnqueuedDeliveryByApp(
   db: Db,
-  appId: string,
+  appId: string
 ): Promise<{ id: string } | null> {
   const rows = await db
     .select({ id: webhook_deliveries.id })
@@ -50,8 +50,8 @@ export async function findRecentEnqueuedDeliveryByApp(
     .where(
       and(
         eq(webhook_deliveries.app_id, appId),
-        eq(webhook_deliveries.decision, "enqueued"),
-      ),
+        eq(webhook_deliveries.decision, "enqueued")
+      )
     )
     .limit(1)
 
@@ -62,7 +62,10 @@ export async function findRecentEnqueuedDeliveryByApp(
  * Returns the total count of deliveries for an app.
  * Used to generate a unique job-id suffix when the active slot is busy.
  */
-export async function countDeliveriesByApp(db: Db, appId: string): Promise<number> {
+export async function countDeliveriesByApp(
+  db: Db,
+  appId: string
+): Promise<number> {
   const rows = await db
     .select({ c: count() })
     .from(webhook_deliveries)
@@ -73,21 +76,29 @@ export async function countDeliveriesByApp(db: Db, appId: string): Promise<numbe
 
 /**
  * Returns deliveries for an app with cursor-based pagination on received_at DESC.
- * Ownership is verified via project join — returns null if not owned by userId.
+ * Access is verified via membership — returns null if user lacks access.
  */
 export async function listDeliveriesByApp(
   db: Db,
   appId: string,
   userId: string,
   limit: number,
-  cursor?: string,
+  cursor?: string
 ): Promise<ListDeliveriesResult | null> {
-  // Verify ownership
+  // Verify access via membership
   const appRows = await db
     .select({ id: apps.id })
     .from(apps)
     .innerJoin(projects, eq(apps.project_id, projects.id))
-    .where(and(eq(apps.id, appId), eq(projects.owner_id, userId)))
+    .innerJoin(
+      memberships,
+      and(
+        eq(memberships.org_id, projects.id),
+        eq(memberships.user_id, userId),
+        isNotNull(memberships.accepted_at)
+      )
+    )
+    .where(eq(apps.id, appId))
     .limit(1)
 
   if (!appRows[0]) return null
@@ -117,9 +128,9 @@ export async function listDeliveriesByApp(
       cursorDate
         ? and(
             eq(webhook_deliveries.app_id, appId),
-            lt(webhook_deliveries.received_at, cursorDate),
+            lt(webhook_deliveries.received_at, cursorDate)
           )
-        : eq(webhook_deliveries.app_id, appId),
+        : eq(webhook_deliveries.app_id, appId)
     )
     .orderBy(desc(webhook_deliveries.received_at))
     .limit(limit + 1)
@@ -139,7 +150,10 @@ export async function listDeliveriesByApp(
       decision_reason: r.decision_reason,
       signature_valid: r.signature_valid,
       build_id: r.build_id,
-      received_at: r.received_at instanceof Date ? r.received_at.toISOString() : String(r.received_at),
+      received_at:
+        r.received_at instanceof Date
+          ? r.received_at.toISOString()
+          : String(r.received_at),
       processed_at:
         r.processed_at instanceof Date
           ? r.processed_at.toISOString()
@@ -150,11 +164,12 @@ export async function listDeliveriesByApp(
       parent_delivery_id: r.parent_delivery_id,
       source: r.source,
     })),
-    next_cursor: hasMore && page[page.length - 1]
-      ? (page[page.length - 1]!.received_at instanceof Date
+    next_cursor:
+      hasMore && page[page.length - 1]
+        ? page[page.length - 1]!.received_at instanceof Date
           ? (page[page.length - 1]!.received_at as Date).toISOString()
-          : String(page[page.length - 1]!.received_at))
-      : null,
+          : String(page[page.length - 1]!.received_at)
+        : null,
   }
 }
 
@@ -168,20 +183,28 @@ export interface DeliveryDetail extends DeliverySummary {
 
 /**
  * Returns a single delivery with its payload_sample.
- * Ownership is verified — returns null if not owned by userId or not found.
+ * Access is verified via membership — returns null if not found or user lacks access.
  */
 export async function getDeliveryById(
   db: Db,
   appId: string,
   deliveryId: string,
-  userId: string,
+  userId: string
 ): Promise<DeliveryDetail | null> {
-  // Verify app ownership
+  // Verify app access via membership
   const appRows = await db
     .select({ id: apps.id })
     .from(apps)
     .innerJoin(projects, eq(apps.project_id, projects.id))
-    .where(and(eq(apps.id, appId), eq(projects.owner_id, userId)))
+    .innerJoin(
+      memberships,
+      and(
+        eq(memberships.org_id, projects.id),
+        eq(memberships.user_id, userId),
+        isNotNull(memberships.accepted_at)
+      )
+    )
+    .where(eq(apps.id, appId))
     .limit(1)
 
   if (!appRows[0]) return null
@@ -209,8 +232,8 @@ export async function getDeliveryById(
     .where(
       and(
         eq(webhook_deliveries.id, deliveryId),
-        eq(webhook_deliveries.app_id, appId),
-      ),
+        eq(webhook_deliveries.app_id, appId)
+      )
     )
     .limit(1)
 
@@ -228,7 +251,10 @@ export async function getDeliveryById(
     decision_reason: r.decision_reason,
     signature_valid: r.signature_valid,
     build_id: r.build_id,
-    received_at: r.received_at instanceof Date ? r.received_at.toISOString() : String(r.received_at),
+    received_at:
+      r.received_at instanceof Date
+        ? r.received_at.toISOString()
+        : String(r.received_at),
     processed_at:
       r.processed_at instanceof Date
         ? r.processed_at.toISOString()

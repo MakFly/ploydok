@@ -1,8 +1,14 @@
 // SPDX-License-Identifier: AGPL-3.0-only
 import { Hono } from "hono"
 import { z } from "zod"
-import { and, eq, desc } from "drizzle-orm"
-import { databases, backup_configs, backups, projects } from "@ploydok/db"
+import { and, eq, desc, isNotNull } from "drizzle-orm"
+import {
+  databases,
+  backup_configs,
+  backups,
+  projects,
+  memberships,
+} from "@ploydok/db"
 import type { Db } from "@ploydok/db"
 import { nanoid } from "nanoid"
 import { requireTotpVerified } from "../auth/second-factor"
@@ -51,7 +57,15 @@ async function getDbForUser(db: Db, dbId: string, userId: string) {
     .select({ db: databases })
     .from(databases)
     .innerJoin(projects, eq(databases.project_id, projects.id))
-    .where(and(eq(databases.id, dbId), eq(projects.owner_id, userId)))
+    .innerJoin(
+      memberships,
+      and(
+        eq(memberships.org_id, projects.id),
+        eq(memberships.user_id, userId),
+        isNotNull(memberships.accepted_at)
+      )
+    )
+    .where(eq(databases.id, dbId))
     .limit(1)
   return rows[0]?.db ?? null
 }
@@ -71,7 +85,11 @@ export function createBackupsRouter(db: Db): Hono<any, any, any> {
     const dbId = c.req.param("id")
 
     const dbRow = await getDbForUser(db, dbId, user.id)
-    if (!dbRow) return c.json({ error: { code: "NOT_FOUND", message: "Database not found" } }, 404)
+    if (!dbRow)
+      return c.json(
+        { error: { code: "NOT_FOUND", message: "Database not found" } },
+        404
+      )
 
     const rows = await db
       .select()
@@ -89,7 +107,11 @@ export function createBackupsRouter(db: Db): Hono<any, any, any> {
     const dbId = c.req.param("id")
 
     const dbRow = await getDbForUser(db, dbId, user.id)
-    if (!dbRow) return c.json({ error: { code: "NOT_FOUND", message: "Database not found" } }, 404)
+    if (!dbRow)
+      return c.json(
+        { error: { code: "NOT_FOUND", message: "Database not found" } },
+        404
+      )
 
     const configRows = await db
       .select()
@@ -109,12 +131,19 @@ export function createBackupsRouter(db: Db): Hono<any, any, any> {
     const dbId = c.req.param("id")
 
     const dbRow = await getDbForUser(db, dbId, user.id)
-    if (!dbRow) return c.json({ error: { code: "NOT_FOUND", message: "Database not found" } }, 404)
+    if (!dbRow)
+      return c.json(
+        { error: { code: "NOT_FOUND", message: "Database not found" } },
+        404
+      )
 
     const body = await c.req.json().catch(() => null)
     const parsed = BackupConfigBody.safeParse(body)
     if (!parsed.success) {
-      return c.json({ error: { code: "VALIDATION_ERROR", message: parsed.error.message } }, 400)
+      return c.json(
+        { error: { code: "VALIDATION_ERROR", message: parsed.error.message } },
+        400
+      )
     }
 
     const data = parsed.data
@@ -125,15 +154,25 @@ export function createBackupsRouter(db: Db): Hono<any, any, any> {
       .limit(1)
 
     const updateFields = {
-      ...(data.destinationKind !== undefined && { destination_kind: data.destinationKind }),
+      ...(data.destinationKind !== undefined && {
+        destination_kind: data.destinationKind,
+      }),
       ...(data.s3Endpoint !== undefined && { s3_endpoint: data.s3Endpoint }),
       ...(data.s3Bucket !== undefined && { s3_bucket: data.s3Bucket }),
       ...(data.s3Prefix !== undefined && { s3_prefix: data.s3Prefix }),
       ...(data.s3Region !== undefined && { s3_region: data.s3Region }),
-      ...(data.s3CredentialsSecretId !== undefined && { s3_credentials_secret_id: data.s3CredentialsSecretId }),
-      ...(data.scheduleCron !== undefined && { schedule_cron: data.scheduleCron }),
-      ...(data.retentionDays !== undefined && { retention_days: data.retentionDays }),
-      ...(data.ageRecipientPublicKey !== undefined && { age_recipient_public_key: data.ageRecipientPublicKey }),
+      ...(data.s3CredentialsSecretId !== undefined && {
+        s3_credentials_secret_id: data.s3CredentialsSecretId,
+      }),
+      ...(data.scheduleCron !== undefined && {
+        schedule_cron: data.scheduleCron,
+      }),
+      ...(data.retentionDays !== undefined && {
+        retention_days: data.retentionDays,
+      }),
+      ...(data.ageRecipientPublicKey !== undefined && {
+        age_recipient_public_key: data.ageRecipientPublicKey,
+      }),
       ...(data.enabled !== undefined && { enabled: data.enabled }),
     }
 
@@ -180,7 +219,11 @@ export function createBackupsRouter(db: Db): Hono<any, any, any> {
     const dbId = c.req.param("id")
 
     const dbRow = await getDbForUser(db, dbId, user.id)
-    if (!dbRow) return c.json({ error: { code: "NOT_FOUND", message: "Database not found" } }, 404)
+    if (!dbRow)
+      return c.json(
+        { error: { code: "NOT_FOUND", message: "Database not found" } },
+        404
+      )
 
     log.info({ databaseId: dbId, userId: user.id }, "manual backup requested")
 
@@ -204,12 +247,19 @@ export function createBackupsRouter(db: Db): Hono<any, any, any> {
     const dbId = c.req.param("id")
 
     const dbRow = await getDbForUser(db, dbId!, user.id)
-    if (!dbRow) return c.json({ error: { code: "NOT_FOUND", message: "Database not found" } }, 404)
+    if (!dbRow)
+      return c.json(
+        { error: { code: "NOT_FOUND", message: "Database not found" } },
+        404
+      )
 
     const body = await c.req.json().catch(() => null)
     const parsed = RestoreBody.safeParse(body)
     if (!parsed.success) {
-      return c.json({ error: { code: "VALIDATION_ERROR", message: parsed.error.message } }, 400)
+      return c.json(
+        { error: { code: "VALIDATION_ERROR", message: parsed.error.message } },
+        400
+      )
     }
 
     const { backupId, ageIdentity, confirm } = parsed.data
@@ -218,22 +268,44 @@ export function createBackupsRouter(db: Db): Hono<any, any, any> {
     const expected = `restore ${dbRow.name}`
     if (confirm !== expected) {
       return c.json(
-        { error: { code: "CONFIRM_MISMATCH", message: `Type exactly "${expected}" to confirm restore` } },
-        400,
+        {
+          error: {
+            code: "CONFIRM_MISMATCH",
+            message: `Type exactly "${expected}" to confirm restore`,
+          },
+        },
+        400
       )
     }
 
-    log.warn({ databaseId: dbId, backupId, userId: user.id }, "restore initiated")
+    log.warn(
+      { databaseId: dbId, backupId, userId: user.id },
+      "restore initiated"
+    )
 
     try {
-      const result = await runRestore(db, { backupId, ...(ageIdentity ? { ageIdentity } : {}) })
+      const result = await runRestore(db, {
+        backupId,
+        ...(ageIdentity ? { ageIdentity } : {}),
+      })
       if (!result.ok) {
-        return c.json({ error: { code: "RESTORE_FAILED", message: result.error ?? "restore failed" } }, 500)
+        return c.json(
+          {
+            error: {
+              code: "RESTORE_FAILED",
+              message: result.error ?? "restore failed",
+            },
+          },
+          500
+        )
       }
       return c.json({ ok: true })
     } catch (err) {
       log.error({ err, databaseId: dbId, backupId }, "restore error")
-      return c.json({ error: { code: "RESTORE_FAILED", message: "Restore failed" } }, 500)
+      return c.json(
+        { error: { code: "RESTORE_FAILED", message: "Restore failed" } },
+        500
+      )
     }
   })
 
@@ -242,17 +314,30 @@ export function createBackupsRouter(db: Db): Hono<any, any, any> {
     const user = getUser(c)
     const backupId = c.req.param("backupId")
 
-    // Load backup and verify ownership
+    // Load backup and verify ownership (owner-only for delete)
     const backupRows = await db
       .select({ backup: backups, db: databases })
       .from(backups)
       .innerJoin(databases, eq(backups.database_id, databases.id))
       .innerJoin(projects, eq(databases.project_id, projects.id))
-      .where(and(eq(backups.id, backupId), eq(projects.owner_id, user.id)))
+      .innerJoin(
+        memberships,
+        and(
+          eq(memberships.org_id, projects.id),
+          eq(memberships.user_id, user.id),
+          eq(memberships.role, "owner"),
+          isNotNull(memberships.accepted_at)
+        )
+      )
+      .where(eq(backups.id, backupId))
       .limit(1)
 
     const row = backupRows[0]
-    if (!row) return c.json({ error: { code: "NOT_FOUND", message: "Backup not found" } }, 404)
+    if (!row)
+      return c.json(
+        { error: { code: "NOT_FOUND", message: "Backup not found" } },
+        404
+      )
 
     // Try to delete underlying object (best-effort)
     if (row.backup.location.startsWith("s3://")) {
@@ -277,15 +362,25 @@ export function createBackupsRouter(db: Db): Hono<any, any, any> {
             const s = secretRows[0]
             if (s?.value_ciphertext && s.nonce) {
               const { decryptSecret } = await import("../secrets/crypto")
-              const plain = await decryptSecret(s.value_ciphertext as Buffer, s.nonce as Buffer)
-              const creds = JSON.parse(plain) as { accessKeyId: string; secretAccessKey: string }
+              const plain = await decryptSecret(
+                s.value_ciphertext as Buffer,
+                s.nonce as Buffer
+              )
+              const creds = JSON.parse(plain) as {
+                accessKeyId: string
+                secretAccessKey: string
+              }
               const client = mkClient({
                 ...(cfg.s3_endpoint ? { endpoint: cfg.s3_endpoint } : {}),
                 region: cfg.s3_region ?? "auto",
                 ...creds,
               })
               const url = new URL(row.backup.location)
-              await s3Delete(client, url.hostname, url.pathname.replace(/^\//, ""))
+              await s3Delete(
+                client,
+                url.hostname,
+                url.pathname.replace(/^\//, "")
+              )
             }
           }
         }

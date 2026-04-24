@@ -1,6 +1,6 @@
 // SPDX-License-Identifier: AGPL-3.0-only
-import { and, eq } from "drizzle-orm"
-import { services, projects } from "../schema"
+import { and, eq, isNotNull } from "drizzle-orm"
+import { services, projects, memberships } from "../schema"
 import type { Db } from "../client"
 
 export type ServiceRow = typeof services.$inferSelect
@@ -34,7 +34,15 @@ export async function getServiceForUser(
     .select({ service: services })
     .from(services)
     .innerJoin(projects, eq(services.project_id, projects.id))
-    .where(and(eq(services.id, serviceId), eq(projects.owner_id, userId)))
+    .innerJoin(
+      memberships,
+      and(
+        eq(memberships.org_id, projects.id),
+        eq(memberships.user_id, userId),
+        isNotNull(memberships.accepted_at)
+      )
+    )
+    .where(eq(services.id, serviceId))
     .limit(1)
   return rows[0]?.service ?? null
 }

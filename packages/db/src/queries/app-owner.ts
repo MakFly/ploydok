@@ -6,10 +6,11 @@ import type { Db } from "../client"
 /**
  * Returns the owner_id of the project that contains the given app,
  * or null if the app does not exist.
+ * Used by workers — NOT for auth checks.
  */
 export async function resolveAppOwner(
   db: Db,
-  appId: string,
+  appId: string
 ): Promise<string | null> {
   const rows = await db
     .select({ owner_id: projects.owner_id })

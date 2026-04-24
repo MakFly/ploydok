@@ -3,10 +3,10 @@ import { readFile } from "node:fs/promises"
 import { randomBytes } from "node:crypto"
 import { Hono } from "hono"
 import { z } from "zod"
-import { and, eq } from "drizzle-orm"
+import { and, eq, isNotNull } from "drizzle-orm"
 import { nanoid } from "nanoid"
 import { createDb } from "@ploydok/db"
-import { projects, secrets } from "@ploydok/db"
+import { projects, secrets, memberships } from "@ploydok/db"
 import { encryptSecret } from "../secrets/crypto"
 import {
   BuildMethodSchema,
@@ -394,12 +394,16 @@ export function createAppsRouter(db: Db): Hono {
       const projectRows = await db
         .select({ id: projects.id })
         .from(projects)
-        .where(
+        .innerJoin(
+          memberships,
           and(
-            eq(projects.id, requestedOrganizationId),
-            eq(projects.owner_id, user.id)
+            eq(memberships.org_id, projects.id),
+            eq(memberships.user_id, user.id),
+            eq(memberships.role, "owner"),
+            isNotNull(memberships.accepted_at)
           )
         )
+        .where(eq(projects.id, requestedOrganizationId))
         .limit(1)
 
       if (!projectRows[0]) {

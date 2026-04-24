@@ -1,5 +1,5 @@
 // SPDX-License-Identifier: AGPL-3.0-only
-import { and, eq, inArray } from "drizzle-orm"
+import { and, eq, inArray, isNotNull } from "drizzle-orm"
 import { memberships, users } from "../schema"
 import type { Db } from "../client"
 import type { MembershipRow } from "../schema"
@@ -137,4 +137,18 @@ export async function countOwners(db: Db, orgId: string): Promise<number> {
     .where(and(eq(memberships.org_id, orgId), eq(memberships.role, "owner")))
 
   return rows.length
+}
+
+export async function listOrgIdsForUser(
+  db: Db,
+  userId: string
+): Promise<string[]> {
+  const rows = await db
+    .select({ org_id: memberships.org_id })
+    .from(memberships)
+    .where(
+      and(eq(memberships.user_id, userId), isNotNull(memberships.accepted_at))
+    )
+
+  return rows.map((r) => r.org_id)
 }

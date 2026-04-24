@@ -2,64 +2,99 @@
 //
 // App CRUD queries — thin wrappers over Drizzle to keep routes clean.
 //
-import { and, desc, eq } from "drizzle-orm";
-import { apps, audit_log, builds, projects } from "../schema";
-import type { Db } from "../client";
+import { and, desc, eq, isNotNull } from "drizzle-orm"
+import { apps, audit_log, builds, projects, memberships } from "../schema"
+import type { Db } from "../client"
 
 // ---------------------------------------------------------------------------
 // Types
 // ---------------------------------------------------------------------------
 
-export type AppRow = typeof apps.$inferSelect;
-export type BuildRow = typeof builds.$inferSelect;
+export type AppRow = typeof apps.$inferSelect
+export type BuildRow = typeof builds.$inferSelect
 
 // ---------------------------------------------------------------------------
 // Queries
 // ---------------------------------------------------------------------------
 
 /**
- * Returns the app row if the given user owns the project it belongs to.
- * Used to verify ownership before any mutation.
+ * Returns the app row if the given user has access (any role) via membership.
  */
 export async function getAppForUser(
   db: Db,
   appId: string,
-  userId: string,
+  userId: string
 ): Promise<AppRow | null> {
   const rows = await db
     .select({ app: apps })
     .from(apps)
     .innerJoin(projects, eq(apps.project_id, projects.id))
-    .where(and(eq(apps.id, appId), eq(projects.owner_id, userId)))
-    .limit(1);
+    .innerJoin(
+      memberships,
+      and(
+        eq(memberships.org_id, projects.id),
+        eq(memberships.user_id, userId),
+        isNotNull(memberships.accepted_at)
+      )
+    )
+    .where(eq(apps.id, appId))
+    .limit(1)
 
-  return rows[0]?.app ?? null;
+  return rows[0]?.app ?? null
 }
 
 /**
- * Returns all apps belonging to projects owned by `userId`.
+ * Returns the app row if the given user is an owner (role='owner') via membership.
+ */
+export async function getAppForOwner(
+  db: Db,
+  appId: string,
+  userId: string
+): Promise<AppRow | null> {
+  const rows = await db
+    .select({ app: apps })
+    .from(apps)
+    .innerJoin(projects, eq(apps.project_id, projects.id))
+    .innerJoin(
+      memberships,
+      and(
+        eq(memberships.org_id, projects.id),
+        eq(memberships.user_id, userId),
+        eq(memberships.role, "owner"),
+        isNotNull(memberships.accepted_at)
+      )
+    )
+    .where(eq(apps.id, appId))
+    .limit(1)
+
+  return rows[0]?.app ?? null
+}
+
+/**
+ * Returns all apps belonging to projects where user has access (any role).
  */
 export async function listAppsForUser(
   db: Db,
   userId: string,
-  projectId?: string,
-): Promise<{
-  id: string;
-  project_id: string;
-  name: string;
-  slug: string;
-  status: string | null;
-  git_provider: string | null;
-  repo_full_name: string | null;
-  branch: string | null;
-  build_method: string | null;
-  domain: string | null;
-  created_at: Date | null;
-  updated_at: Date | null;
-}[]> {
-  const where = projectId
-    ? and(eq(projects.owner_id, userId), eq(apps.project_id, projectId))
-    : eq(projects.owner_id, userId);
+  projectId?: string
+): Promise<
+  {
+    id: string
+    project_id: string
+    name: string
+    slug: string
+    status: string | null
+    git_provider: string | null
+    repo_full_name: string | null
+    branch: string | null
+    build_method: string | null
+    domain: string | null
+    created_at: Date | null
+    updated_at: Date | null
+  }[]
+> {
+  const conditions = projectId ? [eq(apps.project_id, projectId)] : []
+
   return db
     .select({
       id: apps.id,
@@ -77,7 +112,15 @@ export async function listAppsForUser(
     })
     .from(apps)
     .innerJoin(projects, eq(apps.project_id, projects.id))
-    .where(where);
+    .innerJoin(
+      memberships,
+      and(
+        eq(memberships.org_id, projects.id),
+        eq(memberships.user_id, userId),
+        isNotNull(memberships.accepted_at)
+      )
+    )
+    .where(conditions.length > 0 ? and(...conditions) : undefined)
 }
 
 /**
@@ -86,14 +129,14 @@ export async function listAppsForUser(
 export async function listBuildsForApp(
   db: Db,
   appId: string,
-  limit = 10,
+  limit = 10
 ): Promise<BuildRow[]> {
   return db
     .select()
     .from(builds)
     .where(eq(builds.app_id, appId))
     .orderBy(desc(builds.created_at))
-    .limit(limit);
+    .limit(limit)
 }
 
 // ---------------------------------------------------------------------------
@@ -104,20 +147,20 @@ export type ActivityEventType =
   | "build.started"
   | "build.succeeded"
   | "build.failed"
-  | "build.cancelled";
+  | "build.cancelled"
 
 export interface ActivityEvent {
-  id: string;
-  type: ActivityEventType;
+  id: string
+  type: ActivityEventType
   /** Unix timestamp in milliseconds */
-  timestamp: number;
-  buildId: string;
+  timestamp: number
+  buildId: string
   data: {
-    message?: string | undefined;
-    commitSha?: string | undefined;
-    commitMessage?: string | undefined;
-    errorMessage?: string | undefined;
-  };
+    message?: string | undefined
+    commitSha?: string | undefined
+    commitMessage?: string | undefined
+    errorMessage?: string | undefined
+  }
 }
 
 /**
@@ -129,17 +172,17 @@ export interface ActivityEvent {
  */
 export function deriveActivityFromBuilds(
   rows: BuildRow[],
-  limit: number,
+  limit: number
 ): ActivityEvent[] {
-  const events: ActivityEvent[] = [];
+  const events: ActivityEvent[] = []
 
   for (const row of rows) {
     const startTs =
       (row.started_at instanceof Date ? row.started_at.getTime() : null) ??
-      (row.created_at instanceof Date ? row.created_at.getTime() : null);
+      (row.created_at instanceof Date ? row.created_at.getTime() : null)
 
-    const commitSha = row.commit_sha ?? undefined;
-    const commitMessage = row.commit_message ?? undefined;
+    const commitSha = row.commit_sha ?? undefined
+    const commitMessage = row.commit_message ?? undefined
 
     if (startTs !== null) {
       events.push({
@@ -152,7 +195,7 @@ export function deriveActivityFromBuilds(
           commitSha,
           commitMessage,
         },
-      });
+      })
     }
 
     if (
@@ -166,7 +209,7 @@ export function deriveActivityFromBuilds(
           ? "build.succeeded"
           : row.status === "failed"
             ? "build.failed"
-            : "build.cancelled";
+            : "build.cancelled"
 
       events.push({
         id: `${row.id}.${row.status}`,
@@ -182,12 +225,12 @@ export function deriveActivityFromBuilds(
           commitMessage,
           errorMessage: row.error_message ?? undefined,
         },
-      });
+      })
     }
   }
 
-  events.sort((a, b) => b.timestamp - a.timestamp);
-  return events.slice(0, limit);
+  events.sort((a, b) => b.timestamp - a.timestamp)
+  return events.slice(0, limit)
 }
 
 /**
@@ -197,39 +240,49 @@ export function deriveActivityFromBuilds(
 export async function getAppActivity(
   db: Db,
   appId: string,
-  limit = 20,
+  limit = 20
 ): Promise<ActivityEvent[]> {
-  const rows = await listBuildsForApp(db, appId, limit);
-  return deriveActivityFromBuilds(rows, limit);
+  const rows = await listBuildsForApp(db, appId, limit)
+  return deriveActivityFromBuilds(rows, limit)
 }
 
 // ---------------------------------------------------------------------------
 // Mutations
 // ---------------------------------------------------------------------------
 
-export type InsertAppInput = typeof apps.$inferInsert;
+export type InsertAppInput = typeof apps.$inferInsert
 
 /** Inserts a new app row and returns the persisted row. */
-export async function insertApp(db: Db, values: InsertAppInput): Promise<AppRow> {
-  await db.insert(apps).values(values);
-  const rows = await db.select().from(apps).where(eq(apps.id, values.id!)).limit(1);
-  return rows[0]!;
+export async function insertApp(
+  db: Db,
+  values: InsertAppInput
+): Promise<AppRow> {
+  await db.insert(apps).values(values)
+  const rows = await db
+    .select()
+    .from(apps)
+    .where(eq(apps.id, values.id!))
+    .limit(1)
+  return rows[0]!
 }
 
 /** Updates an app row by id and returns the updated row. */
 export async function updateApp(
   db: Db,
   appId: string,
-  patch: Record<string, unknown>,
+  patch: Record<string, unknown>
 ): Promise<AppRow> {
-  await db.update(apps).set(patch).where(eq(apps.id, appId));
-  const rows = await db.select().from(apps).where(eq(apps.id, appId)).limit(1);
-  return rows[0]!;
+  await db.update(apps).set(patch).where(eq(apps.id, appId))
+  const rows = await db.select().from(apps).where(eq(apps.id, appId)).limit(1)
+  return rows[0]!
 }
 
 /** Sets app status to 'deleting'. */
 export async function markAppDeleting(db: Db, appId: string): Promise<void> {
-  await db.update(apps).set({ status: "deleting", updated_at: new Date() }).where(eq(apps.id, appId));
+  await db
+    .update(apps)
+    .set({ status: "deleting", updated_at: new Date() })
+    .where(eq(apps.id, appId))
 }
 
 /** Finds the first slug candidate that is not already in use within the project. */
@@ -237,21 +290,21 @@ export async function uniqueSlug(
   db: Db,
   projectId: string,
   base: string,
-  excludeAppId?: string,
+  excludeAppId?: string
 ): Promise<string> {
-  let candidate = base || "app";
-  let attempt = 1;
+  let candidate = base || "app"
+  let attempt = 1
   for (;;) {
     const existing = await db
       .select({ id: apps.id })
       .from(apps)
       .where(and(eq(apps.project_id, projectId), eq(apps.slug, candidate)))
-      .limit(1);
+      .limit(1)
 
-    const conflict = existing.find((r) => r.id !== excludeAppId);
-    if (!conflict) return candidate;
-    attempt++;
-    candidate = `${base}-${attempt}`;
+    const conflict = existing.find((r) => r.id !== excludeAppId)
+    if (!conflict) return candidate
+    attempt++
+    candidate = `${base}-${attempt}`
   }
 }
 
@@ -259,36 +312,40 @@ export async function uniqueSlug(
 // Build helpers used by lifecycle routes
 // ---------------------------------------------------------------------------
 
-export type BuildLogRow = { id: string; app_id: string; log_path: string | null };
+export type BuildLogRow = {
+  id: string
+  app_id: string
+  log_path: string | null
+}
 
 /** Returns the build row (id + app_id + log_path) for a given build/app pair. */
 export async function getBuildLogPath(
   db: Db,
   buildId: string,
-  appId: string,
+  appId: string
 ): Promise<BuildLogRow | null> {
   const rows = await db
     .select({ id: builds.id, app_id: builds.app_id, log_path: builds.log_path })
     .from(builds)
     .where(and(eq(builds.id, buildId), eq(builds.app_id, appId)))
-    .limit(1);
-  return rows[0] ?? null;
+    .limit(1)
+  return rows[0] ?? null
 }
 
-export type BuildStatusRow = { id: string; app_id: string; status: string };
+export type BuildStatusRow = { id: string; app_id: string; status: string }
 
 /** Returns id + app_id + status for a build belonging to a specific app. */
 export async function getBuildForApp(
   db: Db,
   buildId: string,
-  appId: string,
+  appId: string
 ): Promise<BuildStatusRow | null> {
   const rows = await db
     .select({ id: builds.id, app_id: builds.app_id, status: builds.status })
     .from(builds)
     .where(and(eq(builds.id, buildId), eq(builds.app_id, appId)))
-    .limit(1);
-  return rows[0] ?? null;
+    .limit(1)
+  return rows[0] ?? null
 }
 
 // ---------------------------------------------------------------------------
@@ -296,19 +353,22 @@ export async function getBuildForApp(
 // ---------------------------------------------------------------------------
 
 export interface AuditLogEntry {
-  user_id: string;
-  action: string;
-  target_type: string;
-  target_id: string;
-  metadata?: string;
-  created_at?: Date;
+  user_id: string
+  action: string
+  target_type: string
+  target_id: string
+  metadata?: string
+  created_at?: Date
 }
 
 /**
  * Inserts an audit log entry. Swallows errors so callers can use fire-and-forget.
  * Returns true on success, false on failure.
  */
-export async function insertAuditLog(db: Db, entry: AuditLogEntry): Promise<boolean> {
+export async function insertAuditLog(
+  db: Db,
+  entry: AuditLogEntry
+): Promise<boolean> {
   try {
     await db.insert(audit_log).values({
       user_id: entry.user_id,
@@ -317,10 +377,10 @@ export async function insertAuditLog(db: Db, entry: AuditLogEntry): Promise<bool
       target_id: entry.target_id,
       metadata: entry.metadata ?? "{}",
       created_at: entry.created_at ?? new Date(),
-    });
-    return true;
+    })
+    return true
   } catch {
-    return false;
+    return false
   }
 }
 
@@ -334,12 +394,17 @@ export async function rotateAppWebhookSecret(
   appId: string,
   currentSecretBlob: Buffer | null,
   newSecretBlob: Buffer,
-  now: Date,
+  now: Date
 ): Promise<void> {
-  await db.update(apps).set({
-    webhook_secret: newSecretBlob,
-    webhook_secret_old: currentSecretBlob,
-    webhook_secret_old_expires_at: new Date(now.getTime() + 24 * 60 * 60 * 1000),
-    updated_at: now,
-  }).where(eq(apps.id, appId));
+  await db
+    .update(apps)
+    .set({
+      webhook_secret: newSecretBlob,
+      webhook_secret_old: currentSecretBlob,
+      webhook_secret_old_expires_at: new Date(
+        now.getTime() + 24 * 60 * 60 * 1000
+      ),
+      updated_at: now,
+    })
+    .where(eq(apps.id, appId))
 }
