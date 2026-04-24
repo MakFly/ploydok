@@ -101,6 +101,7 @@ function GitLabCacheSection(): React.JSX.Element {
         isError={cache.isError}
         errorMessage={cache.error?.message}
         isSyncing={sync.isPending || progress.status === "running"}
+        syncingScope={progress.status === "running" ? "all" : undefined}
         onSyncOne={() => startSync()}
         onSyncAll={() => startSync()}
         emptyState={

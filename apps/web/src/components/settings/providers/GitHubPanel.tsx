@@ -250,18 +250,25 @@ function GitHubCacheSection(): React.JSX.Element {
   const sync = useSyncGitHubInstallations()
   const cache = useGitHubCacheStatus({})
   const progress = useSyncWithProgress()
+  const [scope, setScope] = React.useState<"all" | string | undefined>(undefined)
 
-  // Refresh the cache table when the worker reports completion so the row's
-  // last_synced_at + repoCount update without the user reloading.
   React.useEffect(() => {
-    if (progress.status === "done") void cache.refetch()
+    if (progress.status === "done") {
+      void cache.refetch()
+      setScope(undefined)
+    }
+    if (progress.status === "error" || progress.status === "idle") {
+      setScope(undefined)
+    }
   }, [progress.status, cache])
 
   async function startSync(opts: { installationId?: string }): Promise<void> {
+    setScope(opts.installationId ?? "all")
     try {
       const res = await sync.mutateAsync(opts)
       progress.begin(res.syncId)
     } catch (err) {
+      setScope(undefined)
       progress.fail(err instanceof Error ? err.message : String(err))
       throw err
     }
@@ -277,6 +284,7 @@ function GitHubCacheSection(): React.JSX.Element {
         isError={cache.isError}
         errorMessage={cache.error?.message}
         isSyncing={sync.isPending || progress.status === "running"}
+        syncingScope={progress.status === "running" ? scope : undefined}
         onSyncOne={(installationId) => startSync({ installationId })}
         onSyncAll={() => startSync({})}
         emptyState={
