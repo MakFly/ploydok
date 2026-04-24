@@ -4,7 +4,7 @@ import path from "node:path"
 import { eq } from "drizzle-orm"
 import { nanoid } from "nanoid"
 import { z } from "zod"
-import { apps, projects } from "@ploydok/db"
+import { apps, builds, projects } from "@ploydok/db"
 import { insertBuild, updateBuildStatus } from "@ploydok/db/queries"
 import { cleanupQueue } from "../queues"
 import type { Db } from "@ploydok/db"
@@ -1056,13 +1056,32 @@ export async function handleDeploy(
   } finally {
     // Close the log stream and persist log_path in a single updateBuildStatus call.
     await new Promise<void>((resolve) => logStream.end(resolve))
-    await updateBuildStatus(db, buildId, finalStatus, {
-      ...finalPatch,
-      logPath,
-      ...(finalPatch.postDeployError !== undefined && {
-        postDeployError: finalPatch.postDeployError,
-      }),
-    })
+    // If the user cancelled this build mid-flight, the row is already
+    // `cancelled`. Don't flip it back to succeeded/failed — respect the
+    // cancellation. The side-effects (image pushed, container spawned)
+    // may have completed anyway but the UI/audit should reflect the
+    // user's intent, not the worker's view.
+    const currentStatus = (
+      await db
+        .select({ status: builds.status })
+        .from(builds)
+        .where(eq(builds.id, buildId))
+        .limit(1)
+    )[0]?.status
+    if (currentStatus === "cancelled") {
+      log.info(
+        { buildId, finalStatus },
+        "build was cancelled mid-flight — skipping final status write"
+      )
+    } else {
+      await updateBuildStatus(db, buildId, finalStatus, {
+        ...finalPatch,
+        logPath,
+        ...(finalPatch.postDeployError !== undefined && {
+          postDeployError: finalPatch.postDeployError,
+        }),
+      })
+    }
 
     // Commit status — success / failure / error (best-effort, non-fatal)
     if (resolvedCommitShaFinal) {

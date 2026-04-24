@@ -2,7 +2,12 @@
 import { useMutation, useQueryClient } from "@tanstack/react-query"
 import { apiFetch } from "./api"
 import type { ApiError } from "./api"
-import type { AppDetail, AppListItem, AppSettingsPatch, RawAppDetail } from "./apps"
+import type {
+  AppDetail,
+  AppListItem,
+  AppSettingsPatch,
+  RawAppDetail,
+} from "./apps"
 import { normalizeAppDetail } from "./apps"
 import { notifyMutationError } from "./second-factor-toast"
 import { toast } from "sonner"
@@ -28,11 +33,15 @@ export function useDeployApp(appId: string) {
       await qc.cancelQueries({ queryKey: ["apps", appId] })
       const snapshot = qc.getQueryData<AppDetail>(["apps", appId])
       if (snapshot) {
-        qc.setQueryData<AppDetail>(["apps", appId], { ...snapshot, status: "building" })
+        qc.setQueryData<AppDetail>(["apps", appId], {
+          ...snapshot,
+          status: "building",
+        })
       }
-      qc.setQueryData<Array<AppListItem> | undefined>(
-        ["apps"],
-        (current) => current?.map((app) => (app.id === appId ? { ...app, status: "building" } : app)),
+      qc.setQueryData<Array<AppListItem> | undefined>(["apps"], (current) =>
+        current?.map((app) =>
+          app.id === appId ? { ...app, status: "building" } : app
+        )
       )
       return { snapshot }
     },
@@ -82,19 +91,43 @@ export function useRollbackApp(appId: string) {
 }
 
 // ---------------------------------------------------------------------------
+// useCancelBuild
+// ---------------------------------------------------------------------------
+
+export function useCancelBuild(appId: string) {
+  const qc = useQueryClient()
+  return useMutation<{ ok: boolean }, ApiError, { buildId: string }>({
+    mutationFn: ({ buildId }) =>
+      apiFetch<{ ok: boolean }>(`/apps/${appId}/builds/${buildId}/cancel`, {
+        method: "POST",
+      }),
+    onSuccess: () => {
+      toast.success("Deployment cancelled")
+      void qc.invalidateQueries({ queryKey: ["apps", appId] })
+      void qc.invalidateQueries({ queryKey: ["apps", appId, "builds"] })
+    },
+    onError: (error) => {
+      notifyMutationError(error, "Cancel deployment failed")
+    },
+  })
+}
+
+// ---------------------------------------------------------------------------
 // useStopApp
 // ---------------------------------------------------------------------------
 
 export function useStopApp(appId: string) {
   const qc = useQueryClient()
   return useMutation<void, ApiError, void>({
-    mutationFn: () =>
-      apiFetch<void>(`/apps/${appId}/stop`, { method: "POST" }),
+    mutationFn: () => apiFetch<void>(`/apps/${appId}/stop`, { method: "POST" }),
     onMutate: async () => {
       await qc.cancelQueries({ queryKey: ["apps", appId] })
       const snapshot = qc.getQueryData<AppDetail>(["apps", appId])
       if (snapshot) {
-        qc.setQueryData<AppDetail>(["apps", appId], { ...snapshot, status: "stopped" })
+        qc.setQueryData<AppDetail>(["apps", appId], {
+          ...snapshot,
+          status: "stopped",
+        })
       }
       return { snapshot }
     },
@@ -130,7 +163,10 @@ export function useRestartApp(appId: string) {
       await qc.cancelQueries({ queryKey: ["apps", appId] })
       const snapshot = qc.getQueryData<AppDetail>(["apps", appId])
       if (snapshot) {
-        qc.setQueryData<AppDetail>(["apps", appId], { ...snapshot, status: "restarting" })
+        qc.setQueryData<AppDetail>(["apps", appId], {
+          ...snapshot,
+          status: "restarting",
+        })
       }
       return { snapshot }
     },
@@ -170,7 +206,11 @@ export interface DeleteAppFlags {
 
 export function useDeleteApp(appId: string) {
   const qc = useQueryClient()
-  return useMutation<{ ok: boolean; jobId: string; status: string }, ApiError, DeleteAppFlags | void>({
+  return useMutation<
+    { ok: boolean; jobId: string; status: string },
+    ApiError,
+    DeleteAppFlags | void
+  >({
     mutationFn: (flags) => {
       const params = new URLSearchParams()
       if (flags) {
@@ -181,7 +221,7 @@ export function useDeleteApp(appId: string) {
       const qs = params.toString()
       return apiFetch<{ ok: boolean; jobId: string; status: string }>(
         `/apps/${appId}${qs ? `?${qs}` : ""}`,
-        { method: "DELETE" },
+        { method: "DELETE" }
       )
     },
     onSuccess: () => {
@@ -232,14 +272,16 @@ export function useUpdateAppSettings(appId: string) {
       if (restartPolicy !== undefined) payload.restartPolicy = restartPolicy
       if (healthcheckPath !== undefined || healthcheckPort !== undefined) {
         const healthcheck: Record<string, unknown> = {}
-        if (healthcheckPath !== undefined) healthcheck.path = healthcheckPath ?? undefined
-        if (healthcheckPort !== undefined) healthcheck.port = healthcheckPort ?? undefined
+        if (healthcheckPath !== undefined)
+          healthcheck.path = healthcheckPath ?? undefined
+        if (healthcheckPort !== undefined)
+          healthcheck.port = healthcheckPort ?? undefined
         payload.healthcheck = healthcheck
       }
-      const { app } = await apiFetch<{ app: RawAppDetail; builds: Array<unknown> }>(
-        `/apps/${appId}`,
-        { method: "PATCH", body: payload },
-      )
+      const { app } = await apiFetch<{
+        app: RawAppDetail
+        builds: Array<unknown>
+      }>(`/apps/${appId}`, { method: "PATCH", body: payload })
       return normalizeAppDetail(app)
     },
     onSuccess: (updated) => {
