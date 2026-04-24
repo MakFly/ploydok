@@ -83,5 +83,12 @@ ENV APP_ENV=prod \
     SERVER_NAME=":80" \
     FRANKENPHP_CONFIG="worker ./public/index.php"
 
+# Override the baked-in `curl http://localhost:2019/metrics` healthcheck shipped
+# by `dunglas/frankenphp`. Our Caddyfile disables the admin endpoint (`admin off`,
+# prod best-practice), so that probe would fail forever even when the app serves
+# traffic fine. We probe the actual HTTP listener on :80 instead.
+HEALTHCHECK --interval=15s --timeout=5s --start-period=30s --retries=5 \
+  CMD curl -fsS http://127.0.0.1:80/ || exit 1
+
 ENTRYPOINT ["docker-entrypoint"]
 CMD ["frankenphp", "run", "--config", "/etc/frankenphp/Caddyfile"]

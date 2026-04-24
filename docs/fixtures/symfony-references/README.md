@@ -41,6 +41,14 @@ Ploydok utilise le Dockerfile tel quel (`buildMethod=dockerfile`).
 mode — le Kernel Symfony gère lui-même le routing en mémoire. Utiliser
 `php_server` seul (sans bloc `try_files`). Le fichier fourni est déjà corrigé.
 
+**Note HEALTHCHECK :** l'image `dunglas/frankenphp` embarque un `HEALTHCHECK`
+par défaut qui interroge `http://localhost:2019/metrics` (admin API Caddy).
+Notre Caddyfile met `admin off` (best-practice prod), ce qui fait échouer ce
+probe en boucle même quand l'app tourne parfaitement. Le `Dockerfile` fourni
+override le healthcheck pour probe l'app elle-même sur `:80`. Ploydok injecte
+également son propre `HEALTHCHECK` au spawn (via `apps.healthcheck_path`) qui
+supersède tout ce que l'image embarque — donc le double filet existe.
+
 **Recommandé officiellement** par Symfony pour la prod depuis Symfony 7.4
 ([runtime/frankenphp-symfony](https://packagist.org/packages/runtime/frankenphp-symfony)).
 

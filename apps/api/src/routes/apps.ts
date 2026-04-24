@@ -27,6 +27,7 @@ import {
   listBuildsForApp,
   markAppDeleting,
   rotateAppWebhookSecret,
+  listEnvForApp,
   uniqueSlug,
   updateApp,
   upsertEnvVars,
@@ -508,22 +509,40 @@ export function createAppsRouter(db: Db): Hono {
         const classification = classifyStack(probeResults)
         const suggested = classification.suggestedEnvVars
         if (Object.keys(suggested).length > 0) {
-          await upsertEnvVars(
-            db,
-            id,
-            Object.entries(suggested).map(([k, v]) => ({
-              key: k,
-              value: v,
-              secret: false,
-            }))
-          )
+          // Preserve any env var the user already set (e.g. APP_ENV=staging
+          // on a preview scope) — we only fill gaps. `upsertEnvVars` is a
+          // replace-all so we union with the existing set before writing.
+          const existing = await listEnvForApp(db, id)
+          const existingByKey = new Map(existing.map((e) => [e.key, e]))
+          const toInsert: Array<{
+            key: string
+            value: string
+            secret: boolean
+          }> = existing.map((e) => ({
+            key: e.key,
+            value: e.value,
+            secret: e.secret,
+          }))
+          const injected: string[] = []
+          for (const [k, v] of Object.entries(suggested)) {
+            if (!existingByKey.has(k)) {
+              toInsert.push({ key: k, value: v, secret: false })
+              injected.push(k)
+            }
+          }
+          if (injected.length > 0) {
+            await upsertEnvVars(db, id, toInsert)
+          }
           childLogger("apps-autoinject").info(
             {
               appId: id,
               stack: classification.stack,
-              vars: Object.keys(suggested),
+              injected,
+              skipped: Object.keys(suggested).filter((k) =>
+                existingByKey.has(k)
+              ),
             },
-            "auto-injected env vars for detected framework"
+            "auto-inject env vars for detected framework (user values preserved)"
           )
         }
       } catch (err) {

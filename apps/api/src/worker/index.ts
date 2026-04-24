@@ -12,11 +12,31 @@ import { handleDeleteApp } from "./handlers/delete-app"
 import type { DeleteAppOptions } from "./handlers/delete-app"
 import { handleDomainVerify } from "./handlers/domain-verify"
 import type { DomainVerifyPayload } from "./handlers/domain-verify"
-import { runRegistryGc, startRegistryGcCron, stopRegistryGcCron } from "./handlers/gc-registry"
-import { startPurgeWebhookSecretsCron, stopPurgeWebhookSecretsCron } from "./jobs/purge-old-webhook-secrets"
-import { startCertExpiryCheckCron, stopCertExpiryCheckCron } from "./jobs/cert-expiry-check"
-import { startRotateDatabasesCron, stopRotateDatabasesCron } from "./jobs/rotate-databases"
-import { startBackupDatabasesCron, stopBackupDatabasesCron } from "./jobs/backup-databases"
+import {
+  runRegistryGc,
+  startRegistryGcCron,
+  stopRegistryGcCron,
+} from "./handlers/gc-registry"
+import {
+  startPurgeWebhookSecretsCron,
+  stopPurgeWebhookSecretsCron,
+} from "./jobs/purge-old-webhook-secrets"
+import {
+  startCertExpiryCheckCron,
+  stopCertExpiryCheckCron,
+} from "./jobs/cert-expiry-check"
+import {
+  startRotateDatabasesCron,
+  stopRotateDatabasesCron,
+} from "./jobs/rotate-databases"
+import {
+  startBackupDatabasesCron,
+  stopBackupDatabasesCron,
+} from "./jobs/backup-databases"
+import {
+  startOrphanContainerGcCron,
+  stopOrphanContainerGcCron,
+} from "./jobs/gc-orphan-containers"
 import { handleSyncProviderRepos } from "./handlers/sync-provider-repos"
 import type { SyncProviderReposPayload } from "./handlers/sync-provider-repos"
 
@@ -44,7 +64,7 @@ export interface WorkerHandle {
  */
 export function startWorker(
   db: Db,
-  opts?: { signal?: AbortSignal },
+  opts?: { signal?: AbortSignal }
 ): WorkerHandle {
   const connection = createRedis(env.REDIS_URL)
 
@@ -54,7 +74,10 @@ export function startWorker(
       async (job) => {
         const attempt = job.attemptsMade + 1
         const maxAttempts = job.opts.attempts ?? 1
-        logger.info({ jobId: job.id, name: job.name, attempt, maxAttempts }, "deploy job started")
+        logger.info(
+          { jobId: job.id, name: job.name, attempt, maxAttempts },
+          "deploy job started"
+        )
         try {
           await handleDeploy(db, {
             id: job.id ?? "",
@@ -66,18 +89,18 @@ export function startWorker(
           if (err instanceof FatalDeployError) {
             logger.error(
               { jobId: job.id, err, kind: "fatal", attempt, maxAttempts },
-              "deploy.failed kind=fatal — skipping retries",
+              "deploy.failed kind=fatal — skipping retries"
             )
             throw new UnrecoverableError(err.message)
           }
           logger.warn(
             { jobId: job.id, err, kind: "transient", attempt, maxAttempts },
-            "deploy.failed kind=transient — will retry",
+            "deploy.failed kind=transient — will retry"
           )
           throw err
         }
       },
-      { connection, concurrency: 1 },
+      { connection, concurrency: 1 }
     ),
 
     new Worker(
@@ -85,22 +108,30 @@ export function startWorker(
       async (job) => {
         logger.info({ jobId: job.id }, "gc.registry job started")
         const data = (job.data ?? {}) as { appId?: string }
-        const result = await runRegistryGc(data.appId ? { db, appFilter: data.appId } : { db })
+        const result = await runRegistryGc(
+          data.appId ? { db, appFilter: data.appId } : { db }
+        )
         logger.info({ jobId: job.id, ...result }, "gc.registry done")
       },
-      { connection, concurrency: 1 },
+      { connection, concurrency: 1 }
     ),
 
     new Worker(
       "cleanup.build",
       async (job) => {
         logger.info({ jobId: job.id }, "cleanup.build job started")
-        const { appId, buildId } = job.data as { appId: string; buildId: string }
+        const { appId, buildId } = job.data as {
+          appId: string
+          buildId: string
+        }
         const dir = path.join(env.PLOYDOK_BUILD_DIR, appId, buildId)
         await rm(dir, { recursive: true, force: true })
-        logger.info({ jobId: job.id, appId, buildId, dir }, "workspace cleaned up")
+        logger.info(
+          { jobId: job.id, appId, buildId, dir },
+          "workspace cleaned up"
+        )
       },
-      { connection, concurrency: 1 },
+      { connection, concurrency: 1 }
     ),
 
     new Worker(
@@ -111,7 +142,7 @@ export function startWorker(
         const res = await handleDeleteApp(db, opts)
         logger.info({ jobId: job.id, ...res }, "app.delete done")
       },
-      { connection, concurrency: 1 },
+      { connection, concurrency: 1 }
     ),
 
     new Worker(
@@ -120,20 +151,26 @@ export function startWorker(
         logger.info({ jobId: job.id }, "domain.verify job started")
         const payload = job.data as DomainVerifyPayload
         await handleDomainVerify(db, payload)
-        logger.info({ jobId: job.id, domainId: payload.domainId }, "domain.verify done")
+        logger.info(
+          { jobId: job.id, domainId: payload.domainId },
+          "domain.verify done"
+        )
       },
-      { connection, concurrency: 5 },
+      { connection, concurrency: 5 }
     ),
 
     new Worker(
       "provider.repos.sync",
       async (job) => {
-        logger.info({ jobId: job.id, data: job.data }, "provider.repos.sync job started")
+        logger.info(
+          { jobId: job.id, data: job.data },
+          "provider.repos.sync job started"
+        )
         const payload = job.data as SyncProviderReposPayload
         await handleSyncProviderRepos(db, payload)
         logger.info({ jobId: job.id }, "provider.repos.sync done")
       },
-      { connection, concurrency: 2 },
+      { connection, concurrency: 2 }
     ),
   ]
 
@@ -149,6 +186,7 @@ export function startWorker(
   startCertExpiryCheckCron(db)
   startRotateDatabasesCron(db)
   startBackupDatabasesCron(db)
+  startOrphanContainerGcCron(db)
 
   const abortHandler = () => stop()
   opts?.signal?.addEventListener("abort", abortHandler)
@@ -159,6 +197,7 @@ export function startWorker(
     stopCertExpiryCheckCron()
     stopRotateDatabasesCron()
     stopBackupDatabasesCron()
+    stopOrphanContainerGcCron()
     Promise.all(workers.map((w) => w.close())).catch((err) => {
       logger.error({ err }, "error closing BullMQ workers")
     })

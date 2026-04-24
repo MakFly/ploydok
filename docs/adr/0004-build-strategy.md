@@ -135,6 +135,39 @@ courant, à ouvrir dans un sprint séparé.
 
 ---
 
+## Operational notes (post-livraison)
+
+### Healthcheck forcé au spawn
+
+Les images de base populaires embarquent parfois un `HEALTHCHECK` qui échoue
+dès qu'on s'écarte de la config par défaut. Exemple vécu : `dunglas/frankenphp`
+sonde `http://localhost:2019/metrics` (Caddy admin), mais notre Caddyfile de
+référence met `admin off` pour la prod → 72 échecs consécutifs observés sur un
+container qui servait parfaitement du trafic.
+
+Résolution : `apps/api/src/worker/runner.ts` **force** un healthcheck
+Ploydok-owned dans le `ContainerCreateRequest` (`CMD-SHELL curl -fsS
+http://127.0.0.1:$hcPort$hcPath`) qui supersède ce qui est baked dans l'image.
+Invariant : un container `ploydok.kind=app` n'est `unhealthy` que quand l'app
+elle-même l'est, jamais à cause d'un probe hérité stale.
+
+### Auto-inject env vars préserve les valeurs user
+
+Le bloc auto-inject dans `POST /apps` `list` d'abord les env vars existantes,
+puis n'injecte que les clés absentes. Un user qui POST avec `APP_ENV=staging`
+déjà présent voit sa valeur conservée. Les env scopes (sprint-4) continuent
+d'override par environnement (`production` / `preview` / `development`).
+
+### GC containers orphelins
+
+`apps/api/src/worker/jobs/gc-orphan-containers.ts` tick toutes les 10 min :
+tous les containers labellés `ploydok.kind=app` dont l'`app_id` n'existe plus
+en DB et dont l'uptime dépasse 24h sont `force`-removed. Cible : orphans
+venant de deploys crashés entre commit DB et cleanup containers, ou legacy
+state d'une version antérieure de Ploydok.
+
+---
+
 ## Files impacted
 
 | Path                                           | Role                                   |
