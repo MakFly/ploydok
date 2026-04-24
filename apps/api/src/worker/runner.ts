@@ -213,7 +213,15 @@ export async function pollHealthcheck(opts: {
         }
       )
 
-      if (resp.ok) {
+      // Permissive liveness: any HTTP response (2xx/3xx/4xx) means the app
+      // is listening and the HTTP stack is wired up. Only 5xx and
+      // transport errors (status_code=0) count as unhealthy. This matches
+      // the Docker HEALTHCHECK we inject at spawn and makes API-style
+      // stacks (Hono, Express, Fastify) healthy without forcing the user
+      // to add a `/health` route — a 404 on `/` still proves the server
+      // is alive. 5xx = app itself is broken → keep failing.
+      const isLive = resp.statusCode > 0 && resp.statusCode < 500
+      if (isLive) {
         logBus.publish(
           channel,
           `${label} status_code=${resp.statusCode} latency=${resp.latencyMs}ms`
@@ -502,7 +510,14 @@ export async function runBlueGreen(
         healthcheck: {
           test: [
             "CMD-SHELL",
-            `curl -fsS http://127.0.0.1:${hcPort}${hcPath} || exit 1`,
+            // Permissive liveness probe: any HTTP response (including 404)
+            // counts as "app alive". This matches the "always healthy
+            // whatever the stack" goal — Hono/Express/Fastify APIs often
+            // return 404 on `/`, but the TCP port listening + HTTP stack
+            // replying is enough evidence that the process is up. curl
+            // without `-f` exits 0 on any status; it only fails on
+            // connection refused or timeout.
+            `curl -sS -m 5 -o /dev/null http://127.0.0.1:${hcPort}${hcPath} || exit 1`,
           ],
           intervalSeconds: hcIntervalS,
           timeoutSeconds: hcTimeoutS,
@@ -801,7 +816,14 @@ export async function rollbackApp(
         healthcheck: {
           test: [
             "CMD-SHELL",
-            `curl -fsS http://127.0.0.1:${hcPort}${hcPath} || exit 1`,
+            // Permissive liveness probe: any HTTP response (including 404)
+            // counts as "app alive". This matches the "always healthy
+            // whatever the stack" goal — Hono/Express/Fastify APIs often
+            // return 404 on `/`, but the TCP port listening + HTTP stack
+            // replying is enough evidence that the process is up. curl
+            // without `-f` exits 0 on any status; it only fails on
+            // connection refused or timeout.
+            `curl -sS -m 5 -o /dev/null http://127.0.0.1:${hcPort}${hcPath} || exit 1`,
           ],
           intervalSeconds: hcIntervalS,
           timeoutSeconds: hcTimeoutS,
