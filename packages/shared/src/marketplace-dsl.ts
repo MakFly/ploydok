@@ -1,5 +1,29 @@
 // SPDX-License-Identifier: AGPL-3.0-only
-import { randomBytes, randomUUID } from "node:crypto"
+//
+// Uses the isomorphic Web Crypto API (`globalThis.crypto`) instead of
+// `node:crypto` so this module can be imported from both server (Bun/Node)
+// and client (Vite/browser) bundles without "externalized for browser
+// compatibility" errors.
+
+function randomBytesHex(len: number): string {
+  const bytes = new Uint8Array(len)
+  globalThis.crypto.getRandomValues(bytes)
+  let out = ""
+  for (const b of bytes) out += b.toString(16).padStart(2, "0")
+  return out
+}
+
+function randomBytesBase64(len: number): string {
+  const bytes = new Uint8Array(len)
+  globalThis.crypto.getRandomValues(bytes)
+  let binary = ""
+  for (const b of bytes) binary += String.fromCharCode(b)
+  return btoa(binary)
+}
+
+function isomorphicRandomUUID(): string {
+  return globalThis.crypto.randomUUID()
+}
 
 export interface DslContext {
   projectSlug: string
@@ -43,7 +67,7 @@ function numericArg(varName: string, defaultVal: number): number {
 }
 
 function generateDomain(projectSlug: string, serverIp?: string): string {
-  const hash = randomBytes(3).toString("hex")
+  const hash = randomBytesHex(3)
   const slugIp = serverIp ? serverIp.replaceAll(".", "-") : ""
   return `${projectSlug}-${hash}${slugIp === "" ? "" : `-${slugIp}`}.traefik.me`
 }
@@ -99,17 +123,17 @@ export function resolveTemplate(
       const len = numericArg(varName, 16)
       value = generatePassword(len)
     } else if (varName === "base64") {
-      value = randomBytes(32).toString("base64")
+      value = randomBytesBase64(32)
     } else if (varName.startsWith("base64:")) {
       const len = numericArg(varName, 32)
-      value = randomBytes(len).toString("base64")
+      value = randomBytesBase64(len)
     } else if (varName === "hash") {
-      value = `${context.projectSlug}-${randomBytes(3).toString("hex")}`
+      value = `${context.projectSlug}-${randomBytesHex(3)}`
     } else if (varName.startsWith("hash:")) {
       const len = numericArg(varName, 3)
-      value = `${context.projectSlug}-${randomBytes(len).toString("hex")}`
+      value = `${context.projectSlug}-${randomBytesHex(len)}`
     } else if (varName === "uuid") {
-      value = randomUUID()
+      value = isomorphicRandomUUID()
     } else if (varName === "timestamp" || varName === "timestampms") {
       value = Date.now().toString()
     } else {
