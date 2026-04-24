@@ -4,6 +4,30 @@ import { nanoid } from "nanoid"
 import { projects, memberships } from "@ploydok/db"
 import type { Db } from "@ploydok/db"
 
+/**
+ * Ensure the user has an owner-level membership on the given project.
+ * Idempotent via ON CONFLICT DO NOTHING on (org_id, user_id).
+ */
+async function ensureOwnerMembership(
+  db: Pick<Db, "insert">,
+  orgId: string,
+  userId: string,
+  invitedAt: Date
+): Promise<void> {
+  await db
+    .insert(memberships)
+    .values({
+      id: nanoid(),
+      org_id: orgId,
+      user_id: userId,
+      role: "owner",
+      invited_by: null,
+      invited_at: invitedAt,
+      accepted_at: invitedAt,
+    })
+    .onConflictDoNothing()
+}
+
 export interface OrganizationSummary {
   id: string
   name: string
@@ -86,7 +110,15 @@ export async function ensureDefaultOrganizationForUser(
         .orderBy(asc(projects.created_at), asc(projects.id))
         .limit(1)
 
-      if (existingDefault[0]) return existingDefault[0]
+      if (existingDefault[0]) {
+        await ensureOwnerMembership(
+          tx,
+          existingDefault[0].id,
+          userId,
+          existingDefault[0].created_at
+        )
+        return existingDefault[0]
+      }
 
       const oldest = await tx
         .select()
@@ -100,6 +132,12 @@ export async function ensureDefaultOrganizationForUser(
           .update(projects)
           .set({ is_default: true })
           .where(eq(projects.id, oldest[0].id))
+        await ensureOwnerMembership(
+          tx,
+          oldest[0].id,
+          userId,
+          oldest[0].created_at
+        )
         return { ...oldest[0], is_default: true }
       }
 
@@ -117,6 +155,7 @@ export async function ensureDefaultOrganizationForUser(
         })
         .returning()
       if (!inserted) throw new Error("failed to insert default organization")
+      await ensureOwnerMembership(tx, inserted.id, userId, now)
       return inserted
     })
   } catch (err) {
@@ -140,6 +179,7 @@ export async function listOrganizationsForUser(
   displayName?: string | null
 ): Promise<OrganizationSummary[]> {
   await ensureDefaultOrganizationForUser(db, userId, displayName)
+  await backfillOwnerMemberships(db, userId)
 
   const rows = await db
     .select()
@@ -157,6 +197,25 @@ export async function listOrganizationsForUser(
   return rows.map((r) => toSummary(r.projects))
 }
 
+/**
+ * Safety net : for any project where the user is still the `owner_id` but
+ * has no membership row (legacy projects created before the memberships
+ * seed migration, or projects created between seed and a later fix),
+ * insert the missing owner membership. Idempotent.
+ */
+async function backfillOwnerMemberships(db: Db, userId: string): Promise<void> {
+  const ownedProjects = await db
+    .select({ id: projects.id, created_at: projects.created_at })
+    .from(projects)
+    .where(eq(projects.owner_id, userId))
+
+  if (ownedProjects.length === 0) return
+  const now = new Date()
+  for (const p of ownedProjects) {
+    await ensureOwnerMembership(db, p.id, userId, p.created_at ?? now)
+  }
+}
+
 export async function createOrganizationForUser(
   db: Db,
   userId: string,
@@ -166,6 +225,7 @@ export async function createOrganizationForUser(
   await ensureDefaultOrganizationForUser(db, userId, displayName)
 
   const normalizedName = name.trim()
+  const now = new Date()
   const [inserted] = await db
     .insert(projects)
     .values({
@@ -174,9 +234,12 @@ export async function createOrganizationForUser(
       name: normalizedName,
       slug: await uniqueOrganizationSlug(db, normalizedName),
       is_default: false,
-      created_at: new Date(),
+      created_at: now,
     })
     .returning()
+  if (inserted) {
+    await ensureOwnerMembership(db, inserted.id, userId, now)
+  }
 
   if (!inserted) throw new Error("failed to insert organization")
   return toSummary(inserted)
@@ -201,7 +264,24 @@ export async function getOrganizationBySlugForUser(
     .where(eq(projects.slug, slug))
     .limit(1)
 
-  return rows[0] ? toSummary(rows[0].projects) : null
+  if (rows[0]) return toSummary(rows[0].projects)
+
+  // Backfill safety : if the user is the owner_id of this slug but has no
+  // membership row (legacy), create it now and return the project.
+  const ownerRows = await db
+    .select()
+    .from(projects)
+    .where(and(eq(projects.slug, slug), eq(projects.owner_id, userId)))
+    .limit(1)
+
+  if (!ownerRows[0]) return null
+  await ensureOwnerMembership(
+    db,
+    ownerRows[0].id,
+    userId,
+    ownerRows[0].created_at ?? new Date()
+  )
+  return toSummary(ownerRows[0])
 }
 
 export async function getDefaultOrganizationForUser(
