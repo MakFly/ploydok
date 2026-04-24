@@ -1,47 +1,45 @@
 // SPDX-License-Identifier: AGPL-3.0-only
-import fs from "node:fs";
-import path from "node:path";
-import { eq } from "drizzle-orm";
-import { nanoid } from "nanoid";
-import { z } from "zod";
-import { apps, projects } from "@ploydok/db";
-import {
-  insertBuild,
-  updateBuildStatus,
-} from "@ploydok/db/queries";
-import { cleanupQueue } from "../queues";
-import type { Db } from "@ploydok/db";
-import { getRegistryCredential } from "@ploydok/db/queries";
-import { env } from "../../env";
-import { decryptField } from "../../github/app-credentials";
-import { GitHubProvider } from "../../github/client";
-import { GitHubCache } from "../../github/cache";
+import fs from "node:fs"
+import path from "node:path"
+import { eq } from "drizzle-orm"
+import { nanoid } from "nanoid"
+import { z } from "zod"
+import { apps, projects } from "@ploydok/db"
+import { insertBuild, updateBuildStatus } from "@ploydok/db/queries"
+import { cleanupQueue } from "../queues"
+import type { Db } from "@ploydok/db"
+import { getRegistryCredential } from "@ploydok/db/queries"
+import { env } from "../../env"
+import { decryptField } from "../../github/app-credentials"
+import { GitHubProvider } from "../../github/client"
+import { GitHubCache } from "../../github/cache"
 import {
   getInstallationToken,
   listAppInstallations,
-} from "../../github/installation-tokens";
-import { cloneRepo } from "../git";
-import { detectBuildMethod } from "../detect";
-import { detectDockerfilePort } from "../detect-port";
-import { buildImage } from "../buildkit";
-import { logBus } from "../log-bus";
-import { nixpacksBuild } from "../nixpacks";
-import { renderRecipe } from "@ploydok/recipes";
-import type { RecipeId } from "@ploydok/shared";
-import { diskGuard, gcKeepLast, tagManifest } from "../registry";
+} from "../../github/installation-tokens"
+import { cloneRepo } from "../git"
+import { detectBuildMethod } from "../detect"
+import { detectDockerfilePort } from "../detect-port"
+import { buildImage } from "../buildkit"
+import { logBus } from "../log-bus"
+import { nixpacksBuild } from "../nixpacks"
+import { diskGuard, gcKeepLast, tagManifest } from "../registry"
 import { workerLog } from "../logger"
-import { eventBus } from "../event-bus";
-import { runBlueGreen } from "../runner";
-import { classifyAgentError, FatalDeployError } from "../errors";
-import { createRedis } from "@ploydok/db";
-import { postCommitStatusForApp } from "../../providers/commit-status";
-import { dispatch } from "../../notify/index";
-import { buildEnvForDeploy, buildEnvPairForDeploy } from "../../secrets/resolver";
-import { runPreDeployHook, runPostDeployHook } from "../hooks";
-import { getSharedAgent } from "../../debug/singletons";
+import { eventBus } from "../event-bus"
+import { runBlueGreen } from "../runner"
+import { classifyAgentError, FatalDeployError } from "../errors"
+import { createRedis } from "@ploydok/db"
+import { postCommitStatusForApp } from "../../providers/commit-status"
+import { dispatch } from "../../notify/index"
+import {
+  buildEnvForDeploy,
+  buildEnvPairForDeploy,
+} from "../../secrets/resolver"
+import { runPreDeployHook, runPostDeployHook } from "../hooks"
+import { getSharedAgent } from "../../debug/singletons"
 
 // Shared Redis client for commit status dedup (singleton per worker process).
-const redis = createRedis(env.REDIS_URL);
+const redis = createRedis(env.REDIS_URL)
 
 // ---------------------------------------------------------------------------
 // Types
@@ -54,42 +52,39 @@ const DeployPayloadSchema = z.object({
   commitMessage: z.string().nullish(),
   kind: z.enum(["tag"]).optional(),
   tag: z.string().optional(),
-});
+})
 
 // ---------------------------------------------------------------------------
 // Internal helpers
 // ---------------------------------------------------------------------------
 
 interface AppForDeploy {
-  id: string;
-  project_id: string;
-  name: string;
-  slug: string;
-  status: string;
-  git_provider: string | null;
-  repo_full_name: string | null;
-  branch: string | null;
-  github_installation_id: string | null;
-  root_dir: string | null;
-  dockerfile_path: string | null;
-  nixpacks_config_path: string | null;
-  node_version: string | null;
-  install_command: string | null;
-  build_command: string | null;
-  start_command: string | null;
-  build_method: string | null;
-  recipe_id: string | null;
-  recipe_version: string | null;
-  recipe_vars: string | null;
-  runtime_port: number | null;
-  restart_policy: string | null;
-  image_ref: string | null;
-  registry_credential_id: string | null;
-  owner_id: string;
-  post_commit_status: boolean;
-  hooks_pre_deploy: string | null;
-  hooks_post_deploy: string | null;
-  hooks_timeout_s: number | null;
+  id: string
+  project_id: string
+  name: string
+  slug: string
+  status: string
+  git_provider: string | null
+  repo_full_name: string | null
+  branch: string | null
+  github_installation_id: string | null
+  root_dir: string | null
+  dockerfile_path: string | null
+  nixpacks_config_path: string | null
+  node_version: string | null
+  install_command: string | null
+  build_command: string | null
+  start_command: string | null
+  build_method: string | null
+  runtime_port: number | null
+  restart_policy: string | null
+  image_ref: string | null
+  registry_credential_id: string | null
+  owner_id: string
+  post_commit_status: boolean
+  hooks_pre_deploy: string | null
+  hooks_post_deploy: string | null
+  hooks_timeout_s: number | null
 }
 
 /**
@@ -116,9 +111,6 @@ async function getAppForDeploy(db: Db, appId: string): Promise<AppForDeploy> {
       build_command: apps.build_command,
       start_command: apps.start_command,
       build_method: apps.build_method,
-      recipe_id: apps.recipe_id,
-      recipe_version: apps.recipe_version,
-      recipe_vars: apps.recipe_vars,
       runtime_port: apps.runtime_port,
       restart_policy: apps.restart_policy,
       image_ref: apps.image_ref,
@@ -132,11 +124,11 @@ async function getAppForDeploy(db: Db, appId: string): Promise<AppForDeploy> {
     .from(apps)
     .innerJoin(projects, eq(apps.project_id, projects.id))
     .where(eq(apps.id, appId))
-    .limit(1);
+    .limit(1)
 
-  const row = rows[0];
-  if (!row) throw new Error(`App not found: ${appId}`);
-  return row;
+  const row = rows[0]
+  if (!row) throw new Error(`App not found: ${appId}`)
+  return row
 }
 
 /**
@@ -156,45 +148,49 @@ async function getAppForDeploy(db: Db, appId: string): Promise<AppForDeploy> {
  */
 async function loadRegistryAuthForApp(
   db: Db,
-  app: AppForDeploy,
+  app: AppForDeploy
 ): Promise<{ username: string; password: string } | null> {
-  if (!app.registry_credential_id) return null;
-  const row = await getRegistryCredential(db, app.owner_id, app.registry_credential_id);
-  if (!row) return null;
+  if (!app.registry_credential_id) return null
+  const row = await getRegistryCredential(
+    db,
+    app.owner_id,
+    app.registry_credential_id
+  )
+  if (!row) return null
   const password = await decryptField(
     row.password_enc as Buffer,
-    row.password_nonce as Buffer,
-  );
-  return { username: row.username, password };
+    row.password_nonce as Buffer
+  )
+  return { username: row.username, password }
 }
 
 async function resolveInstallationTokenForApp(
-  app: AppForDeploy,
+  app: AppForDeploy
 ): Promise<{ installationId: string; token: string }> {
   if (!app.repo_full_name) {
-    throw new Error(`App ${app.id} has no repo_full_name`);
+    throw new Error(`App ${app.id} has no repo_full_name`)
   }
 
   if (app.github_installation_id) {
-    const token = await getInstallationToken(app.github_installation_id);
-    return { installationId: app.github_installation_id, token };
+    const token = await getInstallationToken(app.github_installation_id)
+    return { installationId: app.github_installation_id, token }
   }
 
-  const ownerLogin = app.repo_full_name.split("/")[0]?.toLowerCase() ?? "";
-  const installations = await listAppInstallations();
+  const ownerLogin = app.repo_full_name.split("/")[0]?.toLowerCase() ?? ""
+  const installations = await listAppInstallations()
   const match = installations.find(
-    (i) => i.accountLogin.toLowerCase() === ownerLogin,
-  );
+    (i) => i.accountLogin.toLowerCase() === ownerLogin
+  )
   if (!match) {
     throw new Error(
       `No GitHub App installation grants access to ${app.repo_full_name}. ` +
         `Install the Ploydok GitHub App on ${ownerLogin} (or another account ` +
-        `with read access) and set apps.github_installation_id on this app.`,
-    );
+        `with read access) and set apps.github_installation_id on this app.`
+    )
   }
-  const installationId = String(match.id);
-  const token = await getInstallationToken(installationId);
-  return { installationId, token };
+  const installationId = String(match.id)
+  const token = await getInstallationToken(installationId)
+  return { installationId, token }
 }
 
 // ---------------------------------------------------------------------------
@@ -219,67 +215,64 @@ async function resolveInstallationTokenForApp(
  */
 export async function handleDeploy(
   db: Db,
-  job: { id: string; payload: string; attempts: number; max_attempts: number },
+  job: { id: string; payload: string; attempts: number; max_attempts: number }
 ): Promise<void> {
-  const payload = DeployPayloadSchema.parse(JSON.parse(job.payload));
-  const log = workerLog.child({ jobId: job.id, appId: payload.appId });
+  const payload = DeployPayloadSchema.parse(JSON.parse(job.payload))
+  const log = workerLog.child({ jobId: job.id, appId: payload.appId })
 
   // Fetch app + owner
-  const app = await getAppForDeploy(db, payload.appId);
+  const app = await getAppForDeploy(db, payload.appId)
   // Resolve owner once — reused for all eventBus publishes below.
-  const ownerId: string | null = app.owner_id ?? null;
+  const ownerId: string | null = app.owner_id ?? null
 
   // Phase 1.B: image-source apps skip clone + build. Validate their own shape
   // early, then dispatch to the image deploy path below.
-  const isImageSource = app.git_provider === "image";
+  const isImageSource = app.git_provider === "image"
   if (isImageSource) {
     if (!app.image_ref) {
-      throw new FatalDeployError(`App ${app.id} has git_provider='image' but no image_ref set`);
+      throw new FatalDeployError(
+        `App ${app.id} has git_provider='image' but no image_ref set`
+      )
     }
   } else if (!app.repo_full_name || !app.branch) {
-    throw new FatalDeployError(`App ${app.id} is missing repo_full_name or branch — cannot deploy`);
+    throw new FatalDeployError(
+      `App ${app.id} is missing repo_full_name or branch — cannot deploy`
+    )
   }
 
   // Create build record.
   // Normalize app.build_method:
   //   - legacy "docker" aliases to "dockerfile"
-  //   - "recipe" is a new build path that renders a managed Dockerfile before
-  //     handing off to BuildKit (so it maps to "docker" at the build record
-  //     level for backward-compat; the recipe id is persisted separately)
   //   - "compose" / "railpack" are not yet implemented — reject early.
-  const rawMethod = app.build_method ?? "auto";
+  const rawMethod = app.build_method ?? "auto"
   if (rawMethod === "compose" || rawMethod === "railpack") {
     throw new FatalDeployError(
-      `build_method="${rawMethod}" is not yet supported (planned sprint 3.3)`,
-    );
+      `build_method="${rawMethod}" is not yet supported (planned sprint 3.3)`
+    )
   }
-  const normalizedMethod: "docker" | "nixpacks" | "recipe" | "auto" =
+  const normalizedMethod: "docker" | "nixpacks" | "auto" =
     rawMethod === "docker" || rawMethod === "dockerfile"
       ? "docker"
-      : rawMethod === "recipe"
-        ? "recipe"
-        : rawMethod === "nixpacks"
-          ? "nixpacks"
-          : "auto";
-  const resolvedBuildMethod =
-    normalizedMethod === "docker" || normalizedMethod === "recipe"
-      ? "docker"
-      : normalizedMethod === "nixpacks"
+      : rawMethod === "nixpacks"
         ? "nixpacks"
-        : "docker";
-  const buildId = nanoid();
+        : "auto"
+  const resolvedBuildMethod =
+    normalizedMethod === "nixpacks" ? "nixpacks" : "docker"
+  const buildId = nanoid()
   await insertBuild(db, {
     id: buildId,
     appId: app.id,
     buildMethod: resolvedBuildMethod,
     ...(payload.commitSha != null && { commitSha: payload.commitSha }),
-    ...(payload.commitMessage != null && { commitMessage: payload.commitMessage }),
-  });
-  await updateBuildStatus(db, buildId, "running", { startedAt: new Date() });
+    ...(payload.commitMessage != null && {
+      commitMessage: payload.commitMessage,
+    }),
+  })
+  await updateBuildStatus(db, buildId, "running", { startedAt: new Date() })
   await db
     .update(apps)
     .set({ status: "building", updated_at: new Date() })
-    .where(eq(apps.id, app.id));
+    .where(eq(apps.id, app.id))
 
   // Notify: build started
   if (ownerId) {
@@ -292,25 +285,37 @@ export async function handleDeploy(
         data: { status: "building" },
       })
     } catch (pubErr) {
-      log.warn({ pubErr, buildId }, "eventBus publish build.started failed (non-fatal)")
+      log.warn(
+        { pubErr, buildId },
+        "eventBus publish build.started failed (non-fatal)"
+      )
     }
   } else {
-    log.warn({ buildId, appId: app.id }, "no owner found — skipping build.started publish")
+    log.warn(
+      { buildId, appId: app.id },
+      "no owner found — skipping build.started publish"
+    )
   }
 
   // Notification dispatch — build.started
   if (ownerId) {
-    dispatch(db, redis, "build.started", {
-      appId: app.id,
-      appName: app.name,
-      commitSha: payload.commitSha ?? null,
-      buildId,
-    }, { userId: ownerId, projectId: app.project_id }).catch((err) =>
-      log.warn({ err, buildId }, "dispatch build.started failed (non-fatal)"),
+    dispatch(
+      db,
+      redis,
+      "build.started",
+      {
+        appId: app.id,
+        appName: app.name,
+        commitSha: payload.commitSha ?? null,
+        buildId,
+      },
+      { userId: ownerId, projectId: app.project_id }
+    ).catch((err) =>
+      log.warn({ err, buildId }, "dispatch build.started failed (non-fatal)")
     )
   }
 
-  log.info({ buildId }, "deploy started");
+  log.info({ buildId }, "deploy started")
 
   // Commit status — pending (best-effort, non-fatal)
   if (payload.commitSha) {
@@ -319,36 +324,44 @@ export async function handleDeploy(
       state: "pending",
       description: "Build en cours",
       buildId,
-    }).catch((err) => log.warn({ err, buildId }, "postCommitStatus(pending) failed (non-fatal)"))
+    }).catch((err) =>
+      log.warn({ err, buildId }, "postCommitStatus(pending) failed (non-fatal)")
+    )
   }
 
   // Create log file stream for this build.
-  const logDir = path.join(env.PLOYDOK_BUILD_DIR, app.id);
-  const logPath = path.join(logDir, `${buildId}.log`);
-  fs.mkdirSync(logDir, { recursive: true });
-  const logStream = fs.createWriteStream(logPath, { flags: "a" });
+  const logDir = path.join(env.PLOYDOK_BUILD_DIR, app.id)
+  const logPath = path.join(logDir, `${buildId}.log`)
+  fs.mkdirSync(logDir, { recursive: true })
+  const logStream = fs.createWriteStream(logPath, { flags: "a" })
 
   /** Shared log sink used from this point forward (file + SSE bus + pino). */
   const onLog = (line: string): void => {
-    log.debug({ buildId }, line);
-    logBus.publish(`build:${buildId}`, line);
-    logStream.write(line + "\n");
-  };
+    log.debug({ buildId }, line)
+    logBus.publish(`build:${buildId}`, line)
+    logStream.write(line + "\n")
+  }
 
   // Persist log_path early so a crash before the finally block still leaves
   // a resolvable pointer — the on-disk file exists from the moment the stream
   // is opened; the download endpoint then serves partial logs even when the
   // worker is killed (SIGKILL, OOM, dev-server restart, …).
-  await updateBuildStatus(db, buildId, "running", { logPath });
+  await updateBuildStatus(db, buildId, "running", { logPath })
 
   // Track final outcome so the finally block can write log_path once.
-  let finalStatus: "succeeded" | "succeeded_with_warning" | "failed" = "succeeded";
-  let finalPatch: { finishedAt: Date; errorMessage?: string; containerId?: string; postDeployError?: string } = { finishedAt: new Date() };
+  let finalStatus: "succeeded" | "succeeded_with_warning" | "failed" =
+    "succeeded"
+  let finalPatch: {
+    finishedAt: Date
+    errorMessage?: string
+    containerId?: string
+    postDeployError?: string
+  } = { finishedAt: new Date() }
   // Resolved commit sha (updated once clone resolves HEAD, used for commit status)
-  let resolvedCommitShaFinal: string | null = payload.commitSha ?? null;
+  let resolvedCommitShaFinal: string | null = payload.commitSha ?? null
   // Commit status state to post on failure: FatalDeployError → failure, unknown → error
-  let commitStatusErrorState: "failure" | "error" = "error";
-  const deployStartMs = Date.now();
+  let commitStatusErrorState: "failure" | "error" = "error"
+  const deployStartMs = Date.now()
 
   try {
     // ── Phase 1.B: Docker-image source ──────────────────────────────────────
@@ -357,14 +370,14 @@ export async function handleDeploy(
     // reference is used directly; runBlueGreen's pre-spawn pullImage handles
     // authentication via the registry credential associated with the app.
     if (isImageSource) {
-      const imageRef = app.image_ref!;
+      const imageRef = app.image_ref!
       const imageLog = (line: string) => {
-        log.debug({ buildId }, line);
-        logBus.publish(`build:${buildId}`, line);
-        logStream.write(line + "\n");
-      };
-      imageLog(`[deploy] image source: ${imageRef}`);
-      await updateBuildStatus(db, buildId, "running", { imageTag: imageRef });
+        log.debug({ buildId }, line)
+        logBus.publish(`build:${buildId}`, line)
+        logStream.write(line + "\n")
+      }
+      imageLog(`[deploy] image source: ${imageRef}`)
+      await updateBuildStatus(db, buildId, "running", { imageTag: imageRef })
 
       if (ownerId) {
         try {
@@ -374,18 +387,21 @@ export async function handleDeploy(
             buildId,
             message: "Image source prête",
             data: { imageTag: imageRef },
-          });
+          })
         } catch (pubErr) {
-          log.warn({ pubErr, buildId }, "eventBus publish (image source) failed (non-fatal)");
+          log.warn(
+            { pubErr, buildId },
+            "eventBus publish (image source) failed (non-fatal)"
+          )
         }
       }
 
-      const registryAuth = await loadRegistryAuthForApp(db, app);
-      const secretEnv = await buildEnvForDeploy(db, app.id, "prod", "runtime");
+      const registryAuth = await loadRegistryAuthForApp(db, app)
+      const secretEnv = await buildEnvForDeploy(db, app.id, "prod", "runtime")
 
       // Pre-deploy hook (image source path)
       if (app.hooks_pre_deploy) {
-        imageLog("[deploy] running pre-deploy hook");
+        imageLog("[deploy] running pre-deploy hook")
         const hookCtx = {
           db,
           agent: getSharedAgent(),
@@ -394,11 +410,15 @@ export async function handleDeploy(
           imageRef,
           env: secretEnv,
           buildId,
-        };
+        }
         try {
-          await runPreDeployHook(hookCtx, app.hooks_pre_deploy, app.hooks_timeout_s ?? 300);
+          await runPreDeployHook(
+            hookCtx,
+            app.hooks_pre_deploy,
+            app.hooks_timeout_s ?? 300
+          )
         } catch (hookErr) {
-          throw classifyAgentError(hookErr);
+          throw classifyAgentError(hookErr)
         }
       }
 
@@ -407,20 +427,20 @@ export async function handleDeploy(
         imageRef,
         env: secretEnv,
         db,
-      };
-      if (app.runtime_port !== null) runOpts.runtimePort = app.runtime_port;
-      if (registryAuth) runOpts.registryAuth = registryAuth;
-      let containerId: string;
-      try {
-        ({ containerId } = await runBlueGreen(runOpts));
-      } catch (runErr) {
-        throw classifyAgentError(runErr);
       }
-      imageLog(`[deploy] container live: ${containerId}`);
+      if (app.runtime_port !== null) runOpts.runtimePort = app.runtime_port
+      if (registryAuth) runOpts.registryAuth = registryAuth
+      let containerId: string
+      try {
+        ;({ containerId } = await runBlueGreen(runOpts))
+      } catch (runErr) {
+        throw classifyAgentError(runErr)
+      }
+      imageLog(`[deploy] container live: ${containerId}`)
 
       // Post-deploy hook (image source path) — non-fatal on failure
       if (app.hooks_post_deploy) {
-        imageLog("[deploy] running post-deploy hook");
+        imageLog("[deploy] running post-deploy hook")
         const postHookCtx = {
           db,
           agent: getSharedAgent(),
@@ -429,22 +449,33 @@ export async function handleDeploy(
           imageRef,
           env: secretEnv,
           buildId,
-        };
+        }
         const postResult = await runPostDeployHook(
           postHookCtx,
           app.hooks_post_deploy,
-          app.hooks_timeout_s ?? 300,
-        );
+          app.hooks_timeout_s ?? 300
+        )
         if (!postResult.ok) {
-          imageLog(`[deploy] post-deploy hook failed (non-fatal): ${postResult.error ?? "unknown"}`);
-          finalStatus = "succeeded_with_warning";
-          finalPatch = { finishedAt: new Date(), containerId, ...(postResult.error ? { postDeployError: postResult.error.slice(0, 500) } : {}) };
-          log.warn({ buildId, err: postResult.error }, "post-deploy hook failed (succeeded_with_warning)");
+          imageLog(
+            `[deploy] post-deploy hook failed (non-fatal): ${postResult.error ?? "unknown"}`
+          )
+          finalStatus = "succeeded_with_warning"
+          finalPatch = {
+            finishedAt: new Date(),
+            containerId,
+            ...(postResult.error
+              ? { postDeployError: postResult.error.slice(0, 500) }
+              : {}),
+          }
+          log.warn(
+            { buildId, err: postResult.error },
+            "post-deploy hook failed (succeeded_with_warning)"
+          )
         }
       }
 
       if (finalStatus !== "succeeded_with_warning") {
-        finalPatch = { finishedAt: new Date(), containerId };
+        finalPatch = { finishedAt: new Date(), containerId }
       }
 
       if (ownerId) {
@@ -455,32 +486,35 @@ export async function handleDeploy(
             buildId,
             message: "Container live",
             data: { containerId, status: "running" },
-          });
+          })
         } catch (pubErr) {
-          log.warn({ pubErr, buildId }, "eventBus publish (image live) failed (non-fatal)");
+          log.warn(
+            { pubErr, buildId },
+            "eventBus publish (image live) failed (non-fatal)"
+          )
         }
       }
 
       if (finalStatus !== "succeeded_with_warning") {
-        finalStatus = "succeeded";
+        finalStatus = "succeeded"
       }
-      log.info({ buildId, imageRef, finalStatus }, "image deploy completed");
-      return;
+      log.info({ buildId, imageRef, finalStatus }, "image deploy completed")
+      return
     }
 
     // Past this point we know the app is a git source with repo+branch
     // (validated above before the isImageSource branch returned).
-    const repoFullName = app.repo_full_name!;
-    const branchName = app.branch!;
+    const repoFullName = app.repo_full_name!
+    const branchName = app.branch!
 
     // 1. Clone
-    const { installationId, token } = await resolveInstallationTokenForApp(app);
-    const ghCache = new GitHubCache();
-    const ghProvider = new GitHubProvider(ghCache);
-    const cloneUrl = ghProvider.cloneUrlWithToken(repoFullName, token);
+    const { installationId, token } = await resolveInstallationTokenForApp(app)
+    const ghCache = new GitHubCache()
+    const ghProvider = new GitHubProvider(ghCache)
+    const cloneUrl = ghProvider.cloneUrlWithToken(repoFullName, token)
 
-    log.info({ buildId, installationId }, "cloning repo");
-    let cloneResult: Awaited<ReturnType<typeof cloneRepo>>;
+    log.info({ buildId, installationId }, "cloning repo")
+    let cloneResult: Awaited<ReturnType<typeof cloneRepo>>
     try {
       cloneResult = await cloneRepo({
         repoCloneUrl: cloneUrl,
@@ -488,118 +522,71 @@ export async function handleDeploy(
         appId: app.id,
         buildId,
         branch: branchName,
-      });
+      })
     } catch (cloneErr) {
-      throw classifyAgentError(cloneErr);
+      throw classifyAgentError(cloneErr)
     }
-    const { workspacePath, headSha } = cloneResult;
+    const { workspacePath, headSha } = cloneResult
 
     // When the deploy was triggered without an explicit commit (manual deploy,
     // initial create), persist the actual HEAD sha so the UI can show it.
-    const resolvedCommitSha = payload.commitSha ?? headSha ?? null;
+    const resolvedCommitSha = payload.commitSha ?? headSha ?? null
     if (resolvedCommitSha && payload.commitSha == null) {
-      await updateBuildStatus(db, buildId, "running", { commitSha: resolvedCommitSha });
+      await updateBuildStatus(db, buildId, "running", {
+        commitSha: resolvedCommitSha,
+      })
     }
     // Capture for finally block commit status hooks
-    resolvedCommitShaFinal = resolvedCommitSha;
+    resolvedCommitShaFinal = resolvedCommitSha
 
-    // 2. Render managed Recipe if requested, then detect build method.
-    //
-    // When `app.build_method === "recipe"`, Ploydok injects a curated Dockerfile
-    // + sidecar configs (nginx.conf, php-fpm.conf, entrypoint.sh) into the
-    // cloned build context. The rest of the pipeline then proceeds as a normal
-    // Dockerfile build — user's repo is never mutated (only the ephemeral
-    // workspace). Collision policy: if the user has shipped a Dockerfile we
-    // refuse to overwrite it and surface a clear error.
-    let forcedDockerfileRel: string | null = null;
-    if (normalizedMethod === "recipe") {
-      if (!app.recipe_id) {
-        throw new FatalDeployError(
-          `build_method="recipe" requires recipe_id — found null on app ${app.id}`,
-        );
-      }
-      const recipeRoot = app.root_dir ?? ".";
-      const contextAbs = path.join(workspacePath, recipeRoot);
-      // Start from user-provided recipe_vars (JSON stored at app creation),
-      // then layer app-level overrides (root_dir, runtime_port, node_version)
-      // so recipe_vars.rootDir etc. remain the primary source of truth when set.
-      let userVars: Record<string, unknown> = {};
-      if (app.recipe_vars) {
-        try { userVars = JSON.parse(app.recipe_vars); } catch { /* ignore bad JSON */ }
-      }
-      const rendered = renderRecipe(app.recipe_id as RecipeId, {
-        ...(app.root_dir !== null && { rootDir: app.root_dir }),
-        ...(app.runtime_port !== null && { runtimePort: app.runtime_port }),
-        ...(app.node_version !== null && { nodeVersion: app.node_version }),
-        ...userVars,
-      });
-      onLog(`[deploy] rendering recipe ${app.recipe_id}@${app.recipe_version ?? "latest"}`);
-      for (const [relPath, content] of Object.entries(rendered.files)) {
-        const target = path.join(contextAbs, relPath);
-        if (relPath === rendered.dockerfilePath && fs.existsSync(target)) {
-          throw new FatalDeployError(
-            `Recipe collision: user repo already contains a ${relPath}. ` +
-              `Switch buildMethod to "dockerfile" to use the repo's own Dockerfile.`,
-          );
-        }
-        fs.mkdirSync(path.dirname(target), { recursive: true });
-        fs.writeFileSync(target, content, { mode: 0o644 });
-      }
-      forcedDockerfileRel = rendered.dockerfilePath;
-      onLog(
-        `[deploy] recipe ${app.recipe_id} rendered (${Object.keys(rendered.files).length} files, ` +
-          `listening on ${rendered.runtimePort})`,
-      );
-    }
-
+    // 2. Detect build method.
     const detectedOverride =
-      normalizedMethod === "recipe"
-        ? "docker"
-        : normalizedMethod === "docker" || normalizedMethod === "nixpacks"
-          ? normalizedMethod
-          : "auto";
+      normalizedMethod === "docker" || normalizedMethod === "nixpacks"
+        ? normalizedMethod
+        : "auto"
     const detected = await detectBuildMethod({
       workspacePath,
       override: detectedOverride,
       ...(app.root_dir !== null && { rootDir: app.root_dir }),
-      ...(forcedDockerfileRel !== null
-        ? { dockerfilePath: forcedDockerfileRel }
-        : app.dockerfile_path !== null
-          ? { dockerfilePath: app.dockerfile_path }
-          : {}),
-    });
-    log.info({ buildId, method: detected.method }, "build method detected");
+      ...(app.dockerfile_path !== null
+        ? { dockerfilePath: app.dockerfile_path }
+        : {}),
+    })
+    log.info({ buildId, method: detected.method }, "build method detected")
 
     // Persist the resolved build_method when detection overrides our initial guess.
     if (detected.method !== resolvedBuildMethod) {
-      await updateBuildStatus(db, buildId, "running", { buildMethod: detected.method });
+      await updateBuildStatus(db, buildId, "running", {
+        buildMethod: detected.method,
+      })
     }
 
-    // Auto-detect runtime_port for Docker-path builds (recipe or user Dockerfile)
-    // when the app didn't declare one. We read the EXPOSE directive of the
-    // Dockerfile that will actually be built — recipe-generated when the recipe
-    // path was taken, or the user's own Dockerfile otherwise. Persisting here
-    // means subsequent deploys skip the probe and go straight to the right port.
+    // Auto-detect runtime_port for Docker-path builds when the app didn't
+    // declare one. We read the EXPOSE directive of the user's Dockerfile.
+    // Persisting here means subsequent deploys skip the probe and go straight
+    // to the right port.
     //
     // Falls back to the hardcoded 3000 in runner.ts only when nothing could be
     // detected, which is the only sensible behavior for opaque nixpacks images.
     if (
-      (detected.method === "docker") &&
+      detected.method === "docker" &&
       (app.runtime_port === null || app.runtime_port === undefined)
     ) {
       const dockerfileAbsForProbe = path.join(
         workspacePath,
         app.root_dir ?? ".",
-        detected.dockerfilePath ?? forcedDockerfileRel ?? "Dockerfile",
-      );
-      const detectedPort = await detectDockerfilePort(dockerfileAbsForProbe);
+        detected.dockerfilePath ?? "Dockerfile"
+      )
+      const detectedPort = await detectDockerfilePort(dockerfileAbsForProbe)
       if (detectedPort !== null) {
-        onLog(`[deploy] detected runtime port ${detectedPort} from Dockerfile EXPOSE`);
+        onLog(
+          `[deploy] detected runtime port ${detectedPort} from Dockerfile EXPOSE`
+        )
         await db
           .update(apps)
           .set({ runtime_port: detectedPort, updated_at: new Date() })
-          .where(eq(apps.id, app.id));
-        app.runtime_port = detectedPort;
+          .where(eq(apps.id, app.id))
+        app.runtime_port = detectedPort
       }
     }
 
@@ -607,9 +594,13 @@ export async function handleDeploy(
     // Under pressure, kick an aggressive sweep (keep 1 per repo) before
     // giving up — most builds will recover instead of failing the deploy.
     await diskGuard(80, async () => {
-      const { runAggressiveDiskGuard } = await import("./gc-registry");
-      await runAggressiveDiskGuard({ db, thresholdPct: 80, keepPerRepoUnderPressure: 1 });
-    });
+      const { runAggressiveDiskGuard } = await import("./gc-registry")
+      await runAggressiveDiskGuard({
+        db,
+        thresholdPct: 80,
+        keepPerRepoUnderPressure: 1,
+      })
+    })
 
     // 3. Build
     // BuildKit runs inside a compose container; from its POV `127.0.0.1:5000` is
@@ -621,22 +612,19 @@ export async function handleDeploy(
     //
     // Docker registry repo names must match [a-z0-9._/-]+; nanoid() app.id
     // contains uppercase, so we lowercase for the repo component only.
-    const stripScheme = (u: string) => u.replace(/^https?:\/\//, "");
-    const commitSha = resolvedCommitSha ?? buildId;
-    const pushRegistry = stripScheme(env.PLOYDOK_REGISTRY_PUSH_URL);
-    const pullRegistry = stripScheme(env.PLOYDOK_REGISTRY_URL);
-    const repo = `app-${app.id.toLowerCase()}`;
-    const pushRef = `${pushRegistry}/${repo}:${commitSha}`;
-    const imageRef = `${pullRegistry}/${repo}:${commitSha}`;
+    const stripScheme = (u: string) => u.replace(/^https?:\/\//, "")
+    const commitSha = resolvedCommitSha ?? buildId
+    const pushRegistry = stripScheme(env.PLOYDOK_REGISTRY_PUSH_URL)
+    const pullRegistry = stripScheme(env.PLOYDOK_REGISTRY_URL)
+    const repo = `app-${app.id.toLowerCase()}`
+    const pushRef = `${pushRegistry}/${repo}:${commitSha}`
+    const imageRef = `${pullRegistry}/${repo}:${commitSha}`
 
     // onLog is defined earlier in this handler (right after logStream creation)
     // so it can be used by both the image-source path and the git-source path.
 
-    const { build: buildEnvSecrets, runtime: runtimeSecretEnvRaw } = await buildEnvPairForDeploy(
-      db,
-      app.id,
-      "prod",
-    );
+    const { build: buildEnvSecrets, runtime: runtimeSecretEnvRaw } =
+      await buildEnvPairForDeploy(db, app.id, "prod")
 
     // Platform-injected metadata vars. Exposed to user apps at BOTH build and
     // runtime (e.g. Next.js SSG reads `process.env.PLOYDOK_BUILD_ID` during
@@ -648,21 +636,31 @@ export async function handleDeploy(
       PLOYDOK_APP_ID: app.id,
       PLOYDOK_BUILD_ID: buildId,
       PLOYDOK_COMMIT_SHA: commitSha,
-    };
-    const buildEnv: Record<string, string> = { ...platformEnv, ...buildEnvSecrets };
-    const runtimeSecretEnv: Record<string, string> = { ...platformEnv, ...runtimeSecretEnvRaw };
+    }
+    const buildEnv: Record<string, string> = {
+      ...platformEnv,
+      ...buildEnvSecrets,
+    }
+    const runtimeSecretEnv: Record<string, string> = {
+      ...platformEnv,
+      ...runtimeSecretEnvRaw,
+    }
 
     if (detected.method === "docker") {
       // BuildKit path (M3.1)
-      const contextDir = path.join(workspacePath, app.root_dir ?? ".");
-      const dockerfileRel = detected.dockerfilePath ?? "Dockerfile";
-      const dockerfileAbs = path.join(contextDir, dockerfileRel);
-      const cacheDir = path.join(env.PLOYDOK_BUILD_DIR, app.id, ".buildkit-cache");
+      const contextDir = path.join(workspacePath, app.root_dir ?? ".")
+      const dockerfileRel = detected.dockerfilePath ?? "Dockerfile"
+      const dockerfileAbs = path.join(contextDir, dockerfileRel)
+      const cacheDir = path.join(
+        env.PLOYDOK_BUILD_DIR,
+        app.id,
+        ".buildkit-cache"
+      )
 
-      log.info({ buildId, imageRef, pushRef }, "starting BuildKit build");
-      let imageDigest: string, durationMs: number;
+      log.info({ buildId, imageRef, pushRef }, "starting BuildKit build")
+      let imageDigest: string, durationMs: number
       try {
-        ({ imageDigest, durationMs } = await buildImage({
+        ;({ imageDigest, durationMs } = await buildImage({
           contextDir,
           dockerfile: dockerfileAbs,
           imageRef: pushRef,
@@ -672,18 +670,24 @@ export async function handleDeploy(
           // the plaintext into the image history, visible via `docker history`.
           buildSecrets: buildEnv,
           onLog,
-        }));
+        }))
       } catch (buildErr) {
-        throw classifyAgentError(buildErr);
+        throw classifyAgentError(buildErr)
       }
 
-      log.info({ buildId, imageRef, imageDigest, durationMs }, "BuildKit build + push done");
-      await updateBuildStatus(db, buildId, "running", { imageTag: imageRef });
+      log.info(
+        { buildId, imageRef, imageDigest, durationMs },
+        "BuildKit build + push done"
+      )
+      await updateBuildStatus(db, buildId, "running", { imageTag: imageRef })
 
       // If this is a tag deploy, also push the image under the git tag name.
       if (payload.kind === "tag" && payload.tag) {
         await tagManifest(repo, commitSha, payload.tag).catch((tagErr) => {
-          log.warn({ tagErr, buildId, tag: payload.tag }, "tag manifest push failed (non-fatal)")
+          log.warn(
+            { tagErr, buildId, tag: payload.tag },
+            "tag manifest push failed (non-fatal)"
+          )
         })
       }
 
@@ -698,18 +702,25 @@ export async function handleDeploy(
             data: { imageTag: imageRef },
           })
         } catch (pubErr) {
-          log.warn({ pubErr, buildId }, "eventBus publish deploy.status_change (buildkit) failed (non-fatal)")
+          log.warn(
+            { pubErr, buildId },
+            "eventBus publish deploy.status_change (buildkit) failed (non-fatal)"
+          )
         }
       }
 
       // Post-push GC: keep last 3 images for this app repo.
       gcKeepLast(repo, 3).catch((gcErr) => {
-        log.warn({ gcErr, repo }, "post-build GC failed (non-fatal)");
-      });
+        log.warn({ gcErr, repo }, "post-build GC failed (non-fatal)")
+      })
     } else {
       // Nixpacks path
-      const nixpacksCache = path.join(env.PLOYDOK_BUILD_DIR, app.id, ".nixpacks-cache");
-      log.info({ buildId, imageRef, pushRef }, "starting nixpacks build");
+      const nixpacksCache = path.join(
+        env.PLOYDOK_BUILD_DIR,
+        app.id,
+        ".nixpacks-cache"
+      )
+      log.info({ buildId, imageRef, pushRef }, "starting nixpacks build")
       try {
         // Unlike buildctl (which runs inside the buildkitd compose container
         // and pushes via the compose DNS name `registry:5000`), `nixpacks
@@ -733,46 +744,53 @@ export async function handleDeploy(
           // upload step. BuildKit's own layer cache + `--cache-key`
           // already cover the common reuse cases.
           ...(app.root_dir !== null && { rootDir: app.root_dir }),
-          ...(app.nixpacks_config_path !== null && { configFile: app.nixpacks_config_path }),
+          ...(app.nixpacks_config_path !== null && {
+            configFile: app.nixpacks_config_path,
+          }),
           ...(app.node_version !== null && { nodeVersion: app.node_version }),
-          ...(app.install_command !== null && { installCmd: app.install_command }),
+          ...(app.install_command !== null && {
+            installCmd: app.install_command,
+          }),
           ...(app.build_command !== null && { buildCmd: app.build_command }),
           ...(app.start_command !== null && { startCmd: app.start_command }),
           ...(Object.keys(buildEnv).length > 0 && { buildEnv }),
           onLog,
-        });
+        })
       } catch (nixErr) {
-        throw classifyAgentError(nixErr);
+        throw classifyAgentError(nixErr)
       }
 
       // Push the built image into the registry. `nixpacks build` only tags
       // the image in the local docker daemon — it does NOT push. Without
       // this, the blue-green runner cannot pull `imageRef` and fails with
       // "manifest unknown".
-      onLog(`[deploy] pushing image to ${imageRef}`);
+      onLog(`[deploy] pushing image to ${imageRef}`)
       const pushProc = Bun.spawn(["docker", "push", imageRef], {
         stdout: "pipe",
         stderr: "pipe",
-      });
-      const pushStdout = await new Response(pushProc.stdout).text();
-      const pushStderr = await new Response(pushProc.stderr).text();
+      })
+      const pushStdout = await new Response(pushProc.stdout).text()
+      const pushStderr = await new Response(pushProc.stderr).text()
       for (const line of (pushStdout + pushStderr).split("\n")) {
-        if (line) onLog(line);
+        if (line) onLog(line)
       }
-      const pushCode = await pushProc.exited;
+      const pushCode = await pushProc.exited
       if (pushCode !== 0) {
         throw new Error(
-          `docker push failed (exit ${pushCode}) for ${imageRef}: ${pushStderr.trim()}`,
-        );
+          `docker push failed (exit ${pushCode}) for ${imageRef}: ${pushStderr.trim()}`
+        )
       }
 
-      log.info({ buildId, imageRef }, "nixpacks build + push done");
-      await updateBuildStatus(db, buildId, "running", { imageTag: imageRef });
+      log.info({ buildId, imageRef }, "nixpacks build + push done")
+      await updateBuildStatus(db, buildId, "running", { imageTag: imageRef })
 
       // If this is a tag deploy, also push the image under the git tag name.
       if (payload.kind === "tag" && payload.tag) {
         await tagManifest(repo, commitSha, payload.tag).catch((tagErr) => {
-          log.warn({ tagErr, buildId, tag: payload.tag }, "tag manifest push failed (non-fatal)")
+          log.warn(
+            { tagErr, buildId, tag: payload.tag },
+            "tag manifest push failed (non-fatal)"
+          )
         })
       }
 
@@ -787,22 +805,25 @@ export async function handleDeploy(
             data: { imageTag: imageRef },
           })
         } catch (pubErr) {
-          log.warn({ pubErr, buildId }, "eventBus publish deploy.status_change (nixpacks) failed (non-fatal)")
+          log.warn(
+            { pubErr, buildId },
+            "eventBus publish deploy.status_change (nixpacks) failed (non-fatal)"
+          )
         }
       }
 
       // Post-push GC: keep last 3 images for this app repo.
       gcKeepLast(repo, 3).catch((gcErr) => {
-        log.warn({ gcErr, repo }, "post-build GC failed (non-fatal)");
-      });
+        log.warn({ gcErr, repo }, "post-build GC failed (non-fatal)")
+      })
     }
 
     // 4. Blue-green deploy — spawn container, healthcheck, Caddy swap.
     // runBlueGreen internally updates apps.container_id + apps.status = 'running'.
-    onLog("[deploy] starting blue-green runner");
+    onLog("[deploy] starting blue-green runner")
     // Pre-deploy hook (git source path)
     if (app.hooks_pre_deploy) {
-      onLog("[deploy] running pre-deploy hook");
+      onLog("[deploy] running pre-deploy hook")
       const preHookCtx = {
         db,
         agent: getSharedAgent(),
@@ -811,32 +832,36 @@ export async function handleDeploy(
         imageRef,
         env: runtimeSecretEnv,
         buildId,
-      };
+      }
       try {
-        await runPreDeployHook(preHookCtx, app.hooks_pre_deploy, app.hooks_timeout_s ?? 300);
+        await runPreDeployHook(
+          preHookCtx,
+          app.hooks_pre_deploy,
+          app.hooks_timeout_s ?? 300
+        )
       } catch (hookErr) {
-        throw classifyAgentError(hookErr);
+        throw classifyAgentError(hookErr)
       }
     }
 
-    let containerId: string;
+    let containerId: string
     try {
       const runOpts: Parameters<typeof runBlueGreen>[0] = {
         appId: app.id,
         imageRef,
         env: runtimeSecretEnv,
         db,
-      };
-      if (app.runtime_port !== null) runOpts.runtimePort = app.runtime_port;
-      ({ containerId } = await runBlueGreen(runOpts));
+      }
+      if (app.runtime_port !== null) runOpts.runtimePort = app.runtime_port
+      ;({ containerId } = await runBlueGreen(runOpts))
     } catch (runErr) {
-      throw classifyAgentError(runErr);
+      throw classifyAgentError(runErr)
     }
-    onLog(`[deploy] container live: ${containerId}`);
+    onLog(`[deploy] container live: ${containerId}`)
 
     // Post-deploy hook (git source path) — non-fatal on failure
     if (app.hooks_post_deploy) {
-      onLog("[deploy] running post-deploy hook");
+      onLog("[deploy] running post-deploy hook")
       const postHookCtx = {
         db,
         agent: getSharedAgent(),
@@ -845,23 +870,34 @@ export async function handleDeploy(
         imageRef,
         env: runtimeSecretEnv,
         buildId,
-      };
+      }
       const postResult = await runPostDeployHook(
         postHookCtx,
         app.hooks_post_deploy,
-        app.hooks_timeout_s ?? 300,
-      );
+        app.hooks_timeout_s ?? 300
+      )
       if (!postResult.ok) {
-        onLog(`[deploy] post-deploy hook failed (non-fatal): ${postResult.error ?? "unknown"}`);
-        finalStatus = "succeeded_with_warning";
-        finalPatch = { finishedAt: new Date(), containerId, ...(postResult.error ? { postDeployError: postResult.error.slice(0, 500) } : {}) };
-        log.warn({ buildId, err: postResult.error }, "post-deploy hook failed (succeeded_with_warning)");
+        onLog(
+          `[deploy] post-deploy hook failed (non-fatal): ${postResult.error ?? "unknown"}`
+        )
+        finalStatus = "succeeded_with_warning"
+        finalPatch = {
+          finishedAt: new Date(),
+          containerId,
+          ...(postResult.error
+            ? { postDeployError: postResult.error.slice(0, 500) }
+            : {}),
+        }
+        log.warn(
+          { buildId, err: postResult.error },
+          "post-deploy hook failed (succeeded_with_warning)"
+        )
       }
     }
 
     // Persist containerId into the build record via finalPatch (written once in finally).
     if (finalStatus !== "succeeded_with_warning") {
-      finalPatch = { finishedAt: new Date(), containerId };
+      finalPatch = { finishedAt: new Date(), containerId }
     }
 
     // Notify: container is live.
@@ -875,68 +911,85 @@ export async function handleDeploy(
           data: { containerId, status: "running" },
         })
       } catch (pubErr) {
-        log.warn({ pubErr, buildId }, "eventBus publish deploy.status_change (container live) failed (non-fatal)")
+        log.warn(
+          { pubErr, buildId },
+          "eventBus publish deploy.status_change (container live) failed (non-fatal)"
+        )
       }
     }
 
     // 5. Mark succeeded (log_path + terminal event written in finally)
     // Note: finalStatus may already be "succeeded_with_warning" if post-deploy hook failed
     if (finalStatus !== "succeeded_with_warning") {
-      finalStatus = "succeeded";
+      finalStatus = "succeeded"
     }
 
-    log.info({ buildId, finalStatus }, "deploy completed");
+    log.info({ buildId, finalStatus }, "deploy completed")
 
     // 6. Best-effort auto-prune: keep registry tidy after every success.
     //    Honours image protection (running container + latest succeeded build
     //    are never deleted). Failures are logged but never propagated — the
     //    deploy itself already succeeded.
     try {
-      const { runRegistryGc } = await import("./gc-registry");
-      await runRegistryGc({ db, appFilter: app.id });
+      const { runRegistryGc } = await import("./gc-registry")
+      await runRegistryGc({ db, appFilter: app.id })
     } catch (gcErr) {
-      log.warn({ gcErr, appId: app.id, buildId }, "post-deploy auto-prune failed (non-fatal)");
+      log.warn(
+        { gcErr, appId: app.id, buildId },
+        "post-deploy auto-prune failed (non-fatal)"
+      )
     }
   } catch (err) {
-    const msg = err instanceof Error ? err.message : String(err);
-    log.error({ buildId, err }, "deploy failed");
+    const msg = err instanceof Error ? err.message : String(err)
+    log.error({ buildId, err }, "deploy failed")
 
-    finalStatus = "failed";
-    finalPatch = { finishedAt: new Date(), errorMessage: msg };
-    commitStatusErrorState = err instanceof FatalDeployError ? "failure" : "error";
+    finalStatus = "failed"
+    finalPatch = { finishedAt: new Date(), errorMessage: msg }
+    commitStatusErrorState =
+      err instanceof FatalDeployError ? "failure" : "error"
 
     // If a previous deploy had put the app in "running", a failed redeploy
     // must NOT overwrite that — blue-green keeps the old container alive.
     // Otherwise (first deploy, previously stopped/failed, etc.) surface the
     // failure on the app row so the dashboard doesn't stick to "created".
     const fallbackStatus: typeof apps.$inferSelect.status =
-      app.status === "running" ? "running" : "failed";
+      app.status === "running" ? "running" : "failed"
 
     await db
       .update(apps)
       .set({ status: fallbackStatus, updated_at: new Date() })
-      .where(eq(apps.id, app.id));
+      .where(eq(apps.id, app.id))
 
-    throw err;
+    throw err
   } finally {
     // Close the log stream and persist log_path in a single updateBuildStatus call.
-    await new Promise<void>((resolve) => logStream.end(resolve));
+    await new Promise<void>((resolve) => logStream.end(resolve))
     await updateBuildStatus(db, buildId, finalStatus, {
       ...finalPatch,
       logPath,
-      ...(finalPatch.postDeployError !== undefined && { postDeployError: finalPatch.postDeployError }),
-    });
+      ...(finalPatch.postDeployError !== undefined && {
+        postDeployError: finalPatch.postDeployError,
+      }),
+    })
 
     // Commit status — success / failure / error (best-effort, non-fatal)
     if (resolvedCommitShaFinal) {
-      const durationMs = Date.now() - deployStartMs;
-      const statusState = (finalStatus === "succeeded" || finalStatus === "succeeded_with_warning") ? "success" : commitStatusErrorState;
+      const durationMs = Date.now() - deployStartMs
+      const statusState =
+        finalStatus === "succeeded" || finalStatus === "succeeded_with_warning"
+          ? "success"
+          : commitStatusErrorState
       postCommitStatusForApp(db, redis, app, {
         sha: resolvedCommitShaFinal,
         state: statusState,
         buildId,
         durationMs,
-      }).catch((err) => log.warn({ err, buildId }, `postCommitStatus(${statusState}) failed (non-fatal)`))
+      }).catch((err) =>
+        log.warn(
+          { err, buildId },
+          `postCommitStatus(${statusState}) failed (non-fatal)`
+        )
+      )
     }
 
     // Publish terminal event AFTER the DB commit so any React Query
@@ -946,42 +999,59 @@ export async function handleDeploy(
         finalStatus === "succeeded"
           ? { type: "build.succeeded" as const, message: "Build réussi" }
           : finalStatus === "succeeded_with_warning"
-            ? { type: "build.succeeded" as const, message: "Build réussi (post-deploy hook en échec)" }
+            ? {
+                type: "build.succeeded" as const,
+                message: "Build réussi (post-deploy hook en échec)",
+              }
             : {
                 type: "build.failed" as const,
                 message: `Build échoué: ${(finalPatch.errorMessage ?? "").slice(0, 200)}`,
-              };
+              }
       try {
         eventBus.publish(`user:${ownerId}`, {
           type: terminal.type,
           appId: app.id,
           buildId,
           message: terminal.message,
-        });
+        })
       } catch (pubErr) {
-        log.warn({ pubErr, buildId }, `eventBus publish ${terminal.type} failed (non-fatal)`);
+        log.warn(
+          { pubErr, buildId },
+          `eventBus publish ${terminal.type} failed (non-fatal)`
+        )
       }
     }
 
     // Notification dispatch — build/deploy outcome
     if (ownerId) {
       const durationMs = Date.now() - deployStartMs
-      const notifyEvent = (finalStatus === "succeeded" || finalStatus === "succeeded_with_warning") ? "deploy.succeeded" : "deploy.failed"
-      dispatch(db, redis, notifyEvent, {
-        appId: app.id,
-        appName: app.name,
-        commitSha: resolvedCommitShaFinal,
-        buildId,
-        durationMs,
-        errorMessage: finalPatch.errorMessage?.slice(0, 500) ?? null,
-      }, { userId: ownerId, projectId: app.project_id }).catch((err) =>
-        log.warn({ err, buildId }, `dispatch ${notifyEvent} failed (non-fatal)`),
+      const notifyEvent =
+        finalStatus === "succeeded" || finalStatus === "succeeded_with_warning"
+          ? "deploy.succeeded"
+          : "deploy.failed"
+      dispatch(
+        db,
+        redis,
+        notifyEvent,
+        {
+          appId: app.id,
+          appName: app.name,
+          commitSha: resolvedCommitShaFinal,
+          buildId,
+          durationMs,
+          errorMessage: finalPatch.errorMessage?.slice(0, 500) ?? null,
+        },
+        { userId: ownerId, projectId: app.project_id }
+      ).catch((err) =>
+        log.warn({ err, buildId }, `dispatch ${notifyEvent} failed (non-fatal)`)
       )
     }
 
     // Fire-and-forget: enqueue async workspace cleanup via BullMQ.
-    cleanupQueue.add("cleanup.build", { appId: payload.appId, buildId }).catch((enqErr) => {
-      log.warn({ enqErr, buildId }, "failed to push cleanup.build to BullMQ");
-    });
+    cleanupQueue
+      .add("cleanup.build", { appId: payload.appId, buildId })
+      .catch((enqErr) => {
+        log.warn({ enqErr, buildId }, "failed to push cleanup.build to BullMQ")
+      })
   }
 }

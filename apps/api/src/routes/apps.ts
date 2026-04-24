@@ -1,13 +1,19 @@
 // SPDX-License-Identifier: AGPL-3.0-only
-import { readFile } from "node:fs/promises";
-import { randomBytes } from "node:crypto";
-import { Hono } from "hono";
-import { z } from "zod";
-import { and, eq } from "drizzle-orm";
-import { nanoid } from "nanoid";
-import { createDb } from "@ploydok/db";
-import { projects } from "@ploydok/db";
-import { BuildMethodSchema, GitProviderKindSchema, HealthcheckConfigSchema, ImagePullPolicySchema, RecipeIdSchema, RecipeVarsSchema, RestartPolicySchema } from "@ploydok/shared";
+import { readFile } from "node:fs/promises"
+import { randomBytes } from "node:crypto"
+import { Hono } from "hono"
+import { z } from "zod"
+import { and, eq } from "drizzle-orm"
+import { nanoid } from "nanoid"
+import { createDb } from "@ploydok/db"
+import { projects } from "@ploydok/db"
+import {
+  BuildMethodSchema,
+  GitProviderKindSchema,
+  HealthcheckConfigSchema,
+  ImagePullPolicySchema,
+  RestartPolicySchema,
+} from "@ploydok/shared"
 import {
   getAppActivity,
   getAppForUser,
@@ -22,28 +28,32 @@ import {
   uniqueSlug,
   updateApp,
   type AppRow,
-} from "@ploydok/db/queries";
-import { listDeliveriesByApp, getDeliveryById } from "@ploydok/db/queries";
-import { replayDelivery, ReplayLimitError, ReplayPayloadMissingError } from "../webhooks/deliveries";
-import { env } from "../env";
-import { deployQueue, appDeleteQueue } from "../worker/queues";
-import { childLogger } from "../logger";
-import type { Db } from "@ploydok/db";
-import type { AuthUser } from "../auth/middleware";
-import { requireSecondFactor } from "../auth/middleware";
-import { requireTotpVerified } from "../auth/second-factor";
-import { encryptField, decryptField } from "../github/app-credentials";
-import { getSharedAgent } from "../debug/singletons";
-import { resolveRuntimeContainer } from "../services/runtime-containers";
-import { dispatch as notifyDispatch } from "../notify/index";
-import { createRedis } from "@ploydok/db";
-import { ensureDefaultOrganizationForUser } from "../services/organizations";
+} from "@ploydok/db/queries"
+import { listDeliveriesByApp, getDeliveryById } from "@ploydok/db/queries"
+import {
+  replayDelivery,
+  ReplayLimitError,
+  ReplayPayloadMissingError,
+} from "../webhooks/deliveries"
+import { env } from "../env"
+import { deployQueue, appDeleteQueue } from "../worker/queues"
+import { childLogger } from "../logger"
+import type { Db } from "@ploydok/db"
+import type { AuthUser } from "../auth/middleware"
+import { requireSecondFactor } from "../auth/middleware"
+import { requireTotpVerified } from "../auth/second-factor"
+import { encryptField, decryptField } from "../github/app-credentials"
+import { getSharedAgent } from "../debug/singletons"
+import { resolveRuntimeContainer } from "../services/runtime-containers"
+import { dispatch as notifyDispatch } from "../notify/index"
+import { createRedis } from "@ploydok/db"
+import { ensureDefaultOrganizationForUser } from "../services/organizations"
 
 // ---------------------------------------------------------------------------
 // Validation schemas
 // ---------------------------------------------------------------------------
 
-const PlanSchema = z.enum(["nano", "small", "medium", "large", "custom"]);
+const PlanSchema = z.enum(["nano", "small", "medium", "large", "custom"])
 
 // nixpacks_config_path is joined with workspacePath at build time and fed to
 // nixpacks --config. An attacker controlling this field could point to any
@@ -54,9 +64,10 @@ const NixpacksConfigPathSchema = z
   .max(256)
   .regex(/^[^/\0][^\0]*$/, "must be a relative path")
   .refine(
-    (v) => !v.split("/").some((seg) => seg === "" || seg === "." || seg === ".."),
-    { message: "path traversal segments are not allowed" },
-  );
+    (v) =>
+      !v.split("/").some((seg) => seg === "" || seg === "." || seg === ".."),
+    { message: "path traversal segments are not allowed" }
+  )
 
 // node_version is injected verbatim into the build environment. Restrict it to
 // a dotted numeric (optionally prefixed by the letter v) to rule out env
@@ -65,7 +76,7 @@ const NodeVersionSchema = z
   .string()
   .min(1)
   .max(16)
-  .regex(/^v?\d+(\.\d+){0,2}$/, "must look like '20', '20.10', or '20.10.0'");
+  .regex(/^v?\d+(\.\d+){0,2}$/, "must look like '20', '20.10', or '20.10.0'")
 
 // Base object schema (no .refine so it stays composable with .omit/.extend).
 const CreateAppBodyBase = z.object({
@@ -74,7 +85,10 @@ const CreateAppBodyBase = z.object({
   projectId: z.string().min(1).optional(),
   gitProvider: GitProviderKindSchema,
   // repoFullName + branch are only required for git sources (github / gitlab).
-  repoFullName: z.string().regex(/^[^/]+\/[^/]+$/).optional(),
+  repoFullName: z
+    .string()
+    .regex(/^[^/]+\/[^/]+$/)
+    .optional(),
   branch: z.string().min(1).optional(),
   installationId: z.string().regex(/^\d+$/).optional(),
   gitlabProjectId: z.number().int().positive().optional(),
@@ -97,32 +111,22 @@ const CreateAppBodyBase = z.object({
   startCommand: z.string().optional(),
   watchPaths: z.array(z.string()).optional(),
   buildMethod: BuildMethodSchema.optional(),
-  recipeId: RecipeIdSchema.nullish(),
-  recipeVersion: z.string().max(32).nullish(),
-  recipeVars: RecipeVarsSchema.nullish(),
   runtimePort: z.number().int().positive().optional(),
   restartPolicy: RestartPolicySchema.optional(),
   healthcheck: HealthcheckConfigSchema.partial().optional(),
   domain: z.string().optional(),
   /** Per-app GC override. null clears the override (falls back to default 3). */
   keepPerRepo: z.number().int().min(0).max(50).nullable().optional(),
-});
+})
 
-function requireRecipeIdWhenRecipe(
-  v: { buildMethod?: string | undefined; recipeId?: unknown },
-): boolean {
-  if (!v.buildMethod) return true;
-  const m = v.buildMethod === "docker" ? "dockerfile" : v.buildMethod;
-  return m !== "recipe" || Boolean(v.recipeId);
-}
-
-const CreateAppBody = CreateAppBodyBase.refine(requireRecipeIdWhenRecipe, {
-  message: "recipeId is required when buildMethod is 'recipe'",
-  path: ["recipeId"],
-});
+const CreateAppBody = CreateAppBodyBase
 
 // PATCH accepts the same fields except name and projectId are not updatable here
-const PatchAppBody = CreateAppBodyBase.omit({ name: true, organizationId: true, projectId: true })
+const PatchAppBody = CreateAppBodyBase.omit({
+  name: true,
+  organizationId: true,
+  projectId: true,
+})
   .extend({
     auto_deploy_enabled: z.boolean().optional(),
     post_commit_status: z.boolean().optional(),
@@ -139,22 +143,18 @@ const PatchAppBody = CreateAppBodyBase.omit({ name: true, organizationId: true, 
       .optional()
       .refine(
         (v) => {
-          if (v === null || v === undefined) return true;
+          if (v === null || v === undefined) return true
           try {
-            new RegExp(v);
-            return true;
+            new RegExp(v)
+            return true
           } catch {
-            return false;
+            return false
           }
         },
-        { message: "tag_pattern must be a valid regular expression" },
+        { message: "tag_pattern must be a valid regular expression" }
       ),
   })
   .partial()
-  .refine(requireRecipeIdWhenRecipe, {
-    message: "recipeId is required when buildMethod is 'recipe'",
-    path: ["recipeId"],
-  });
 
 // ---------------------------------------------------------------------------
 // Helpers
@@ -165,11 +165,11 @@ export function slugify(name: string): string {
     .toLowerCase()
     .replace(/[^a-z0-9]+/g, "-")
     .replace(/^-+|-+$/g, "")
-    .slice(0, 32);
+    .slice(0, 32)
 }
 
 function getUser(c: { get: (key: string) => unknown }): AuthUser {
-  return c.get("user") as AuthUser;
+  return c.get("user") as AuthUser
 }
 
 // ---------------------------------------------------------------------------
@@ -177,13 +177,13 @@ function getUser(c: { get: (key: string) => unknown }): AuthUser {
 // ---------------------------------------------------------------------------
 
 function nullToUndefined<T>(value: T | null): T | undefined {
-  return value ?? undefined;
+  return value ?? undefined
 }
 
 function buildPublicUrl(domain: string | null): string | null {
-  if (!domain) return null;
-  const port = env.PLOYDOK_PUBLIC_PORT ? `:${env.PLOYDOK_PUBLIC_PORT}` : "";
-  return `${env.PLOYDOK_PUBLIC_SCHEME}://${domain}${port}`;
+  if (!domain) return null
+  const port = env.PLOYDOK_PUBLIC_PORT ? `:${env.PLOYDOK_PUBLIC_PORT}` : ""
+  return `${env.PLOYDOK_PUBLIC_SCHEME}://${domain}${port}`
 }
 
 function serializeApp(row: AppRow) {
@@ -211,7 +211,9 @@ function serializeApp(row: AppRow) {
     installCommand: nullToUndefined(row.install_command),
     buildCommand: nullToUndefined(row.build_command),
     startCommand: nullToUndefined(row.start_command),
-    watchPaths: row.watch_paths ? (JSON.parse(row.watch_paths) as string[]) : undefined,
+    watchPaths: row.watch_paths
+      ? (JSON.parse(row.watch_paths) as string[])
+      : undefined,
     buildMethod: row.build_method,
     runtimePort: row.runtime_port,
     restartPolicy: row.restart_policy,
@@ -231,25 +233,31 @@ function serializeApp(row: AppRow) {
     hooksPreDeploy: row.hooks_pre_deploy ?? null,
     hooksPostDeploy: row.hooks_post_deploy ?? null,
     hooksTimeoutS: row.hooks_timeout_s ?? 300,
-    createdAt: row.created_at instanceof Date ? row.created_at.toISOString() : row.created_at,
-    updatedAt: row.updated_at instanceof Date ? row.updated_at.toISOString() : row.updated_at,
-  };
+    createdAt:
+      row.created_at instanceof Date
+        ? row.created_at.toISOString()
+        : row.created_at,
+    updatedAt:
+      row.updated_at instanceof Date
+        ? row.updated_at.toISOString()
+        : row.updated_at,
+  }
 }
 
 type AppPartialRow = {
-  id: string;
-  project_id: string;
-  name: string;
-  slug: string;
-  status: string | null;
-  git_provider: string | null;
-  repo_full_name: string | null;
-  branch: string | null;
-  build_method: string | null;
-  domain: string | null;
-  created_at: Date | null;
-  updated_at: Date | null;
-};
+  id: string
+  project_id: string
+  name: string
+  slug: string
+  status: string | null
+  git_provider: string | null
+  repo_full_name: string | null
+  branch: string | null
+  build_method: string | null
+  domain: string | null
+  created_at: Date | null
+  updated_at: Date | null
+}
 
 function serializeAppPartial(row: AppPartialRow) {
   return {
@@ -265,25 +273,31 @@ function serializeAppPartial(row: AppPartialRow) {
     buildMethod: nullToUndefined(row.build_method),
     domain: nullToUndefined(row.domain),
     publicUrl: nullToUndefined(buildPublicUrl(row.domain)),
-    createdAt: row.created_at instanceof Date ? row.created_at.toISOString() : row.created_at,
-    updatedAt: row.updated_at instanceof Date ? row.updated_at.toISOString() : row.updated_at,
-  };
+    createdAt:
+      row.created_at instanceof Date
+        ? row.created_at.toISOString()
+        : row.created_at,
+    updatedAt:
+      row.updated_at instanceof Date
+        ? row.updated_at.toISOString()
+        : row.updated_at,
+  }
 }
 
 type BuildRow = {
-  id: string;
-  app_id: string;
-  status: string;
-  build_method: string | null;
-  image_tag: string | null;
-  container_id: string | null;
-  commit_sha: string | null;
-  commit_message: string | null;
-  post_deploy_error: string | null;
-  started_at: Date | null;
-  finished_at: Date | null;
-  created_at: Date | null;
-};
+  id: string
+  app_id: string
+  status: string
+  build_method: string | null
+  image_tag: string | null
+  container_id: string | null
+  commit_sha: string | null
+  commit_message: string | null
+  post_deploy_error: string | null
+  started_at: Date | null
+  finished_at: Date | null
+  created_at: Date | null
+}
 
 function serializeBuild(row: BuildRow) {
   return {
@@ -296,10 +310,19 @@ function serializeBuild(row: BuildRow) {
     commitSha: row.commit_sha,
     commitMessage: row.commit_message,
     postDeployError: row.post_deploy_error ?? null,
-    startedAt: row.started_at instanceof Date ? row.started_at.getTime() : row.started_at,
-    finishedAt: row.finished_at instanceof Date ? row.finished_at.getTime() : row.finished_at,
-    createdAt: row.created_at instanceof Date ? row.created_at.getTime() : row.created_at,
-  };
+    startedAt:
+      row.started_at instanceof Date
+        ? row.started_at.getTime()
+        : row.started_at,
+    finishedAt:
+      row.finished_at instanceof Date
+        ? row.finished_at.getTime()
+        : row.finished_at,
+    createdAt:
+      row.created_at instanceof Date
+        ? row.created_at.getTime()
+        : row.created_at,
+  }
 }
 
 // ---------------------------------------------------------------------------
@@ -307,33 +330,41 @@ function serializeBuild(row: BuildRow) {
 // ---------------------------------------------------------------------------
 
 export function createAppsRouter(db: Db): Hono {
-  const router = new Hono();
+  const router = new Hono()
 
   // Second-factor enforcement middleware (must be called after requireAuth).
   // Applied on all state-mutating endpoints except POST /apps (creation).
-  const sf = requireSecondFactor(db);
+  const sf = requireSecondFactor(db)
 
   // -------------------------------------------------------------------------
   // POST /apps — Create a new app
   // -------------------------------------------------------------------------
 
   router.post("/", async (c) => {
-    const user = getUser(c);
+    const user = getUser(c)
 
-    let body: z.infer<typeof CreateAppBody>;
+    let body: z.infer<typeof CreateAppBody>
     try {
-      body = CreateAppBody.parse(await c.req.json());
+      body = CreateAppBody.parse(await c.req.json())
     } catch (err) {
-      return c.json({ error: { code: "VALIDATION_ERROR", message: String(err) } }, 400);
+      return c.json(
+        { error: { code: "VALIDATION_ERROR", message: String(err) } },
+        400
+      )
     }
 
     // Per-source-type field requirements (Phase 1.A/1.B).
     if (body.gitProvider === "image") {
       if (!body.imageRef) {
         return c.json(
-          { error: { code: "VALIDATION_ERROR", message: "imageRef is required for image source" } },
-          400,
-        );
+          {
+            error: {
+              code: "VALIDATION_ERROR",
+              message: "imageRef is required for image source",
+            },
+          },
+          400
+        )
       }
     } else if (!body.repoFullName || !body.branch) {
       return c.json(
@@ -343,59 +374,56 @@ export function createAppsRouter(db: Db): Hono {
             message: "repoFullName and branch are required for git sources",
           },
         },
-        400,
-      );
+        400
+      )
     }
 
-    const now = new Date();
+    const now = new Date()
 
     // 1. Resolve organization/project id.
-    let projectId: string;
-    const requestedOrganizationId = body.organizationId ?? body.projectId;
+    let projectId: string
+    const requestedOrganizationId = body.organizationId ?? body.projectId
     if (requestedOrganizationId) {
       const projectRows = await db
         .select({ id: projects.id })
         .from(projects)
-        .where(and(eq(projects.id, requestedOrganizationId), eq(projects.owner_id, user.id)))
-        .limit(1);
+        .where(
+          and(
+            eq(projects.id, requestedOrganizationId),
+            eq(projects.owner_id, user.id)
+          )
+        )
+        .limit(1)
 
       if (!projectRows[0]) {
-        return c.json({ error: { code: "NOT_FOUND", message: "Organization not found" } }, 404);
+        return c.json(
+          { error: { code: "NOT_FOUND", message: "Organization not found" } },
+          404
+        )
       }
-      projectId = projectRows[0].id;
+      projectId = projectRows[0].id
     } else {
-      const organization = await ensureDefaultOrganizationForUser(db, user.id, user.display_name);
-      projectId = organization.id;
+      const organization = await ensureDefaultOrganizationForUser(
+        db,
+        user.id,
+        user.display_name
+      )
+      projectId = organization.id
     }
 
     // 2. Generate id + slug (unique within project)
-    const id = nanoid();
-    const baseSlug = slugify(body.name) || "app";
-    const slug = await uniqueSlug(db, projectId, baseSlug);
+    const id = nanoid()
+    const baseSlug = slugify(body.name) || "app"
+    const slug = await uniqueSlug(db, projectId, baseSlug)
 
     // 3. Compute domain if absent
-    const domainBase = Bun.env["PLOYDOK_DOMAIN_BASE"] ?? "demo.ploydok.local";
-    const domain = body.domain ?? `${slug}.${domainBase}`;
+    const domainBase = Bun.env["PLOYDOK_DOMAIN_BASE"] ?? "demo.ploydok.local"
+    const domain = body.domain ?? `${slug}.${domainBase}`
 
     // 4. Build healthcheck fields
-    const hc = body.healthcheck ?? {};
+    const hc = body.healthcheck ?? {}
 
-    // 4b. Recipe defaults — when the user picks a managed recipe and does NOT
-    // override runtime_port, pull the port the recipe listens on so the
-    // blue-green healthcheck targets the correct socket. Same for start_command:
-    // the recipe ships its own entrypoint, so any pre-existing user start
-    // command would be ignored — but we leave it untouched for compatibility.
-    let resolvedRuntimePort: number | null =
-      body.runtimePort ?? body.recipeVars?.runtimePort ?? null;
-    if (body.buildMethod === "recipe" && body.recipeId && resolvedRuntimePort === null) {
-      const { getRecipe } = await import("@ploydok/recipes");
-      try {
-        const recipe = getRecipe(body.recipeId);
-        resolvedRuntimePort = recipe.defaults.runtimePort;
-      } catch {
-        // Unknown recipe id — validation will have failed earlier; fall through.
-      }
-    }
+    const resolvedRuntimePort: number | null = body.runtimePort ?? null
 
     // 5. INSERT
     const newApp = await insertApp(db, {
@@ -427,10 +455,10 @@ export function createAppsRouter(db: Db): Hono {
       build_command: body.buildCommand ?? null,
       start_command: body.startCommand ?? null,
       watch_paths: body.watchPaths ? JSON.stringify(body.watchPaths) : null,
-      build_method: body.buildMethod === "docker" ? "dockerfile" : body.buildMethod ?? "auto",
-      recipe_id: body.recipeId ?? null,
-      recipe_version: body.recipeVersion ?? null,
-      recipe_vars: body.recipeVars ? JSON.stringify(body.recipeVars) : null,
+      build_method:
+        body.buildMethod === "docker"
+          ? "dockerfile"
+          : (body.buildMethod ?? "auto"),
       runtime_port: resolvedRuntimePort,
       restart_policy: body.restartPolicy ?? "unless-stopped",
       domain,
@@ -440,127 +468,155 @@ export function createAppsRouter(db: Db): Hono {
       healthcheck_timeout_s: hc.timeoutS ?? 3,
       healthcheck_retries: hc.retries ?? 6,
       healthcheck_start_period_s: hc.startPeriodS ?? 0,
-    });
+    })
 
-    await deployQueue.add("deploy.requested", { appId: id, commitSha: null }, { attempts: 1 })
+    await deployQueue.add(
+      "deploy.requested",
+      { appId: id, commitSha: null },
+      { attempts: 1 }
+    )
 
-    return c.json({ app: serializeApp(newApp) }, 201);
-  });
+    return c.json({ app: serializeApp(newApp) }, 201)
+  })
 
   // -------------------------------------------------------------------------
   // GET /apps — List apps for the authenticated user
   // -------------------------------------------------------------------------
 
   router.get("/", async (c) => {
-    const user = getUser(c);
-    const organizationId = c.req.query("organizationId") ?? c.req.query("projectId") ?? undefined;
-    const rows = await listAppsForUser(db, user.id, organizationId);
-    return c.json({ apps: rows.map(serializeAppPartial) });
-  });
+    const user = getUser(c)
+    const organizationId =
+      c.req.query("organizationId") ?? c.req.query("projectId") ?? undefined
+    const rows = await listAppsForUser(db, user.id, organizationId)
+    return c.json({ apps: rows.map(serializeAppPartial) })
+  })
 
   // -------------------------------------------------------------------------
   // GET /apps/:id — App details + last 10 builds
   // -------------------------------------------------------------------------
 
   router.get("/:id", async (c) => {
-    const user = getUser(c);
-    const appId = c.req.param("id");
+    const user = getUser(c)
+    const appId = c.req.param("id")
 
-    const app = await getAppForUser(db, appId, user.id);
+    const app = await getAppForUser(db, appId, user.id)
     if (!app) {
-      return c.json({ error: { code: "NOT_FOUND", message: "App not found" } }, 404);
+      return c.json(
+        { error: { code: "NOT_FOUND", message: "App not found" } },
+        404
+      )
     }
 
-    const appBuilds = await listBuildsForApp(db, appId, 10);
+    const appBuilds = await listBuildsForApp(db, appId, 10)
 
     return c.json({
       app: serializeApp(app),
       builds: appBuilds.map(serializeBuild),
-    });
-  });
+    })
+  })
 
   // -------------------------------------------------------------------------
   // PATCH /apps/:id — Update app config
   // -------------------------------------------------------------------------
 
   router.patch("/:id", sf, async (c) => {
-    const user = getUser(c);
-    const appId = c.req.param("id")!;
+    const user = getUser(c)
+    const appId = c.req.param("id")!
 
     // Verify ownership
-    const existing = await getAppForUser(db, appId, user.id);
+    const existing = await getAppForUser(db, appId, user.id)
     if (!existing) {
-      return c.json({ error: { code: "NOT_FOUND", message: "App not found" } }, 404);
+      return c.json(
+        { error: { code: "NOT_FOUND", message: "App not found" } },
+        404
+      )
     }
 
-    let body: z.infer<typeof PatchAppBody>;
+    let body: z.infer<typeof PatchAppBody>
     try {
-      body = PatchAppBody.parse(await c.req.json());
+      body = PatchAppBody.parse(await c.req.json())
     } catch (err) {
-      return c.json({ error: { code: "VALIDATION_ERROR", message: String(err) } }, 400);
+      return c.json(
+        { error: { code: "VALIDATION_ERROR", message: String(err) } },
+        400
+      )
     }
 
     // Build update set — only provided fields
-    const patch: Record<string, unknown> = { updated_at: new Date() };
+    const patch: Record<string, unknown> = { updated_at: new Date() }
     const restartPolicyChanged =
-      body.restartPolicy !== undefined && body.restartPolicy !== existing.restart_policy;
+      body.restartPolicy !== undefined &&
+      body.restartPolicy !== existing.restart_policy
 
-    if (body.gitProvider !== undefined) patch.git_provider = body.gitProvider;
-    if (body.repoFullName !== undefined) patch.repo_full_name = body.repoFullName;
-    if (body.branch !== undefined) patch.branch = body.branch;
-    if (body.installationId !== undefined) patch.github_installation_id = body.installationId;
-    if (body.rootDir !== undefined) patch.root_dir = body.rootDir;
-    if (body.dockerfilePath !== undefined) patch.dockerfile_path = body.dockerfilePath;
-    if (body.nixpacksConfigPath !== undefined) patch.nixpacks_config_path = body.nixpacksConfigPath;
-    if (body.nodeVersion !== undefined) patch.node_version = body.nodeVersion;
-    if (body.installCommand !== undefined) patch.install_command = body.installCommand;
-    if (body.buildCommand !== undefined) patch.build_command = body.buildCommand;
-    if (body.startCommand !== undefined) patch.start_command = body.startCommand;
-    if (body.watchPaths !== undefined) patch.watch_paths = JSON.stringify(body.watchPaths);
+    if (body.gitProvider !== undefined) patch.git_provider = body.gitProvider
+    if (body.repoFullName !== undefined)
+      patch.repo_full_name = body.repoFullName
+    if (body.branch !== undefined) patch.branch = body.branch
+    if (body.installationId !== undefined)
+      patch.github_installation_id = body.installationId
+    if (body.rootDir !== undefined) patch.root_dir = body.rootDir
+    if (body.dockerfilePath !== undefined)
+      patch.dockerfile_path = body.dockerfilePath
+    if (body.nixpacksConfigPath !== undefined)
+      patch.nixpacks_config_path = body.nixpacksConfigPath
+    if (body.nodeVersion !== undefined) patch.node_version = body.nodeVersion
+    if (body.installCommand !== undefined)
+      patch.install_command = body.installCommand
+    if (body.buildCommand !== undefined) patch.build_command = body.buildCommand
+    if (body.startCommand !== undefined) patch.start_command = body.startCommand
+    if (body.watchPaths !== undefined)
+      patch.watch_paths = JSON.stringify(body.watchPaths)
     if (body.buildMethod !== undefined) {
-      patch.build_method = body.buildMethod === "docker" ? "dockerfile" : body.buildMethod;
+      patch.build_method =
+        body.buildMethod === "docker" ? "dockerfile" : body.buildMethod
     }
-    if (body.recipeId !== undefined) patch.recipe_id = body.recipeId;
-    if (body.recipeVersion !== undefined) patch.recipe_version = body.recipeVersion;
-    if (body.recipeVars !== undefined)
-      patch.recipe_vars = body.recipeVars ? JSON.stringify(body.recipeVars) : null;
-    if (body.runtimePort !== undefined) patch.runtime_port = body.runtimePort;
-    if (body.restartPolicy !== undefined) patch.restart_policy = body.restartPolicy;
-    if (body.domain !== undefined) patch.domain = body.domain;
-    if (body.keepPerRepo !== undefined) patch.keep_per_repo = body.keepPerRepo;
-    if (body.auto_deploy_enabled !== undefined) patch.auto_deploy_enabled = body.auto_deploy_enabled;
-    if (body.post_commit_status !== undefined) patch.post_commit_status = body.post_commit_status;
-    if (body.coalesce_pushes !== undefined) patch.coalesce_pushes = body.coalesce_pushes;
-    if (body.deploy_on_tag !== undefined) patch.deploy_on_tag = body.deploy_on_tag;
-    if (body.tag_pattern !== undefined) patch.tag_pattern = body.tag_pattern;
+    if (body.runtimePort !== undefined) patch.runtime_port = body.runtimePort
+    if (body.restartPolicy !== undefined)
+      patch.restart_policy = body.restartPolicy
+    if (body.domain !== undefined) patch.domain = body.domain
+    if (body.keepPerRepo !== undefined) patch.keep_per_repo = body.keepPerRepo
+    if (body.auto_deploy_enabled !== undefined)
+      patch.auto_deploy_enabled = body.auto_deploy_enabled
+    if (body.post_commit_status !== undefined)
+      patch.post_commit_status = body.post_commit_status
+    if (body.coalesce_pushes !== undefined)
+      patch.coalesce_pushes = body.coalesce_pushes
+    if (body.deploy_on_tag !== undefined)
+      patch.deploy_on_tag = body.deploy_on_tag
+    if (body.tag_pattern !== undefined) patch.tag_pattern = body.tag_pattern
 
     // Deploy hooks (Wave 5)
-    if ("hooksPreDeploy" in body && body.hooksPreDeploy !== undefined) patch.hooks_pre_deploy = body.hooksPreDeploy;
-    if ("hooksPostDeploy" in body && body.hooksPostDeploy !== undefined) patch.hooks_post_deploy = body.hooksPostDeploy;
-    if ("hooksTimeoutS" in body && body.hooksTimeoutS !== undefined) patch.hooks_timeout_s = body.hooksTimeoutS;
+    if ("hooksPreDeploy" in body && body.hooksPreDeploy !== undefined)
+      patch.hooks_pre_deploy = body.hooksPreDeploy
+    if ("hooksPostDeploy" in body && body.hooksPostDeploy !== undefined)
+      patch.hooks_post_deploy = body.hooksPostDeploy
+    if ("hooksTimeoutS" in body && body.hooksTimeoutS !== undefined)
+      patch.hooks_timeout_s = body.hooksTimeoutS
 
     if (body.healthcheck !== undefined) {
-      const hc = body.healthcheck;
-      if (hc.path !== undefined) patch.healthcheck_path = hc.path;
-      if (hc.port !== undefined) patch.healthcheck_port = hc.port;
-      if (hc.intervalS !== undefined) patch.healthcheck_interval_s = hc.intervalS;
-      if (hc.timeoutS !== undefined) patch.healthcheck_timeout_s = hc.timeoutS;
-      if (hc.retries !== undefined) patch.healthcheck_retries = hc.retries;
-      if (hc.startPeriodS !== undefined) patch.healthcheck_start_period_s = hc.startPeriodS;
+      const hc = body.healthcheck
+      if (hc.path !== undefined) patch.healthcheck_path = hc.path
+      if (hc.port !== undefined) patch.healthcheck_port = hc.port
+      if (hc.intervalS !== undefined)
+        patch.healthcheck_interval_s = hc.intervalS
+      if (hc.timeoutS !== undefined) patch.healthcheck_timeout_s = hc.timeoutS
+      if (hc.retries !== undefined) patch.healthcheck_retries = hc.retries
+      if (hc.startPeriodS !== undefined)
+        patch.healthcheck_start_period_s = hc.startPeriodS
     }
 
-    const updated = await updateApp(db, appId, patch);
+    const updated = await updateApp(db, appId, patch)
 
     // Docker only applies restart policy at container creation time.
     // If a running app changes policy, immediately recreate the runtime so the
     // new policy from the DB becomes effective right away.
     if (restartPolicyChanged && existing.status === "running") {
-      const { restartApp } = await import("../worker/runner.js");
-      await restartApp(appId, db, user.id);
+      const { restartApp } = await import("../worker/runner.js")
+      await restartApp(appId, db, user.id)
     }
 
-    return c.json({ app: serializeApp(updated) });
-  });
+    return c.json({ app: serializeApp(updated) })
+  })
 
   // -------------------------------------------------------------------------
   // DELETE /apps/:id — Cascade delete (Coolify-style, async via job queue)
@@ -594,30 +650,36 @@ export function createAppsRouter(db: Db): Hono {
       .enum(["true", "false"])
       .optional()
       .transform((v) => (v === undefined ? undefined : v === "true")),
-  });
+  })
 
   router.delete("/:id", sf, async (c) => {
-    const user = getUser(c);
-    const appId = c.req.param("id")!;
+    const user = getUser(c)
+    const appId = c.req.param("id")!
 
-    const existing = await getAppForUser(db, appId, user.id);
+    const existing = await getAppForUser(db, appId, user.id)
     if (!existing) {
-      return c.json({ error: { code: "NOT_FOUND", message: "App not found" } }, 404);
+      return c.json(
+        { error: { code: "NOT_FOUND", message: "App not found" } },
+        404
+      )
     }
 
-    let flags: z.infer<typeof DeleteAppQuery>;
+    let flags: z.infer<typeof DeleteAppQuery>
     try {
       flags = DeleteAppQuery.parse({
         deleteImages: c.req.query("deleteImages"),
         dockerCleanup: c.req.query("dockerCleanup"),
         deleteBuildArtifacts: c.req.query("deleteBuildArtifacts"),
         deleteCaddyRoutes: c.req.query("deleteCaddyRoutes"),
-      });
+      })
     } catch (err) {
-      return c.json({ error: { code: "VALIDATION_ERROR", message: String(err) } }, 400);
+      return c.json(
+        { error: { code: "VALIDATION_ERROR", message: String(err) } },
+        400
+      )
     }
 
-    await markAppDeleting(db, appId);
+    await markAppDeleting(db, appId)
 
     const deletePayload = {
       appId,
@@ -626,15 +688,18 @@ export function createAppsRouter(db: Db): Hono {
       deleteBuildArtifacts: flags.deleteBuildArtifacts ?? true,
       deleteCaddyRoutes: flags.deleteCaddyRoutes ?? true,
     }
-    const bullJob = await appDeleteQueue.add("app.delete.requested", deletePayload)
+    const bullJob = await appDeleteQueue.add(
+      "app.delete.requested",
+      deletePayload
+    )
 
     childLogger("apps-delete").info(
       { appId, jobId: bullJob.id, flags },
-      "delete cascade enqueued",
-    );
+      "delete cascade enqueued"
+    )
 
-    return c.json({ ok: true, jobId: bullJob.id, status: "deleting" }, 202);
-  });
+    return c.json({ ok: true, jobId: bullJob.id, status: "deleting" }, 202)
+  })
 
   // -------------------------------------------------------------------------
   // Stubs for endpoints owned by other milestones
@@ -646,10 +711,17 @@ export function createAppsRouter(db: Db): Hono {
 
     const app = await getAppForUser(db, appId, user.id)
     if (!app) {
-      return c.json({ error: { code: "NOT_FOUND", message: "App not found" } }, 404)
+      return c.json(
+        { error: { code: "NOT_FOUND", message: "App not found" } },
+        404
+      )
     }
 
-    const bullJob = await deployQueue.add("deploy.requested", { appId, commitSha: null }, { attempts: 1 })
+    const bullJob = await deployQueue.add(
+      "deploy.requested",
+      { appId, commitSha: null },
+      { attempts: 1 }
+    )
 
     // buildId is not available synchronously because the build record is created
     // by the worker when it picks up the job. Returning null here is intentional —
@@ -663,31 +735,39 @@ export function createAppsRouter(db: Db): Hono {
 
     const app = await getAppForUser(db, appId, user.id)
     if (!app) {
-      return c.json({ error: { code: "NOT_FOUND", message: "App not found" } }, 404)
+      return c.json(
+        { error: { code: "NOT_FOUND", message: "App not found" } },
+        404
+      )
     }
 
     const limit = Math.min(Number(c.req.query("limit") ?? 20), 100)
     const appBuilds = await listBuildsForApp(db, appId, limit)
     return c.json({ builds: appBuilds.map(serializeBuild) })
   })
-  router.get("/:id/stats", (c) => c.json({ error: "not_implemented_m3_4" }, 501));
+  router.get("/:id/stats", (c) =>
+    c.json({ error: "not_implemented_m3_4" }, 501)
+  )
 
   // GET /apps/:id/activity — historical activity timeline derived from builds.
   // Front-end seeds the SSE-driven feed with this so users see recent builds
   // even when the in-memory event ring buffer is cold (e.g. after API restart).
   router.get("/:id/activity", async (c) => {
-    const user = getUser(c);
-    const appId = c.req.param("id");
+    const user = getUser(c)
+    const appId = c.req.param("id")
 
-    const app = await getAppForUser(db, appId, user.id);
+    const app = await getAppForUser(db, appId, user.id)
     if (!app) {
-      return c.json({ error: { code: "NOT_FOUND", message: "App not found" } }, 404);
+      return c.json(
+        { error: { code: "NOT_FOUND", message: "App not found" } },
+        404
+      )
     }
 
-    const limit = Math.min(Number(c.req.query("limit") ?? 20), 100);
-    const events = await getAppActivity(db, appId, limit);
-    return c.json({ events });
-  });
+    const limit = Math.min(Number(c.req.query("limit") ?? 20), 100)
+    const events = await getAppActivity(db, appId, limit)
+    return c.json({ events })
+  })
   // registry-usage implemented in [M4.2 registry — BEGIN/END] block below.
 
   // [M3.2 logs — BEGIN]
@@ -696,44 +776,60 @@ export function createAppsRouter(db: Db): Hono {
   // The file path is stored in builds.log_path (set by the build worker).
   // Returns the raw log as text/plain.
   router.get("/:id/logs", async (c) => {
-    const user = getUser(c);
-    const appId = c.req.param("id");
-    const buildId = c.req.query("buildId");
+    const user = getUser(c)
+    const appId = c.req.param("id")
+    const buildId = c.req.query("buildId")
 
     if (!buildId) {
       return c.json(
-        { error: { code: "VALIDATION_ERROR", message: "buildId query param is required" } },
-        400,
-      );
+        {
+          error: {
+            code: "VALIDATION_ERROR",
+            message: "buildId query param is required",
+          },
+        },
+        400
+      )
     }
 
     // Verify app ownership.
-    const app = await getAppForUser(db, appId, user.id);
+    const app = await getAppForUser(db, appId, user.id)
     if (!app) {
-      return c.json({ error: { code: "NOT_FOUND", message: "App not found" } }, 404);
+      return c.json(
+        { error: { code: "NOT_FOUND", message: "App not found" } },
+        404
+      )
     }
 
     // Load build row and verify it belongs to this app.
-    const build = await getBuildLogPath(db, buildId, appId);
+    const build = await getBuildLogPath(db, buildId, appId)
     if (!build) {
-      return c.json({ error: { code: "NOT_FOUND", message: "Build not found" } }, 404);
+      return c.json(
+        { error: { code: "NOT_FOUND", message: "Build not found" } },
+        404
+      )
     }
 
     if (!build.log_path) {
       return c.json(
-        { error: { code: "NOT_FOUND", message: "No archived log file for this build" } },
-        404,
-      );
+        {
+          error: {
+            code: "NOT_FOUND",
+            message: "No archived log file for this build",
+          },
+        },
+        404
+      )
     }
 
-    let content: Buffer;
+    let content: Buffer
     try {
-      content = await readFile(build.log_path);
+      content = await readFile(build.log_path)
     } catch {
       return c.json(
         { error: { code: "NOT_FOUND", message: "Log file not found on disk" } },
-        404,
-      );
+        404
+      )
     }
 
     return new Response(content, {
@@ -742,20 +838,23 @@ export function createAppsRouter(db: Db): Hono {
         "content-type": "text/plain; charset=utf-8",
         "content-disposition": `attachment; filename="build-${buildId}.log"`,
       },
-    });
-  });
+    })
+  })
 
   router.get("/:id/runtime-logs", async (c) => {
-    const user = getUser(c);
-    const appId = c.req.param("id");
-    const tailRaw = Number(c.req.query("tail") ?? 200);
+    const user = getUser(c)
+    const appId = c.req.param("id")
+    const tailRaw = Number(c.req.query("tail") ?? 200)
     const tail = Number.isFinite(tailRaw)
       ? Math.max(1, Math.min(Math.floor(tailRaw), 1_000))
       : 200
 
-    const app = await getAppForUser(db, appId, user.id);
+    const app = await getAppForUser(db, appId, user.id)
     if (!app) {
-      return c.json({ error: { code: "NOT_FOUND", message: "App not found" } }, 404);
+      return c.json(
+        { error: { code: "NOT_FOUND", message: "App not found" } },
+        404
+      )
     }
 
     try {
@@ -769,17 +868,22 @@ export function createAppsRouter(db: Db): Hono {
         return c.json({ lines: [], containerFound: false })
       }
 
-      const lines: Array<{ t: number; line: string; stream?: "stdout" | "stderr" }> = []
+      const lines: Array<{
+        t: number
+        line: string
+        stream?: "stdout" | "stderr"
+      }> = []
       for await (const line of agent.containerLogs({
         containerId: container.id,
         follow: false,
         sinceUnix: 0,
         tail,
       })) {
-        const entry: { t: number; line: string; stream?: "stdout" | "stderr" } = {
-          t: Date.parse(line.timestamp) || Date.now(),
-          line: line.line,
-        }
+        const entry: { t: number; line: string; stream?: "stdout" | "stderr" } =
+          {
+            t: Date.parse(line.timestamp) || Date.now(),
+            line: line.line,
+          }
         if (line.stream === "stdout" || line.stream === "stderr") {
           entry.stream = line.stream
         }
@@ -788,21 +892,18 @@ export function createAppsRouter(db: Db): Hono {
 
       return c.json({ lines, containerFound: true })
     } catch (err) {
-      const message = err instanceof Error ? err.message : String(err);
-      return c.json(
-        { error: { code: "RUNTIME_LOGS_ERROR", message } },
-        500,
-      );
+      const message = err instanceof Error ? err.message : String(err)
+      return c.json({ error: { code: "RUNTIME_LOGS_ERROR", message } }, 500)
     }
-  });
+  })
 
   // Also replace the former stub for /:id/builds/:buildId/logs with a redirect
   // to the canonical log download endpoint above.
   router.get("/:id/builds/:buildId/logs", (c) => {
-    const appId = c.req.param("id") ?? "";
-    const buildId = c.req.param("buildId") ?? "";
-    return c.redirect(`/apps/${appId}/logs?buildId=${buildId}`, 302);
-  });
+    const appId = c.req.param("id") ?? ""
+    const buildId = c.req.param("buildId") ?? ""
+    return c.redirect(`/apps/${appId}/logs?buildId=${buildId}`, 302)
+  })
   // [M3.2 logs — END]
 
   // [M3.3 lifecycle — BEGIN]
@@ -813,91 +914,116 @@ export function createAppsRouter(db: Db): Hono {
 
   const RollbackBody = z.object({
     buildId: z.string().optional(),
-  });
+  })
 
   router.post("/:id/rollback", sf, async (c) => {
-    const user = getUser(c);
-    const appId = c.req.param("id")!;
+    const user = getUser(c)
+    const appId = c.req.param("id")!
 
-    const app = await getAppForUser(db, appId, user.id);
+    const app = await getAppForUser(db, appId, user.id)
     if (!app) {
-      return c.json({ error: { code: "NOT_FOUND", message: "App not found" } }, 404);
+      return c.json(
+        { error: { code: "NOT_FOUND", message: "App not found" } },
+        404
+      )
     }
 
     // Parse optional body — empty body is also valid (legacy behaviour)
-    let body: z.infer<typeof RollbackBody> = {};
+    let body: z.infer<typeof RollbackBody> = {}
     try {
-      const raw = await c.req.text();
+      const raw = await c.req.text()
       if (raw.trim()) {
-        body = RollbackBody.parse(JSON.parse(raw));
+        body = RollbackBody.parse(JSON.parse(raw))
       }
     } catch {
-      return c.json({ error: { code: "VALIDATION_ERROR", message: "Invalid request body" } }, 400);
+      return c.json(
+        {
+          error: { code: "VALIDATION_ERROR", message: "Invalid request body" },
+        },
+        400
+      )
     }
 
     // If an explicit buildId is provided, validate it exists and has status succeeded
     if (body.buildId) {
-      const targetBuild = await getBuildForApp(db, body.buildId, appId);
+      const targetBuild = await getBuildForApp(db, body.buildId, appId)
       if (!targetBuild) {
-        return c.json({ error: { code: "NOT_FOUND", message: "Build not found for this app" } }, 404);
+        return c.json(
+          {
+            error: {
+              code: "NOT_FOUND",
+              message: "Build not found for this app",
+            },
+          },
+          404
+        )
       }
       if (targetBuild.status !== "succeeded") {
-        return c.json({
-          error: {
-            code: "INVALID_BUILD_STATUS",
-            message: `Cannot rollback to build with status '${targetBuild.status}' — only succeeded builds are allowed`,
+        return c.json(
+          {
+            error: {
+              code: "INVALID_BUILD_STATUS",
+              message: `Cannot rollback to build with status '${targetBuild.status}' — only succeeded builds are allowed`,
+            },
           },
-        }, 400);
+          400
+        )
       }
     }
 
     try {
-      const { rollbackApp } = await import("../worker/runner.js");
-      await rollbackApp(appId, db, body.buildId, undefined);
-      return c.json({ ok: true });
+      const { rollbackApp } = await import("../worker/runner.js")
+      await rollbackApp(appId, db, body.buildId, undefined)
+      return c.json({ ok: true })
     } catch (err) {
-      const message = err instanceof Error ? err.message : String(err);
-      return c.json({ error: { code: "ROLLBACK_FAILED", message } }, 500);
+      const message = err instanceof Error ? err.message : String(err)
+      return c.json({ error: { code: "ROLLBACK_FAILED", message } }, 500)
     }
-  });
+  })
 
   router.post("/:id/stop", sf, async (c) => {
-    const user = getUser(c);
-    const appId = c.req.param("id")!;
+    const user = getUser(c)
+    const appId = c.req.param("id")!
 
-    const app = await getAppForUser(db, appId, user.id);
+    const app = await getAppForUser(db, appId, user.id)
     if (!app) {
-      return c.json({ error: { code: "NOT_FOUND", message: "App not found" } }, 404);
+      return c.json(
+        { error: { code: "NOT_FOUND", message: "App not found" } },
+        404
+      )
     }
 
     try {
-      const { stopApp } = await import("../worker/runner.js");
-      await stopApp(appId, db);
-      return c.json({ ok: true });
+      const { stopApp } = await import("../worker/runner.js")
+      await stopApp(appId, db)
+      return c.json({ ok: true })
     } catch (err) {
-      const message = err instanceof Error ? err.message : String(err);
-      return c.json({ error: { code: "STOP_FAILED", message } }, 500);
+      const message = err instanceof Error ? err.message : String(err)
+      return c.json({ error: { code: "STOP_FAILED", message } }, 500)
     }
-  });
+  })
 
   router.post("/:id/restart", sf, async (c) => {
-    const user = getUser(c);
-    const appId = c.req.param("id")!;
+    const user = getUser(c)
+    const appId = c.req.param("id")!
 
-    const app = await getAppForUser(db, appId, user.id);
+    const app = await getAppForUser(db, appId, user.id)
     if (!app) {
-      return c.json({ error: { code: "NOT_FOUND", message: "App not found" } }, 404);
+      return c.json(
+        { error: { code: "NOT_FOUND", message: "App not found" } },
+        404
+      )
     }
 
     try {
-      const { restartApp } = await import("../worker/runner.js");
-      await restartApp(appId, db, user.id);
-      return c.json({ ok: true });
+      const { restartApp } = await import("../worker/runner.js")
+      await restartApp(appId, db, user.id)
+      return c.json({ ok: true })
     } catch (err) {
-      const message = err instanceof Error ? err.message : String(err);
-      return c.json({ error: { code: "RESTART_FAILED", message } }, 500);
+      const message = err instanceof Error ? err.message : String(err)
+      return c.json({ error: { code: "RESTART_FAILED", message } }, 500)
     }
-  });
+  })
   // [M3.3 lifecycle — END]
 
   // [M4.2 registry — BEGIN]
@@ -905,52 +1031,50 @@ export function createAppsRouter(db: Db): Hono {
   // POST /apps/:id/registry-gc     — trigger an immediate GC prune for this app (owner only).
 
   router.get("/:id/registry-usage", async (c) => {
-    const user = getUser(c);
-    const appId = c.req.param("id");
+    const user = getUser(c)
+    const appId = c.req.param("id")
 
-    const app = await getAppForUser(db, appId, user.id);
+    const app = await getAppForUser(db, appId, user.id)
     if (!app) {
-      return c.json({ error: { code: "NOT_FOUND", message: "App not found" } }, 404);
+      return c.json(
+        { error: { code: "NOT_FOUND", message: "App not found" } },
+        404
+      )
     }
 
     try {
-      const { getRegistryUsageForApp } = await import(
-        "../worker/handlers/gc-registry.js"
-      );
-      const usage = await getRegistryUsageForApp(appId, db);
-      return c.json(usage);
+      const { getRegistryUsageForApp } =
+        await import("../worker/handlers/gc-registry.js")
+      const usage = await getRegistryUsageForApp(appId, db)
+      return c.json(usage)
     } catch (err) {
-      const message = err instanceof Error ? err.message : String(err);
-      return c.json(
-        { error: { code: "REGISTRY_ERROR", message } },
-        500,
-      );
+      const message = err instanceof Error ? err.message : String(err)
+      return c.json({ error: { code: "REGISTRY_ERROR", message } }, 500)
     }
-  });
+  })
 
   router.post("/:id/registry-gc", sf, async (c) => {
-    const user = getUser(c);
-    const appId = c.req.param("id")!;
+    const user = getUser(c)
+    const appId = c.req.param("id")!
 
-    const app = await getAppForUser(db, appId, user.id);
+    const app = await getAppForUser(db, appId, user.id)
     if (!app) {
-      return c.json({ error: { code: "NOT_FOUND", message: "App not found" } }, 404);
+      return c.json(
+        { error: { code: "NOT_FOUND", message: "App not found" } },
+        404
+      )
     }
 
     try {
-      const { runRegistryGc } = await import(
-        "../worker/handlers/gc-registry.js"
-      );
-      const result = await runRegistryGc({ db, appFilter: appId });
-      return c.json(result);
+      const { runRegistryGc } =
+        await import("../worker/handlers/gc-registry.js")
+      const result = await runRegistryGc({ db, appFilter: appId })
+      return c.json(result)
     } catch (err) {
-      const message = err instanceof Error ? err.message : String(err);
-      return c.json(
-        { error: { code: "GC_FAILED", message } },
-        500,
-      );
+      const message = err instanceof Error ? err.message : String(err)
+      return c.json({ error: { code: "GC_FAILED", message } }, 500)
     }
-  });
+  })
   // [M4.2 registry — END]
 
   // [Wave-3 webhooks — BEGIN]
@@ -960,67 +1084,91 @@ export function createAppsRouter(db: Db): Hono {
   // -------------------------------------------------------------------------
 
   router.get("/:id/webhook-deliveries", async (c) => {
-    const user = getUser(c);
-    const appId = c.req.param("id");
+    const user = getUser(c)
+    const appId = c.req.param("id")
 
-    const limitRaw = Math.min(Number(c.req.query("limit") ?? 50), 200);
-    const limit = Number.isFinite(limitRaw) && limitRaw > 0 ? limitRaw : 50;
-    const cursor = c.req.query("cursor");
+    const limitRaw = Math.min(Number(c.req.query("limit") ?? 50), 200)
+    const limit = Number.isFinite(limitRaw) && limitRaw > 0 ? limitRaw : 50
+    const cursor = c.req.query("cursor")
 
-    const result = await listDeliveriesByApp(db, appId, user.id, limit, cursor);
+    const result = await listDeliveriesByApp(db, appId, user.id, limit, cursor)
     if (result === null) {
-      return c.json({ error: { code: "NOT_FOUND", message: "App not found" } }, 404);
+      return c.json(
+        { error: { code: "NOT_FOUND", message: "App not found" } },
+        404
+      )
     }
 
-    return c.json(result);
-  });
+    return c.json(result)
+  })
 
   // -------------------------------------------------------------------------
   // GET /apps/:id/webhook-deliveries/:deliveryId — single delivery detail
   // -------------------------------------------------------------------------
 
   router.get("/:id/webhook-deliveries/:deliveryId", async (c) => {
-    const user = getUser(c);
-    const appId = c.req.param("id");
-    const deliveryId = c.req.param("deliveryId");
+    const user = getUser(c)
+    const appId = c.req.param("id")
+    const deliveryId = c.req.param("deliveryId")
 
-    const delivery = await getDeliveryById(db, appId, deliveryId, user.id);
+    const delivery = await getDeliveryById(db, appId, deliveryId, user.id)
     if (delivery === null) {
-      return c.json({ error: { code: "NOT_FOUND", message: "Delivery not found" } }, 404);
+      return c.json(
+        { error: { code: "NOT_FOUND", message: "Delivery not found" } },
+        404
+      )
     }
 
-    return c.json({ delivery });
-  });
+    return c.json({ delivery })
+  })
 
   // -------------------------------------------------------------------------
   // POST /apps/:id/webhook-secret/rotate — rotate per-app webhook secret
   // Protected by requireTotpVerified. Anti-abuse: 409 if rotated < 24h ago.
   // -------------------------------------------------------------------------
 
-  const totpMw = requireTotpVerified(db);
+  const totpMw = requireTotpVerified(db)
 
   router.post("/:id/webhook-secret/rotate", totpMw, async (c) => {
-    const user = getUser(c);
-    const appId = c.req.param("id")!;
+    const user = getUser(c)
+    const appId = c.req.param("id")!
 
-    const app = await getAppForUser(db, appId, user.id);
+    const app = await getAppForUser(db, appId, user.id)
     if (!app) {
-      return c.json({ error: { code: "NOT_FOUND", message: "App not found" } }, 404);
+      return c.json(
+        { error: { code: "NOT_FOUND", message: "App not found" } },
+        404
+      )
     }
 
     // Anti-abuse: reject if the existing old secret hasn't expired yet (< 24h since last rotation)
-    const now = new Date();
-    if (app.webhook_secret_old_expires_at && app.webhook_secret_old_expires_at > now) {
-      return c.json({ code: "rotation_cooldown", message: "A rotation already happened in the last 24h" }, 409);
+    const now = new Date()
+    if (
+      app.webhook_secret_old_expires_at &&
+      app.webhook_secret_old_expires_at > now
+    ) {
+      return c.json(
+        {
+          code: "rotation_cooldown",
+          message: "A rotation already happened in the last 24h",
+        },
+        409
+      )
     }
 
-    const newSecretPlain = randomBytes(32).toString("hex");
-    const { enc, nonce } = await encryptField(newSecretPlain);
+    const newSecretPlain = randomBytes(32).toString("hex")
+    const { enc, nonce } = await encryptField(newSecretPlain)
     // Store as nonce (12 bytes) || enc concatenated in a single bytea
-    const newSecretBlob = Buffer.concat([nonce, enc]);
+    const newSecretBlob = Buffer.concat([nonce, enc])
 
     // Move current secret → old before overwriting
-    await rotateAppWebhookSecret(db, appId, app.webhook_secret ?? null, newSecretBlob, now);
+    await rotateAppWebhookSecret(
+      db,
+      appId,
+      app.webhook_secret ?? null,
+      newSecretBlob,
+      now
+    )
 
     // Audit
     await insertAuditLog(db, {
@@ -1029,79 +1177,106 @@ export function createAppsRouter(db: Db): Hono {
       target_type: "app",
       target_id: appId,
       created_at: now,
-    });
+    })
 
-    childLogger("apps-webhook-secret").info({ appId, userId: user.id }, "webhook secret rotated");
+    childLogger("apps-webhook-secret").info(
+      { appId, userId: user.id },
+      "webhook secret rotated"
+    )
 
     // Notification dispatch — webhook.rotated (best-effort, non-fatal)
-    const redisForNotify = createRedis(env.REDIS_URL);
-    notifyDispatch(db, redisForNotify, "webhook.rotated", {
-      appId: app.id,
-      appName: app.name,
-    }, { userId: user.id, projectId: app.project_id ?? undefined }).catch((err) =>
-      childLogger("apps-webhook-secret").warn({ err, appId }, "dispatch webhook.rotated failed (non-fatal)"),
-    ).finally(() => redisForNotify.disconnect())
+    const redisForNotify = createRedis(env.REDIS_URL)
+    notifyDispatch(
+      db,
+      redisForNotify,
+      "webhook.rotated",
+      {
+        appId: app.id,
+        appName: app.name,
+      },
+      { userId: user.id, projectId: app.project_id ?? undefined }
+    )
+      .catch((err) =>
+        childLogger("apps-webhook-secret").warn(
+          { err, appId },
+          "dispatch webhook.rotated failed (non-fatal)"
+        )
+      )
+      .finally(() => redisForNotify.disconnect())
 
     // Return plain secret once — caller must copy it to GitHub/GitLab
-    return c.json({ secret: newSecretPlain });
-  });
+    return c.json({ secret: newSecretPlain })
+  })
 
   // -------------------------------------------------------------------------
   // POST /apps/:id/webhook-deliveries/:deliveryId/replay — replay a delivery
   // Protected by TOTP. Anti-abuse: max 10 replays per parent delivery → 429.
   // -------------------------------------------------------------------------
 
-  router.post("/:id/webhook-deliveries/:deliveryId/replay", totpMw, async (c) => {
-    const user = getUser(c);
-    const appId = c.req.param("id")!;
-    const deliveryId = c.req.param("deliveryId")!;
+  router.post(
+    "/:id/webhook-deliveries/:deliveryId/replay",
+    totpMw,
+    async (c) => {
+      const user = getUser(c)
+      const appId = c.req.param("id")!
+      const deliveryId = c.req.param("deliveryId")!
 
-    // Verify ownership
-    const app = await getAppForUser(db, appId, user.id);
-    if (!app) {
-      return c.json({ error: { code: "NOT_FOUND", message: "App not found" } }, 404);
+      // Verify ownership
+      const app = await getAppForUser(db, appId, user.id)
+      if (!app) {
+        return c.json(
+          { error: { code: "NOT_FOUND", message: "App not found" } },
+          404
+        )
+      }
+
+      try {
+        const newDeliveryId = await replayDelivery(db, deliveryId, appId)
+
+        // Audit
+        await insertAuditLog(db, {
+          user_id: user.id,
+          action: "webhook.replayed",
+          target_type: "app",
+          target_id: appId,
+          metadata: JSON.stringify({
+            delivery_id: deliveryId,
+            new_delivery_id: newDeliveryId,
+          }),
+        })
+
+        childLogger("apps-webhook-replay").info(
+          { appId, userId: user.id, deliveryId, newDeliveryId },
+          "delivery replayed"
+        )
+
+        return c.json({ delivery_id: newDeliveryId })
+      } catch (err) {
+        if (err instanceof ReplayLimitError) {
+          return c.json({ code: err.code, message: err.message }, 429)
+        }
+        if (err instanceof ReplayPayloadMissingError) {
+          return c.json({ code: err.code, message: err.message }, 422)
+        }
+        if (err instanceof Error && err.message === "Delivery not found") {
+          return c.json(
+            { error: { code: "NOT_FOUND", message: "Delivery not found" } },
+            404
+          )
+        }
+        throw err
+      }
     }
-
-    try {
-      const newDeliveryId = await replayDelivery(db, deliveryId, appId);
-
-      // Audit
-      await insertAuditLog(db, {
-        user_id: user.id,
-        action: "webhook.replayed",
-        target_type: "app",
-        target_id: appId,
-        metadata: JSON.stringify({ delivery_id: deliveryId, new_delivery_id: newDeliveryId }),
-      });
-
-      childLogger("apps-webhook-replay").info(
-        { appId, userId: user.id, deliveryId, newDeliveryId },
-        "delivery replayed",
-      );
-
-      return c.json({ delivery_id: newDeliveryId });
-    } catch (err) {
-      if (err instanceof ReplayLimitError) {
-        return c.json({ code: err.code, message: err.message }, 429);
-      }
-      if (err instanceof ReplayPayloadMissingError) {
-        return c.json({ code: err.code, message: err.message }, 422);
-      }
-      if (err instanceof Error && err.message === "Delivery not found") {
-        return c.json({ error: { code: "NOT_FOUND", message: "Delivery not found" } }, 404);
-      }
-      throw err;
-    }
-  });
+  )
 
   // [Wave-3 webhooks — END]
 
-  return router;
+  return router
 }
 
 // ---------------------------------------------------------------------------
 // Prod singleton — imported by app.ts
 // ---------------------------------------------------------------------------
 
-const prodDb = createDb(env.DATABASE_URL);
-export const appsRouter = createAppsRouter(prodDb);
+const prodDb = createDb(env.DATABASE_URL)
+export const appsRouter = createAppsRouter(prodDb)
