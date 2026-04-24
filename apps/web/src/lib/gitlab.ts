@@ -126,9 +126,9 @@ export function useGitLabRepos(params: GitLabReposParams = {}) {
     },
     getNextPageParam: (last, pages) => (last.hasMore ? pages.length + 1 : undefined),
     initialPageParam: 1,
-    staleTime: 5_000,
+    staleTime: 60_000,
     refetchOnWindowFocus: true,
-    refetchOnMount: "always",
+    refetchOnMount: false,
   })
 }
 

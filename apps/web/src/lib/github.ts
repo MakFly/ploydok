@@ -71,11 +71,9 @@ export function useGitHubRepos(params: ReposParams = {}) {
     },
     getNextPageParam: (last, pages) => (last.hasMore ? pages.length + 1 : undefined),
     initialPageParam: 1,
-    // Short stale → if the user just installed/reconfigured the App, returning
-    // to this screen refetches automatically.
-    staleTime: 5_000,
+    staleTime: 60_000,
     refetchOnWindowFocus: true,
-    refetchOnMount: "always",
+    refetchOnMount: false,
   });
 }
 
