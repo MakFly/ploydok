@@ -32,3 +32,4 @@ export { backup_configs } from './backup_configs';
 export type { BackupConfigRow, BackupConfigInsert } from './backup_configs';
 export { backups } from './backups';
 export type { BackupRow, BackupInsert } from './backups';
+export * from './provider_repos';
