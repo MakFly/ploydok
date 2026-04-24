@@ -36,6 +36,11 @@ import { createMembershipsRouter } from "./routes/memberships"
 import { createInvitationsRouter } from "./routes/invitations"
 import { createServicesRouter } from "./routes/services"
 import { auditRouter } from "./routes/audit"
+import { createBillingRouter } from "./routes/billing"
+import { createStripeWebhookRouter } from "./routes/webhooks-stripe"
+import { createLicenseRouter } from "./routes/license"
+import { createSSORouter } from "./routes/sso"
+import { createBrandingRouter } from "./routes/branding"
 import { getDefaultOrganizationForUser } from "./services/organizations"
 
 const httpLog = childLogger("http")
@@ -376,6 +381,23 @@ app.route("/", createBackupsRouter(db))
 // Apps ↔ Databases link routes
 app.use("/apps/*/databases/*", requireAuth(db))
 app.route("/apps", createAppsDatabasesLinkRouter(db))
+
+// Billing (Stripe) — /orgs/:orgSlug/billing/* requires auth ; webhooks are public + signed.
+app.use("/orgs/*/billing/*", requireAuth(db))
+const billingOrgScoped = new Hono()
+billingOrgScoped.route("/:orgSlug/billing", createBillingRouter(db))
+app.route("/orgs", billingOrgScoped)
+app.route("/", createStripeWebhookRouter(db))
+
+// License (instance-wide, self-hosted) — /license/status is public, /activate requires auth.
+app.route("/license", createLicenseRouter(db))
+app.use("/license/activate", requireAuth(db))
+
+// SSO (OIDC) — config CRUD requires auth ; /auth/sso/:slug/{login,callback} are public.
+app.route("/", createSSORouter(db))
+
+// Branding (whitelabel) — requires auth ; feature-gated at route level.
+app.route("/", createBrandingRouter(db))
 
 // /me — requires auth
 app.get("/me", requireAuth(db), async (c) => {

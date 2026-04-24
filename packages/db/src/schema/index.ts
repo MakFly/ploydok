@@ -14,12 +14,19 @@ export { builds } from "./builds"
 export { github_app } from "./github_app"
 export { gitlab_config } from "./gitlab_config"
 export { gitlab_tokens } from "./gitlab_tokens"
+export { instance_license } from "./instance-license"
+export type {
+  InstanceLicenseRow,
+  InstanceLicenseInsert,
+} from "./instance-license"
 export { instance_settings } from "./instance_settings"
 export { passkeys } from "./passkeys"
 export { projects } from "./projects"
 export { registry_credentials } from "./registry_credentials"
 export { secrets } from "./secrets"
 export { sessions } from "./sessions"
+export { sso_configs } from "./sso-configs"
+export type { SSOConfigRow, SSOConfigInsert } from "./sso-configs"
 export { totp_secrets } from "./totp"
 export { users } from "./users"
 export { webhook_deliveries } from "./webhook-deliveries"
@@ -45,6 +52,8 @@ export { membership_invitations } from "./membership-invitations"
 export type { InvitationRow, InvitationInsert } from "./membership-invitations"
 export { billing_plans } from "./billing-plans"
 export type { BillingPlanRow, BillingPlanInsert } from "./billing-plans"
+export { org_branding } from "./org-branding"
+export type { OrgBrandingRow, OrgBrandingInsert } from "./org-branding"
 export { org_subscriptions } from "./org-subscriptions"
 export type {
   OrgSubscriptionRow,

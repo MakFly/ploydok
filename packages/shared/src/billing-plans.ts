@@ -91,3 +91,36 @@ export const OrgSubscriptionSchema = z.object({
 })
 
 export type OrgSubscription = z.infer<typeof OrgSubscriptionSchema>
+
+/**
+ * Checkout request body.
+ */
+export const CheckoutBodySchema = z.object({
+  planSlug: z.enum(["pro", "enterprise"]),
+})
+export type CheckoutBody = z.infer<typeof CheckoutBodySchema>
+
+/**
+ * Checkout response with Stripe session URL.
+ */
+export const CheckoutResponseSchema = z.object({
+  url: z.string().url(),
+})
+export type CheckoutResponse = z.infer<typeof CheckoutResponseSchema>
+
+/**
+ * Billing portal response with Stripe portal URL.
+ */
+export const PortalResponseSchema = z.object({
+  url: z.string().url(),
+})
+export type PortalResponse = z.infer<typeof PortalResponseSchema>
+
+/**
+ * Current plan response with plan and subscription details.
+ */
+export const CurrentPlanResponseSchema = z.object({
+  plan: BillingPlanSchema,
+  subscription: OrgSubscriptionSchema,
+})
+export type CurrentPlanResponse = z.infer<typeof CurrentPlanResponseSchema>

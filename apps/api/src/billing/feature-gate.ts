@@ -1,8 +1,43 @@
 // SPDX-License-Identifier: AGPL-3.0-only
 import type { MiddlewareHandler } from "hono"
 import type { Db } from "@ploydok/db"
-import { hasFeature, hasQuota } from "@ploydok/db/queries"
+import { hasFeature, hasQuota, getActiveLicense } from "@ploydok/db/queries"
 import type { FeatureKey, QuotaKey } from "@ploydok/shared"
+
+const ENTERPRISE_LICENSE_FEATURES: ReadonlySet<FeatureKey> =
+  new Set<FeatureKey>([
+    "sso",
+    "whitelabel",
+    "caddy_override",
+    "audit_logs",
+    "s3_backups",
+    "custom_license",
+  ])
+
+const PRO_LICENSE_FEATURES: ReadonlySet<FeatureKey> = new Set<FeatureKey>([
+  "caddy_override",
+  "audit_logs",
+  "s3_backups",
+])
+
+/**
+ * Check if an active self-hosted license grants the feature, overriding the
+ * per-org billing plan. Returns null if there is no license (caller falls back
+ * to the regular per-plan check).
+ */
+async function licenseGrants(
+  db: Db,
+  feature: FeatureKey
+): Promise<boolean | null> {
+  const license = await getActiveLicense(db).catch(() => null)
+  if (!license) return null
+  const now = Date.now()
+  if (license.expires_at && license.expires_at.getTime() < now) return null
+  if (license.plan === "enterprise")
+    return ENTERPRISE_LICENSE_FEATURES.has(feature)
+  if (license.plan === "pro") return PRO_LICENSE_FEATURES.has(feature)
+  return null
+}
 
 /**
  * Middleware that checks if an organization has a feature enabled.
@@ -30,7 +65,11 @@ export function requireFeature(db: Db, feature: FeatureKey): MiddlewareHandler {
       )
     }
 
-    const hasAccess = await hasFeature(db, orgIdentifier, feature)
+    const licenseOverride = await licenseGrants(db, feature)
+    const hasAccess =
+      licenseOverride === true
+        ? true
+        : await hasFeature(db, orgIdentifier, feature)
 
     if (!hasAccess) {
       return c.json(
