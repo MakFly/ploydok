@@ -17,7 +17,18 @@ import type { SyncStatus } from "./SyncProgressDialog"
 //   provider.sync.failed     { syncId, error }
 // ---------------------------------------------------------------------------
 
-interface ProviderSyncEvent {
+// The /events SSE dispatcher delivers the full NotificationEvent envelope.
+// Worker-side payloads land under `data` (see emit() in
+// apps/api/src/worker/handlers/sync-provider-repos.ts).
+interface ProviderSyncEnvelope {
+  id: string
+  type: string
+  t: number
+  message: string
+  data?: ProviderSyncData
+}
+
+interface ProviderSyncData {
   syncId?: string | null
   page?: number
   reposFetched?: number
@@ -53,42 +64,47 @@ export function useSyncWithProgress(): SyncProgressState {
   const syncIdRef = React.useRef<string | null>(null)
   React.useEffect(() => { syncIdRef.current = syncId }, [syncId])
 
-  function isMine(payload: ProviderSyncEvent): boolean {
-    return syncIdRef.current != null && payload.syncId === syncIdRef.current
+  function isMine(envelope: ProviderSyncEnvelope): boolean {
+    return (
+      syncIdRef.current != null &&
+      envelope.data?.syncId === syncIdRef.current
+    )
   }
 
-  const onStarted = React.useCallback((payload: ProviderSyncEvent) => {
-    if (!isMine(payload)) return
+  const onStarted = React.useCallback((envelope: ProviderSyncEnvelope) => {
+    if (!isMine(envelope)) return
     setStatus("running")
   }, [])
 
-  const onProgress = React.useCallback((payload: ProviderSyncEvent) => {
-    if (!isMine(payload)) return
-    if (typeof payload.reposFetched === "number") {
-      setImportedCount(payload.reposFetched)
-      setTotalCount((prev) => Math.max(prev, payload.reposFetched ?? 0))
+  const onProgress = React.useCallback((envelope: ProviderSyncEnvelope) => {
+    if (!isMine(envelope)) return
+    const fetched = envelope.data?.reposFetched
+    if (typeof fetched === "number") {
+      setImportedCount(fetched)
+      setTotalCount((prev) => Math.max(prev, fetched))
     }
   }, [])
 
-  const onCompleted = React.useCallback((payload: ProviderSyncEvent) => {
-    if (!isMine(payload)) return
-    if (typeof payload.totalRepos === "number") {
-      setImportedCount(payload.totalRepos)
-      setTotalCount((prev) => Math.max(prev, payload.totalRepos ?? 0))
+  const onCompleted = React.useCallback((envelope: ProviderSyncEnvelope) => {
+    if (!isMine(envelope)) return
+    const total = envelope.data?.totalRepos
+    if (typeof total === "number") {
+      setImportedCount(total)
+      setTotalCount((prev) => Math.max(prev, total))
     }
     setStatus("done")
   }, [])
 
-  const onFailed = React.useCallback((payload: ProviderSyncEvent) => {
-    if (!isMine(payload)) return
+  const onFailed = React.useCallback((envelope: ProviderSyncEnvelope) => {
+    if (!isMine(envelope)) return
     setStatus("error")
-    setErrorMessage(payload.error ?? "Sync failed")
+    setErrorMessage(envelope.data?.error ?? "Sync failed")
   }, [])
 
-  useEventsSubscription<ProviderSyncEvent>("provider.sync.started", onStarted)
-  useEventsSubscription<ProviderSyncEvent>("provider.sync.progress", onProgress)
-  useEventsSubscription<ProviderSyncEvent>("provider.sync.completed", onCompleted)
-  useEventsSubscription<ProviderSyncEvent>("provider.sync.failed", onFailed)
+  useEventsSubscription<ProviderSyncEnvelope>("provider.sync.started", onStarted)
+  useEventsSubscription<ProviderSyncEnvelope>("provider.sync.progress", onProgress)
+  useEventsSubscription<ProviderSyncEnvelope>("provider.sync.completed", onCompleted)
+  useEventsSubscription<ProviderSyncEnvelope>("provider.sync.failed", onFailed)
 
   function begin(newSyncId: string): void {
     setSyncId(newSyncId)

@@ -6,6 +6,7 @@ import {
   RiInformationLine,
   RiNotification3Fill,
   RiNotification3Line,
+  RiRefreshLine,
 } from "@remixicon/react"
 import {
   
@@ -31,11 +32,14 @@ function relativeTime(t: number): string {
 }
 
 function notificationIcon(type: NotificationType): React.JSX.Element {
-  if (type === "build.succeeded" || type === "deploy.status_change") {
+  if (type === "build.succeeded" || type === "deploy.status_change" || type === "provider.sync.completed") {
     return <RiCheckboxCircleLine className="mt-0.5 size-4 shrink-0 text-emerald-500" />
   }
-  if (type === "build.failed") {
+  if (type === "build.failed" || type === "provider.sync.failed") {
     return <RiCloseCircleLine className="mt-0.5 size-4 shrink-0 text-red-500" />
+  }
+  if (type === "provider.sync.started") {
+    return <RiRefreshLine className="mt-0.5 size-4 shrink-0 text-blue-500" />
   }
   return <RiInformationLine className="mt-0.5 size-4 shrink-0 text-muted-foreground" />
 }

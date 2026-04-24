@@ -13,6 +13,9 @@ export type NotificationType =
   | "build.failed"
   | "deploy.status_change"
   | "container.health"
+  | "provider.sync.started"
+  | "provider.sync.completed"
+  | "provider.sync.failed"
 
 export interface NotificationEvent {
   id: string
@@ -107,6 +110,12 @@ export function useNotifications(): {
   useEventsSubscription<NotificationEvent>("build.failed", push)
   useEventsSubscription<NotificationEvent>("deploy.status_change", push)
   useEventsSubscription<NotificationEvent>("container.health", push)
+  // provider.sync.progress is intentionally NOT subscribed: it fires once per
+  // page (potentially dozens per sync) and would flood the bell. The dialog
+  // consumes it directly.
+  useEventsSubscription<NotificationEvent>("provider.sync.started", push)
+  useEventsSubscription<NotificationEvent>("provider.sync.completed", push)
+  useEventsSubscription<NotificationEvent>("provider.sync.failed", push)
 
   const markAllRead = () => dispatch({ type: "markAllRead" })
   const clear = () => dispatch({ type: "clear" })
