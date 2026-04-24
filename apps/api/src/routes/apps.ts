@@ -13,6 +13,8 @@ import {
   HealthcheckConfigSchema,
   ImagePullPolicySchema,
   RestartPolicySchema,
+  classifyStack,
+  ALL_PROBE_KEYS,
 } from "@ploydok/shared"
 import {
   getAppActivity,
@@ -27,6 +29,7 @@ import {
   rotateAppWebhookSecret,
   uniqueSlug,
   updateApp,
+  upsertEnvVars,
   type AppRow,
 } from "@ploydok/db/queries"
 import { listDeliveriesByApp, getDeliveryById } from "@ploydok/db/queries"
@@ -43,6 +46,7 @@ import type { AuthUser } from "../auth/middleware"
 import { requireSecondFactor } from "../auth/middleware"
 import { requireTotpVerified } from "../auth/second-factor"
 import { encryptField, decryptField } from "../github/app-credentials"
+import { ghProvider } from "./github"
 import { getSharedAgent } from "../debug/singletons"
 import { resolveRuntimeContainer } from "../services/runtime-containers"
 import { dispatch as notifyDispatch } from "../notify/index"
@@ -469,6 +473,66 @@ export function createAppsRouter(db: Db): Hono {
       healthcheck_retries: hc.retries ?? 6,
       healthcheck_start_period_s: hc.startPeriodS ?? 0,
     })
+
+    // Auto-inject framework-aware env vars (Nixpacks/Railpack only, git sources only).
+    // Runs best-effort — failure must never block app creation.
+    const resolvedBuildMethod =
+      body.buildMethod === "docker"
+        ? "dockerfile"
+        : (body.buildMethod ?? "auto")
+    const shouldAutoInject =
+      body.gitProvider === "github" &&
+      body.installationId &&
+      body.repoFullName &&
+      body.branch &&
+      (resolvedBuildMethod === "nixpacks" ||
+        resolvedBuildMethod === "railpack" ||
+        resolvedBuildMethod === "auto")
+    if (shouldAutoInject) {
+      try {
+        const probeResults: Record<string, boolean> = {}
+        await Promise.all(
+          ALL_PROBE_KEYS.map(async (key) => {
+            try {
+              probeResults[key] = await ghProvider.fileExists(
+                body.installationId!,
+                body.repoFullName!,
+                key,
+                body.branch!
+              )
+            } catch {
+              probeResults[key] = false
+            }
+          })
+        )
+        const classification = classifyStack(probeResults)
+        const suggested = classification.suggestedEnvVars
+        if (Object.keys(suggested).length > 0) {
+          await upsertEnvVars(
+            db,
+            id,
+            Object.entries(suggested).map(([k, v]) => ({
+              key: k,
+              value: v,
+              secret: false,
+            }))
+          )
+          childLogger("apps-autoinject").info(
+            {
+              appId: id,
+              stack: classification.stack,
+              vars: Object.keys(suggested),
+            },
+            "auto-injected env vars for detected framework"
+          )
+        }
+      } catch (err) {
+        childLogger("apps-autoinject").warn(
+          { err, appId: id },
+          "auto-inject failed (non-fatal)"
+        )
+      }
+    }
 
     await deployQueue.add(
       "deploy.requested",
