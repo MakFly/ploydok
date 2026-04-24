@@ -1,100 +1,121 @@
 // SPDX-License-Identifier: AGPL-3.0-only
 import * as React from "react"
+import { useEventsSubscription } from "../../../lib/events-provider"
 import type { SyncStatus } from "./SyncProgressDialog"
 
 // ---------------------------------------------------------------------------
-// useSyncWithProgress
+// useSyncWithProgress — SSE-driven progress tracking.
 //
-// Drives the SyncProgressDialog state by watching last_synced_at on the
-// cache-status entries. The mutation only confirms enqueue, not completion;
-// completion is when EVERY tracked installation has last_synced_at >=
-// startedAt (or, for an empty cache, at least one row has appeared).
+// The Sync mutation only confirms enqueue; the worker reports actual progress
+// via the existing /events SSE stream. We filter events by syncId (returned by
+// POST /…/installations/sync) so concurrent syncs don't cross-contaminate.
 //
-// Generic over the entry shape so GitHub (multi-install) and GitLab
-// (single-install) can both reuse it.
+// Event types (declared in apps/api/src/worker/event-bus.ts):
+//   provider.sync.started    { provider, scope, syncId, installationCount? }
+//   provider.sync.progress   { syncId, page, reposFetched, hasMore, ... }
+//   provider.sync.completed  { syncId, totalRepos, durationMs }
+//   provider.sync.failed     { syncId, error }
 // ---------------------------------------------------------------------------
 
-export interface SyncProgressEntry {
-  id: string
-  lastSyncedAt: string
-  repoCount: number
+interface ProviderSyncEvent {
+  syncId?: string | null
+  page?: number
+  reposFetched?: number
+  totalRepos?: number
+  installationCount?: number
+  installationId?: string
+  error?: string
+  durationMs?: number
 }
 
 export interface SyncProgressState {
   open: boolean
   status: SyncStatus
   startedAt: number | null
-  baselineCount: number
   importedCount: number
   totalCount: number
   errorMessage?: string
-  begin(): void
+  begin(syncId: string): void
   fail(message: string): void
   close(): void
 }
 
-export interface UseSyncWithProgressArgs {
-  entries: Array<SyncProgressEntry>
-  isMutationError: boolean
-  mutationErrorMessage?: string
-  scopeId?: string
-}
-
-export function useSyncWithProgress(args: UseSyncWithProgressArgs): SyncProgressState {
-  const { entries, isMutationError, mutationErrorMessage, scopeId } = args
-
+export function useSyncWithProgress(): SyncProgressState {
   const [open, setOpen] = React.useState(false)
+  const [syncId, setSyncId] = React.useState<string | null>(null)
   const [startedAt, setStartedAt] = React.useState<number | null>(null)
-  const [baselineCount, setBaselineCount] = React.useState(0)
-  // Snapshot the ids that existed at sync time. New installs that appear
-  // mid-sync (first-ever bootstrap of an empty cache) are added on the fly.
-  const [trackedIds, setTrackedIds] = React.useState<Set<string>>(new Set())
+  const [status, setStatus] = React.useState<SyncStatus>("idle")
+  const [errorMessage, setErrorMessage] = React.useState<string | undefined>(undefined)
+  const [importedCount, setImportedCount] = React.useState(0)
+  const [totalCount, setTotalCount] = React.useState(0)
 
-  const totalCount = React.useMemo(
-    () => entries.reduce((sum, e) => sum + e.repoCount, 0),
-    [entries],
-  )
-  const importedCount = Math.max(0, totalCount - baselineCount)
+  // Stable refs so useEventsSubscription doesn't re-attach on every render.
+  const syncIdRef = React.useRef<string | null>(null)
+  React.useEffect(() => { syncIdRef.current = syncId }, [syncId])
 
-  let status: SyncStatus = "idle"
-  if (isMutationError) {
-    status = "error"
-  } else if (startedAt != null) {
-    const relevant = entries.filter(
-      (e) =>
-        trackedIds.has(e.id) ||
-        // Bootstrap case: cache was empty at click-time, accept any
-        // installation that surfaces afterwards as part of "this sync".
-        (trackedIds.size === 0),
-    )
-    const allFresh =
-      relevant.length > 0 &&
-      relevant.every((e) => new Date(e.lastSyncedAt).getTime() >= startedAt)
-    status = allFresh ? "done" : "running"
+  function isMine(payload: ProviderSyncEvent): boolean {
+    return syncIdRef.current != null && payload.syncId === syncIdRef.current
   }
 
-  function begin(): void {
-    setBaselineCount(totalCount)
-    setTrackedIds(
-      scopeId
-        ? new Set([scopeId])
-        : new Set(entries.map((e) => e.id)),
-    )
+  const onStarted = React.useCallback((payload: ProviderSyncEvent) => {
+    if (!isMine(payload)) return
+    setStatus("running")
+  }, [])
+
+  const onProgress = React.useCallback((payload: ProviderSyncEvent) => {
+    if (!isMine(payload)) return
+    if (typeof payload.reposFetched === "number") {
+      setImportedCount(payload.reposFetched)
+      setTotalCount((prev) => Math.max(prev, payload.reposFetched ?? 0))
+    }
+  }, [])
+
+  const onCompleted = React.useCallback((payload: ProviderSyncEvent) => {
+    if (!isMine(payload)) return
+    if (typeof payload.totalRepos === "number") {
+      setImportedCount(payload.totalRepos)
+      setTotalCount((prev) => Math.max(prev, payload.totalRepos ?? 0))
+    }
+    setStatus("done")
+  }, [])
+
+  const onFailed = React.useCallback((payload: ProviderSyncEvent) => {
+    if (!isMine(payload)) return
+    setStatus("error")
+    setErrorMessage(payload.error ?? "Sync failed")
+  }, [])
+
+  useEventsSubscription<ProviderSyncEvent>("provider.sync.started", onStarted)
+  useEventsSubscription<ProviderSyncEvent>("provider.sync.progress", onProgress)
+  useEventsSubscription<ProviderSyncEvent>("provider.sync.completed", onCompleted)
+  useEventsSubscription<ProviderSyncEvent>("provider.sync.failed", onFailed)
+
+  function begin(newSyncId: string): void {
+    setSyncId(newSyncId)
     setStartedAt(Date.now())
+    setStatus("running")
+    setErrorMessage(undefined)
+    setImportedCount(0)
+    setTotalCount(0)
     setOpen(true)
   }
 
-  function fail(_message: string): void {
+  function fail(message: string): void {
+    setStatus("error")
+    setErrorMessage(message)
     setOpen(true)
   }
 
   function close(): void {
     setOpen(false)
-    // Reset on next tick so the dialog can fade out cleanly.
+    // Reset on next tick so the dialog fades out cleanly.
     window.setTimeout(() => {
+      setSyncId(null)
       setStartedAt(null)
-      setBaselineCount(0)
-      setTrackedIds(new Set())
+      setStatus("idle")
+      setErrorMessage(undefined)
+      setImportedCount(0)
+      setTotalCount(0)
     }, 250)
   }
 
@@ -102,10 +123,9 @@ export function useSyncWithProgress(args: UseSyncWithProgressArgs): SyncProgress
     open,
     status,
     startedAt,
-    baselineCount,
     importedCount,
     totalCount,
-    errorMessage: isMutationError ? mutationErrorMessage : undefined,
+    errorMessage,
     begin,
     fail,
     close,

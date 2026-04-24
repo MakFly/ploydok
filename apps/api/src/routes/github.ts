@@ -1,5 +1,6 @@
 // SPDX-License-Identifier: AGPL-3.0-only
 import { Hono } from "hono";
+import { nanoid } from "nanoid";
 import { createHash, createHmac, randomBytes } from "node:crypto";
 import { createDb } from "@ploydok/db";
 import {
@@ -37,7 +38,8 @@ const log = childLogger("github.routes");
 // Router
 // ---------------------------------------------------------------------------
 
-export const githubRouter = new Hono();
+type GithubRouterEnv = { Variables: { user?: import("../auth/middleware").AuthUser } };
+export const githubRouter = new Hono<GithubRouterEnv>();
 
 // Database singleton for this router
 const db = createDb(env.DATABASE_URL);
@@ -254,6 +256,7 @@ githubRouter.get("/repos", async (c) => {
 // ---------------------------------------------------------------------------
 
 githubRouter.post("/installations/sync", async (c) => {
+  const user = c.get("user") ?? null;
   let body: { installationId?: string } = {};
   try {
     const raw = await c.req.json().catch(() => ({}));
@@ -264,14 +267,17 @@ githubRouter.post("/installations/sync", async (c) => {
 
   const installationId =
     typeof body.installationId === "string" ? body.installationId : undefined;
+  const syncId = nanoid();
 
   await enqueueProviderReposSync({
     provider: "github",
     ...(installationId !== undefined ? { installationId } : {}),
+    ...(user ? { requestedBy: user.id } : {}),
+    syncId,
   });
 
-  log.info({ installationId }, "manual github sync enqueued");
-  return c.json({ enqueued: true }, 202);
+  log.info({ installationId, syncId, requestedBy: user?.id }, "manual github sync enqueued");
+  return c.json({ enqueued: true, syncId }, 202);
 });
 
 // ---------------------------------------------------------------------------

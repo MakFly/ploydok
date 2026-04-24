@@ -25,6 +25,10 @@ export type NotificationType =
   | "build.failed"
   | "deploy.status_change"
   | "container.health"
+  | "provider.sync.started"
+  | "provider.sync.progress"
+  | "provider.sync.completed"
+  | "provider.sync.failed"
 
 export interface NotificationEvent {
   id: string

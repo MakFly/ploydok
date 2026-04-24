@@ -198,9 +198,9 @@ export function useGitLabCacheStatus(opts: { autoRefresh?: boolean } = {}) {
 
 export function useSyncGitLabInstallations() {
   const qc = useQueryClient()
-  return useMutation<{ enqueued: true }, ApiError, void>({
+  return useMutation<{ enqueued: true; syncId: string }, ApiError, void>({
     mutationFn: () =>
-      apiFetch<{ enqueued: true }>("/gitlab/installations/sync", { method: "POST" }),
+      apiFetch<{ enqueued: true; syncId: string }>("/gitlab/installations/sync", { method: "POST" }),
     onSuccess: () => {
       void qc.invalidateQueries({ queryKey: ["gitlab", "cache-status"] })
       void qc.invalidateQueries({ queryKey: ["gitlab", "repos"] })
