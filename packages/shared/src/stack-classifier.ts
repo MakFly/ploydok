@@ -13,7 +13,7 @@
  *    agree (composer.json + artisan), "medium" when a single strong signal,
  *    "low" for ambiguous cases.
  *  - The recommended build method is orthogonal to the stack: PHP stacks
- *    recommend "recipe" when available, Node/Python/Go recommend "nixpacks",
+ *    recommend "nixpacks" by default (like Dokploy/Coolify),
  *    a user-provided Dockerfile always wins.
  */
 
@@ -38,18 +38,14 @@ export type Stack =
   | "java"
   | "compose"
   | "static"
-  | "unknown";
+  | "unknown"
 
 export type BuildMethodRecommendation =
   | "auto"
   | "dockerfile"
-  | "recipe"
   | "compose"
   | "nixpacks"
-  | "railpack";
-
-import type { RecipeId } from "./apps";
-export type { RecipeId } from "./apps";
+  | "railpack"
 
 export type ProbeKey =
   // Docker / Compose
@@ -86,25 +82,24 @@ export type ProbeKey =
   | "build.gradle"
   | "build.gradle.kts"
   // Static
-  | "index.html";
+  | "index.html"
 
 /**
  * Map of probe key → existence. A probe absent from the record is treated as
  * false (not yet fetched callers should pre-populate with false explicitly to
  * opt in to a deterministic classification).
  */
-export type ProbeResults = Partial<Record<ProbeKey, boolean>>;
+export type ProbeResults = Partial<Record<ProbeKey, boolean>>
 
 export interface StackClassification {
-  stack: Stack;
-  framework?: string;
-  confidence: "high" | "medium" | "low";
+  stack: Stack
+  framework?: string
+  confidence: "high" | "medium" | "low"
   /** Ordered signals that triggered the classification. */
-  signals: ProbeKey[];
-  recommendedBuild: BuildMethodRecommendation;
-  recommendedRecipe?: RecipeId;
+  signals: ProbeKey[]
+  recommendedBuild: BuildMethodRecommendation
   /** Human-readable warnings to show the user in the wizard. */
-  warnings: string[];
+  warnings: string[]
 }
 
 /** Ordered list of all probe keys the classifier understands. */
@@ -138,15 +133,15 @@ export const ALL_PROBE_KEYS: ReadonlyArray<ProbeKey> = [
   "build.gradle",
   "build.gradle.kts",
   "index.html",
-];
+]
 
 function has(probes: ProbeResults, key: ProbeKey): boolean {
-  return probes[key] === true;
+  return probes[key] === true
 }
 
 function hasAny(probes: ProbeResults, keys: ReadonlyArray<ProbeKey>): boolean {
-  for (const k of keys) if (has(probes, k)) return true;
-  return false;
+  for (const k of keys) if (has(probes, k)) return true
+  return false
 }
 
 function composeSignal(probes: ProbeResults): ProbeKey | null {
@@ -155,13 +150,10 @@ function composeSignal(probes: ProbeResults): ProbeKey | null {
     "compose.yml",
     "docker-compose.yml",
     "docker-compose.yaml",
-  ];
-  for (const k of candidates) if (has(probes, k)) return k;
-  return null;
+  ]
+  for (const k of candidates) if (has(probes, k)) return k
+  return null
 }
-
-const PHP_PROD_WARNING =
-  "Nixpacks peut builder du PHP, mais une Recipe managée (php-fpm + nginx, multi-stage) est recommandée pour la prod.";
 
 /**
  * classify a repository from probe results. Pure function, deterministic.
@@ -176,13 +168,13 @@ export function classifyStack(probes: ProbeResults): StackClassification {
       signals: ["Dockerfile"],
       recommendedBuild: "dockerfile",
       warnings: [],
-    };
+    }
   }
 
   // 2. Compose detected (Ploydok doesn't yet run compose natively — warn).
-  const compose = composeSignal(probes);
+  const compose = composeSignal(probes)
   if (compose) {
-    const hasDockerfileBuild = false; // already handled above
+    const hasDockerfileBuild = false // already handled above
     return {
       stack: "compose",
       framework: "Docker Compose",
@@ -191,56 +183,55 @@ export function classifyStack(probes: ProbeResults): StackClassification {
       recommendedBuild: "compose",
       warnings: hasDockerfileBuild
         ? []
-        : ["Docker Compose détecté — support natif prévu sprint 3.3. Pour l'instant, fallback recipe ou nixpacks."],
-    };
+        : [
+            "Docker Compose détecté — support natif prévu sprint 3.3. Pour l'instant, fallback dockerfile ou nixpacks.",
+          ],
+    }
   }
 
   // 3. PHP — Laravel, Symfony, generic
   if (has(probes, "composer.json")) {
-    const signals: ProbeKey[] = ["composer.json"];
+    const signals: ProbeKey[] = ["composer.json"]
     if (has(probes, "artisan")) {
-      signals.push("artisan");
+      signals.push("artisan")
       // Laravel often has a Vite front-end (package.json)
-      if (has(probes, "package.json")) signals.push("package.json");
+      if (has(probes, "package.json")) signals.push("package.json")
       return {
         stack: "laravel",
         framework: "Laravel",
         confidence: "high",
         signals,
-        recommendedBuild: "recipe",
-        recommendedRecipe: "php-laravel.v1",
-        warnings: [PHP_PROD_WARNING],
-      };
+        recommendedBuild: "nixpacks",
+        warnings: [],
+      }
     }
     if (has(probes, "symfony.lock") || has(probes, "bin/console")) {
-      if (has(probes, "symfony.lock")) signals.push("symfony.lock");
-      if (has(probes, "bin/console")) signals.push("bin/console");
+      if (has(probes, "symfony.lock")) signals.push("symfony.lock")
+      if (has(probes, "bin/console")) signals.push("bin/console")
       return {
         stack: "symfony",
         framework: "Symfony",
         confidence: "high",
         signals,
-        recommendedBuild: "recipe",
-        recommendedRecipe: "php-symfony.v1",
-        warnings: [PHP_PROD_WARNING],
-      };
+        recommendedBuild: "nixpacks",
+        warnings: [],
+      }
     }
     return {
       stack: "php",
       framework: "PHP",
       confidence: "medium",
       signals,
-      recommendedBuild: "recipe",
-      recommendedRecipe: "php-generic.v1",
-      warnings: [PHP_PROD_WARNING],
-    };
+      recommendedBuild: "nixpacks",
+      warnings: [],
+    }
   }
 
   // 4. JS / TS — frameworks then generic Node/Bun/Deno
   if (has(probes, "package.json")) {
-    const nextCfg = (["next.config.js", "next.config.mjs", "next.config.ts"] as const).find((k) =>
-      has(probes, k),
-    );
+    const nextCfg = (
+      ["next.config.js", "next.config.mjs", "next.config.ts"] as const
+    ).find((k) => has(probes, k))
     if (nextCfg) {
       return {
         stack: "next",
@@ -249,7 +240,7 @@ export function classifyStack(probes: ProbeResults): StackClassification {
         signals: ["package.json", nextCfg],
         recommendedBuild: "nixpacks",
         warnings: [],
-      };
+      }
     }
     if (has(probes, "remix.config.js")) {
       return {
@@ -259,11 +250,11 @@ export function classifyStack(probes: ProbeResults): StackClassification {
         signals: ["package.json", "remix.config.js"],
         recommendedBuild: "nixpacks",
         warnings: [],
-      };
+      }
     }
-    const astroCfg = (["astro.config.mjs", "astro.config.ts"] as const).find((k) =>
-      has(probes, k),
-    );
+    const astroCfg = (["astro.config.mjs", "astro.config.ts"] as const).find(
+      (k) => has(probes, k)
+    )
     if (astroCfg) {
       return {
         stack: "astro",
@@ -272,7 +263,7 @@ export function classifyStack(probes: ProbeResults): StackClassification {
         signals: ["package.json", astroCfg],
         recommendedBuild: "nixpacks",
         warnings: [],
-      };
+      }
     }
     if (has(probes, "bun.lockb")) {
       return {
@@ -282,7 +273,7 @@ export function classifyStack(probes: ProbeResults): StackClassification {
         signals: ["package.json", "bun.lockb"],
         recommendedBuild: "nixpacks",
         warnings: [],
-      };
+      }
     }
     return {
       stack: "node",
@@ -293,7 +284,7 @@ export function classifyStack(probes: ProbeResults): StackClassification {
       warnings: [
         "Vérifie NIXPACKS_NODE_VERSION si ton projet cible Node ≥ 20 (Node 18 EOL en 2025).",
       ],
-    };
+    }
   }
 
   if (has(probes, "deno.json")) {
@@ -304,14 +295,14 @@ export function classifyStack(probes: ProbeResults): StackClassification {
       signals: ["deno.json"],
       recommendedBuild: "nixpacks",
       warnings: [],
-    };
+    }
   }
 
   // 5. Python — Django / Flask / FastAPI / generic
   if (has(probes, "manage.py")) {
-    const signals: ProbeKey[] = ["manage.py"];
-    if (has(probes, "pyproject.toml")) signals.push("pyproject.toml");
-    else if (has(probes, "requirements.txt")) signals.push("requirements.txt");
+    const signals: ProbeKey[] = ["manage.py"]
+    if (has(probes, "pyproject.toml")) signals.push("pyproject.toml")
+    else if (has(probes, "requirements.txt")) signals.push("requirements.txt")
     return {
       stack: "django",
       framework: "Django",
@@ -319,17 +310,19 @@ export function classifyStack(probes: ProbeResults): StackClassification {
       signals,
       recommendedBuild: "nixpacks",
       warnings: [],
-    };
+    }
   }
   if (hasAny(probes, ["pyproject.toml", "requirements.txt"])) {
     return {
       stack: "python",
       framework: "Python",
       confidence: "medium",
-      signals: has(probes, "pyproject.toml") ? ["pyproject.toml"] : ["requirements.txt"],
+      signals: has(probes, "pyproject.toml")
+        ? ["pyproject.toml"]
+        : ["requirements.txt"],
       recommendedBuild: "nixpacks",
       warnings: [],
-    };
+    }
   }
 
   // 6. Go / Rust / Ruby / Elixir / Java
@@ -341,7 +334,7 @@ export function classifyStack(probes: ProbeResults): StackClassification {
       signals: ["go.mod"],
       recommendedBuild: "nixpacks",
       warnings: [],
-    };
+    }
   }
   if (has(probes, "Cargo.toml")) {
     return {
@@ -351,7 +344,7 @@ export function classifyStack(probes: ProbeResults): StackClassification {
       signals: ["Cargo.toml"],
       recommendedBuild: "nixpacks",
       warnings: [],
-    };
+    }
   }
   if (has(probes, "Gemfile")) {
     return {
@@ -363,7 +356,7 @@ export function classifyStack(probes: ProbeResults): StackClassification {
       warnings: [
         "Support Ruby dans nixpacks upstream est partiel — tester le build avant de compter dessus.",
       ],
-    };
+    }
   }
   if (has(probes, "mix.exs")) {
     return {
@@ -373,14 +366,14 @@ export function classifyStack(probes: ProbeResults): StackClassification {
       signals: ["mix.exs"],
       recommendedBuild: "nixpacks",
       warnings: [],
-    };
+    }
   }
   if (hasAny(probes, ["pom.xml", "build.gradle", "build.gradle.kts"])) {
     const sig: ProbeKey = has(probes, "pom.xml")
       ? "pom.xml"
       : has(probes, "build.gradle")
         ? "build.gradle"
-        : "build.gradle.kts";
+        : "build.gradle.kts"
     return {
       stack: "java",
       framework: "Java/JVM",
@@ -388,9 +381,9 @@ export function classifyStack(probes: ProbeResults): StackClassification {
       signals: [sig],
       recommendedBuild: "dockerfile",
       warnings: [
-        "Support JVM dans nixpacks est patchy — préfère un Dockerfile (ou attends une recipe java-v1).",
+        "Support JVM dans nixpacks est patchy — préfère un Dockerfile.",
       ],
-    };
+    }
   }
 
   // 7. Static site
@@ -402,7 +395,7 @@ export function classifyStack(probes: ProbeResults): StackClassification {
       signals: ["index.html"],
       recommendedBuild: "nixpacks",
       warnings: [],
-    };
+    }
   }
 
   // 8. Nothing matched
@@ -414,5 +407,5 @@ export function classifyStack(probes: ProbeResults): StackClassification {
     warnings: [
       "Aucune stack reconnue — ajoute un Dockerfile ou choisis manuellement un build method.",
     ],
-  };
+  }
 }
