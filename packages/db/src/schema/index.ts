@@ -43,3 +43,10 @@ export { memberships } from "./memberships"
 export type { MembershipRow, MembershipInsert } from "./memberships"
 export { membership_invitations } from "./membership-invitations"
 export type { InvitationRow, InvitationInsert } from "./membership-invitations"
+export { billing_plans } from "./billing-plans"
+export type { BillingPlanRow, BillingPlanInsert } from "./billing-plans"
+export { org_subscriptions } from "./org-subscriptions"
+export type {
+  OrgSubscriptionRow,
+  OrgSubscriptionInsert,
+} from "./org-subscriptions"
