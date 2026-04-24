@@ -22,6 +22,7 @@ import {
   getAppForUser,
   getBuildForApp,
   getBuildLogPath,
+  updateBuildStatus,
   insertAuditLog,
   insertApp,
   listAppsForUser,
@@ -997,6 +998,85 @@ export function createAppsRouter(db: Db): Hono {
     const appId = c.req.param("id") ?? ""
     const buildId = c.req.param("buildId") ?? ""
     return c.redirect(`/apps/${appId}/logs?buildId=${buildId}`, 302)
+  })
+
+  // POST /:id/builds/:buildId/cancel — cancel a running build.
+  // Marks the build status=cancelled in DB, removes its BullMQ job if
+  // still queued. Does NOT abort a build that's mid-BuildKit-push — the
+  // worker will finish that phase and its final updateBuildStatus(succeeded)
+  // will lose the race with our cancel write (the build row will flip
+  // back to succeeded). For mid-flight builds, this is best-effort.
+  router.post("/:id/builds/:buildId/cancel", sf, async (c) => {
+    const user = getUser(c)
+    const appId = c.req.param("id")!
+    const buildId = c.req.param("buildId")!
+
+    const app = await getAppForUser(db, appId, user.id)
+    if (!app) {
+      return c.json(
+        { error: { code: "NOT_FOUND", message: "App not found" } },
+        404
+      )
+    }
+
+    const build = await getBuildForApp(db, buildId, appId)
+    if (!build) {
+      return c.json(
+        { error: { code: "NOT_FOUND", message: "Build not found" } },
+        404
+      )
+    }
+
+    if (
+      build.status === "succeeded" ||
+      build.status === "succeeded_with_warning" ||
+      build.status === "failed" ||
+      build.status === "cancelled"
+    ) {
+      return c.json(
+        {
+          error: {
+            code: "INVALID_STATE",
+            message: `Build is already in terminal state: ${build.status}`,
+          },
+        },
+        409
+      )
+    }
+
+    // Remove queued BullMQ jobs for this app (best-effort).
+    try {
+      const jobs = await deployQueue.getJobs([
+        "waiting",
+        "delayed",
+        "active",
+        "paused",
+        "prioritized",
+      ])
+      for (const j of jobs) {
+        const data = j.data as { appId?: string }
+        if (data.appId === appId) {
+          await j.remove().catch(() => {})
+        }
+      }
+    } catch (err) {
+      childLogger("apps-cancel-build").warn(
+        { err, appId, buildId },
+        "failed to remove BullMQ jobs (non-fatal)"
+      )
+    }
+
+    await updateBuildStatus(db, buildId, "cancelled", {
+      finishedAt: new Date(),
+      errorMessage: `Cancelled by user ${user.email ?? user.id}`,
+    })
+
+    childLogger("apps-cancel-build").info(
+      { appId, buildId, userId: user.id },
+      "build cancelled by user"
+    )
+
+    return c.json({ ok: true })
   })
   // [M3.2 logs — END]
 

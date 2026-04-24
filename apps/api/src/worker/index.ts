@@ -37,6 +37,10 @@ import {
   startOrphanContainerGcCron,
   stopOrphanContainerGcCron,
 } from "./jobs/gc-orphan-containers"
+import {
+  startReapStuckBuildsCron,
+  stopReapStuckBuildsCron,
+} from "./jobs/reap-stuck-builds"
 import { handleSyncProviderRepos } from "./handlers/sync-provider-repos"
 import type { SyncProviderReposPayload } from "./handlers/sync-provider-repos"
 
@@ -187,6 +191,7 @@ export function startWorker(
   startRotateDatabasesCron(db)
   startBackupDatabasesCron(db)
   startOrphanContainerGcCron(db)
+  startReapStuckBuildsCron(db)
 
   const abortHandler = () => stop()
   opts?.signal?.addEventListener("abort", abortHandler)
@@ -198,6 +203,7 @@ export function startWorker(
     stopRotateDatabasesCron()
     stopBackupDatabasesCron()
     stopOrphanContainerGcCron()
+    stopReapStuckBuildsCron()
     Promise.all(workers.map((w) => w.close())).catch((err) => {
       logger.error({ err }, "error closing BullMQ workers")
     })
