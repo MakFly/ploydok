@@ -300,6 +300,7 @@ app.route("/registry/credentials", registryCredentialsRouter);
 app.route("/ws", wsRouter);
 app.route("/ws", wsExecRouter);
 app.use("/events", requireAuth(db))
+app.use("/events/*", requireAuth(db))
 app.route("/events", eventsRouter)
 
 app.use("/monitoring/*", requireAuth(db))
