@@ -187,27 +187,34 @@ export async function listOrganizationsForUser(
   userId: string,
   displayName?: string | null
 ): Promise<OrganizationSummary[]> {
-  await ensureDefaultOrganizationForUser(db, userId, displayName)
+  await ensureDefaultOrganizationForUser(db, userId, displayName).catch(
+    () => {}
+  )
   await backfillOwnerMemberships(db, userId)
 
-  const rows = await db
-    .select()
-    .from(projects)
-    .innerJoin(
-      memberships,
-      and(
-        eq(memberships.org_id, projects.id),
-        eq(memberships.user_id, userId),
-        isNotNull(memberships.accepted_at)
+  try {
+    const rows = await db
+      .select()
+      .from(projects)
+      .innerJoin(
+        memberships,
+        and(
+          eq(memberships.org_id, projects.id),
+          eq(memberships.user_id, userId),
+          isNotNull(memberships.accepted_at)
+        )
       )
-    )
-    .orderBy(asc(projects.created_at), asc(projects.id))
+      .orderBy(asc(projects.created_at), asc(projects.id))
 
-  if (rows.length > 0) return rows.map((r) => toSummary(r.projects))
+    if (rows.length > 0) return rows.map((r) => toSummary(r.projects))
+  } catch {
+    // memberships table missing (migration not yet applied) or transient DB
+    // issue — fall through to legacy owner_id path below.
+  }
 
-  // Legacy fallback : if the memberships backfill failed for whatever reason,
-  // show the user their projects via the owner_id column. Keeps the UI usable
-  // even when RBAC state is inconsistent.
+  // Legacy fallback : shows the user their projects via owner_id when the
+  // memberships join fails or returns empty. Keeps the UI usable before/during
+  // the RBAC v1 migration rollout.
   const legacyRows = await db
     .select()
     .from(projects)
@@ -269,21 +276,25 @@ export async function getOrganizationBySlugForUser(
   userId: string,
   slug: string
 ): Promise<OrganizationSummary | null> {
-  const rows = await db
-    .select()
-    .from(projects)
-    .innerJoin(
-      memberships,
-      and(
-        eq(memberships.org_id, projects.id),
-        eq(memberships.user_id, userId),
-        isNotNull(memberships.accepted_at)
+  try {
+    const rows = await db
+      .select()
+      .from(projects)
+      .innerJoin(
+        memberships,
+        and(
+          eq(memberships.org_id, projects.id),
+          eq(memberships.user_id, userId),
+          isNotNull(memberships.accepted_at)
+        )
       )
-    )
-    .where(eq(projects.slug, slug))
-    .limit(1)
+      .where(eq(projects.slug, slug))
+      .limit(1)
 
-  if (rows[0]) return toSummary(rows[0].projects)
+    if (rows[0]) return toSummary(rows[0].projects)
+  } catch {
+    // memberships table missing — fall through to owner_id lookup below.
+  }
 
   // Backfill safety : if the user is the owner_id of this slug but has no
   // membership row (legacy), create it now and return the project.
