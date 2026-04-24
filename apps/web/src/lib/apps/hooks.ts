@@ -1,11 +1,25 @@
 // SPDX-License-Identifier: AGPL-3.0-only
-import { useMutation, useQueries, useQuery, useQueryClient } from "@tanstack/react-query"
+import {
+  useMutation,
+  useQueries,
+  useQuery,
+  useQueryClient,
+} from "@tanstack/react-query"
 import { toast } from "sonner"
-import type { AppConfig, Build } from "@ploydok/shared"
-import { apiFetch, criticalRetryDelay, invalidateGetCache, shouldRetryCriticalQuery } from "../api"
+import type { AppConfig, Build, CaddyExtraHandlers } from "@ploydok/shared"
+import {
+  apiFetch,
+  criticalRetryDelay,
+  invalidateGetCache,
+  shouldRetryCriticalQuery,
+} from "../api"
 import type { ApiError } from "../api"
 import { useEventsSubscription } from "../events-provider"
-import { normalizeAppDetail, applyAppStatus, getEventAppStatus } from "./transforms"
+import {
+  normalizeAppDetail,
+  applyAppStatus,
+  getEventAppStatus,
+} from "./transforms"
 import type {
   AppDetail,
   AppListItem,
@@ -23,7 +37,9 @@ export function useApps(organizationId?: string) {
   return useQuery<Array<AppListItem>, ApiError>({
     queryKey: ["apps", organizationId ?? "all"],
     queryFn: async () => {
-      const query = organizationId ? `?organizationId=${encodeURIComponent(organizationId)}` : ""
+      const query = organizationId
+        ? `?organizationId=${encodeURIComponent(organizationId)}`
+        : ""
       const data = await apiFetch<AppsResponse>(`/apps${query}`)
       return data.apps
     },
@@ -47,7 +63,9 @@ export function useCreateApp() {
       toast.success("App created")
       qc.invalidateQueries({ queryKey: ["apps"] })
       if (vars.organizationId ?? vars.projectId) {
-        qc.invalidateQueries({ queryKey: ["apps", vars.organizationId ?? vars.projectId] })
+        qc.invalidateQueries({
+          queryKey: ["apps", vars.organizationId ?? vars.projectId],
+        })
       }
     },
     onError: (error) => {
@@ -60,11 +78,14 @@ export function useApp(appId: string, opts?: UseAppOptions) {
   const qc = useQueryClient()
 
   const syncStatus = (status: import("@ploydok/shared").AppStatus) => {
-    qc.setQueryData<AppDetail | undefined>(["apps", appId], (current) =>
-      applyAppStatus(current, status) as AppDetail | undefined,
+    qc.setQueryData<AppDetail | undefined>(
+      ["apps", appId],
+      (current) => applyAppStatus(current, status) as AppDetail | undefined
     )
     qc.setQueryData<Array<AppListItem> | undefined>(["apps"], (current) =>
-      current?.map((app) => (app.id === appId ? (applyAppStatus(app, status) as AppListItem) : app)),
+      current?.map((app) =>
+        app.id === appId ? (applyAppStatus(app, status) as AppListItem) : app
+      )
     )
   }
 
@@ -80,12 +101,15 @@ export function useApp(appId: string, opts?: UseAppOptions) {
     syncStatus(status)
   })
 
-  useEventsSubscription<AppStatusEventPayload>("deploy.status_change", (payload) => {
-    if (payload.appId !== appId) return
-    const status = getEventAppStatus(payload)
-    if (status) syncStatus(status)
-    refetchApp()
-  })
+  useEventsSubscription<AppStatusEventPayload>(
+    "deploy.status_change",
+    (payload) => {
+      if (payload.appId !== appId) return
+      const status = getEventAppStatus(payload)
+      if (status) syncStatus(status)
+      refetchApp()
+    }
+  )
 
   useEventsSubscription<AppStatusEventPayload>("build.failed", (payload) => {
     if (payload.appId !== appId) return
@@ -174,7 +198,7 @@ export function useRegistryUsage(appId: string) {
 
 export function useRecentBuildsAcrossApps(
   apps: Array<AppListItem>,
-  maxApps = 6,
+  maxApps = 6
 ): { builds: Array<BuildWithApp>; isLoading: boolean } {
   const targets = apps.slice(0, maxApps)
 
@@ -205,4 +229,42 @@ export function useRecentBuildsAcrossApps(
     .sort((a, b) => (b.startedAt ?? b.createdAt) - (a.startedAt ?? a.createdAt))
 
   return { builds, isLoading }
+}
+
+export function useAppCaddyExtra(appId: string) {
+  return useQuery<{ handlers: CaddyExtraHandlers | null }, ApiError>({
+    queryKey: ["apps", appId, "caddy-extra"],
+    queryFn: () =>
+      apiFetch<{ handlers: CaddyExtraHandlers | null }>(
+        `/apps/${appId}/caddy-extra`
+      ),
+    staleTime: 15_000,
+    enabled: Boolean(appId),
+  })
+}
+
+export function useUpdateAppCaddyExtra() {
+  const qc = useQueryClient()
+  return useMutation<
+    { handlers: CaddyExtraHandlers | null },
+    ApiError,
+    { appId: string; handlers: CaddyExtraHandlers | null }
+  >({
+    mutationFn: ({ appId, handlers }) =>
+      apiFetch<{ handlers: CaddyExtraHandlers | null }>(
+        `/apps/${appId}/caddy-extra`,
+        {
+          method: "PATCH",
+          body: { handlers },
+          headers: { "content-type": "application/json" },
+        }
+      ),
+    onSuccess: (data, { appId }) => {
+      toast.success("Caddy handlers updated")
+      qc.setQueryData(["apps", appId, "caddy-extra"], data)
+    },
+    onError: (error) => {
+      toast.error(error.message)
+    },
+  })
 }

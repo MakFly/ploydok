@@ -117,6 +117,8 @@ export const apps = pgTable("apps", {
   protection_basic_auth_pass_nonce: bytea("protection_basic_auth_pass_nonce"),
   protection_ip_allowlist: text("protection_ip_allowlist").array(),
   protection_rate_limit_rps: integer("protection_rate_limit_rps"),
+  // Custom Caddy handlers (Wave 4)
+  caddy_extra_handlers: text("caddy_extra_handlers"),
   // Hooks placeholders — Wave 5 will implement; defined here to avoid extra migration
   hooks_pre_deploy: text("hooks_pre_deploy"),
   hooks_post_deploy: text("hooks_post_deploy"),

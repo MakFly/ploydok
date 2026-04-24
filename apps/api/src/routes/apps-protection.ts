@@ -12,6 +12,7 @@ import { childLogger } from "../logger"
 import { requireSecondFactor } from "../auth/middleware"
 import type { AuthUser } from "../auth/middleware"
 import { listDomainsForApp } from "@ploydok/db/queries"
+import { CaddyExtraHandlersSchema } from "@ploydok/shared"
 
 const log = childLogger("protection")
 
@@ -63,22 +64,36 @@ const ProtectionPatchBody = z.object({
 // ---------------------------------------------------------------------------
 
 const caddyClient = new CaddyClient(
-  Bun.env["CADDY_ADMIN_URL"] ?? "http://127.0.0.1:2020",
+  Bun.env["CADDY_ADMIN_URL"] ?? "http://127.0.0.1:2020"
 )
 
 async function syncProtectionToCaddy(
   db: Db,
-  app: typeof apps.$inferSelect,
+  app: typeof apps.$inferSelect
 ): Promise<void> {
   const upstream = await caddyClient.getUpstream(app.id)
   if (!upstream || !app.domain) return
 
   // Build middlewares from app columns
-  const middlewares: Parameters<typeof caddyClient.upsertRoute>[0]["middlewares"] = {}
+  const middlewares: Parameters<
+    typeof caddyClient.upsertRoute
+  >[0]["middlewares"] = {}
 
-  if (app.protection_basic_auth_enabled && app.protection_basic_auth_user_enc && app.protection_basic_auth_user_nonce && app.protection_basic_auth_pass_enc && app.protection_basic_auth_pass_nonce) {
-    const user = await decryptField(app.protection_basic_auth_user_enc, app.protection_basic_auth_user_nonce)
-    const pass = await decryptField(app.protection_basic_auth_pass_enc, app.protection_basic_auth_pass_nonce)
+  if (
+    app.protection_basic_auth_enabled &&
+    app.protection_basic_auth_user_enc &&
+    app.protection_basic_auth_user_nonce &&
+    app.protection_basic_auth_pass_enc &&
+    app.protection_basic_auth_pass_nonce
+  ) {
+    const user = await decryptField(
+      app.protection_basic_auth_user_enc,
+      app.protection_basic_auth_user_nonce
+    )
+    const pass = await decryptField(
+      app.protection_basic_auth_pass_enc,
+      app.protection_basic_auth_pass_nonce
+    )
     const passHash = await hashPasswordForCaddy(pass)
     middlewares.basicAuth = { user, pass_hash: passHash }
   }
@@ -91,6 +106,17 @@ async function syncProtectionToCaddy(
     middlewares.rateLimit = { rps: app.protection_rate_limit_rps }
   }
 
+  if (app.caddy_extra_handlers) {
+    try {
+      middlewares.extraHandlers = JSON.parse(app.caddy_extra_handlers)
+    } catch {
+      log.warn(
+        { appId: app.id },
+        "caddy: failed to parse caddy_extra_handlers JSON"
+      )
+    }
+  }
+
   // Sync main app route
   try {
     await caddyClient.upsertRoute({
@@ -100,14 +126,19 @@ async function syncProtectionToCaddy(
       middlewares,
     })
   } catch (err) {
-    log.warn({ err, appId: app.id }, "caddy: failed to sync protection to main route")
+    log.warn(
+      { err, appId: app.id },
+      "caddy: failed to sync protection to main route"
+    )
   }
 
   // Sync custom domain routes
   try {
     const domains = await listDomainsForApp(db, app.id)
     for (const domain of domains) {
-      const domainUpstream = await caddyClient.getUpstream(`domain-${domain.id}`)
+      const domainUpstream = await caddyClient.getUpstream(
+        `domain-${domain.id}`
+      )
       if (!domainUpstream) continue
       await caddyClient.upsertRoute({
         host: domain.hostname,
@@ -117,7 +148,10 @@ async function syncProtectionToCaddy(
       })
     }
   } catch (err) {
-    log.warn({ err, appId: app.id }, "caddy: failed to sync protection to custom domain routes")
+    log.warn(
+      { err, appId: app.id },
+      "caddy: failed to sync protection to custom domain routes"
+    )
   }
 }
 
@@ -143,14 +177,20 @@ export function createAppsProtectionRouter(db: Db): Hono {
 
     const app = await getAppForUser(db, appId, user.id)
     if (!app) {
-      return c.json({ error: { code: "NOT_FOUND", message: "App not found" } }, 404)
+      return c.json(
+        { error: { code: "NOT_FOUND", message: "App not found" } },
+        404
+      )
     }
 
     const basicAuthUser =
       app.protection_basic_auth_enabled &&
       app.protection_basic_auth_user_enc &&
       app.protection_basic_auth_user_nonce
-        ? await decryptField(app.protection_basic_auth_user_enc, app.protection_basic_auth_user_nonce).catch(() => undefined)
+        ? await decryptField(
+            app.protection_basic_auth_user_enc,
+            app.protection_basic_auth_user_nonce
+          ).catch(() => undefined)
         : undefined
 
     return c.json({
@@ -173,14 +213,20 @@ export function createAppsProtectionRouter(db: Db): Hono {
 
     const app = await getAppForUser(db, appId, user.id)
     if (!app) {
-      return c.json({ error: { code: "NOT_FOUND", message: "App not found" } }, 404)
+      return c.json(
+        { error: { code: "NOT_FOUND", message: "App not found" } },
+        404
+      )
     }
 
     let body: z.infer<typeof ProtectionPatchBody>
     try {
       body = ProtectionPatchBody.parse(await c.req.json())
     } catch (err) {
-      return c.json({ error: { code: "VALIDATION_ERROR", message: String(err) } }, 400)
+      return c.json(
+        { error: { code: "VALIDATION_ERROR", message: String(err) } },
+        400
+      )
     }
 
     // Validate CIDR list
@@ -188,8 +234,13 @@ export function createAppsProtectionRouter(db: Db): Hono {
       for (const cidr of body.ipAllowlist) {
         if (!isValidCidr(cidr.trim())) {
           return c.json(
-            { error: { code: "VALIDATION_ERROR", message: `Invalid CIDR or IP: ${cidr}` } },
-            400,
+            {
+              error: {
+                code: "VALIDATION_ERROR",
+                message: `Invalid CIDR or IP: ${cidr}`,
+              },
+            },
+            400
           )
         }
       }
@@ -201,9 +252,17 @@ export function createAppsProtectionRouter(db: Db): Hono {
     if (body.basicAuth !== undefined) {
       patch.protection_basic_auth_enabled = body.basicAuth.enabled
 
-      if (body.basicAuth.enabled && body.basicAuth.user && body.basicAuth.pass) {
-        const { enc: userEnc, nonce: userNonce } = await encryptField(body.basicAuth.user)
-        const { enc: passEnc, nonce: passNonce } = await encryptField(body.basicAuth.pass)
+      if (
+        body.basicAuth.enabled &&
+        body.basicAuth.user &&
+        body.basicAuth.pass
+      ) {
+        const { enc: userEnc, nonce: userNonce } = await encryptField(
+          body.basicAuth.user
+        )
+        const { enc: passEnc, nonce: passNonce } = await encryptField(
+          body.basicAuth.pass
+        )
         patch.protection_basic_auth_user_enc = userEnc
         patch.protection_basic_auth_user_nonce = userNonce
         patch.protection_basic_auth_pass_enc = passEnc
@@ -218,7 +277,9 @@ export function createAppsProtectionRouter(db: Db): Hono {
     }
 
     if (body.ipAllowlist !== undefined) {
-      patch.protection_ip_allowlist = body.ipAllowlist.map((c) => c.trim()).filter(Boolean)
+      patch.protection_ip_allowlist = body.ipAllowlist
+        .map((c) => c.trim())
+        .filter(Boolean)
     }
 
     if (body.rateLimitRps !== undefined) {
@@ -234,7 +295,10 @@ export function createAppsProtectionRouter(db: Db): Hono {
       .returning()
 
     if (!updated) {
-      return c.json({ error: { code: "NOT_FOUND", message: "App not found" } }, 404)
+      return c.json(
+        { error: { code: "NOT_FOUND", message: "App not found" } },
+        404
+      )
     }
 
     // Best-effort Caddy sync
@@ -260,7 +324,10 @@ export function createAppsProtectionRouter(db: Db): Hono {
 
     const app = await getAppForUser(db, appId, user.id)
     if (!app) {
-      return c.json({ error: { code: "NOT_FOUND", message: "App not found" } }, 404)
+      return c.json(
+        { error: { code: "NOT_FOUND", message: "App not found" } },
+        404
+      )
     }
 
     if (
@@ -272,14 +339,112 @@ export function createAppsProtectionRouter(db: Db): Hono {
     ) {
       return c.json(
         { error: { code: "NOT_FOUND", message: "Basic auth not configured" } },
-        404,
+        404
       )
     }
 
-    const username = await decryptField(app.protection_basic_auth_user_enc, app.protection_basic_auth_user_nonce)
-    const password = await decryptField(app.protection_basic_auth_pass_enc, app.protection_basic_auth_pass_nonce)
+    const username = await decryptField(
+      app.protection_basic_auth_user_enc,
+      app.protection_basic_auth_user_nonce
+    )
+    const password = await decryptField(
+      app.protection_basic_auth_pass_enc,
+      app.protection_basic_auth_pass_nonce
+    )
 
     return c.json({ user: username, pass: password })
+  })
+
+  // -------------------------------------------------------------------------
+  // GET /:id/caddy-extra — current Caddy extra handlers config
+  // -------------------------------------------------------------------------
+
+  router.get("/:id/caddy-extra", async (c) => {
+    const user = getUser(c)
+    const appId = c.req.param("id")
+
+    const app = await getAppForUser(db, appId, user.id)
+    if (!app) {
+      return c.json(
+        { error: { code: "NOT_FOUND", message: "App not found" } },
+        404
+      )
+    }
+
+    let handlers = null
+    if (app.caddy_extra_handlers) {
+      try {
+        handlers = JSON.parse(app.caddy_extra_handlers)
+      } catch {
+        handlers = null
+      }
+    }
+
+    return c.json({ handlers })
+  })
+
+  // -------------------------------------------------------------------------
+  // PATCH /:id/caddy-extra — update custom Caddy handlers
+  // -------------------------------------------------------------------------
+
+  router.patch("/:id/caddy-extra", async (c) => {
+    const user = getUser(c)
+    const appId = c.req.param("id")!
+
+    const app = await getAppForUser(db, appId, user.id)
+    if (!app) {
+      return c.json(
+        { error: { code: "NOT_FOUND", message: "App not found" } },
+        404
+      )
+    }
+
+    let body: { handlers: unknown }
+    try {
+      body = await c.req.json()
+    } catch (err) {
+      return c.json(
+        { error: { code: "VALIDATION_ERROR", message: String(err) } },
+        400
+      )
+    }
+
+    let parsed = null
+    if (body.handlers !== null && body.handlers !== undefined) {
+      const result = CaddyExtraHandlersSchema.safeParse(body.handlers)
+      if (!result.success) {
+        return c.json(
+          {
+            error: { code: "VALIDATION_ERROR", message: result.error.message },
+          },
+          400
+        )
+      }
+      parsed = result.data
+    }
+
+    const patch: Partial<typeof apps.$inferInsert> = {
+      caddy_extra_handlers: parsed ? JSON.stringify(parsed) : null,
+      updated_at: new Date(),
+    }
+
+    const [updated] = await db
+      .update(apps)
+      .set(patch)
+      .where(eq(apps.id, appId))
+      .returning()
+
+    if (!updated) {
+      return c.json(
+        { error: { code: "NOT_FOUND", message: "App not found" } },
+        404
+      )
+    }
+
+    // Best-effort Caddy sync
+    void syncProtectionToCaddy(db, updated)
+
+    return c.json({ handlers: parsed })
   })
 
   return router

@@ -2,6 +2,7 @@
 
 export const VERSION = "0.0.1"
 
+export * from "./audit"
 export * from "./auth"
 export * from "./apps"
 export * from "./git-providers"
@@ -12,3 +13,4 @@ export * from "./notifications"
 export * from "./stack-classifier"
 export * from "./marketplace-dsl"
 export * from "./marketplace"
+export * from "./caddy"
