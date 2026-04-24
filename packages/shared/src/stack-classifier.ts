@@ -243,12 +243,15 @@ export function classifyStack(probes: ProbeResults): StackClassification {
         // - NIXPACKS_PHP_ROOT_DIR / NIXPACKS_PHP_FALLBACK_PATH: Nixpacks'
         //   Laravel-centric PHP provider only rewrites index.php when these
         //   are set (Coolify documents the same gotcha).
-        // - NIXPACKS_INSTALL_CMD: Symfony Flex's auto-scripts hook runs
-        //   `symfony-cmd` after composer install. That binary doesn't exist
-        //   when composer plugins are disabled in root-run containers, so
-        //   the install phase fails with exit 127. `--no-scripts` skips the
-        //   flex hook while keeping the vendor autoloader intact — this is
-        //   the exact pattern the dunglas/symfony-docker template uses.
+        // - NIXPACKS_INSTALL_CMD: composer runs as root in the Nixpacks
+        //   build container, which disables plugins by default. That breaks
+        //   symfony/runtime's post-install plugin (it generates
+        //   `autoload_runtime.php`, which `public/index.php` requires) and
+        //   the Flex `symfony-cmd` helper (which `auto-scripts` invokes).
+        //   `COMPOSER_ALLOW_SUPERUSER=1` re-enables plugins in the
+        //   build so the autoloader + Flex helpers are wired correctly.
+        //   Also prepends `mkdir -p /var/log/nginx /var/cache/nginx` that
+        //   the default Nixpacks PHP recipe runs but we override wholesale.
         // APP_ENV is intentionally NOT injected: `prod` on a fresh repo
         // without DATABASE_URL / writable var/cache breaks cache:warmup and
         // makes the app 500 on every route. The user sets APP_ENV per
@@ -257,7 +260,7 @@ export function classifyStack(probes: ProbeResults): StackClassification {
           NIXPACKS_PHP_ROOT_DIR: "/app/public",
           NIXPACKS_PHP_FALLBACK_PATH: "/index.php",
           NIXPACKS_INSTALL_CMD:
-            "mkdir -p /var/log/nginx /var/cache/nginx && composer install --no-interaction --no-scripts --no-progress --prefer-dist --ignore-platform-reqs --optimize-autoloader",
+            "mkdir -p /var/log/nginx /var/cache/nginx && COMPOSER_ALLOW_SUPERUSER=1 composer install --no-interaction --no-progress --prefer-dist --ignore-platform-reqs --optimize-autoloader",
         },
       }
     }
