@@ -84,6 +84,16 @@ function makeAgent(
   }
 }
 
+type CaddyDeps = NonNullable<OrchestratorDeps["caddy"]>
+
+function makeCaddy(overrides: Partial<CaddyDeps> = {}): CaddyDeps {
+  return {
+    upsertRoute: mock(async () => {}),
+    removeRoute: mock(async () => {}),
+    ...overrides,
+  }
+}
+
 // Minimal db stub — queries are mocked at module level
 function makeDb(): OrchestratorDeps["db"] {
   return {
@@ -119,13 +129,17 @@ describe("installFromTemplate", () => {
     } as unknown as OrchestratorDeps["db"]
 
     await expect(
-      installFromTemplate({ agent: makeAgent(), db }, "user-1", {
-        projectId: "proj-missing",
-        templateId: "pocketbase",
-        templateVersion: "0.22.0",
-        name: "My PB",
-        compose: "services:\n  app:\n    image: pocketbase:latest\n",
-      })
+      installFromTemplate(
+        { agent: makeAgent(), db, caddy: makeCaddy() },
+        "user-1",
+        {
+          projectId: "proj-missing",
+          templateId: "pocketbase",
+          templateVersion: "0.22.0",
+          name: "My PB",
+          compose: "services:\n  app:\n    image: pocketbase:latest\n",
+        }
+      )
     ).rejects.toMatchObject({ code: "NOT_FOUND" })
   })
 
@@ -141,13 +155,17 @@ describe("installFromTemplate", () => {
     } as unknown as OrchestratorDeps["db"]
 
     await expect(
-      installFromTemplate({ agent: makeAgent(), db }, "user-1", {
-        projectId: "proj-1",
-        templateId: "pocketbase",
-        templateVersion: "0.22.0",
-        name: "My PB",
-        compose: "services:\n  app:\n    image: pocketbase:latest\n",
-      })
+      installFromTemplate(
+        { agent: makeAgent(), db, caddy: makeCaddy() },
+        "user-1",
+        {
+          projectId: "proj-1",
+          templateId: "pocketbase",
+          templateVersion: "0.22.0",
+          name: "My PB",
+          compose: "services:\n  app:\n    image: pocketbase:latest\n",
+        }
+      )
     ).rejects.toMatchObject({ code: "FORBIDDEN" })
   })
 
@@ -163,7 +181,7 @@ describe("installFromTemplate", () => {
     } as unknown as OrchestratorDeps["db"]
 
     const row = await installFromTemplate(
-      { agent: makeAgent(), db },
+      { agent: makeAgent(), db, caddy: makeCaddy() },
       "user-1",
       {
         projectId: "proj-1",
@@ -178,6 +196,62 @@ describe("installFromTemplate", () => {
     expect(row.name).toBe("My PB")
     expect(row.template_id).toBe("pocketbase")
   })
+
+  it("calls caddy.upsertRoute once when domain is set", async () => {
+    const db = {
+      select: mock(() => ({
+        from: mock(() => ({
+          where: mock(() => ({
+            limit: mock(async () => [{ id: "proj-1", owner_id: "user-1" }]),
+          })),
+        })),
+      })),
+    } as unknown as OrchestratorDeps["db"]
+
+    const caddy = makeCaddy()
+
+    await installFromTemplate({ agent: makeAgent(), db, caddy }, "user-1", {
+      projectId: "proj-1",
+      templateId: "pocketbase",
+      templateVersion: "0.22.0",
+      name: "My PB",
+      // compose with ${domain} DSL + a port so the entrypoint heuristic succeeds
+      compose:
+        'services:\n  app:\n    image: pocketbase:latest\n    ports:\n      - "8080:8080"\n    environment:\n      DOMAIN: ${domain}\n',
+    })
+
+    // fire-and-forget: wait for the async loop to complete
+    await new Promise((resolve) => setTimeout(resolve, 50))
+
+    expect(caddy.upsertRoute).toHaveBeenCalledTimes(1)
+  })
+
+  it("does NOT call caddy.upsertRoute when domain is null", async () => {
+    const db = {
+      select: mock(() => ({
+        from: mock(() => ({
+          where: mock(() => ({
+            limit: mock(async () => [{ id: "proj-1", owner_id: "user-1" }]),
+          })),
+        })),
+      })),
+    } as unknown as OrchestratorDeps["db"]
+
+    const caddy = makeCaddy()
+
+    // compose without x-ploydok-domain → domain will be null
+    await installFromTemplate({ agent: makeAgent(), db, caddy }, "user-1", {
+      projectId: "proj-1",
+      templateId: "pocketbase",
+      templateVersion: "0.22.0",
+      name: "My PB",
+      compose: "services:\n  app:\n    image: pocketbase:latest\n",
+    })
+
+    await new Promise((resolve) => setTimeout(resolve, 50))
+
+    expect(caddy.upsertRoute).not.toHaveBeenCalled()
+  })
 })
 
 // ---------------------------------------------------------------------------
@@ -188,7 +262,11 @@ describe("startService", () => {
   it("throws NOT_FOUND when service not found", async () => {
     mockGetServiceForUser.mockResolvedValueOnce(null)
     await expect(
-      startService({ agent: makeAgent(), db: makeDb() }, "user-1", "svc-1")
+      startService(
+        { agent: makeAgent(), db: makeDb(), caddy: makeCaddy() },
+        "user-1",
+        "svc-1"
+      )
     ).rejects.toMatchObject({
       code: "NOT_FOUND",
     })
@@ -201,7 +279,11 @@ describe("startService", () => {
       container_ids: ["ctr-1"],
     })
     await expect(
-      startService({ agent: makeAgent(), db: makeDb() }, "user-1", "svc-1")
+      startService(
+        { agent: makeAgent(), db: makeDb(), caddy: makeCaddy() },
+        "user-1",
+        "svc-1"
+      )
     ).rejects.toMatchObject({
       code: "CONFLICT",
     })
@@ -214,7 +296,11 @@ describe("startService", () => {
       status: "stopped",
       container_ids: ["ctr-a", "ctr-b"],
     })
-    await startService({ agent, db: makeDb() }, "user-1", "svc-1")
+    await startService(
+      { agent, db: makeDb(), caddy: makeCaddy() },
+      "user-1",
+      "svc-1"
+    )
     expect(agent.containerStart).toHaveBeenCalledTimes(2)
     expect(mockUpdateServiceStatus).toHaveBeenCalledWith(
       expect.anything(),
@@ -236,7 +322,11 @@ describe("stopService", () => {
       container_ids: [],
     })
     await expect(
-      stopService({ agent: makeAgent(), db: makeDb() }, "user-1", "svc-1")
+      stopService(
+        { agent: makeAgent(), db: makeDb(), caddy: makeCaddy() },
+        "user-1",
+        "svc-1"
+      )
     ).rejects.toMatchObject({
       code: "CONFLICT",
     })
@@ -249,7 +339,11 @@ describe("stopService", () => {
       status: "running",
       container_ids: ["ctr-a", "ctr-b"],
     })
-    await stopService({ agent, db: makeDb() }, "user-1", "svc-1")
+    await stopService(
+      { agent, db: makeDb(), caddy: makeCaddy() },
+      "user-1",
+      "svc-1"
+    )
     expect(agent.containerStop).toHaveBeenCalledTimes(2)
     // second call should be ctr-a (reversed)
     const calls = (agent.containerStop as ReturnType<typeof mock>).mock.calls
@@ -271,7 +365,11 @@ describe("deleteService", () => {
   it("throws NOT_FOUND when service not found", async () => {
     mockGetServiceForUser.mockResolvedValueOnce(null)
     await expect(
-      deleteService({ agent: makeAgent(), db: makeDb() }, "user-1", "svc-1")
+      deleteService(
+        { agent: makeAgent(), db: makeDb(), caddy: makeCaddy() },
+        "user-1",
+        "svc-1"
+      )
     ).rejects.toMatchObject({
       code: "NOT_FOUND",
     })
@@ -296,7 +394,7 @@ describe("deleteService", () => {
       container_ids: ["ctr-a", "ctr-b"],
     })
 
-    await deleteService({ agent, db }, "user-1", "svc-1")
+    await deleteService({ agent, db, caddy: makeCaddy() }, "user-1", "svc-1")
 
     expect(mockMarkServiceDeleting).toHaveBeenCalledWith(
       expect.anything(),
@@ -330,8 +428,39 @@ describe("deleteService", () => {
       container_ids: ["ctr-a"],
     })
 
-    await deleteService({ agent, db }, "user-1", "svc-1")
+    await deleteService({ agent, db, caddy: makeCaddy() }, "user-1", "svc-1")
     expect(agent.containerRemove).toHaveBeenCalledTimes(1)
     expect(deleteCalled).toBe(true)
+  })
+
+  it("calls caddy.removeRoute before db.delete", async () => {
+    const agent = makeAgent()
+    const callOrder: string[] = []
+    const caddy = {
+      upsertRoute: mock(async () => {}),
+      removeRoute: mock(async () => {
+        callOrder.push("removeRoute")
+      }),
+    }
+    const db = {
+      ...makeDb(),
+      delete: mock(() => ({
+        where: mock(async () => {
+          callOrder.push("dbDelete")
+        }),
+      })),
+    } as unknown as OrchestratorDeps["db"]
+
+    mockGetServiceForUser.mockResolvedValueOnce({
+      id: "svc-1",
+      name: "My PB",
+      status: "stopped",
+      container_ids: [],
+    })
+
+    await deleteService({ agent, db, caddy }, "user-1", "svc-1")
+
+    expect(caddy.removeRoute).toHaveBeenCalledWith("svc-1")
+    expect(callOrder).toEqual(["removeRoute", "dbDelete"])
   })
 })

@@ -14,6 +14,13 @@ import type { ServiceRow, Db } from "@ploydok/db"
 import { resolveTemplate } from "@ploydok/shared"
 import { childLogger } from "../logger"
 import type { Agent } from "../agent"
+import type { CaddyClient } from "../caddy/client.js"
+import { getSharedCaddy } from "../debug/singletons.js"
+import {
+  upsertServiceRoute,
+  removeServiceRoute,
+  ServiceHasNoEntrypointError,
+} from "../caddy/service-routes.js"
 
 import {
   composeToContainers,
@@ -51,6 +58,7 @@ export interface OrchestratorDeps {
     | "containerRemove"
   >
   db: Db
+  caddy?: Pick<CaddyClient, "upsertRoute" | "removeRoute">
 }
 
 function slugify(name: string): string {
@@ -73,6 +81,7 @@ export async function installFromTemplate(
   }
 ): Promise<ServiceRow> {
   const { agent, db } = deps
+  const caddy = deps.caddy ?? getSharedCaddy()
 
   const projectRows = await db
     .select({ id: projects.id, owner_id: projects.owner_id })
@@ -168,6 +177,26 @@ export async function installFromTemplate(
 
       await updateServiceContainers(db, serviceId, containerIds)
       await updateServiceStatus(db, serviceId, "running")
+
+      if (domain && containers.length > 0) {
+        try {
+          await upsertServiceRoute(caddy, {
+            serviceId,
+            domain,
+            containers,
+          })
+        } catch (err) {
+          if (err instanceof ServiceHasNoEntrypointError) {
+            log.warn(
+              { serviceId, domain },
+              "service deployed but no entrypoint port found — skipping Caddy route"
+            )
+          } else {
+            log.warn({ err, serviceId, domain }, "Caddy route upsert failed")
+          }
+        }
+      }
+
       log.info(
         { serviceId, slug, containerCount: containerIds.length },
         "service deployed"
@@ -238,6 +267,7 @@ export async function deleteService(
   serviceId: string
 ): Promise<void> {
   const { agent, db } = deps
+  const caddy = deps.caddy ?? getSharedCaddy()
 
   const svc = await getServiceForUser(db, serviceId, userId)
   if (!svc)
@@ -262,7 +292,9 @@ export async function deleteService(
     }
   }
 
-  // TODO(Wave 3): removeCaddyRoute(svc.domain) when Caddy integration is ready
+  await removeServiceRoute(caddy, serviceId).catch((err) =>
+    log.warn({ err, serviceId }, "Caddy route removal failed during delete")
+  )
 
   await db.delete(services).where(eq(services.id, serviceId))
   log.info({ serviceId, name: svc.name }, "service deleted")

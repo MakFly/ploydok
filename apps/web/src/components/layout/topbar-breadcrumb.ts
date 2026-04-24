@@ -142,6 +142,17 @@ export function resolveTopbarBreadcrumb(
     return [{ label: "Databases", to: "/databases" }, { label: "Database" }]
   }
 
+  if (normalized === "/services") {
+    return [{ label: "Services" }]
+  }
+
+  if (normalized.startsWith("/services/")) {
+    const segments = normalized.split("/").filter(Boolean)
+    const serviceId = segments[1]
+    if (!serviceId) return [{ label: "Services" }]
+    return [{ label: "Services", to: "/services" }, { label: "Service" }]
+  }
+
   if (normalized.startsWith("/apps/")) {
     const segments = normalized.split("/").filter(Boolean)
     const items: Array<BreadcrumbItem> = [{ label: "Apps", to: "/apps" }]
