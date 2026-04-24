@@ -203,7 +203,8 @@ export function classifyStack(probes: ProbeResults): StackClassification {
     if (has(probes, "artisan")) {
       signals.push("artisan")
       // Laravel often has a Vite front-end (package.json)
-      if (has(probes, "package.json")) signals.push("package.json")
+      const hasNodeFrontend = has(probes, "package.json")
+      if (hasNodeFrontend) signals.push("package.json")
       return {
         stack: "laravel",
         framework: "Laravel",
@@ -211,7 +212,14 @@ export function classifyStack(probes: ProbeResults): StackClassification {
         signals,
         recommendedBuild: "nixpacks",
         warnings: [],
-        suggestedEnvVars: {},
+        // Vite ≥ 5 requires Node ≥ 20. Nixpacks defaults to Node 18 which
+        // crashes on `CustomEvent is not defined` during `vite build`. We
+        // pin Node 20 whenever a package.json is present alongside a Laravel
+        // app — it's a strict superset (pure-PHP Laravel apps still succeed
+        // with the extra env var, which Nixpacks ignores if Node isn't used).
+        suggestedEnvVars: hasNodeFrontend
+          ? { NIXPACKS_NODE_VERSION: "20" }
+          : {},
       }
     }
     if (has(probes, "symfony.lock") || has(probes, "bin/console")) {

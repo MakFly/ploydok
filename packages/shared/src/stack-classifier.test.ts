@@ -58,6 +58,14 @@ describe("classifyStack — PHP", () => {
     )
     expect(r.stack).toBe("laravel")
     expect(r.signals).toContain("package.json")
+    // Vite ≥ 5 requires Node ≥ 20; Nixpacks defaults to 18 → CustomEvent crash.
+    expect(r.suggestedEnvVars).toEqual({ NIXPACKS_NODE_VERSION: "20" })
+  })
+
+  it("Laravel without package.json: no Node pin", () => {
+    const r = classifyStack(probes(["composer.json", "artisan"]))
+    expect(r.stack).toBe("laravel")
+    expect(r.suggestedEnvVars).toEqual({})
   })
 
   it("Symfony via symfony.lock → nixpacks", () => {
