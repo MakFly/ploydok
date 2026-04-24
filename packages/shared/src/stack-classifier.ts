@@ -212,14 +212,22 @@ export function classifyStack(probes: ProbeResults): StackClassification {
         signals,
         recommendedBuild: "nixpacks",
         warnings: [],
-        // Vite ≥ 5 requires Node ≥ 20. Nixpacks defaults to Node 18 which
-        // crashes on `CustomEvent is not defined` during `vite build`. We
-        // pin Node 20 whenever a package.json is present alongside a Laravel
-        // app — it's a strict superset (pure-PHP Laravel apps still succeed
-        // with the extra env var, which Nixpacks ignores if Node isn't used).
-        suggestedEnvVars: hasNodeFrontend
-          ? { NIXPACKS_NODE_VERSION: "20" }
-          : {},
+        // Defaults that make a fresh Laravel repo healthy on first deploy
+        // without user config:
+        // - SESSION_DRIVER=file / CACHE_STORE=file: Laravel 11+ defaults to
+        //   `database` which reads/writes a sqlite file the fixture does
+        //   not ship. File-backed sessions sidestep that on zero-DB
+        //   deploys.
+        // - NIXPACKS_NODE_VERSION=20: Vite ≥ 5 requires Node ≥ 20; Nixpacks
+        //   defaults to 18 which crashes on `vite build` (CustomEvent).
+        //   Only pinned when package.json is present.
+        // APP_KEY is NOT auto-injected: every app must get its own (sprint-6
+        // will add auto-generation on first deploy).
+        suggestedEnvVars: {
+          SESSION_DRIVER: "file",
+          CACHE_STORE: "file",
+          ...(hasNodeFrontend ? { NIXPACKS_NODE_VERSION: "20" } : {}),
+        },
       }
     }
     if (has(probes, "symfony.lock") || has(probes, "bin/console")) {
@@ -249,7 +257,7 @@ export function classifyStack(probes: ProbeResults): StackClassification {
           NIXPACKS_PHP_ROOT_DIR: "/app/public",
           NIXPACKS_PHP_FALLBACK_PATH: "/index.php",
           NIXPACKS_INSTALL_CMD:
-            "composer install --no-interaction --no-scripts --no-progress --prefer-dist --ignore-platform-reqs --optimize-autoloader",
+            "mkdir -p /var/log/nginx /var/cache/nginx && composer install --no-interaction --no-scripts --no-progress --prefer-dist --ignore-platform-reqs --optimize-autoloader",
         },
       }
     }
