@@ -31,12 +31,30 @@ export async function ensureNixpacksInstalled(): Promise<string> {
   const binPath = path.join(binDir, "nixpacks");
   if (existsSync(binPath)) return binPath;
 
-  // 3. Download from GitHub releases
+  // 3. Download from GitHub releases.
+  // Release assets embed the version in the filename
+  // (e.g. `nixpacks-v1.41.0-x86_64-unknown-linux-musl.tar.gz`),
+  // so `releases/latest/download/...` without the version returns 404.
+  // We resolve the current tag via the API first, then build a versioned URL.
   await mkdir(binDir, { recursive: true });
 
   const arch = process.arch === "x64" ? "x86_64" : "aarch64";
-  const tarName = `nixpacks-${arch}-unknown-linux-musl.tar.gz`;
-  const url = `https://github.com/railwayapp/nixpacks/releases/latest/download/${tarName}`;
+
+  const metaRes = await fetch(
+    "https://api.github.com/repos/railwayapp/nixpacks/releases/latest",
+    { headers: { "User-Agent": "ploydok", Accept: "application/vnd.github+json" } },
+  );
+  if (!metaRes.ok) {
+    throw new Error(`nixpacks release lookup failed (${metaRes.status})`);
+  }
+  const meta = (await metaRes.json()) as { tag_name?: string };
+  const tag = meta.tag_name;
+  if (!tag) {
+    throw new Error("nixpacks release lookup returned no tag_name");
+  }
+
+  const tarName = `nixpacks-${tag}-${arch}-unknown-linux-musl.tar.gz`;
+  const url = `https://github.com/railwayapp/nixpacks/releases/download/${tag}/${tarName}`;
 
   const res = await fetch(url);
   if (!res.ok) {
@@ -85,16 +103,13 @@ export interface NixpacksBuildOptions {
    */
   cacheDir?: string;
   /**
-   * Registry image reference used as a remote cache source **and** destination,
-   * e.g. `127.0.0.1:5000/app-xyz:cache`.
+   * Registry image reference used as an incremental cache source **and**
+   * destination, e.g. `127.0.0.1:5000/app-xyz:cache`.
    *
-   * When provided together with `cacheDir`, two BuildKit cache flags are
-   * injected into the nixpacks command:
-   *   --docker-cache-from=<dockerCacheRef>
-   *   --docker-cache-to=type=local,dest=<cacheDir>,mode=max
-   *
-   * Nixpacks delegates these flags verbatim to the underlying Docker buildx
-   * backend, so they follow the standard BuildKit cache export/import syntax.
+   * When provided, the `--incremental-cache-image=<ref>` flag is passed to
+   * nixpacks, which pulls this image at build start to seed the layer cache
+   * and pushes an updated image at the end.  This is the only BuildKit-level
+   * cache exchange that the nixpacks CLI exposes natively.
    */
   dockerCacheRef?: string;
   configFile?: string;
@@ -134,12 +149,11 @@ export async function nixpacksBuild(opts: NixpacksBuildOptions): Promise<void> {
     args.push("--cache-key", path.basename(opts.cacheDir));
   }
 
-  // Inject BuildKit-level cache flags when both a remote cache reference and a
-  // local cache directory are provided.  Nixpacks forwards these flags verbatim
-  // to the Docker buildx backend (--docker-cache-from / --docker-cache-to).
+  // Enable incremental-cache via a registry image (nixpacks native flag).
+  // Requires a writable registry ref — we only wire this when both the remote
+  // cache ref and a local cacheDir are provided (same gating as before).
   if (opts.dockerCacheRef && opts.cacheDir) {
-    args.push(`--docker-cache-from=${opts.dockerCacheRef}`);
-    args.push(`--docker-cache-to=type=local,dest=${opts.cacheDir},mode=max`);
+    args.push(`--incremental-cache-image=${opts.dockerCacheRef}`);
   }
 
   if (opts.configFile) args.push("--config", path.join(opts.workspacePath, opts.configFile));
