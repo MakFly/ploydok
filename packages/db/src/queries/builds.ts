@@ -47,13 +47,6 @@ export async function insertBuild(
   return getBuildById(db, id)
 }
 
-const TERMINAL_STATUSES: ReadonlyArray<BuildStatus> = [
-  "succeeded",
-  "succeeded_with_warning",
-  "failed",
-  "cancelled",
-]
-
 export async function updateBuildStatus(
   db: Db,
   id: string,
@@ -93,13 +86,18 @@ export async function updateBuildStatus(
         build_method: patch.buildMethod,
       }),
     })
+    // Sticky terminal rule: once a build is in a terminal state
+    // (cancelled / succeeded / succeeded_with_warning / failed), no
+    // further updateBuildStatus can flip it. Enforced with a WHERE
+    // clause so the UPDATE is a no-op against already-terminal rows
+    // regardless of the caller. Callers that legitimately want to
+    // transition e.g. from `failed` back to `pending` (rebuild flow)
+    // must use a dedicated reset query, not updateBuildStatus.
     .where(
-      TERMINAL_STATUSES.includes(status)
-        ? eq(builds.id, id)
-        : and(
-            eq(builds.id, id),
-            inArray(builds.status, ["pending", "running"] as const)
-          )
+      and(
+        eq(builds.id, id),
+        inArray(builds.status, ["pending", "running"] as const)
+      )
     )
   return getBuildById(db, id)
 }
