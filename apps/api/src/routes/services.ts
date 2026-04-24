@@ -1,0 +1,284 @@
+// SPDX-License-Identifier: AGPL-3.0-only
+import { Hono } from "hono"
+import { and, eq } from "drizzle-orm"
+import { services, projects } from "@ploydok/db"
+import { createDb } from "@ploydok/db"
+import type { Db } from "@ploydok/db"
+import { listServicesForProject, getServiceForUser } from "@ploydok/db/queries"
+import { CreateServiceFromTemplateBody } from "@ploydok/shared"
+import { env } from "../env"
+import { getSharedAgent } from "../debug/singletons"
+import { childLogger } from "../logger"
+import type { AuthUser } from "../auth/middleware"
+import {
+  installFromTemplate,
+  startService,
+  stopService,
+  deleteService,
+} from "../services/marketplace-orchestrator"
+
+const log = childLogger("services.routes")
+
+type AppEnv = { Variables: { user?: AuthUser } }
+
+function getUser(c: { get: (k: string) => unknown }): AuthUser {
+  return c.get("user") as AuthUser
+}
+
+// eslint-disable-next-line @typescript-eslint/no-explicit-any
+export function createServicesRouter(db: Db): Hono<any, any, any> {
+  const router = new Hono<AppEnv>()
+
+  // GET /services?projectId=<id>
+  router.get("/", async (c) => {
+    const user = getUser(c)
+    const projectId = c.req.query("projectId")
+
+    if (projectId) {
+      const projectRows = await db
+        .select({ id: projects.id })
+        .from(projects)
+        .where(and(eq(projects.id, projectId), eq(projects.owner_id, user.id)))
+        .limit(1)
+      if (!projectRows[0]) {
+        return c.json(
+          { error: { code: "NOT_FOUND", message: "Project not found" } },
+          404
+        )
+      }
+      const rows = await listServicesForProject(db, projectId)
+      return c.json({ services: rows })
+    }
+
+    // All services across all user projects
+    const rows = await db
+      .select({ service: services })
+      .from(services)
+      .innerJoin(projects, eq(services.project_id, projects.id))
+      .where(eq(projects.owner_id, user.id))
+    return c.json({ services: rows.map((r) => r.service) })
+  })
+
+  // GET /services/:id
+  router.get("/:id", async (c) => {
+    const user = getUser(c)
+    const svc = await getServiceForUser(db, c.req.param("id"), user.id)
+    if (!svc) {
+      return c.json(
+        { error: { code: "NOT_FOUND", message: "Service not found" } },
+        404
+      )
+    }
+    return c.json({ service: svc })
+  })
+
+  // POST /services/from-template
+  router.post("/from-template", async (c) => {
+    const user = getUser(c)
+    const body = await c.req.json().catch(() => null)
+    const parsed = CreateServiceFromTemplateBody.safeParse(body)
+    if (!parsed.success) {
+      return c.json(
+        { error: { code: "VALIDATION_ERROR", message: parsed.error.message } },
+        400
+      )
+    }
+
+    const agent = getSharedAgent()
+
+    try {
+      const row = await installFromTemplate({ agent, db }, user.id, {
+        projectId: parsed.data.projectId,
+        templateId: parsed.data.templateId,
+        templateVersion: parsed.data.templateVersion,
+        name: parsed.data.name,
+        compose: parsed.data.compose,
+      })
+      return c.json({ service: row }, 201)
+    } catch (err) {
+      const code = (err as { code?: string }).code
+      if (code === "NOT_FOUND") {
+        return c.json(
+          { error: { code: "NOT_FOUND", message: "Project not found" } },
+          404
+        )
+      }
+      if (code === "FORBIDDEN") {
+        return c.json(
+          { error: { code: "FORBIDDEN", message: "Forbidden" } },
+          403
+        )
+      }
+      const message = err instanceof Error ? err.message : String(err)
+      log.error({ err }, "installFromTemplate failed")
+      return c.json({ error: { code: "INTERNAL", message } }, 500)
+    }
+  })
+
+  // POST /services/:id/start
+  router.post("/:id/start", async (c) => {
+    const user = getUser(c)
+    const serviceId = c.req.param("id")
+
+    try {
+      await startService({ agent: getSharedAgent(), db }, user.id, serviceId)
+      return c.json({ ok: true })
+    } catch (err) {
+      const code = (err as { code?: string }).code
+      if (code === "NOT_FOUND") {
+        return c.json(
+          { error: { code: "NOT_FOUND", message: "Service not found" } },
+          404
+        )
+      }
+      if (code === "CONFLICT") {
+        return c.json(
+          { error: { code: "CONFLICT", message: (err as Error).message } },
+          409
+        )
+      }
+      log.error({ err, serviceId }, "start service failed")
+      return c.json(
+        { error: { code: "START_FAILED", message: "Start failed" } },
+        500
+      )
+    }
+  })
+
+  // POST /services/:id/stop
+  router.post("/:id/stop", async (c) => {
+    const user = getUser(c)
+    const serviceId = c.req.param("id")
+
+    try {
+      await stopService({ agent: getSharedAgent(), db }, user.id, serviceId)
+      return c.json({ ok: true })
+    } catch (err) {
+      const code = (err as { code?: string }).code
+      if (code === "NOT_FOUND") {
+        return c.json(
+          { error: { code: "NOT_FOUND", message: "Service not found" } },
+          404
+        )
+      }
+      if (code === "CONFLICT") {
+        return c.json(
+          { error: { code: "CONFLICT", message: (err as Error).message } },
+          409
+        )
+      }
+      log.error({ err, serviceId }, "stop service failed")
+      return c.json(
+        { error: { code: "STOP_FAILED", message: "Stop failed" } },
+        500
+      )
+    }
+  })
+
+  // DELETE /services/:id
+  router.delete("/:id", async (c) => {
+    const user = getUser(c)
+    const serviceId = c.req.param("id")
+
+    const svc = await getServiceForUser(db, serviceId, user.id)
+    if (!svc) {
+      return c.json(
+        { error: { code: "NOT_FOUND", message: "Service not found" } },
+        404
+      )
+    }
+
+    const body = await c.req.json().catch(() => null)
+    const confirm = body?.confirm
+    if (confirm !== `delete ${svc.name}`) {
+      return c.json(
+        {
+          error: {
+            code: "CONFIRM_REQUIRED",
+            message: `Send { "confirm": "delete ${svc.name}" } to confirm deletion`,
+          },
+        },
+        400
+      )
+    }
+
+    try {
+      await deleteService({ agent: getSharedAgent(), db }, user.id, serviceId)
+      return c.json({ ok: true })
+    } catch (err) {
+      const code = (err as { code?: string }).code
+      if (code === "NOT_FOUND") {
+        return c.json(
+          { error: { code: "NOT_FOUND", message: "Service not found" } },
+          404
+        )
+      }
+      log.error({ err, serviceId }, "delete service failed")
+      return c.json(
+        { error: { code: "DELETE_FAILED", message: "Delete failed" } },
+        500
+      )
+    }
+  })
+
+  // GET /services/:id/logs
+  router.get("/:id/logs", async (c) => {
+    const user = getUser(c)
+    const serviceId = c.req.param("id")
+    const containerIdx = Number(c.req.query("container") ?? 0)
+    const tailRaw = Number(c.req.query("tail") ?? 200)
+    const tail = Number.isFinite(tailRaw)
+      ? Math.max(1, Math.min(Math.floor(tailRaw), 1_000))
+      : 200
+
+    const svc = await getServiceForUser(db, serviceId, user.id)
+    if (!svc) {
+      return c.json(
+        { error: { code: "NOT_FOUND", message: "Service not found" } },
+        404
+      )
+    }
+
+    const ids = svc.container_ids ?? []
+    const idx = Number.isFinite(containerIdx) ? Math.max(0, containerIdx) : 0
+    const containerId = ids[idx]
+    if (!containerId) {
+      return c.json({ lines: [], containerFound: false })
+    }
+
+    try {
+      const agent = getSharedAgent()
+      const lines: Array<{
+        t: number
+        line: string
+        stream?: "stdout" | "stderr"
+      }> = []
+      for await (const entry of agent.containerLogs({
+        containerId,
+        follow: false,
+        sinceUnix: 0,
+        tail,
+      })) {
+        const item: { t: number; line: string; stream?: "stdout" | "stderr" } =
+          {
+            t: Date.parse(entry.timestamp) || Date.now(),
+            line: entry.line,
+          }
+        if (entry.stream === "stdout" || entry.stream === "stderr")
+          item.stream = entry.stream
+        lines.push(item)
+      }
+      return c.json({ lines, containerFound: true })
+    } catch (err) {
+      const message = err instanceof Error ? err.message : String(err)
+      return c.json({ error: { code: "LOGS_ERROR", message } }, 500)
+    }
+  })
+
+  return router
+}
+
+export function servicesRouterFactory() {
+  const db = createDb(env.DATABASE_URL)
+  return createServicesRouter(db)
+}

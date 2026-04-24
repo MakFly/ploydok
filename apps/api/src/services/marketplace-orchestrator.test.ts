@@ -1,0 +1,337 @@
+// SPDX-License-Identifier: AGPL-3.0-only
+import { describe, it, expect, mock, beforeAll } from "bun:test"
+
+// ---------------------------------------------------------------------------
+// Module-level mocks — must be declared before any import that triggers them
+// ---------------------------------------------------------------------------
+
+const mockInsertService = mock(
+  async (_db: unknown, values: Record<string, unknown>) => ({
+    id: values["id"],
+    project_id: values["project_id"],
+    name: values["name"],
+    slug: values["slug"],
+    template_id: values["template_id"],
+    template_version: values["template_version"],
+    status: "pending",
+    compose_raw: values["compose_raw"],
+    generated_env: values["generated_env"],
+    domain: values["domain"],
+    container_ids: [],
+    created_at: new Date(),
+    updated_at: new Date(),
+  })
+)
+
+const mockUpdateServiceStatus = mock(async () => {})
+const mockUpdateServiceContainers = mock(async () => {})
+const mockMarkServiceDeleting = mock(async () => {})
+const mockUniqueServiceSlug = mock(async () => "my-pb")
+const mockGetServiceForUser = mock(async () => null as unknown)
+
+mock.module("@ploydok/db/queries", () => ({
+  insertService: mockInsertService,
+  updateServiceStatus: mockUpdateServiceStatus,
+  updateServiceContainers: mockUpdateServiceContainers,
+  markServiceDeleting: mockMarkServiceDeleting,
+  uniqueServiceSlug: mockUniqueServiceSlug,
+  getServiceForUser: mockGetServiceForUser,
+  // re-export everything else as no-ops to satisfy wide imports
+  listServicesForProject: mock(async () => []),
+}))
+
+mock.module("@ploydok/db", () => ({
+  services: {},
+  projects: {},
+  createDb: mock(() => ({})),
+}))
+
+mock.module("../logger", () => ({
+  childLogger: () => ({
+    info: mock(() => {}),
+    warn: mock(() => {}),
+    error: mock(() => {}),
+    debug: mock(() => {}),
+  }),
+}))
+
+// ---------------------------------------------------------------------------
+// Import under test (after mocks)
+// ---------------------------------------------------------------------------
+
+import {
+  installFromTemplate,
+  startService,
+  stopService,
+  deleteService,
+} from "./marketplace-orchestrator"
+import type { OrchestratorDeps } from "./marketplace-orchestrator"
+
+// ---------------------------------------------------------------------------
+// Agent factory
+// ---------------------------------------------------------------------------
+
+function makeAgent(
+  overrides: Partial<OrchestratorDeps["agent"]> = {}
+): OrchestratorDeps["agent"] {
+  return {
+    imagePull: mock(async function* () {}),
+    containerCreate: mock(async () => ({ containerId: "ctr-1" })),
+    containerStart: mock(async () => ({})),
+    containerStop: mock(async () => ({})),
+    containerRemove: mock(async () => ({})),
+    ...overrides,
+  }
+}
+
+// Minimal db stub — queries are mocked at module level
+function makeDb(): OrchestratorDeps["db"] {
+  return {
+    select: mock(() => ({
+      from: mock(() => ({
+        where: mock(() => ({
+          limit: mock(async () => []),
+        })),
+      })),
+    })),
+    insert: mock(() => ({ values: mock(async () => {}) })),
+    update: mock(() => ({
+      set: mock(() => ({ where: mock(async () => {}) })),
+    })),
+    delete: mock(() => ({ where: mock(async () => {}) })),
+  } as unknown as OrchestratorDeps["db"]
+}
+
+// ---------------------------------------------------------------------------
+// installFromTemplate
+// ---------------------------------------------------------------------------
+
+describe("installFromTemplate", () => {
+  it("throws NOT_FOUND when project does not exist", async () => {
+    const db = {
+      select: mock(() => ({
+        from: mock(() => ({
+          where: mock(() => ({
+            limit: mock(async () => []),
+          })),
+        })),
+      })),
+    } as unknown as OrchestratorDeps["db"]
+
+    await expect(
+      installFromTemplate({ agent: makeAgent(), db }, "user-1", {
+        projectId: "proj-missing",
+        templateId: "pocketbase",
+        templateVersion: "0.22.0",
+        name: "My PB",
+        compose: "services:\n  app:\n    image: pocketbase:latest\n",
+      })
+    ).rejects.toMatchObject({ code: "NOT_FOUND" })
+  })
+
+  it("throws FORBIDDEN when project belongs to another user", async () => {
+    const db = {
+      select: mock(() => ({
+        from: mock(() => ({
+          where: mock(() => ({
+            limit: mock(async () => [{ id: "proj-1", owner_id: "other-user" }]),
+          })),
+        })),
+      })),
+    } as unknown as OrchestratorDeps["db"]
+
+    await expect(
+      installFromTemplate({ agent: makeAgent(), db }, "user-1", {
+        projectId: "proj-1",
+        templateId: "pocketbase",
+        templateVersion: "0.22.0",
+        name: "My PB",
+        compose: "services:\n  app:\n    image: pocketbase:latest\n",
+      })
+    ).rejects.toMatchObject({ code: "FORBIDDEN" })
+  })
+
+  it("returns a pending row immediately", async () => {
+    const db = {
+      select: mock(() => ({
+        from: mock(() => ({
+          where: mock(() => ({
+            limit: mock(async () => [{ id: "proj-1", owner_id: "user-1" }]),
+          })),
+        })),
+      })),
+    } as unknown as OrchestratorDeps["db"]
+
+    const row = await installFromTemplate(
+      { agent: makeAgent(), db },
+      "user-1",
+      {
+        projectId: "proj-1",
+        templateId: "pocketbase",
+        templateVersion: "0.22.0",
+        name: "My PB",
+        compose: "services:\n  app:\n    image: pocketbase:latest\n",
+      }
+    )
+
+    expect(row.status).toBe("pending")
+    expect(row.name).toBe("My PB")
+    expect(row.template_id).toBe("pocketbase")
+  })
+})
+
+// ---------------------------------------------------------------------------
+// startService
+// ---------------------------------------------------------------------------
+
+describe("startService", () => {
+  it("throws NOT_FOUND when service not found", async () => {
+    mockGetServiceForUser.mockResolvedValueOnce(null)
+    await expect(
+      startService({ agent: makeAgent(), db: makeDb() }, "user-1", "svc-1")
+    ).rejects.toMatchObject({
+      code: "NOT_FOUND",
+    })
+  })
+
+  it("throws CONFLICT when service is already running", async () => {
+    mockGetServiceForUser.mockResolvedValueOnce({
+      id: "svc-1",
+      status: "running",
+      container_ids: ["ctr-1"],
+    })
+    await expect(
+      startService({ agent: makeAgent(), db: makeDb() }, "user-1", "svc-1")
+    ).rejects.toMatchObject({
+      code: "CONFLICT",
+    })
+  })
+
+  it("starts containers and updates status when service is stopped", async () => {
+    const agent = makeAgent()
+    mockGetServiceForUser.mockResolvedValueOnce({
+      id: "svc-1",
+      status: "stopped",
+      container_ids: ["ctr-a", "ctr-b"],
+    })
+    await startService({ agent, db: makeDb() }, "user-1", "svc-1")
+    expect(agent.containerStart).toHaveBeenCalledTimes(2)
+    expect(mockUpdateServiceStatus).toHaveBeenCalledWith(
+      expect.anything(),
+      "svc-1",
+      "running"
+    )
+  })
+})
+
+// ---------------------------------------------------------------------------
+// stopService
+// ---------------------------------------------------------------------------
+
+describe("stopService", () => {
+  it("throws CONFLICT when service is not running", async () => {
+    mockGetServiceForUser.mockResolvedValueOnce({
+      id: "svc-1",
+      status: "stopped",
+      container_ids: [],
+    })
+    await expect(
+      stopService({ agent: makeAgent(), db: makeDb() }, "user-1", "svc-1")
+    ).rejects.toMatchObject({
+      code: "CONFLICT",
+    })
+  })
+
+  it("stops containers in reverse order", async () => {
+    const agent = makeAgent()
+    mockGetServiceForUser.mockResolvedValueOnce({
+      id: "svc-1",
+      status: "running",
+      container_ids: ["ctr-a", "ctr-b"],
+    })
+    await stopService({ agent, db: makeDb() }, "user-1", "svc-1")
+    expect(agent.containerStop).toHaveBeenCalledTimes(2)
+    // second call should be ctr-a (reversed)
+    const calls = (agent.containerStop as ReturnType<typeof mock>).mock.calls
+    expect(calls[0]?.[0].containerId).toBe("ctr-b")
+    expect(calls[1]?.[0].containerId).toBe("ctr-a")
+    expect(mockUpdateServiceStatus).toHaveBeenCalledWith(
+      expect.anything(),
+      "svc-1",
+      "stopped"
+    )
+  })
+})
+
+// ---------------------------------------------------------------------------
+// deleteService
+// ---------------------------------------------------------------------------
+
+describe("deleteService", () => {
+  it("throws NOT_FOUND when service not found", async () => {
+    mockGetServiceForUser.mockResolvedValueOnce(null)
+    await expect(
+      deleteService({ agent: makeAgent(), db: makeDb() }, "user-1", "svc-1")
+    ).rejects.toMatchObject({
+      code: "NOT_FOUND",
+    })
+  })
+
+  it("marks deleting, stops+removes each container, then calls db.delete", async () => {
+    const agent = makeAgent()
+    let deleteCalled = false
+    const db = {
+      ...makeDb(),
+      delete: mock(() => ({
+        where: mock(async () => {
+          deleteCalled = true
+        }),
+      })),
+    } as unknown as OrchestratorDeps["db"]
+
+    mockGetServiceForUser.mockResolvedValueOnce({
+      id: "svc-1",
+      name: "My PB",
+      status: "stopped",
+      container_ids: ["ctr-a", "ctr-b"],
+    })
+
+    await deleteService({ agent, db }, "user-1", "svc-1")
+
+    expect(mockMarkServiceDeleting).toHaveBeenCalledWith(
+      expect.anything(),
+      "svc-1"
+    )
+    expect(agent.containerStop).toHaveBeenCalledTimes(2)
+    expect(agent.containerRemove).toHaveBeenCalledTimes(2)
+    expect(deleteCalled).toBe(true)
+  })
+
+  it("continues deletion even if containerStop throws", async () => {
+    const agent = makeAgent({
+      containerStop: mock(async () => {
+        throw new Error("stop failed")
+      }),
+    })
+    let deleteCalled = false
+    const db = {
+      ...makeDb(),
+      delete: mock(() => ({
+        where: mock(async () => {
+          deleteCalled = true
+        }),
+      })),
+    } as unknown as OrchestratorDeps["db"]
+
+    mockGetServiceForUser.mockResolvedValueOnce({
+      id: "svc-1",
+      name: "My PB",
+      status: "running",
+      container_ids: ["ctr-a"],
+    })
+
+    await deleteService({ agent, db }, "user-1", "svc-1")
+    expect(agent.containerRemove).toHaveBeenCalledTimes(1)
+    expect(deleteCalled).toBe(true)
+  })
+})
