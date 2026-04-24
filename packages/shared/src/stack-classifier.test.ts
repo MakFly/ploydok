@@ -215,20 +215,22 @@ describe("classifyStack — tie-breaking & edge cases", () => {
 })
 
 describe("classifyStack — suggestedEnvVars", () => {
-  it("Symfony: injects PHP root/fallback + composer --no-scripts (APP_ENV stays user-owned)", () => {
+  it("Symfony: injects PHP root/fallback + composer allow-superuser (APP_ENV stays user-owned)", () => {
     const r = classifyStack(probes(["composer.json", "symfony.lock"]))
     expect(r.suggestedEnvVars).toEqual({
       NIXPACKS_PHP_ROOT_DIR: "/app/public",
       NIXPACKS_PHP_FALLBACK_PATH: "/index.php",
       NIXPACKS_INSTALL_CMD:
-        "mkdir -p /var/log/nginx /var/cache/nginx && composer install --no-interaction --no-scripts --no-progress --prefer-dist --ignore-platform-reqs --optimize-autoloader",
+        "mkdir -p /var/log/nginx /var/cache/nginx && COMPOSER_ALLOW_SUPERUSER=1 composer install --no-interaction --no-progress --prefer-dist --ignore-platform-reqs --optimize-autoloader",
     })
   })
 
   it("Symfony via bin/console: same env vars", () => {
     const r = classifyStack(probes(["composer.json", "bin/console"]))
     expect(r.suggestedEnvVars.NIXPACKS_PHP_ROOT_DIR).toBe("/app/public")
-    expect(r.suggestedEnvVars.NIXPACKS_INSTALL_CMD).toContain("--no-scripts")
+    expect(r.suggestedEnvVars.NIXPACKS_INSTALL_CMD).toContain(
+      "COMPOSER_ALLOW_SUPERUSER=1"
+    )
   })
 
   it("Laravel: injects file-backed session + cache defaults", () => {
