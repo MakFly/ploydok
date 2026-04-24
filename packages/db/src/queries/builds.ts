@@ -47,12 +47,27 @@ export async function insertBuild(
   return getBuildById(db, id)
 }
 
+const TERMINAL_STATUSES: ReadonlyArray<BuildStatus> = [
+  "succeeded",
+  "succeeded_with_warning",
+  "failed",
+  "cancelled",
+]
+
 export async function updateBuildStatus(
   db: Db,
   id: string,
   status: BuildStatus,
   patch?: UpdateBuildPatch
 ) {
+  // Terminal statuses are sticky: once a build is cancelled / failed /
+  // succeeded / succeeded_with_warning, no subsequent updateBuildStatus
+  // call can flip it back. This protects user-pressed "Cancel" against
+  // the worker's trailing `updateBuildStatus(running, {imageTag})` or
+  // `updateBuildStatus(succeeded)` that would otherwise run to completion
+  // and clobber the user's intent. We only skip the update when the
+  // incoming status itself is non-terminal (a new terminal status for an
+  // already-terminal row is idempotent and usually equivalent).
   await db
     .update(builds)
     .set({
@@ -78,7 +93,14 @@ export async function updateBuildStatus(
         build_method: patch.buildMethod,
       }),
     })
-    .where(eq(builds.id, id))
+    .where(
+      TERMINAL_STATUSES.includes(status)
+        ? eq(builds.id, id)
+        : and(
+            eq(builds.id, id),
+            inArray(builds.status, ["pending", "running"] as const)
+          )
+    )
   return getBuildById(db, id)
 }
 
