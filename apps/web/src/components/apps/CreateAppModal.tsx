@@ -2,13 +2,13 @@
 import * as React from "react";
 import { Button } from "@workspace/ui/components/button";
 import { useCreateApp } from "../../lib/apps";
-import { useGitHubBranches } from "../../lib/github";
-import { useGitLabBranches } from "../../lib/gitlab";
+import { useGitHubBranches, useGitHubFileExists } from "../../lib/github";
+import { useGitLabBranches, useGitLabFileExists } from "../../lib/gitlab";
 import { useRegistryCredentials } from "../../lib/registry-credentials";
 import { RepoSelector } from "./RepoSelector";
 import { GitLabRepoSelector } from "./GitLabRepoSelector";
 import { PlanSelector, type PlanSelectorValue } from "./PlanSelector";
-import type { AppConfig, GitBranch, GitProviderKind, GitRepo, ImagePullPolicy } from "@ploydok/shared";
+import type { AppConfig, BuildMethod, GitBranch, GitProviderKind, GitRepo, ImagePullPolicy } from "@ploydok/shared";
 
 // ---------------------------------------------------------------------------
 // Types
@@ -34,6 +34,8 @@ interface FormState {
   imagePullPolicy: ImagePullPolicy;
   registryCredentialId: string;
   // git build overrides (step 3)
+  buildMethod: BuildMethod;
+  buildMethodTouched: boolean;
   rootDir: string;
   dockerfilePath: string;
   installCommand: string;
@@ -54,6 +56,8 @@ const INITIAL_FORM: FormState = {
   imageRef: "",
   imagePullPolicy: "always",
   registryCredentialId: "",
+  buildMethod: "auto",
+  buildMethodTouched: false,
   rootDir: "",
   dockerfilePath: "",
   installCommand: "",
@@ -83,6 +87,21 @@ export function CreateAppModal({ open, organizationId, onClose }: CreateAppModal
     form.source === "gitlab" ? form.selectedRepo?.fullName : undefined,
   );
 
+  const dockerfileCandidate = form.dockerfilePath.trim() || "Dockerfile";
+  const ghDockerfile = useGitHubFileExists(
+    form.source === "github" ? form.selectedRepo?.fullName : undefined,
+    dockerfileCandidate,
+    form.branch || undefined,
+  );
+  const glDockerfile = useGitLabFileExists(
+    form.source === "gitlab" ? form.selectedRepo?.fullName : undefined,
+    dockerfileCandidate,
+    form.branch || undefined,
+  );
+  const dockerfileQuery = form.source === "gitlab" ? glDockerfile : ghDockerfile;
+  const hasDockerfile = dockerfileQuery.data ?? null;
+  const detectionLoading = dockerfileQuery.isLoading;
+
   const branches: Array<GitBranch> =
     form.source === "github" ? (ghBranches ?? []) : form.source === "gitlab" ? (glBranches ?? []) : [];
   const branchesLoading =
@@ -104,6 +123,16 @@ export function CreateAppModal({ open, organizationId, onClose }: CreateAppModal
       setForm((prev) => ({ ...prev, branch: defaultBranch }));
     }
   }, [branches, form.selectedRepo?.defaultBranch, form.branch]);
+
+  React.useEffect(() => {
+    if (hasDockerfile === null) return;
+    setForm((prev) => {
+      if (prev.buildMethodTouched) return prev;
+      const next: BuildMethod = hasDockerfile ? "docker" : "nixpacks";
+      if (prev.buildMethod === next) return prev;
+      return { ...prev, buildMethod: next };
+    });
+  }, [hasDockerfile]);
 
   if (!open) return null;
 
@@ -238,6 +267,8 @@ export function CreateAppModal({ open, organizationId, onClose }: CreateAppModal
               setField={setField}
               showAdvanced={showAdvanced}
               onToggleAdvanced={() => setShowAdvanced((v) => !v)}
+              hasDockerfile={hasDockerfile}
+              detectionLoading={detectionLoading}
             />
           )}
           {step === 3 && form.source === "image" && (
@@ -319,6 +350,7 @@ function buildCreateAppBody(form: FormState, organizationId?: string): Record<st
       body.gitlabProjectId = form.selectedRepo.id;
     }
 
+    body.buildMethod = form.buildMethod;
     if (form.rootDir) body.rootDir = form.rootDir;
     if (form.dockerfilePath) body.dockerfilePath = form.dockerfilePath;
     if (form.installCommand) body.installCommand = form.installCommand;
@@ -648,6 +680,45 @@ function ImageSource({
   );
 }
 
+function BuildMethodCard({
+  label,
+  hint,
+  active,
+  detected,
+  onSelect,
+}: {
+  label: string;
+  hint: string;
+  active: boolean;
+  detected: boolean;
+  onSelect: () => void;
+}): React.JSX.Element {
+  return (
+    <button
+      type="button"
+      role="radio"
+      aria-checked={active}
+      onClick={onSelect}
+      className={[
+        "flex flex-col items-start gap-1 rounded-lg border p-3 text-left transition-colors",
+        active
+          ? "border-primary/50 bg-primary/5"
+          : "border-border bg-card hover:border-primary/30",
+      ].join(" ")}
+    >
+      <div className="flex w-full items-center justify-between">
+        <span className="text-sm font-medium">{label}</span>
+        {detected ? (
+          <span className="rounded-full bg-primary/10 px-1.5 py-0.5 font-mono text-[9px] font-medium uppercase tracking-wide text-primary">
+            Detected
+          </span>
+        ) : null}
+      </div>
+      <span className="text-[11px] text-muted-foreground">{hint}</span>
+    </button>
+  );
+}
+
 function PullPolicyOption({
   value,
   active,
@@ -690,13 +761,62 @@ interface Step3Props {
   setField: <TKey extends keyof FormState>(key: TKey, value: FormState[TKey]) => void;
   showAdvanced: boolean;
   onToggleAdvanced: () => void;
+  hasDockerfile: boolean | null;
+  detectionLoading: boolean;
 }
 
-function Step3({ form, setField, showAdvanced, onToggleAdvanced }: Step3Props): React.JSX.Element {
+function Step3({
+  form,
+  setField,
+  showAdvanced,
+  onToggleAdvanced,
+  hasDockerfile,
+  detectionLoading,
+}: Step3Props): React.JSX.Element {
+  const selectMethod = (method: BuildMethod): void => {
+    setField("buildMethod", method);
+    setField("buildMethodTouched", true);
+  };
+
   return (
     <div className="space-y-4">
+      <div className="space-y-2">
+        <div className="flex items-center justify-between">
+          <p className="text-sm font-medium">Build method</p>
+          {detectionLoading ? (
+            <span className="text-[11px] text-muted-foreground">Detecting…</span>
+          ) : null}
+        </div>
+        <div className="grid gap-2 sm:grid-cols-2">
+          <BuildMethodCard
+            label="Dockerfile"
+            hint={
+              hasDockerfile === true
+                ? "Build via Dockerfile at root"
+                : hasDockerfile === false
+                  ? "No Dockerfile detected on this branch"
+                  : "Build via Dockerfile"
+            }
+            active={form.buildMethod === "docker"}
+            detected={hasDockerfile === true}
+            onSelect={() => selectMethod("docker")}
+          />
+          <BuildMethodCard
+            label="Nixpacks"
+            hint={
+              hasDockerfile === false
+                ? "Zero-config auto-pack (Node / Next / Rust / …)"
+                : "Force auto-pack (ignores Dockerfile)"
+            }
+            active={form.buildMethod === "nixpacks"}
+            detected={hasDockerfile === false}
+            onSelect={() => selectMethod("nixpacks")}
+          />
+        </div>
+      </div>
+
       <p className="text-sm text-muted-foreground">
-        All fields are optional. Leave blank to use auto-detection.
+        Other fields are optional. Leave blank to use auto-detection.
       </p>
 
       <ConfigField

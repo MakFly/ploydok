@@ -100,6 +100,30 @@ export function useGitHubBranches(fullName?: string) {
 }
 
 // ---------------------------------------------------------------------------
+// useGitHubFileExists — detect presence of a file on a given branch
+// ---------------------------------------------------------------------------
+
+export function useGitHubFileExists(
+  fullName: string | undefined,
+  filePath: string,
+  ref: string | undefined,
+) {
+  return useQuery<boolean, ApiError>({
+    queryKey: ["github", "file-exists", fullName ?? "", filePath, ref ?? ""],
+    queryFn: async () => {
+      if (!fullName || !ref) return false
+      const [owner, repo] = fullName.split("/")
+      const res = await apiFetch<{ exists: boolean }>(
+        `/github/repos/${owner}/${repo}/file-exists?path=${encodeURIComponent(filePath)}&ref=${encodeURIComponent(ref)}`,
+      )
+      return res.exists
+    },
+    enabled: Boolean(fullName && ref),
+    staleTime: 5 * 60_000,
+  })
+}
+
+// ---------------------------------------------------------------------------
 // useGitHubAppConfig — fetch singleton GitHub App config
 // ---------------------------------------------------------------------------
 

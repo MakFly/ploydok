@@ -160,6 +160,26 @@ export class GitHubProvider implements GitProvider {
     return (data as Record<string, unknown>[]).map(mapBranch);
   }
 
+  async fileExists(
+    installationId: string,
+    fullName: string,
+    filePath: string,
+    ref: string,
+  ): Promise<boolean> {
+    const encodedPath = filePath
+      .split("/")
+      .map((segment) => encodeURIComponent(segment))
+      .join("/")
+    const { status } = await fetchGitHub(
+      installationId,
+      `/repos/${fullName}/contents/${encodedPath}?ref=${encodeURIComponent(ref)}`,
+      this.cache,
+    )
+    if (status === 200) return true
+    if (status === 404) return false
+    throw new Error(`GitHub /repos/${fullName}/contents/${filePath} returned ${status}`)
+  }
+
   cloneUrlWithToken(fullName: string, token: string): string {
     return `https://x-access-token:${token}@github.com/${fullName}.git`;
   }

@@ -146,3 +146,22 @@ export function useGitLabBranches(fullName?: string) {
     staleTime: 60_000,
   })
 }
+
+export function useGitLabFileExists(
+  fullName: string | undefined,
+  filePath: string,
+  ref: string | undefined,
+) {
+  return useQuery<boolean, ApiError>({
+    queryKey: ["gitlab", "file-exists", fullName ?? "", filePath, ref ?? ""],
+    queryFn: async () => {
+      if (!fullName || !ref) return false
+      const res = await apiFetch<{ exists: boolean }>(
+        `/gitlab/repos/${encodeURIComponent(fullName)}/file-exists?path=${encodeURIComponent(filePath)}&ref=${encodeURIComponent(ref)}`,
+      )
+      return res.exists
+    },
+    enabled: Boolean(fullName && ref),
+    staleTime: 5 * 60_000,
+  })
+}
