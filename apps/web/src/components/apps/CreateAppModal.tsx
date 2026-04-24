@@ -2,9 +2,11 @@
 import * as React from "react";
 import { Button } from "@workspace/ui/components/button";
 import { useCreateApp } from "../../lib/apps";
-import { useGitHubBranches, useGitHubFileExists } from "../../lib/github";
-import { useGitLabBranches, useGitLabFileExists } from "../../lib/gitlab";
+import { useGitHubBranches } from "../../lib/github";
+import { useGitLabBranches } from "../../lib/gitlab";
+import { useStackClassification } from "../../lib/stack-classifier-hook";
 import { useRegistryCredentials } from "../../lib/registry-credentials";
+import type { StackClassification } from "@ploydok/shared";
 import { RepoSelector } from "./RepoSelector";
 import { GitLabRepoSelector } from "./GitLabRepoSelector";
 import { PlanSelector, type PlanSelectorValue } from "./PlanSelector";
@@ -87,20 +89,17 @@ export function CreateAppModal({ open, organizationId, onClose }: CreateAppModal
     form.source === "gitlab" ? form.selectedRepo?.fullName : undefined,
   );
 
-  const dockerfileCandidate = form.dockerfilePath.trim() || "Dockerfile";
-  const ghDockerfile = useGitHubFileExists(
-    form.source === "github" ? form.selectedRepo?.fullName : undefined,
-    dockerfileCandidate,
+  const classifierSource =
+    form.source === "github" || form.source === "gitlab" ? form.source : undefined;
+  const classifier = useStackClassification(
+    classifierSource,
+    classifierSource ? form.selectedRepo?.fullName : undefined,
     form.branch || undefined,
   );
-  const glDockerfile = useGitLabFileExists(
-    form.source === "gitlab" ? form.selectedRepo?.fullName : undefined,
-    dockerfileCandidate,
-    form.branch || undefined,
-  );
-  const dockerfileQuery = form.source === "gitlab" ? glDockerfile : ghDockerfile;
-  const hasDockerfile = dockerfileQuery.data ?? null;
-  const detectionLoading = dockerfileQuery.isLoading;
+  const classification = classifier.data ?? null;
+  const hasDockerfile =
+    classification === null ? null : classification.recommendedBuild === "dockerfile";
+  const detectionLoading = classifier.isLoading;
 
   const branches: Array<GitBranch> =
     form.source === "github" ? (ghBranches ?? []) : form.source === "gitlab" ? (glBranches ?? []) : [];
@@ -269,6 +268,7 @@ export function CreateAppModal({ open, organizationId, onClose }: CreateAppModal
               onToggleAdvanced={() => setShowAdvanced((v) => !v)}
               hasDockerfile={hasDockerfile}
               detectionLoading={detectionLoading}
+              classification={classification}
             />
           )}
           {step === 3 && form.source === "image" && (
@@ -680,6 +680,54 @@ function ImageSource({
   );
 }
 
+function DetectedPanel({
+  classification,
+}: {
+  classification: StackClassification;
+}): React.JSX.Element {
+  const labelByConfidence: Record<StackClassification["confidence"], string> = {
+    high: "Detected",
+    medium: "Likely",
+    low: "Guess",
+  };
+  return (
+    <div className="rounded-lg border border-primary/30 bg-primary/5 p-3 space-y-2">
+      <div className="flex items-center gap-2">
+        <span className="rounded-full bg-primary/15 px-1.5 py-0.5 font-mono text-[9px] font-semibold uppercase tracking-wide text-primary">
+          {labelByConfidence[classification.confidence]}
+        </span>
+        <span className="text-sm font-medium">
+          {classification.framework ?? classification.stack}
+        </span>
+      </div>
+      {classification.signals.length > 0 ? (
+        <div className="flex flex-wrap gap-1">
+          {classification.signals.map((s) => (
+            <span
+              key={s}
+              className="rounded bg-muted px-1.5 py-0.5 font-mono text-[10px] text-muted-foreground"
+            >
+              {s}
+            </span>
+          ))}
+        </div>
+      ) : null}
+      {classification.warnings.length > 0 ? (
+        <ul className="space-y-0.5">
+          {classification.warnings.map((w) => (
+            <li
+              key={w}
+              className="text-[11px] text-amber-600 dark:text-amber-400"
+            >
+              ⚠ {w}
+            </li>
+          ))}
+        </ul>
+      ) : null}
+    </div>
+  );
+}
+
 function BuildMethodCard({
   label,
   hint,
@@ -763,6 +811,7 @@ interface Step3Props {
   onToggleAdvanced: () => void;
   hasDockerfile: boolean | null;
   detectionLoading: boolean;
+  classification: StackClassification | null;
 }
 
 function Step3({
@@ -772,14 +821,46 @@ function Step3({
   onToggleAdvanced,
   hasDockerfile,
   detectionLoading,
+  classification,
 }: Step3Props): React.JSX.Element {
   const selectMethod = (method: BuildMethod): void => {
     setField("buildMethod", method);
     setField("buildMethodTouched", true);
   };
 
+  const nixpacksHint = ((): string => {
+    if (hasDockerfile !== false) return "Force auto-pack (ignores Dockerfile)";
+    if (!classification) return "Zero-config auto-pack (Node / Next / Python / Rust / …)";
+    switch (classification.stack) {
+      case "laravel":
+        return "Auto-pack PHP (nginx + php-fpm, Laravel-aware). Recipe managée recommandée pour prod.";
+      case "symfony":
+        return "Auto-pack PHP (nginx + php-fpm). Recipe managée recommandée pour prod.";
+      case "php":
+        return "Auto-pack PHP (nginx + php-fpm). Recipe managée recommandée pour prod.";
+      case "next":
+        return "Auto-pack Next.js (standalone output si configuré).";
+      case "node":
+      case "bun":
+        return "Auto-pack Node — pense à fixer NIXPACKS_NODE_VERSION.";
+      case "django":
+      case "flask":
+      case "fastapi":
+      case "python":
+        return "Auto-pack Python (gunicorn/uvicorn selon framework).";
+      case "compose":
+        return "Compose détecté — support natif prévu sprint 3.3. Nixpacks buildera le service principal en fallback.";
+      default:
+        return "Zero-config auto-pack (Node / Next / Python / Rust / …)";
+    }
+  })();
+
   return (
     <div className="space-y-4">
+      {classification && classification.stack !== "unknown" ? (
+        <DetectedPanel classification={classification} />
+      ) : null}
+
       <div className="space-y-2">
         <div className="flex items-center justify-between">
           <p className="text-sm font-medium">Build method</p>
@@ -803,11 +884,7 @@ function Step3({
           />
           <BuildMethodCard
             label="Nixpacks"
-            hint={
-              hasDockerfile === false
-                ? "Zero-config auto-pack (Node / Next / Rust / …)"
-                : "Force auto-pack (ignores Dockerfile)"
-            }
+            hint={nixpacksHint}
             active={form.buildMethod === "nixpacks"}
             detected={hasDockerfile === false}
             onSelect={() => selectMethod("nixpacks")}

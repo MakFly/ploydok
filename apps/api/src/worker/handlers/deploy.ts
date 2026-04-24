@@ -22,9 +22,12 @@ import {
 } from "../../github/installation-tokens";
 import { cloneRepo } from "../git";
 import { detectBuildMethod } from "../detect";
+import { detectDockerfilePort } from "../detect-port";
 import { buildImage } from "../buildkit";
 import { logBus } from "../log-bus";
 import { nixpacksBuild } from "../nixpacks";
+import { renderRecipe } from "@ploydok/recipes";
+import type { RecipeId } from "@ploydok/shared";
 import { diskGuard, gcKeepLast, tagManifest } from "../registry";
 import { workerLog } from "../logger"
 import { eventBus } from "../event-bus";
@@ -75,6 +78,9 @@ interface AppForDeploy {
   build_command: string | null;
   start_command: string | null;
   build_method: string | null;
+  recipe_id: string | null;
+  recipe_version: string | null;
+  recipe_vars: string | null;
   runtime_port: number | null;
   restart_policy: string | null;
   image_ref: string | null;
@@ -110,6 +116,9 @@ async function getAppForDeploy(db: Db, appId: string): Promise<AppForDeploy> {
       build_command: apps.build_command,
       start_command: apps.start_command,
       build_method: apps.build_method,
+      recipe_id: apps.recipe_id,
+      recipe_version: apps.recipe_version,
+      recipe_vars: apps.recipe_vars,
       runtime_port: apps.runtime_port,
       restart_policy: apps.restart_policy,
       image_ref: apps.image_ref,
@@ -232,13 +241,32 @@ export async function handleDeploy(
   }
 
   // Create build record.
-  // build_method is set to the app-level preference resolved to docker/nixpacks;
-  // if the app was created with "auto" or null, we default to "docker" — the
-  // actual method used is detected later and stored via updateBuildStatus.
+  // Normalize app.build_method:
+  //   - legacy "docker" aliases to "dockerfile"
+  //   - "recipe" is a new build path that renders a managed Dockerfile before
+  //     handing off to BuildKit (so it maps to "docker" at the build record
+  //     level for backward-compat; the recipe id is persisted separately)
+  //   - "compose" / "railpack" are not yet implemented — reject early.
+  const rawMethod = app.build_method ?? "auto";
+  if (rawMethod === "compose" || rawMethod === "railpack") {
+    throw new FatalDeployError(
+      `build_method="${rawMethod}" is not yet supported (planned sprint 3.3)`,
+    );
+  }
+  const normalizedMethod: "docker" | "nixpacks" | "recipe" | "auto" =
+    rawMethod === "docker" || rawMethod === "dockerfile"
+      ? "docker"
+      : rawMethod === "recipe"
+        ? "recipe"
+        : rawMethod === "nixpacks"
+          ? "nixpacks"
+          : "auto";
   const resolvedBuildMethod =
-    app.build_method === "docker" || app.build_method === "nixpacks"
-      ? (app.build_method as "docker" | "nixpacks")
-      : "docker"
+    normalizedMethod === "docker" || normalizedMethod === "recipe"
+      ? "docker"
+      : normalizedMethod === "nixpacks"
+        ? "nixpacks"
+        : "docker";
   const buildId = nanoid();
   await insertBuild(db, {
     id: buildId,
@@ -299,6 +327,13 @@ export async function handleDeploy(
   const logPath = path.join(logDir, `${buildId}.log`);
   fs.mkdirSync(logDir, { recursive: true });
   const logStream = fs.createWriteStream(logPath, { flags: "a" });
+
+  /** Shared log sink used from this point forward (file + SSE bus + pino). */
+  const onLog = (line: string): void => {
+    log.debug({ buildId }, line);
+    logBus.publish(`build:${buildId}`, line);
+    logStream.write(line + "\n");
+  };
 
   // Persist log_path early so a crash before the finally block still leaves
   // a resolvable pointer — the on-disk file exists from the moment the stream
@@ -468,18 +503,104 @@ export async function handleDeploy(
     // Capture for finally block commit status hooks
     resolvedCommitShaFinal = resolvedCommitSha;
 
-    // 2. Detect build method
+    // 2. Render managed Recipe if requested, then detect build method.
+    //
+    // When `app.build_method === "recipe"`, Ploydok injects a curated Dockerfile
+    // + sidecar configs (nginx.conf, php-fpm.conf, entrypoint.sh) into the
+    // cloned build context. The rest of the pipeline then proceeds as a normal
+    // Dockerfile build — user's repo is never mutated (only the ephemeral
+    // workspace). Collision policy: if the user has shipped a Dockerfile we
+    // refuse to overwrite it and surface a clear error.
+    let forcedDockerfileRel: string | null = null;
+    if (normalizedMethod === "recipe") {
+      if (!app.recipe_id) {
+        throw new FatalDeployError(
+          `build_method="recipe" requires recipe_id — found null on app ${app.id}`,
+        );
+      }
+      const recipeRoot = app.root_dir ?? ".";
+      const contextAbs = path.join(workspacePath, recipeRoot);
+      // Start from user-provided recipe_vars (JSON stored at app creation),
+      // then layer app-level overrides (root_dir, runtime_port, node_version)
+      // so recipe_vars.rootDir etc. remain the primary source of truth when set.
+      let userVars: Record<string, unknown> = {};
+      if (app.recipe_vars) {
+        try { userVars = JSON.parse(app.recipe_vars); } catch { /* ignore bad JSON */ }
+      }
+      const rendered = renderRecipe(app.recipe_id as RecipeId, {
+        ...(app.root_dir !== null && { rootDir: app.root_dir }),
+        ...(app.runtime_port !== null && { runtimePort: app.runtime_port }),
+        ...(app.node_version !== null && { nodeVersion: app.node_version }),
+        ...userVars,
+      });
+      onLog(`[deploy] rendering recipe ${app.recipe_id}@${app.recipe_version ?? "latest"}`);
+      for (const [relPath, content] of Object.entries(rendered.files)) {
+        const target = path.join(contextAbs, relPath);
+        if (relPath === rendered.dockerfilePath && fs.existsSync(target)) {
+          throw new FatalDeployError(
+            `Recipe collision: user repo already contains a ${relPath}. ` +
+              `Switch buildMethod to "dockerfile" to use the repo's own Dockerfile.`,
+          );
+        }
+        fs.mkdirSync(path.dirname(target), { recursive: true });
+        fs.writeFileSync(target, content, { mode: 0o644 });
+      }
+      forcedDockerfileRel = rendered.dockerfilePath;
+      onLog(
+        `[deploy] recipe ${app.recipe_id} rendered (${Object.keys(rendered.files).length} files, ` +
+          `listening on ${rendered.runtimePort})`,
+      );
+    }
+
+    const detectedOverride =
+      normalizedMethod === "recipe"
+        ? "docker"
+        : normalizedMethod === "docker" || normalizedMethod === "nixpacks"
+          ? normalizedMethod
+          : "auto";
     const detected = await detectBuildMethod({
       workspacePath,
-      override: (app.build_method ?? "auto") as "docker" | "nixpacks" | "auto",
+      override: detectedOverride,
       ...(app.root_dir !== null && { rootDir: app.root_dir }),
-      ...(app.dockerfile_path !== null && { dockerfilePath: app.dockerfile_path }),
+      ...(forcedDockerfileRel !== null
+        ? { dockerfilePath: forcedDockerfileRel }
+        : app.dockerfile_path !== null
+          ? { dockerfilePath: app.dockerfile_path }
+          : {}),
     });
     log.info({ buildId, method: detected.method }, "build method detected");
 
     // Persist the resolved build_method when detection overrides our initial guess.
     if (detected.method !== resolvedBuildMethod) {
       await updateBuildStatus(db, buildId, "running", { buildMethod: detected.method });
+    }
+
+    // Auto-detect runtime_port for Docker-path builds (recipe or user Dockerfile)
+    // when the app didn't declare one. We read the EXPOSE directive of the
+    // Dockerfile that will actually be built — recipe-generated when the recipe
+    // path was taken, or the user's own Dockerfile otherwise. Persisting here
+    // means subsequent deploys skip the probe and go straight to the right port.
+    //
+    // Falls back to the hardcoded 3000 in runner.ts only when nothing could be
+    // detected, which is the only sensible behavior for opaque nixpacks images.
+    if (
+      (detected.method === "docker") &&
+      (app.runtime_port === null || app.runtime_port === undefined)
+    ) {
+      const dockerfileAbsForProbe = path.join(
+        workspacePath,
+        app.root_dir ?? ".",
+        detected.dockerfilePath ?? forcedDockerfileRel ?? "Dockerfile",
+      );
+      const detectedPort = await detectDockerfilePort(dockerfileAbsForProbe);
+      if (detectedPort !== null) {
+        onLog(`[deploy] detected runtime port ${detectedPort} from Dockerfile EXPOSE`);
+        await db
+          .update(apps)
+          .set({ runtime_port: detectedPort, updated_at: new Date() })
+          .where(eq(apps.id, app.id));
+        app.runtime_port = detectedPort;
+      }
     }
 
     // Guard: abort early if registry disk is too full (threshold = 80 %).
@@ -508,18 +629,28 @@ export async function handleDeploy(
     const pushRef = `${pushRegistry}/${repo}:${commitSha}`;
     const imageRef = `${pullRegistry}/${repo}:${commitSha}`;
 
-    /** Publish a log line to the pino logger, the LogBus (M3.2), and the log file. */
-    function onLog(line: string) {
-      log.debug({ buildId }, line);
-      logBus.publish(`build:${buildId}`, line);
-      logStream.write(line + "\n");
-    }
+    // onLog is defined earlier in this handler (right after logStream creation)
+    // so it can be used by both the image-source path and the git-source path.
 
-    const { build: buildEnv, runtime: runtimeSecretEnv } = await buildEnvPairForDeploy(
+    const { build: buildEnvSecrets, runtime: runtimeSecretEnvRaw } = await buildEnvPairForDeploy(
       db,
       app.id,
       "prod",
     );
+
+    // Platform-injected metadata vars. Exposed to user apps at BOTH build and
+    // runtime (e.g. Next.js SSG reads `process.env.PLOYDOK_BUILD_ID` during
+    // `next build` to stamp the rendered HTML; a runtime handler can read
+    // the same var). Same convention as Vercel's VERCEL_* or Railway's
+    // RAILWAY_* — lets user code surface the deployed version without wiring
+    // a custom secret. User secrets win on key conflict (spread after).
+    const platformEnv: Record<string, string> = {
+      PLOYDOK_APP_ID: app.id,
+      PLOYDOK_BUILD_ID: buildId,
+      PLOYDOK_COMMIT_SHA: commitSha,
+    };
+    const buildEnv: Record<string, string> = { ...platformEnv, ...buildEnvSecrets };
+    const runtimeSecretEnv: Record<string, string> = { ...platformEnv, ...runtimeSecretEnvRaw };
 
     if (detected.method === "docker") {
       // BuildKit path (M3.1)
@@ -580,12 +711,27 @@ export async function handleDeploy(
       const nixpacksCache = path.join(env.PLOYDOK_BUILD_DIR, app.id, ".nixpacks-cache");
       log.info({ buildId, imageRef, pushRef }, "starting nixpacks build");
       try {
+        // Unlike buildctl (which runs inside the buildkitd compose container
+        // and pushes via the compose DNS name `registry:5000`), `nixpacks
+        // build` shells out to the HOST docker daemon. The host resolves the
+        // registry at `127.0.0.1:5000` (published port), not `registry:5000`
+        // (compose-internal DNS). Tagging with `pushRef` here would create an
+        // unreachable name in the local image store — that's why the pull at
+        // blue-green fails with 404. Use `imageRef` (host-side addr) so the
+        // subsequent `docker push` below lands in the registry.
         await nixpacksBuild({
           workspacePath,
-          tag: pushRef,
+          tag: imageRef,
           cacheKey: app.id,
           cacheDir: nixpacksCache,
-          dockerCacheRef: `${pushRegistry}/${repo}:cache`,
+          // NOTE: `--incremental-cache-image` is intentionally disabled.
+          // On Linux + BuildKit (our setup), nixpacks' incremental-cache
+          // injects `host.docker.internal:<port>` curl uploads into the
+          // generated Dockerfile. That hostname does not resolve inside
+          // our containerized buildkitd (which runs in the `ploydok`
+          // bridge network, not host), so every build fails at the cache
+          // upload step. BuildKit's own layer cache + `--cache-key`
+          // already cover the common reuse cases.
           ...(app.root_dir !== null && { rootDir: app.root_dir }),
           ...(app.nixpacks_config_path !== null && { configFile: app.nixpacks_config_path }),
           ...(app.node_version !== null && { nodeVersion: app.node_version }),
@@ -597,6 +743,27 @@ export async function handleDeploy(
         });
       } catch (nixErr) {
         throw classifyAgentError(nixErr);
+      }
+
+      // Push the built image into the registry. `nixpacks build` only tags
+      // the image in the local docker daemon — it does NOT push. Without
+      // this, the blue-green runner cannot pull `imageRef` and fails with
+      // "manifest unknown".
+      onLog(`[deploy] pushing image to ${imageRef}`);
+      const pushProc = Bun.spawn(["docker", "push", imageRef], {
+        stdout: "pipe",
+        stderr: "pipe",
+      });
+      const pushStdout = await new Response(pushProc.stdout).text();
+      const pushStderr = await new Response(pushProc.stderr).text();
+      for (const line of (pushStdout + pushStderr).split("\n")) {
+        if (line) onLog(line);
+      }
+      const pushCode = await pushProc.exited;
+      if (pushCode !== 0) {
+        throw new Error(
+          `docker push failed (exit ${pushCode}) for ${imageRef}: ${pushStderr.trim()}`,
+        );
       }
 
       log.info({ buildId, imageRef }, "nixpacks build + push done");
