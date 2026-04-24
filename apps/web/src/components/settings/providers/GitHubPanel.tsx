@@ -248,30 +248,19 @@ function InstallationsCard(): React.JSX.Element {
 
 function GitHubCacheSection(): React.JSX.Element {
   const sync = useSyncGitHubInstallations()
-  const entries = React.useMemo(() => [], [])
-  const cache = useGitHubCacheStatus({
-    autoRefresh: sync.isPending,
-  })
-  const liveEntries = cache.data?.installations ?? entries
-  const [scopeId, setScopeId] = React.useState<string | undefined>(undefined)
-  const progress = useSyncWithProgress({
-    entries: liveEntries,
-    isMutationError: sync.isError,
-    mutationErrorMessage: sync.error?.message,
-    scopeId,
-  })
+  const cache = useGitHubCacheStatus({})
+  const progress = useSyncWithProgress()
 
+  // Refresh the cache table when the worker reports completion so the row's
+  // last_synced_at + repoCount update without the user reloading.
   React.useEffect(() => {
-    if (progress.status === "running") {
-      void cache.refetch()
-    }
+    if (progress.status === "done") void cache.refetch()
   }, [progress.status, cache])
 
   async function startSync(opts: { installationId?: string }): Promise<void> {
-    setScopeId(opts.installationId)
-    progress.begin()
     try {
-      await sync.mutateAsync(opts)
+      const res = await sync.mutateAsync(opts)
+      progress.begin(res.syncId)
     } catch (err) {
       progress.fail(err instanceof Error ? err.message : String(err))
       throw err
@@ -283,7 +272,7 @@ function GitHubCacheSection(): React.JSX.Element {
       <CachedReposPanel
         title="Cached repositories"
         description="Repos are served from a Postgres cache so the create-app picker opens instantly. Webhooks invalidate it on install / repo events; a background sync re-fills stale data."
-        entries={liveEntries}
+        entries={cache.data?.installations ?? []}
         isLoading={cache.isLoading}
         isError={cache.isError}
         errorMessage={cache.error?.message}

@@ -14,14 +14,28 @@ import { GitLabProvider } from "../../gitlab/client"
 import { decryptField } from "../../github/app-credentials"
 import { workerLog } from "../logger"
 import { providerReposSyncQueue } from "../queues"
+import { eventBus } from "../event-bus"
 
 // ---------------------------------------------------------------------------
 // Types
 // ---------------------------------------------------------------------------
 
+// `requestedBy` (optional) is the userId of the human who clicked Sync — used
+// to scope progress events to their SSE channel. `syncId` is a per-click
+// correlation id so the front can ignore events from concurrent syncs.
 export type SyncProviderReposPayload =
-  | { provider: "github"; installationId?: string }
-  | { provider: "gitlab"; userId?: string }
+  | {
+      provider: "github"
+      installationId?: string
+      requestedBy?: string
+      syncId?: string
+    }
+  | {
+      provider: "gitlab"
+      userId?: string
+      requestedBy?: string
+      syncId?: string
+    }
 
 // ---------------------------------------------------------------------------
 // Enqueue helper (public — T2B/T2C depend on this)
@@ -49,28 +63,70 @@ export async function handleSyncProviderRepos(
   db: Db,
   payload: SyncProviderReposPayload,
 ): Promise<void> {
-  if (payload.provider === "github") {
-    await syncGitHub(db, payload.installationId)
-  } else {
-    await syncGitLab(db, payload.userId)
+  const ctx: SyncCtx = {
+    syncId: payload.syncId,
+    channel: payload.requestedBy ? `user:${payload.requestedBy}` : null,
+    requestedBy: payload.requestedBy,
   }
+
+  if (payload.provider === "github") {
+    await syncGitHub(db, payload.installationId, ctx)
+  } else {
+    await syncGitLab(db, payload.userId, ctx)
+  }
+}
+
+// ---------------------------------------------------------------------------
+// Event-bus plumbing — every progress callsite goes through these helpers so
+// the channel/syncId scoping stays consistent.
+// ---------------------------------------------------------------------------
+
+interface SyncCtx {
+  syncId: string | undefined
+  channel: string | null
+  requestedBy: string | undefined
+}
+
+function emit(
+  ctx: SyncCtx,
+  type: "provider.sync.started" | "provider.sync.progress" | "provider.sync.completed" | "provider.sync.failed",
+  data: Record<string, unknown>,
+  message: string,
+): void {
+  if (!ctx.channel) return
+  eventBus.publish(ctx.channel, {
+    type,
+    message,
+    data: { ...data, syncId: ctx.syncId ?? null },
+  })
 }
 
 // ---------------------------------------------------------------------------
 // GitHub
 // ---------------------------------------------------------------------------
 
-async function syncGitHub(db: Db, installationId: string | undefined): Promise<void> {
+async function syncGitHub(
+  db: Db,
+  installationId: string | undefined,
+  ctx: SyncCtx,
+): Promise<void> {
   if (!installationId) {
-    await syncGitHubFanOut(db)
+    await syncGitHubFanOut(db, ctx)
     return
   }
-  await syncGitHubInstallation(db, installationId)
+  await syncGitHubInstallation(db, installationId, ctx)
 }
 
-async function syncGitHubFanOut(db: Db): Promise<void> {
+async function syncGitHubFanOut(db: Db, ctx: SyncCtx): Promise<void> {
   const installations = await listAppInstallations()
   workerLog.info({ count: installations.length }, "github fan-out: enqueuing per-installation jobs")
+
+  emit(
+    ctx,
+    "provider.sync.started",
+    { provider: "github", scope: "all", installationCount: installations.length },
+    `Found ${installations.length} GitHub installation(s) to sync`,
+  )
 
   for (const install of installations) {
     const installId = String(install.id)
@@ -98,12 +154,29 @@ async function syncGitHubFanOut(db: Db): Promise<void> {
       continue
     }
 
-    await enqueueProviderReposSync({ provider: "github", installationId: installId })
+    await enqueueProviderReposSync({
+      provider: "github",
+      installationId: installId,
+      ...(ctx.syncId !== undefined ? { syncId: ctx.syncId } : {}),
+      ...(ctx.requestedBy !== undefined ? { requestedBy: ctx.requestedBy } : {}),
+    })
   }
 }
 
-async function syncGitHubInstallation(db: Db, installationId: string): Promise<void> {
+async function syncGitHubInstallation(
+  db: Db,
+  installationId: string,
+  ctx: SyncCtx,
+): Promise<void> {
   workerLog.info({ installationId }, "github sync: starting")
+  const startedAt = Date.now()
+
+  emit(
+    ctx,
+    "provider.sync.started",
+    { provider: "github", scope: "installation", installationId: `github:${installationId}` },
+    `Importing GitHub repositories for installation ${installationId}…`,
+  )
 
   const allRepos: ProviderRepoRow[] = []
   const MAX_PAGES = 50
@@ -115,6 +188,17 @@ async function syncGitHubInstallation(db: Db, installationId: string): Promise<v
       result = await ghProvider.listRepos(installationId, { page, perPage: 100 })
     } catch (err) {
       workerLog.warn({ err, installationId, page }, "github sync: listRepos failed, stopping pagination")
+      emit(
+        ctx,
+        "provider.sync.failed",
+        {
+          provider: "github",
+          installationId: `github:${installationId}`,
+          page,
+          error: err instanceof Error ? err.message : String(err),
+        },
+        `GitHub listRepos failed at page ${page}`,
+      )
       break
     }
 
@@ -135,14 +219,48 @@ async function syncGitHubInstallation(db: Db, installationId: string): Promise<v
       })
     }
 
+    emit(
+      ctx,
+      "provider.sync.progress",
+      {
+        provider: "github",
+        installationId: `github:${installationId}`,
+        page,
+        reposFetched: allRepos.length,
+        hasMore: result.hasMore,
+      },
+      `Imported ${allRepos.length} GitHub repos so far (page ${page})`,
+    )
+
     if (!result.hasMore) break
   }
 
   try {
     await replaceInstallationRepos(db, `github:${installationId}`, allRepos)
     workerLog.info({ installationId, count: allRepos.length }, "github sync: done")
+    emit(
+      ctx,
+      "provider.sync.completed",
+      {
+        provider: "github",
+        installationId: `github:${installationId}`,
+        totalRepos: allRepos.length,
+        durationMs: Date.now() - startedAt,
+      },
+      `Synced ${allRepos.length} GitHub repos`,
+    )
   } catch (err) {
     workerLog.error({ err, installationId }, "github sync: replaceInstallationRepos failed")
+    emit(
+      ctx,
+      "provider.sync.failed",
+      {
+        provider: "github",
+        installationId: `github:${installationId}`,
+        error: err instanceof Error ? err.message : String(err),
+      },
+      "Failed to write GitHub repos to cache",
+    )
     throw err
   }
 }
@@ -151,24 +269,46 @@ async function syncGitHubInstallation(db: Db, installationId: string): Promise<v
 // GitLab
 // ---------------------------------------------------------------------------
 
-async function syncGitLab(db: Db, userId: string | undefined): Promise<void> {
+async function syncGitLab(
+  db: Db,
+  userId: string | undefined,
+  ctx: SyncCtx,
+): Promise<void> {
   if (!userId) {
-    await syncGitLabFanOut(db)
+    await syncGitLabFanOut(db, ctx)
     return
   }
-  await syncGitLabUser(db, userId)
+  await syncGitLabUser(db, userId, ctx)
 }
 
-async function syncGitLabFanOut(db: Db): Promise<void> {
+async function syncGitLabFanOut(db: Db, ctx: SyncCtx): Promise<void> {
   const rows = await db.select({ user_id: gitlab_tokens.user_id }).from(gitlab_tokens)
   workerLog.info({ count: rows.length }, "gitlab fan-out: enqueuing per-user jobs")
+  emit(
+    ctx,
+    "provider.sync.started",
+    { provider: "gitlab", scope: "all", installationCount: rows.length },
+    `Found ${rows.length} GitLab user(s) to sync`,
+  )
   for (const row of rows) {
-    await enqueueProviderReposSync({ provider: "gitlab", userId: row.user_id })
+    await enqueueProviderReposSync({
+      provider: "gitlab",
+      userId: row.user_id,
+      ...(ctx.syncId !== undefined ? { syncId: ctx.syncId } : {}),
+      ...(ctx.requestedBy !== undefined ? { requestedBy: ctx.requestedBy } : {}),
+    })
   }
 }
 
-async function syncGitLabUser(db: Db, userId: string): Promise<void> {
+async function syncGitLabUser(db: Db, userId: string, ctx: SyncCtx): Promise<void> {
   workerLog.info({ userId }, "gitlab sync: starting")
+  const startedAt = Date.now()
+  emit(
+    ctx,
+    "provider.sync.started",
+    { provider: "gitlab", scope: "user", installationId: `gitlab:user:${userId}` },
+    `Importing GitLab projects for user ${userId}…`,
+  )
 
   const cfg = await getGitLabConfig(db)
   if (!cfg) {
@@ -234,6 +374,17 @@ async function syncGitLabUser(db: Db, userId: string): Promise<void> {
       result = await provider.listRepos(accessToken, { page, perPage: 100 })
     } catch (err) {
       workerLog.warn({ err, userId, page }, "gitlab sync: listRepos failed, stopping pagination")
+      emit(
+        ctx,
+        "provider.sync.failed",
+        {
+          provider: "gitlab",
+          installationId,
+          page,
+          error: err instanceof Error ? err.message : String(err),
+        },
+        `GitLab listRepos failed at page ${page}`,
+      )
       break
     }
 
@@ -254,14 +405,48 @@ async function syncGitLabUser(db: Db, userId: string): Promise<void> {
       })
     }
 
+    emit(
+      ctx,
+      "provider.sync.progress",
+      {
+        provider: "gitlab",
+        installationId,
+        page,
+        reposFetched: allRepos.length,
+        hasMore: result.hasMore,
+      },
+      `Imported ${allRepos.length} GitLab projects so far (page ${page})`,
+    )
+
     if (!result.hasMore) break
   }
 
   try {
     await replaceInstallationRepos(db, installationId, allRepos)
     workerLog.info({ userId, count: allRepos.length }, "gitlab sync: done")
+    emit(
+      ctx,
+      "provider.sync.completed",
+      {
+        provider: "gitlab",
+        installationId,
+        totalRepos: allRepos.length,
+        durationMs: Date.now() - startedAt,
+      },
+      `Synced ${allRepos.length} GitLab projects`,
+    )
   } catch (err) {
     workerLog.error({ err, userId }, "gitlab sync: replaceInstallationRepos failed")
+    emit(
+      ctx,
+      "provider.sync.failed",
+      {
+        provider: "gitlab",
+        installationId,
+        error: err instanceof Error ? err.message : String(err),
+      },
+      "Failed to write GitLab projects to cache",
+    )
     throw err
   }
 }

@@ -73,27 +73,18 @@ export function GitLabPanel(): React.JSX.Element {
 
 function GitLabCacheSection(): React.JSX.Element {
   const sync = useSyncGitLabInstallations()
-  const cache = useGitLabCacheStatus({
-    autoRefresh: sync.isPending,
-  })
-
+  const cache = useGitLabCacheStatus({})
   const entries = cache.data?.installation ? [cache.data.installation] : []
-  const progress = useSyncWithProgress({
-    entries,
-    isMutationError: sync.isError,
-    mutationErrorMessage: sync.error?.message,
-  })
+  const progress = useSyncWithProgress()
 
   React.useEffect(() => {
-    if (progress.status === "running") {
-      void cache.refetch()
-    }
+    if (progress.status === "done") void cache.refetch()
   }, [progress.status, cache])
 
   async function startSync(): Promise<void> {
-    progress.begin()
     try {
-      await sync.mutateAsync()
+      const res = await sync.mutateAsync()
+      progress.begin(res.syncId)
     } catch (err) {
       progress.fail(err instanceof Error ? err.message : String(err))
       throw err

@@ -1,5 +1,6 @@
 // SPDX-License-Identifier: AGPL-3.0-only
 import { Hono } from "hono";
+import { nanoid } from "nanoid";
 import { createHash, createHmac, randomBytes } from "node:crypto";
 import { createDb } from "@ploydok/db";
 import {
@@ -264,9 +265,15 @@ gitlabRouter.delete("/connect", async (c) => {
 gitlabRouter.post("/installations/sync", async (c) => {
   const user = c.get("user") ?? null;
   if (!user) return c.json({ error: "unauthenticated" }, 401);
-  await enqueueProviderReposSync({ provider: "gitlab", userId: user.id });
-  log.info({ userId: user.id }, "manual gitlab sync enqueued");
-  return c.json({ enqueued: true }, 202);
+  const syncId = nanoid();
+  await enqueueProviderReposSync({
+    provider: "gitlab",
+    userId: user.id,
+    requestedBy: user.id,
+    syncId,
+  });
+  log.info({ userId: user.id, syncId }, "manual gitlab sync enqueued");
+  return c.json({ enqueued: true, syncId }, 202);
 });
 
 // ---------------------------------------------------------------------------

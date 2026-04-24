@@ -236,9 +236,9 @@ export function useGitHubCacheStatus(opts: { autoRefresh?: boolean } = {}) {
 
 export function useSyncGitHubInstallations() {
   const qc = useQueryClient();
-  return useMutation<{ enqueued: true }, ApiError, { installationId?: string } | void>({
+  return useMutation<{ enqueued: true; syncId: string }, ApiError, { installationId?: string } | void>({
     mutationFn: (vars) =>
-      apiFetch<{ enqueued: true }>("/github/installations/sync", {
+      apiFetch<{ enqueued: true; syncId: string }>("/github/installations/sync", {
         method: "POST",
         body: JSON.stringify(vars ?? {}),
         headers: { "content-type": "application/json" },
