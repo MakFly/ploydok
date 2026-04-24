@@ -1,6 +1,13 @@
 // SPDX-License-Identifier: AGPL-3.0-only
 import { createHmac, timingSafeEqual } from "node:crypto";
+import { z } from "zod";
 import type { Db } from "@ploydok/db";
+import {
+  deleteInstallation as deleteInstallationDefault,
+  deleteRepos as deleteReposDefault,
+  upsertInstallation as upsertInstallationDefault,
+  upsertRepos as upsertReposDefault,
+} from "@ploydok/db/queries";
 import { childLogger } from "../logger";
 import { handlePush } from "./webhook-handlers/push";
 import { decryptField } from "./app-credentials";
@@ -35,6 +42,21 @@ export interface WebhookExtras {
   rawBodyBuffer?: Buffer;
 }
 
+export type EnqueueFn = (payload: {
+  provider: "github";
+  installationId?: string;
+}) => Promise<void>;
+
+export interface WebhookDeps {
+  enqueue?: EnqueueFn;
+  queries?: {
+    upsertInstallation?: typeof upsertInstallationDefault;
+    deleteInstallation?: typeof deleteInstallationDefault;
+    upsertRepos?: typeof upsertReposDefault;
+    deleteRepos?: typeof deleteReposDefault;
+  };
+}
+
 // ---------------------------------------------------------------------------
 // Encryption helpers for per-app webhook secrets (nonce || enc layout)
 // ---------------------------------------------------------------------------
@@ -67,6 +89,221 @@ export function verifySignature(
   const b = Buffer.from(expected);
   // Length must match before timingSafeEqual
   return a.length === b.length && timingSafeEqual(a, b);
+}
+
+// ---------------------------------------------------------------------------
+// Webhook payload schemas (installation + installation_repositories)
+// ---------------------------------------------------------------------------
+
+const GhInstallationAccountSchema = z.object({
+  login: z.string(),
+  type: z.string(),
+  avatar_url: z.string().nullable().optional(),
+  html_url: z.string().nullable().optional(),
+});
+
+const GhInstallationSchema = z.object({
+  id: z.number(),
+  account: GhInstallationAccountSchema,
+  repository_selection: z.string().optional(),
+  suspended_at: z.string().nullable().optional(),
+  html_url: z.string().nullable().optional(),
+  repositories_url: z.string().nullable().optional(),
+});
+
+const GhInstallationEventSchema = z.object({
+  action: z.string(),
+  installation: GhInstallationSchema,
+  repositories: z
+    .array(
+      z.object({
+        id: z.number(),
+        name: z.string(),
+        full_name: z.string(),
+        private: z.boolean(),
+      }),
+    )
+    .optional(),
+});
+
+const GhInstallationRepoSchema = z.object({
+  id: z.number(),
+  name: z.string(),
+  full_name: z.string(),
+  private: z.boolean(),
+});
+
+const GhInstallationRepositoriesEventSchema = z.object({
+  action: z.string(),
+  installation: GhInstallationSchema,
+  repositories_added: z.array(GhInstallationRepoSchema).optional(),
+  repositories_removed: z.array(GhInstallationRepoSchema).optional(),
+});
+
+// ---------------------------------------------------------------------------
+// Installation event helpers
+// ---------------------------------------------------------------------------
+
+function makeInstallationId(ghId: number): string {
+  return `github:${ghId}`;
+}
+
+function makeRepoId(ghId: number): string {
+  return `github:${ghId}`;
+}
+
+async function handleInstallationEvent(
+  db: Db,
+  payload: unknown,
+  deliveryId: string,
+  enqueue: EnqueueFn,
+  queries: Required<NonNullable<WebhookDeps["queries"]>>,
+): Promise<void> {
+  const parsed = GhInstallationEventSchema.safeParse(payload);
+  if (!parsed.success) {
+    log.warn({ deliveryId, issues: parsed.error.issues }, "installation: invalid payload shape");
+    return;
+  }
+
+  const { action, installation } = parsed.data;
+  const installationId = makeInstallationId(installation.id);
+  const now = new Date();
+
+  log.info({ event: "installation", action, deliveryId, installationId }, "installation event");
+
+  switch (action) {
+    case "created": {
+      await queries.upsertInstallation(db, {
+        id: installationId,
+        provider: "github",
+        external_id: String(installation.id),
+        account_login: installation.account.login,
+        account_type: installation.account.type,
+        repository_selection: installation.repository_selection ?? null,
+        suspended_at: null,
+        html_url: installation.html_url ?? null,
+        avatar_url: installation.account.avatar_url ?? null,
+        repository_count: null,
+        last_synced_at: now,
+        created_at: now,
+      });
+      await enqueue({ provider: "github", installationId });
+      break;
+    }
+
+    case "deleted": {
+      await queries.deleteInstallation(db, installationId);
+      break;
+    }
+
+    case "suspend": {
+      await queries.upsertInstallation(db, {
+        id: installationId,
+        provider: "github",
+        external_id: String(installation.id),
+        account_login: installation.account.login,
+        account_type: installation.account.type,
+        repository_selection: installation.repository_selection ?? null,
+        suspended_at: installation.suspended_at ? new Date(installation.suspended_at) : now,
+        html_url: installation.html_url ?? null,
+        avatar_url: installation.account.avatar_url ?? null,
+        repository_count: null,
+        last_synced_at: now,
+        created_at: now,
+      });
+      break;
+    }
+
+    case "unsuspend": {
+      await queries.upsertInstallation(db, {
+        id: installationId,
+        provider: "github",
+        external_id: String(installation.id),
+        account_login: installation.account.login,
+        account_type: installation.account.type,
+        repository_selection: installation.repository_selection ?? null,
+        suspended_at: null,
+        html_url: installation.html_url ?? null,
+        avatar_url: installation.account.avatar_url ?? null,
+        repository_count: null,
+        last_synced_at: now,
+        created_at: now,
+      });
+      break;
+    }
+
+    default:
+      log.info({ event: "installation", action, deliveryId }, "unknown installation action — no-op");
+  }
+}
+
+async function handleInstallationRepositoriesEvent(
+  db: Db,
+  payload: unknown,
+  deliveryId: string,
+  enqueue: EnqueueFn,
+  queries: Required<NonNullable<WebhookDeps["queries"]>>,
+): Promise<void> {
+  const parsed = GhInstallationRepositoriesEventSchema.safeParse(payload);
+  if (!parsed.success) {
+    log.warn(
+      { deliveryId, issues: parsed.error.issues },
+      "installation_repositories: invalid payload shape",
+    );
+    return;
+  }
+
+  const { action, installation, repositories_added, repositories_removed } = parsed.data;
+  const installationId = makeInstallationId(installation.id);
+  const now = new Date();
+
+  log.info(
+    {
+      event: "installation_repositories",
+      action,
+      deliveryId,
+      installationId,
+      added: repositories_added?.length ?? 0,
+      removed: repositories_removed?.length ?? 0,
+    },
+    "installation_repositories event",
+  );
+
+  switch (action) {
+    case "added": {
+      const repos = (repositories_added ?? []).map((r) => ({
+        id: makeRepoId(r.id),
+        installation_id: installationId,
+        provider: "github" as const,
+        full_name: r.full_name,
+        name: r.name,
+        description: null,
+        default_branch: null,
+        private: r.private,
+        html_url: null,
+        pushed_at: null,
+        updated_at: null,
+        last_synced_at: now,
+      }));
+      await queries.upsertRepos(db, repos);
+      // Enqueue to fill missing fields (description, default_branch, etc.)
+      await enqueue({ provider: "github", installationId });
+      break;
+    }
+
+    case "removed": {
+      const ids = (repositories_removed ?? []).map((r) => makeRepoId(r.id));
+      await queries.deleteRepos(db, ids);
+      log.info({ deliveryId, installationId, count: ids.length }, "repos removed from installation");
+      break;
+    }
+
+    default:
+      log.info(
+        { event: "installation_repositories", action, deliveryId },
+        "unknown installation_repositories action — no-op",
+      );
+  }
 }
 
 // PerAppSecretBlobs carries the current and (optional) old encrypted secret for dual-accept.
@@ -130,6 +367,10 @@ export async function verifySignatureWithFallback(
 // Dispatcher
 // ---------------------------------------------------------------------------
 
+const noopEnqueue: EnqueueFn = async () => {
+  log.warn("enqueueProviderReposSync not wired — skipping sync");
+};
+
 /**
  * Dispatch a verified GitHub webhook event to the appropriate handler.
  * Called asynchronously after responding 200 to GitHub.
@@ -140,8 +381,17 @@ export async function handleWebhook(
   payload: unknown,
   deliveryId: string,
   extras?: WebhookExtras,
+  deps?: WebhookDeps,
 ): Promise<void> {
   log.debug({ event, deliveryId }, "dispatching webhook");
+
+  const enqueue = deps?.enqueue ?? noopEnqueue;
+  const queries: Required<NonNullable<WebhookDeps["queries"]>> = {
+    upsertInstallation: deps?.queries?.upsertInstallation ?? upsertInstallationDefault,
+    deleteInstallation: deps?.queries?.deleteInstallation ?? deleteInstallationDefault,
+    upsertRepos: deps?.queries?.upsertRepos ?? upsertReposDefault,
+    deleteRepos: deps?.queries?.deleteRepos ?? deleteReposDefault,
+  };
 
   switch (event) {
     case "push":
@@ -154,9 +404,11 @@ export async function handleWebhook(
       break;
 
     case "installation":
+      await handleInstallationEvent(db, payload, deliveryId, enqueue, queries);
+      break;
+
     case "installation_repositories":
-      // Future: sync installation → apps binding
-      log.info({ event, deliveryId }, "installation lifecycle event — no-op");
+      await handleInstallationRepositoriesEvent(db, payload, deliveryId, enqueue, queries);
       break;
 
     default:

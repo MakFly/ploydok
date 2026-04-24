@@ -7,9 +7,13 @@ import {
   deleteGitLabTokens,
   getGitLabConfig,
   getGitLabTokens,
+  getInstallationStaleness,
+  listInstallations,
+  listRepos,
   saveGitLabConfig,
   upsertGitLabTokens,
 } from "@ploydok/db/queries";
+import { enqueueProviderReposSync } from "../worker/handlers/sync-provider-repos";
 import { decryptField, encryptField } from "../github/app-credentials";
 import { GitLabProvider } from "../gitlab/client";
 import { handleGitLabWebhook, verifyGitLabToken } from "../gitlab/webhook";
@@ -269,26 +273,50 @@ async function getProviderAndTokenForUser(
   return { provider: new GitLabProvider(cfg.instance_url), accessToken };
 }
 
+const STALE_THRESHOLD_MS = 10 * 60 * 1000;
+
 gitlabRouter.get("/repos", async (c) => {
   const user = c.get("user") ?? null;
   if (!user) return c.json({ error: "unauthenticated" }, 401);
 
-  const ctx = await getProviderAndTokenForUser(user.id);
-  if (!ctx) return c.json({ error: "gitlab_not_connected" }, 412);
-
   const page = Math.max(1, Number(c.req.query("page") ?? 1));
   const perPage = Math.min(100, Math.max(1, Number(c.req.query("per_page") ?? 30)));
-  const search = c.req.query("search");
+  const search = c.req.query("search") ?? undefined;
 
-  try {
-    const opts: { page: number; perPage: number; search?: string } = { page, perPage };
-    if (search) opts.search = search;
-    const res = await ctx.provider.listRepos(ctx.accessToken, opts);
-    return c.json({ repos: res.repos, page, perPage, hasMore: res.hasMore });
-  } catch (err) {
-    log.error({ err }, "listRepos failed");
-    return c.json({ error: "gitlab_api_error" }, 502);
+  const installationId = `gitlab:user:${user.id}`;
+  const installations = await listInstallations(db, "gitlab");
+  const userInstall = installations.find((i) => i.id === installationId);
+
+  if (!userInstall) {
+    enqueueProviderReposSync({ provider: "gitlab", userId: user.id }).catch((err) => {
+      log.warn({ err }, "enqueueProviderReposSync failed");
+    });
+    return c.json({ repos: [], page, perPage, hasMore: false, needsConnect: true });
   }
+
+  const staleness = await getInstallationStaleness(db, "gitlab");
+  if (
+    staleness.mostStaleAt !== null &&
+    Date.now() - staleness.mostStaleAt.getTime() > STALE_THRESHOLD_MS
+  ) {
+    enqueueProviderReposSync({ provider: "gitlab", userId: user.id }).catch((err) => {
+      log.warn({ err }, "background enqueueProviderReposSync failed");
+    });
+  }
+
+  const { rows, total } = await listRepos(db, {
+    provider: "gitlab",
+    ...(search !== undefined && { search }),
+    limit: perPage,
+    offset: (page - 1) * perPage,
+  });
+
+  return c.json({
+    repos: rows,
+    page,
+    perPage,
+    hasMore: (page - 1) * perPage + rows.length < total,
+  });
 });
 
 gitlabRouter.get("/repos/:fullName{.+}/branches", async (c) => {
