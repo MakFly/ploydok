@@ -42,7 +42,7 @@ function AppDomainsTab(): React.JSX.Element {
   }
 
   return (
-    <div className="mx-auto w-full max-w-3xl space-y-4 py-6">
+    <div className="w-full space-y-4 px-4 py-6 md:px-6 md:py-8">
       <div className="flex items-center justify-between">
         <div>
           <h2 className="text-sm font-semibold">Custom domains</h2>
