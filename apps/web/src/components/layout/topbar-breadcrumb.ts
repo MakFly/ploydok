@@ -142,6 +142,26 @@ export function resolveTopbarBreadcrumb(
     return [{ label: "Members" }]
   }
 
+  if (normalized === "/audit") {
+    return [{ label: "Audit" }]
+  }
+
+  if (normalized === "/docker") {
+    return [{ label: "Docker" }]
+  }
+
+  if (normalized === "/shared-env") {
+    return [{ label: "Shared env" }]
+  }
+
+  if (normalized === "/scheduled-jobs") {
+    return [{ label: "Scheduled jobs" }]
+  }
+
+  if (normalized === "/event-webhooks") {
+    return [{ label: "Event webhooks" }]
+  }
+
   if (normalized.startsWith("/databases/")) {
     return [{ label: "Databases", to: "/databases" }, { label: "Database" }]
   }
