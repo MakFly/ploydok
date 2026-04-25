@@ -1,8 +1,33 @@
 // SPDX-License-Identifier: AGPL-3.0-only
 import { and, eq, or } from "drizzle-orm"
-import { secrets } from "@ploydok/db"
+import { apps, secrets } from "@ploydok/db"
+import { getProjectEnv } from "@ploydok/db/queries"
 import type { Db } from "@ploydok/db"
 import { decryptSecret } from "./crypto"
+
+/**
+ * Fetch project-level shared env vars for the app's parent project. Merges
+ * with app-level secrets downstream — app secrets win on key conflict.
+ * Swallows errors : project env is a convenience layer, not critical.
+ */
+async function fetchProjectEnv(
+  db: Db,
+  appId: string
+): Promise<Record<string, string>> {
+  try {
+    const [appRow] = await db
+      .select({ projectId: apps.project_id })
+      .from(apps)
+      .where(eq(apps.id, appId))
+      .limit(1)
+    if (!appRow?.projectId) return {}
+    return await getProjectEnv(db, appRow.projectId, async (enc, nonce) =>
+      decryptSecret(enc as Buffer, nonce as Buffer)
+    )
+  } catch {
+    return {}
+  }
+}
 
 /**
  * Build the env map to inject at runtime for a deploy.
@@ -12,7 +37,7 @@ export async function buildEnvForDeploy(
   db: Db,
   appId: string,
   kind: "prod" | "preview",
-  phase: "build" | "runtime" = "runtime",
+  phase: "build" | "runtime" = "runtime"
 ): Promise<Record<string, string>> {
   const rows = await db
     .select()
@@ -21,11 +46,17 @@ export async function buildEnvForDeploy(
       and(
         eq(secrets.app_id, appId),
         or(eq(secrets.scope, "shared"), eq(secrets.scope, kind)),
-        or(eq(secrets.phase, phase), eq(secrets.phase, "both")),
-      ),
+        or(eq(secrets.phase, phase), eq(secrets.phase, "both"))
+      )
     )
 
-  return mergeScoped(rows)
+  const appEnv = await mergeScoped(rows)
+  // Runtime-phase only : merge project-level shared env underneath. Build
+  // phase keeps app-only secrets to avoid leaking shared state into image
+  // layers by accident.
+  if (phase !== "runtime") return appEnv
+  const projectEnv = await fetchProjectEnv(db, appId)
+  return { ...projectEnv, ...appEnv }
 }
 
 /**
@@ -35,7 +66,7 @@ export async function buildEnvForDeploy(
 export async function buildEnvPairForDeploy(
   db: Db,
   appId: string,
-  kind: "prod" | "preview",
+  kind: "prod" | "preview"
 ): Promise<{ build: Record<string, string>; runtime: Record<string, string> }> {
   const rows = await db
     .select()
@@ -43,17 +74,24 @@ export async function buildEnvPairForDeploy(
     .where(
       and(
         eq(secrets.app_id, appId),
-        or(eq(secrets.scope, "shared"), eq(secrets.scope, kind)),
-      ),
+        or(eq(secrets.scope, "shared"), eq(secrets.scope, kind))
+      )
     )
 
-  const buildRows = rows.filter((r) => r.phase === "build" || r.phase === "both")
-  const runtimeRows = rows.filter((r) => r.phase === "runtime" || r.phase === "both")
+  const buildRows = rows.filter(
+    (r) => r.phase === "build" || r.phase === "both"
+  )
+  const runtimeRows = rows.filter(
+    (r) => r.phase === "runtime" || r.phase === "both"
+  )
 
-  const [build, runtime] = await Promise.all([
+  const [build, runtimeApp, projectEnv] = await Promise.all([
     mergeScoped(buildRows),
     mergeScoped(runtimeRows),
+    fetchProjectEnv(db, appId),
   ])
+  // Runtime inherits project-level shared env ; app secrets win on conflict.
+  const runtime = { ...projectEnv, ...runtimeApp }
   return { build, runtime }
 }
 
@@ -63,7 +101,7 @@ async function mergeScoped(
     key: string
     value_ciphertext: unknown
     nonce: unknown
-  }>,
+  }>
 ): Promise<Record<string, string>> {
   const shared: Record<string, string> = {}
   const scoped: Record<string, string> = {}
@@ -72,14 +110,14 @@ async function mergeScoped(
     rows.map(async (row) => {
       const value = await decryptSecret(
         row.value_ciphertext as Buffer,
-        row.nonce as Buffer,
+        row.nonce as Buffer
       )
       if (row.scope === "shared") {
         shared[row.key] = value
       } else {
         scoped[row.key] = value
       }
-    }),
+    })
   )
 
   return { ...shared, ...scoped }
