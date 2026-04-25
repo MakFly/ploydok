@@ -95,21 +95,19 @@ describe("GET /status", () => {
 
   test("retourne juste {status, version, components: {db, agent, caddy}} avec valeurs simples", async () => {
     const res = await app.request("/status")
-    const body = (await res.json()) as {
-      status?: string
-      version?: string
-      components?: Record<string, string>
-    }
+    const body = (await res.json()) as Record<string, unknown>
     const keys = Object.keys(body)
     expect(keys).toEqual(["status", "version", "components"])
-    expect(Object.keys(body.components ?? {})).toEqual(["db", "agent", "caddy"])
-    expect(body.components).toBeDefined()
-    expect(["ok", "degraded", "down", "unknown"]).toContain(body.components!.db)
+    const components = body.components as Record<string, unknown>
+    expect(Object.keys(components)).toEqual(["db", "agent", "caddy"])
     expect(["ok", "degraded", "down", "unknown"]).toContain(
-      body.components!.agent
+      components.db as string
     )
     expect(["ok", "degraded", "down", "unknown"]).toContain(
-      body.components!.caddy
+      components.agent as string
+    )
+    expect(["ok", "degraded", "down", "unknown"]).toContain(
+      components.caddy as string
     )
   })
 })
