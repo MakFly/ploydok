@@ -1,4 +1,6 @@
-# Sprint 5 — Copilot IA (read-only)
+# Sprint 5 — Copilot IA (read-only) ⏸️ Standby
+
+> **Statut : en standby.** Décision 2026-04-25 — le copilote IA est repoussé après v1.0 pour prioriser hardening, storage S3 et parité Sprint 7. Aucune implémentation de ce sprint ne doit démarrer sans relancer explicitement le scope.
 
 **Durée** : 1 semaine
 **Objectif** : intégrer le différenciateur produit — un copilote IA capable de diagnostiquer et répondre en langage naturel, sans exécuter d'action destructive.
@@ -15,6 +17,7 @@ Le copilot v1 est **read-only**. Il peut lire logs, stats, états, et générer 
 ## Tâches détaillées
 
 ### 5.1 Intégration Anthropic SDK
+
 - Install `@anthropic-ai/sdk` dans `apps/api`
 - Modèle principal : `claude-sonnet-4-6`
 - Modèle fallback simple Q&A : `claude-haiku-4-5-20251001`
@@ -22,7 +25,9 @@ Le copilot v1 est **read-only**. Il peut lire logs, stats, états, et générer 
 - Prompt caching activé sur le system prompt + liste apps (économise ~90% coûts)
 
 ### 5.2 Tools schemas (read-only)
+
 Définir dans `packages/shared/copilot-tools.ts` :
+
 - `listApps()` → `[{ id, name, status, domain }]`
 - `getAppStatus(app_id)` → `{ status, uptime, last_deploy, health }`
 - `getLogs(app_id, since, filter?)` → `string[]` (max 500 lignes, secrets redactés)
@@ -36,6 +41,7 @@ Définir dans `packages/shared/copilot-tools.ts` :
 Chaque tool a un schéma JSON strict, validé par zod côté API.
 
 ### 5.3 Orchestration conversation
+
 - Endpoint `POST /copilot/chat` avec stream SSE
 - Boucle tool-use :
   1. Envoi message user + historique + tools
@@ -45,6 +51,7 @@ Chaque tool a un schéma JSON strict, validé par zod côté API.
 - Rétention : 30 jours, purge auto
 
 ### 5.4 Context injection
+
 - System prompt dynamique :
   - Instance ID + version
   - Liste apps + DBs du user (via RAG léger, pas embeddings v1)
@@ -53,6 +60,7 @@ Chaque tool a un schéma JSON strict, validé par zod côté API.
 - Tout ce contexte = cacheable (prompt caching Anthropic)
 
 ### 5.5 Redaction secrets
+
 - Avant envoi au LLM, regex pass sur logs/outputs :
   - Patterns : `password=`, `token=`, `BEGIN PRIVATE KEY`, URLs avec creds, JWT
   - Remplacement : `<REDACTED>`
@@ -60,6 +68,7 @@ Chaque tool a un schéma JSON strict, validé par zod côté API.
 - Tests unitaires avec 30 patterns réalistes
 
 ### 5.6 UI chat
+
 - Route `/copilot` + widget flottant accessible depuis chaque page app
 - Composant `ChatPanel` (shadcn + markdown renderer)
 - Streaming token par token
@@ -69,12 +78,14 @@ Chaque tool a un schéma JSON strict, validé par zod côté API.
   - Sur `/dashboard` → « Quelles apps ont des soucis ? », « Résumé santé générale »
 
 ### 5.7 Garde-fous v1
+
 - Aucun tool write exposé, code review bloque toute PR qui en ajoute sans passer Sprint 7
 - Rate-limit : 50 messages/heure/user
 - Coût tracking : table `copilot_usage` (tokens in/out, coût estimé)
 - Alerte admin si un user dépasse seuil configurable
 
 ### 5.8 Tests qualité
+
 - Dataset interne 30 questions typiques :
   - 10 diagnostic (logs d'erreurs réels anonymisés)
   - 10 génération (Dockerfile, compose, .env.example)
@@ -108,9 +119,9 @@ Chaque tool a un schéma JSON strict, validé par zod côté API.
 
 ## Risques sprint
 
-| Risque | Mitigation |
-|---|---|
-| Coûts LLM explosent | Prompt caching + rate-limit + modèle Haiku pour Q&A simples |
-| Leak secret dans réponse LLM | Redaction + revue manuelle + tests 30 patterns |
+| Risque                          | Mitigation                                                                |
+| ------------------------------- | ------------------------------------------------------------------------- |
+| Coûts LLM explosent             | Prompt caching + rate-limit + modèle Haiku pour Q&A simples               |
+| Leak secret dans réponse LLM    | Redaction + revue manuelle + tests 30 patterns                            |
 | Hallucinations sur état système | Tools réels obligatoires, system prompt interdit réponses sans tool check |
-| Latence ressentie > 5s | Streaming visible dès le premier token, loader pendant tool calls |
+| Latence ressentie > 5s          | Streaming visible dès le premier token, loader pendant tool calls         |

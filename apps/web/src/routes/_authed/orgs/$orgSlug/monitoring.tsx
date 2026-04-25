@@ -23,8 +23,9 @@ import {
   useOrgMonitoringEvents,
   usePingOrgContainer,
 } from "../../../../lib/org-monitoring"
-import { QuotaUsageCard } from "../../../../components/monitoring/QuotaUsageCard"
 import { ResourceCard } from "../../../../components/monitoring/ResourceCard"
+import { SystemHealthCard } from "../../../../components/monitoring/SystemHealthCard"
+import { HostHealthCard } from "../../../../components/monitoring/HostHealthCard"
 import { ShellPage } from "../../../../components/layout/AppShell"
 import { useCurrentOrganizationSlug } from "../../../../lib/organizations"
 import type {
@@ -185,6 +186,9 @@ function OrgMonitoringPage(): React.JSX.Element {
       }
     >
       <div className="space-y-5">
+        <SystemHealthCard />
+        <HostHealthCard />
+
         <OpsStrip
           live={liveStatus}
           ageSec={ageSec}
@@ -464,11 +468,11 @@ function Metric({
 
 interface FilterBarProps {
   query: string
-  onQueryChange: (q: string) => void
+  onQueryChange: (v: string) => void
   kind: KindFilter
-  onKindChange: (k: KindFilter) => void
+  onKindChange: (v: KindFilter) => void
   health: HealthFilter
-  onHealthChange: (h: HealthFilter) => void
+  onHealthChange: (v: HealthFilter) => void
   stats: {
     total: number
     healthy: number
@@ -497,28 +501,19 @@ function FilterBar({
           >
             All
           </Chip>
-          <Chip
-            active={kind === "app"}
-            onClick={() => onKindChange("app" as const)}
-          >
+          <Chip active={kind === "app"} onClick={() => onKindChange("app")}>
             App
           </Chip>
           <Chip
             active={kind === "database"}
-            onClick={() => onKindChange("database" as const)}
+            onClick={() => onKindChange("database")}
           >
             Database
           </Chip>
-          <Chip
-            active={kind === "infra"}
-            onClick={() => onKindChange("infra" as const)}
-          >
+          <Chip active={kind === "infra"} onClick={() => onKindChange("infra")}>
             Infra
           </Chip>
-          <Chip
-            active={kind === "agent"}
-            onClick={() => onKindChange("agent" as const)}
-          >
+          <Chip active={kind === "agent"} onClick={() => onKindChange("agent")}>
             Agent
           </Chip>
         </ChipGroup>
@@ -529,7 +524,7 @@ function FilterBar({
           </Chip>
           <Chip
             active={health === "healthy"}
-            onClick={() => onHealthChange("healthy" as const)}
+            onClick={() => onHealthChange("healthy")}
             count={stats.healthy}
             tone="emerald"
           >
@@ -537,7 +532,7 @@ function FilterBar({
           </Chip>
           <Chip
             active={health === "warn"}
-            onClick={() => onHealthChange("warn" as const)}
+            onClick={() => onHealthChange("warn")}
             count={stats.warn}
             tone="amber"
           >
@@ -545,7 +540,7 @@ function FilterBar({
           </Chip>
           <Chip
             active={health === "down"}
-            onClick={() => onHealthChange("down" as const)}
+            onClick={() => onHealthChange("down")}
             count={stats.down}
             tone="destructive"
           >
@@ -568,125 +563,134 @@ function FilterBar({
   )
 }
 
-function FilterButton({
+function ChipGroup({
   label,
-  active,
-  onClick,
   icon: Icon,
   children,
 }: {
   label: string
-  active: boolean
-  onClick: () => void
   icon: React.ComponentType<{ className?: string }>
-  children?: React.ReactNode
+  children: React.ReactNode
 }): React.JSX.Element {
   return (
-    <div className="relative">
-      <button
-        type="button"
-        onClick={onClick}
-        className={cn(
-          "inline-flex h-9 items-center gap-1.5 rounded-md border px-3 text-xs font-medium transition-colors",
-          active
-            ? "border-primary bg-primary/10 text-primary hover:bg-primary/20"
-            : "border-border bg-background text-foreground hover:bg-muted/60"
-        )}
-      >
-        <Icon className="size-4" />
+    <div className="flex items-center gap-1.5 rounded-md border border-border bg-muted/40 p-0.5">
+      <span className="flex items-center gap-1 pr-1 pl-2 font-mono text-[9px] tracking-wide text-muted-foreground uppercase">
+        <Icon className="size-3" />
         {label}
-      </button>
-      {children ? (
-        <div className="absolute top-full left-0 z-10 mt-2 min-w-max rounded-md border border-border bg-popover p-2 shadow-lg">
-          {children}
-        </div>
-      ) : null}
-    </div>
-  )
-}
-
-function ChipGroup({
-  options,
-  value,
-  onChange,
-}: {
-  options: Array<string>
-  value: string
-  onChange: (v: string) => void
-}): React.JSX.Element {
-  return (
-    <div className="flex flex-wrap gap-2">
-      {options.map((opt) => (
-        <Chip
-          key={opt}
-          variant="neutral"
-          active={opt === value}
-          onClick={() => onChange(opt)}
-        >
-          {opt === "all" ? "All" : opt}
-        </Chip>
-      ))}
+      </span>
+      {children}
     </div>
   )
 }
 
 function Chip({
-  variant = "neutral",
-  active = false,
+  active,
   onClick,
-  icon: Icon,
+  count,
+  tone = "default",
   children,
 }: {
-  variant?: "neutral" | "emerald" | "amber" | "destructive"
-  active?: boolean
-  onClick?: () => void
-  icon?: React.ComponentType<{ className?: string }>
+  active: boolean
+  onClick: () => void
+  count?: number
+  tone?: "default" | "emerald" | "amber" | "destructive"
   children: React.ReactNode
 }): React.JSX.Element {
-  const variantStyles = {
-    neutral: "bg-muted text-foreground",
-    emerald: "bg-emerald-500/20 text-emerald-700 dark:text-emerald-300",
-    amber: "bg-amber-500/20 text-amber-700 dark:text-amber-300",
-    destructive: "bg-destructive/20 text-destructive",
-  }[variant]
-
-  const classes = cn(
-    "inline-flex items-center gap-1.5 rounded-full px-2.5 py-1 text-xs font-medium transition-colors",
-    variantStyles,
-    onClick && "cursor-pointer hover:opacity-80",
-    active && "ring-2 ring-primary ring-offset-2"
-  )
-
-  const content = (
-    <>
-      {Icon ? <Icon className="size-3.5" /> : null}
+  const toneCls =
+    active && tone === "emerald"
+      ? "text-emerald-700 dark:text-emerald-300"
+      : active && tone === "amber"
+        ? "text-amber-700 dark:text-amber-300"
+        : active && tone === "destructive"
+          ? "text-destructive"
+          : active
+            ? "text-foreground"
+            : "text-muted-foreground"
+  return (
+    <button
+      type="button"
+      onClick={onClick}
+      aria-pressed={active}
+      className={cn(
+        "inline-flex h-6 items-center gap-1 rounded-sm px-2 text-[11px] font-medium transition-colors",
+        active
+          ? "bg-background shadow-[0_0_0_1px_var(--border)]"
+          : "hover:text-foreground",
+        toneCls
+      )}
+    >
       {children}
-    </>
+      {count !== undefined ? (
+        <span className="font-mono text-[9px] opacity-60">{count}</span>
+      ) : null}
+    </button>
   )
-
-  if (onClick) {
-    return (
-      <button type="button" className={classes} onClick={onClick}>
-        {content}
-      </button>
-    )
-  }
-
-  return <span className={classes}>{content}</span>
 }
 
 // ---------------------------------------------------------------------------
-// Empty states and skeletons
+// Inline alert (replaces the old light-bg bordered div)
+// ---------------------------------------------------------------------------
+
+function InlineAlert({
+  tone,
+  icon: Icon,
+  code,
+  message,
+}: {
+  tone: "warning" | "destructive"
+  icon: React.ComponentType<{ className?: string }>
+  code: string
+  message: string
+}): React.JSX.Element {
+  const cls =
+    tone === "warning"
+      ? "border-amber-500/25 bg-amber-500/5 text-amber-700 dark:text-amber-300"
+      : "border-destructive/30 bg-destructive/5 text-destructive"
+  return (
+    <div
+      role="alert"
+      className={cn(
+        "flex items-start gap-2 rounded-lg border px-3 py-2.5 text-sm",
+        cls
+      )}
+    >
+      <Icon className="mt-0.5 size-4 shrink-0" />
+      <div className="space-y-0.5">
+        <p className="font-mono text-[10px] tracking-wide uppercase opacity-80">
+          {code}
+        </p>
+        <p className="text-xs leading-5">{message}</p>
+      </div>
+    </div>
+  )
+}
+
+// ---------------------------------------------------------------------------
+// Skeleton + Empty
 // ---------------------------------------------------------------------------
 
 function SkeletonGrid(): React.JSX.Element {
   return (
     <div className="grid gap-3 md:grid-cols-2 xl:grid-cols-3">
-      {Array.from({ length: 6 }).map((_, i) => (
+      {Array.from({ length: 3 }).map((_, i) => (
         <div
           key={i}
-          className="h-48 animate-pulse rounded-xl border border-border bg-card"
-        />
+          className="animate-pulse rounded-lg border border-border bg-card p-4"
+        >
+          <div className="mb-3 flex items-center gap-2">
+            <div className="size-8 rounded-md bg-muted" />
+            <div className="flex-1 space-y-1.5">
+              <div className="h-3 w-32 rounded bg-muted" />
+              <div className="h-2.5 w-24 rounded bg-muted/60" />
+            </div>
+            <div className="h-5 w-14 rounded-full bg-muted" />
+          </div>
+          <div className="mb-3 h-14 rounded-md bg-muted/60" />
+          <div className="grid grid-cols-2 gap-2">
+            <div className="h-14 rounded-md bg-muted/60" />
+            <div className="h-14 rounded-md bg-muted/60" />
+          </div>
+        </div>
       ))}
     </div>
   )
@@ -694,43 +698,52 @@ function SkeletonGrid(): React.JSX.Element {
 
 function EmptyState(): React.JSX.Element {
   return (
-    <div className="flex min-h-80 flex-col items-center justify-center rounded-xl border border-border bg-card/50 p-8 text-center">
-      <RiRadarLine className="mb-3 size-8 text-muted-foreground" />
-      <h3 className="text-base font-semibold">No containers</h3>
-      <p className="mt-1 text-sm text-muted-foreground">
-        Nothing to monitor in this workspace yet.
-      </p>
+    <div className="flex flex-col items-center justify-center gap-3 rounded-xl border border-dashed border-border bg-muted/20 px-6 py-16 text-center">
+      <div className="flex size-12 items-center justify-center rounded-full bg-muted">
+        <RiRadarLine className="size-5 text-muted-foreground" />
+      </div>
+      <div className="space-y-1">
+        <p className="text-sm font-medium">Fleet is empty</p>
+        <p className="max-w-sm text-xs text-muted-foreground">
+          The agent will start reporting containers here as soon as services are
+          deployed and running.
+        </p>
+      </div>
     </div>
   )
 }
 
 function NoResults({ onReset }: { onReset: () => void }): React.JSX.Element {
   return (
-    <div className="flex min-h-80 flex-col items-center justify-center rounded-xl border border-border bg-card/50 p-8 text-center">
-      <RiSearchLine className="mb-3 size-8 text-muted-foreground" />
-      <h3 className="text-base font-semibold">No results</h3>
-      <p className="mt-1 text-sm text-muted-foreground">
-        No containers match your filters.
-      </p>
+    <div className="flex flex-col items-center justify-center gap-3 rounded-xl border border-dashed border-border bg-muted/20 px-6 py-12 text-center">
+      <div className="flex size-10 items-center justify-center rounded-full bg-muted">
+        <RiSearchLine className="size-4 text-muted-foreground" />
+      </div>
+      <div className="space-y-1">
+        <p className="text-sm font-medium">No containers match</p>
+        <p className="max-w-sm text-xs text-muted-foreground">
+          Try relaxing the filters or clearing the search.
+        </p>
+      </div>
       <button
         type="button"
         onClick={onReset}
-        className="mt-4 inline-flex items-center gap-2 rounded-md border border-border px-3 py-1.5 text-sm font-medium hover:bg-muted"
+        className="rounded-md border border-border bg-background px-2.5 py-1 text-xs font-medium hover:bg-muted"
       >
-        Clear filters
+        Reset filters
       </button>
     </div>
   )
 }
 
+// ---------------------------------------------------------------------------
+// Utils
+// ---------------------------------------------------------------------------
+
 function formatBytes(bytes: number): string {
   if (bytes < 1024) return `${bytes} B`
-  const units = ["KB", "MB", "GB", "TB"]
-  let value = bytes / 1024
-  let i = 0
-  while (value >= 1024 && i < units.length - 1) {
-    value /= 1024
-    i++
-  }
-  return `${value.toFixed(1)} ${units[i]}`
+  if (bytes < 1024 * 1024) return `${(bytes / 1024).toFixed(0)} KB`
+  if (bytes < 1024 * 1024 * 1024)
+    return `${(bytes / (1024 * 1024)).toFixed(0)} MB`
+  return `${(bytes / (1024 * 1024 * 1024)).toFixed(1)} GB`
 }

@@ -1,5 +1,6 @@
 // SPDX-License-Identifier: AGPL-3.0-only
 import { createHash } from "crypto"
+import bcrypt from "bcryptjs"
 import { Hono } from "hono"
 import type { Db } from "@ploydok/db"
 import {
@@ -10,8 +11,10 @@ import {
 import { ApiTokenCreateSchema } from "@ploydok/shared"
 import { childLogger } from "../logger"
 import type { AuthUser } from "../auth/middleware"
+import { userMaxScopes, assertScopesAllowed } from "../auth/scope-rbac"
 
 const log = childLogger("api-tokens.routes")
+const BCRYPT_ROUNDS = 10
 
 type AppEnv = { Variables: { user?: AuthUser } }
 
@@ -19,6 +22,10 @@ function getUser(c: { get: (k: string) => unknown }): AuthUser {
   return c.get("user") as AuthUser
 }
 
+/**
+ * Génère un PAT au format `plk_live_<base64url>` (Sprint 6.5-bis Vague 2).
+ * Les anciens tokens `ploy_*` restent acceptés en lecture par le middleware.
+ */
 function generateToken(): string {
   const bytes = crypto.getRandomValues(new Uint8Array(32))
   const base64url = Buffer.from(bytes)
@@ -26,7 +33,7 @@ function generateToken(): string {
     .replace(/\+/g, "-")
     .replace(/\//g, "_")
     .replace(/=/g, "")
-  return `ploy_${base64url}`
+  return `plk_live_${base64url}`
 }
 
 export function createApiTokensRouter(db: Db): Hono<AppEnv> {
@@ -45,20 +52,42 @@ export function createApiTokensRouter(db: Db): Hono<AppEnv> {
       return c.json({ error: "Invalid request body" }, 400)
     }
 
-    const { name, expiresInDays } = parseResult.data
+    const { name, expiresInDays, scopes: requestedScopes } = parseResult.data
+
+    const maxScopes = await userMaxScopes(db, user.id)
+    let scopesToUse = requestedScopes
+    if (!scopesToUse) {
+      scopesToUse = maxScopes.includes("admin:*") ? ["admin:*"] : ["apps:read"]
+    }
+
+    const validation = assertScopesAllowed(scopesToUse, maxScopes)
+    if (!validation.ok) {
+      return c.json(
+        { error: "scope_not_allowed", denied: validation.denied },
+        403
+      )
+    }
 
     const token = generateToken()
     const tokenHash = createHash("sha256").update(token).digest("hex")
+    const bcryptHash = await bcrypt.hash(token, BCRYPT_ROUNDS)
 
     const tokenParams: {
       userId: string
       name: string
       tokenHash: string
+      bcryptHash: string
       expiresAt?: Date
+      scopes?: string[]
     } = {
       userId: user.id,
       name,
       tokenHash,
+      bcryptHash,
+    }
+
+    if (scopesToUse && scopesToUse.length > 0) {
+      tokenParams.scopes = scopesToUse
     }
 
     if (expiresInDays) {
@@ -69,9 +98,15 @@ export function createApiTokensRouter(db: Db): Hono<AppEnv> {
 
     const row = await createToken(db, tokenParams)
 
+    log.info(
+      { user_id: user.id, token_id: row.id, scopes: row.scopes },
+      "api_token.created"
+    )
+
     const summary = {
       id: row.id,
       name: row.name,
+      scopes: row.scopes,
       created_at: row.created_at,
       last_used_at: row.last_used_at,
       expires_at: row.expires_at,
@@ -101,6 +136,8 @@ export function createApiTokensRouter(db: Db): Hono<AppEnv> {
     const tokenId = c.req.param("id")
 
     await revokeToken(db, user.id, tokenId)
+
+    log.info({ user_id: user.id, token_id: tokenId }, "api_token.revoked")
 
     return c.json({ success: true })
   })

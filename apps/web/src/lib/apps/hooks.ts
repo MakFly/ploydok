@@ -8,12 +8,7 @@ import {
 } from "@tanstack/react-query"
 import { toast } from "sonner"
 import type { AppConfig, Build, CaddyExtraHandlers } from "@ploydok/shared"
-import {
-  apiFetch,
-  criticalRetryDelay,
-  invalidateGetCache,
-  shouldRetryCriticalQuery,
-} from "../api"
+import { apiFetch, criticalQueryDefaults, invalidateGetCache } from "../api"
 import type { ApiError } from "../api"
 import { useEventsSubscription } from "../events-provider"
 import {
@@ -126,9 +121,7 @@ export function useApps(organizationId?: string) {
       return data.apps
     },
     staleTime: 30_000,
-    retry: shouldRetryCriticalQuery,
-    retryDelay: criticalRetryDelay,
-    meta: { critical: true },
+    ...criticalQueryDefaults,
   })
 }
 
@@ -229,14 +222,9 @@ export function useApp(appId: string, opts?: UseAppOptions) {
       // can derive the last build without a separate /builds request.
       return { ...normalized, builds: rawBuilds }
     },
-    // Keep a generous staleTime to avoid redundant fetches, but refetch on
-    // window focus so re-activating the tab reflects status changes promptly.
     staleTime: 15_000,
-    refetchOnWindowFocus: true,
     enabled: Boolean(appId),
-    retry: shouldRetryCriticalQuery,
-    retryDelay: criticalRetryDelay,
-    meta: { critical: true },
+    ...criticalQueryDefaults,
     ...(opts?.initialData !== undefined
       ? { initialData: opts.initialData }
       : {}),

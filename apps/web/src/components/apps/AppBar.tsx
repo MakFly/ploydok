@@ -2,11 +2,13 @@
 import * as React from "react"
 import { Link, useRouterState } from "@tanstack/react-router"
 import { Tabs, TabsList, TabsTrigger } from "@workspace/ui/components/tabs"
-import { DeployButton } from "./DeployButton"
-import { ActionsMenu } from "./ActionsMenu"
+import { DeleteAppButton } from "./DeleteAppButton"
 import { useTabShortcuts } from "../../lib/hooks/use-tab-shortcuts"
 import type { AppDetail } from "../../lib/apps"
-import { organizationPath, useCurrentOrganizationSlug } from "../../lib/organizations"
+import {
+  organizationPath,
+  useCurrentOrganizationSlug,
+} from "../../lib/organizations"
 
 interface NavItem {
   value: string
@@ -37,15 +39,17 @@ export function AppBar({ app }: { app: AppDetail }): React.JSX.Element {
         const to = currentOrgSlug
           ? organizationPath(currentOrgSlug, `apps/${app.id}/${item.segment}`)
           : `/apps/${app.id}/${item.segment}`
-        const disabled = item.requiresRunning === true && app.status !== "running"
+        const disabled =
+          item.requiresRunning === true && app.status !== "running"
         return { ...item, to, disabled }
       }),
-    [app.id, app.status, currentOrgSlug],
+    [app.id, app.status, currentOrgSlug]
   )
 
   const activeValue =
-    resolvedItems.find(({ to }) => pathname === to || pathname.startsWith(`${to}/`))?.value ??
-    "overview"
+    resolvedItems.find(
+      ({ to }) => pathname === to || pathname.startsWith(`${to}/`)
+    )?.value ?? "overview"
 
   return (
     <div className="flex w-full shrink-0 flex-wrap items-center gap-3 px-4 py-3 md:px-8">
@@ -65,14 +69,13 @@ export function AppBar({ app }: { app: AppDetail }): React.JSX.Element {
               <TabsTrigger key={item.value} value={item.value} asChild>
                 <Link to={item.to as never}>{item.label}</Link>
               </TabsTrigger>
-            ),
+            )
           )}
         </TabsList>
       </Tabs>
 
       <div className="ml-auto flex shrink-0 items-center gap-1.5">
-        <DeployButton appId={app.id} />
-        <ActionsMenu app={app} />
+        <DeleteAppButton app={app} />
       </div>
     </div>
   )

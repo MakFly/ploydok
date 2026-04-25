@@ -8,6 +8,7 @@ import {
 import { Button } from "@workspace/ui/components/button"
 import { Textarea } from "@workspace/ui/components/textarea"
 import { Alert, AlertDescription } from "@workspace/ui/components/alert"
+import { Skeleton } from "@workspace/ui/components/skeleton"
 import {
   useAppCaddyExtra,
   useUpdateAppCaddyExtra,
@@ -78,7 +79,24 @@ function AdvancedSettingsPage() {
   }
 
   if (isLoading) {
-    return <div className="p-4">Loading...</div>
+    return (
+      <div className="space-y-6">
+        <div className="space-y-2">
+          <Skeleton className="h-6 w-56" />
+          <Skeleton className="h-4 w-full max-w-xl" />
+          <Skeleton className="h-4 w-72" />
+        </div>
+        <Skeleton className="h-16 rounded-lg" />
+        <div className="space-y-2">
+          <Skeleton className="h-4 w-40" />
+          <Skeleton className="h-64 w-full rounded-md" />
+        </div>
+        <div className="flex gap-2">
+          <Skeleton className="h-9 w-20 rounded-md" />
+          <Skeleton className="h-9 w-20 rounded-md" />
+        </div>
+      </div>
+    )
   }
 
   const isValid = validationError === null

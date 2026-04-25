@@ -11,7 +11,7 @@ export async function createApiToken(
 ): Promise<ApiTokenResponse> {
   return apiFetch<ApiTokenResponse>("/api-tokens", {
     method: "POST",
-    body: JSON.stringify(input),
+    body: input,
   })
 }
 

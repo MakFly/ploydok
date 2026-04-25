@@ -10,7 +10,6 @@ import {
 } from "@remixicon/react"
 import { cn } from "@workspace/ui/lib/utils"
 import { ShellPage } from "../../../../components/layout/AppShell"
-import { SettingsTabs } from "../../../../components/settings/SettingsTabs"
 import { useGitHubAppConfig } from "../../../../lib/github"
 import { useGitLabConfig } from "../../../../lib/gitlab"
 
@@ -67,11 +66,8 @@ function GitProvidersHub(): React.JSX.Element {
     <ShellPage
       title="Git providers"
       description="Connecte les services d'hébergement Git pour déployer depuis un repo à chaque push."
-      
     >
       <div className="space-y-6">
-        <SettingsTabs />
-
         <section aria-label="Providers" className="grid gap-3 md:grid-cols-2">
           {providers.map((p) => (
             <ProviderCard key={p.slug} {...p} />

@@ -1,36 +1,119 @@
 // SPDX-License-Identifier: AGPL-3.0-only
-import * as React from "react";
-import { Button } from "@workspace/ui/components/button";
+import * as React from "react"
+import { Button } from "@workspace/ui/components/button"
 
-const STORAGE_KEY = "ploydok-theme";
+export type ThemeMode = "light" | "dark" | "system"
+export type ResolvedTheme = "light" | "dark"
 
-function getInitialTheme(): "dark" | "light" {
-  if (typeof window === "undefined") return "dark";
-  const stored = localStorage.getItem(STORAGE_KEY);
-  if (stored === "light" || stored === "dark") return stored;
-  return "dark";
+export const THEME_COOKIE = "ploydok-theme"
+const COOKIE_MAX_AGE = 60 * 60 * 24 * 365 // 1 year
+
+function readCookie(): ThemeMode {
+  if (typeof document === "undefined") return "system"
+  const match = document.cookie.match(
+    new RegExp("(?:^|; )" + THEME_COOKIE + "=([^;]+)")
+  )
+  const value = match ? decodeURIComponent(match[1]!) : null
+  if (value === "light" || value === "dark" || value === "system") return value
+  return "system"
 }
 
-function applyTheme(theme: "dark" | "light"): void {
-  const root = document.documentElement;
-  root.classList.toggle("dark", theme === "dark");
-  localStorage.setItem(STORAGE_KEY, theme);
+function writeCookie(mode: ThemeMode): void {
+  if (typeof document === "undefined") return
+  document.cookie =
+    THEME_COOKIE +
+    "=" +
+    encodeURIComponent(mode) +
+    "; path=/; max-age=" +
+    COOKIE_MAX_AGE +
+    "; samesite=lax"
+}
+
+function systemPrefersDark(): boolean {
+  if (typeof window === "undefined") return true
+  return window.matchMedia("(prefers-color-scheme: dark)").matches
+}
+
+function resolve(mode: ThemeMode): ResolvedTheme {
+  if (mode === "system") return systemPrefersDark() ? "dark" : "light"
+  return mode
+}
+
+function applyResolved(resolved: ResolvedTheme): void {
+  if (typeof document === "undefined") return
+  document.documentElement.classList.toggle("dark", resolved === "dark")
+  document.documentElement.style.colorScheme = resolved
+}
+
+export function useTheme(): {
+  mode: ThemeMode
+  resolved: ResolvedTheme
+  setMode: (mode: ThemeMode) => void
+  toggle: () => void
+} {
+  const [mode, setModeState] = React.useState<ThemeMode>(readCookie)
+  const [resolved, setResolved] = React.useState<ResolvedTheme>(() =>
+    resolve(readCookie())
+  )
+
+  React.useEffect(() => {
+    const next = resolve(mode)
+    setResolved(next)
+    applyResolved(next)
+    writeCookie(mode)
+  }, [mode])
+
+  // Follow OS pref changes when in system mode
+  React.useEffect(() => {
+    if (mode !== "system" || typeof window === "undefined") return
+    const mq = window.matchMedia("(prefers-color-scheme: dark)")
+    const handler = (e: MediaQueryListEvent): void => {
+      const next: ResolvedTheme = e.matches ? "dark" : "light"
+      setResolved(next)
+      applyResolved(next)
+    }
+    mq.addEventListener("change", handler)
+    return () => mq.removeEventListener("change", handler)
+  }, [mode])
+
+  // Sync across tabs via cookie polling on focus
+  React.useEffect(() => {
+    if (typeof window === "undefined") return
+    const onFocus = (): void => {
+      const fromCookie = readCookie()
+      if (fromCookie !== mode) setModeState(fromCookie)
+    }
+    window.addEventListener("focus", onFocus)
+    return () => window.removeEventListener("focus", onFocus)
+  }, [mode])
+
+  const setMode = React.useCallback((next: ThemeMode) => {
+    setModeState(next)
+  }, [])
+
+  const toggle = React.useCallback(() => {
+    setModeState((prev) => {
+      const current = resolve(prev)
+      return current === "dark" ? "light" : "dark"
+    })
+  }, [])
+
+  return { mode, resolved, setMode, toggle }
 }
 
 export function ThemeToggle(): React.JSX.Element {
-  const [theme, setTheme] = React.useState<"dark" | "light">(getInitialTheme);
-
-  React.useEffect(() => {
-    applyTheme(theme);
-  }, [theme]);
-
-  const toggle = (): void => {
-    setTheme((prev) => (prev === "dark" ? "light" : "dark"));
-  };
+  const { resolved, toggle } = useTheme()
 
   return (
-    <Button variant="ghost" size="icon" onClick={toggle} aria-label="Toggle theme">
-      {theme === "dark" ? (
+    <Button
+      variant="ghost"
+      size="icon"
+      onClick={toggle}
+      aria-label={
+        resolved === "dark" ? "Switch to light theme" : "Switch to dark theme"
+      }
+    >
+      {resolved === "dark" ? (
         <svg
           xmlns="http://www.w3.org/2000/svg"
           width="16"
@@ -63,10 +146,5 @@ export function ThemeToggle(): React.JSX.Element {
         </svg>
       )}
     </Button>
-  );
-}
-
-// Apply dark theme immediately on module load (SSR-safe)
-if (typeof window !== "undefined") {
-  applyTheme(getInitialTheme());
+  )
 }

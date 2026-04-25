@@ -3,14 +3,27 @@ import * as React from "react"
 import { useRouter, useMatches } from "@tanstack/react-router"
 import {
   RiApps2Line,
-  RiShip2Line,
+  RiArchiveLine,
+  RiCodeBoxLine,
   RiDashboardLine,
-  RiGithubLine,
+  RiDatabase2Line,
+  RiFileListLine,
+  RiKey2Line,
+  RiKeyLine,
+  RiNotificationLine,
+  RiPlugLine,
+  RiPriceTagLine,
   RiPulseLine,
   RiRocketLine,
+  RiSendPlane2Line,
+  RiSettings3Line,
+  RiShapesLine,
   RiShieldCheckLine,
+  RiStackLine,
   RiStopCircleLine,
+  RiTeamLine,
   RiTerminalBoxLine,
+  RiTimerLine,
 } from "@remixicon/react"
 import {
   CommandDialog,
@@ -24,7 +37,11 @@ import {
 import { useApps } from "../../lib/apps"
 import { useDeployApp, useStopApp } from "../../lib/apps-mutations"
 import { useCommandPaletteContext } from "../../lib/hooks/command-palette-context"
-import { organizationPath, useCurrentOrganization, useCurrentOrganizationSlug } from "../../lib/organizations"
+import {
+  organizationPath,
+  useCurrentOrganization,
+  useCurrentOrganizationSlug,
+} from "../../lib/organizations"
 
 // ---------------------------------------------------------------------------
 // Types
@@ -35,6 +52,7 @@ interface NavEntry {
   label: string
   icon: React.ComponentType<{ className?: string }>
   to: string
+  orgPathSuffix?: string
   params?: Record<string, string>
 }
 
@@ -57,15 +75,140 @@ export function matchesQuery(item: FilterableItem, query: string): boolean {
 // ---------------------------------------------------------------------------
 
 const NAV_ITEMS: Array<NavEntry> = [
-  { id: "nav-dashboard", label: "Dashboard", icon: RiDashboardLine, to: "/dashboard" },
-  { id: "nav-apps", label: "Applications", icon: RiApps2Line, to: "/apps" },
-  { id: "nav-monitoring", label: "Monitoring", icon: RiPulseLine, to: "/monitoring" },
-  { id: "nav-settings", label: "Settings — Overview", icon: RiShieldCheckLine, to: "/settings" },
-  { id: "nav-settings-security", label: "Settings — Security", icon: RiShieldCheckLine, to: "/settings/security" },
-  { id: "nav-settings-git-providers", label: "Settings — Git providers", icon: RiGithubLine, to: "/settings/git-providers" },
-  { id: "nav-settings-github", label: "Settings — GitHub", icon: RiGithubLine, to: "/settings/git-providers/github" },
-  { id: "nav-settings-gitlab", label: "Settings — GitLab", icon: RiGithubLine, to: "/settings/git-providers/gitlab" },
-  { id: "nav-settings-registry", label: "Settings — Registry", icon: RiShip2Line, to: "/settings/registry" },
+  {
+    id: "nav-dashboard",
+    label: "Dashboard",
+    icon: RiDashboardLine,
+    to: "/dashboard",
+    orgPathSuffix: "dashboard",
+  },
+  {
+    id: "nav-apps",
+    label: "Applications",
+    icon: RiApps2Line,
+    to: "/apps",
+    orgPathSuffix: "apps",
+  },
+  {
+    id: "nav-databases",
+    label: "Databases",
+    icon: RiDatabase2Line,
+    to: "/databases",
+    orgPathSuffix: "databases",
+  },
+  {
+    id: "nav-services",
+    label: "Services",
+    icon: RiCodeBoxLine,
+    to: "/dashboard",
+    orgPathSuffix: "services",
+  },
+  {
+    id: "nav-deployments",
+    label: "Deployments",
+    icon: RiRocketLine,
+    to: "/dashboard",
+    orgPathSuffix: "deployments",
+  },
+  {
+    id: "nav-marketplace",
+    label: "Marketplace",
+    icon: RiShapesLine,
+    to: "/dashboard",
+    orgPathSuffix: "marketplace",
+  },
+  {
+    id: "nav-templates",
+    label: "Templates",
+    icon: RiStackLine,
+    to: "/dashboard",
+    orgPathSuffix: "templates",
+  },
+  {
+    id: "nav-monitoring",
+    label: "Monitoring",
+    icon: RiPulseLine,
+    to: "/dashboard",
+    orgPathSuffix: "monitoring",
+  },
+  {
+    id: "nav-members",
+    label: "Members",
+    icon: RiTeamLine,
+    to: "/dashboard",
+    orgPathSuffix: "members",
+  },
+  {
+    id: "nav-audit",
+    label: "Audit log",
+    icon: RiFileListLine,
+    to: "/dashboard",
+    orgPathSuffix: "audit",
+  },
+  {
+    id: "nav-shared-env",
+    label: "Shared env",
+    icon: RiKeyLine,
+    to: "/dashboard",
+    orgPathSuffix: "shared-env",
+  },
+  {
+    id: "nav-scheduled-jobs",
+    label: "Scheduled jobs",
+    icon: RiTimerLine,
+    to: "/dashboard",
+    orgPathSuffix: "scheduled-jobs",
+  },
+  {
+    id: "nav-event-webhooks",
+    label: "Event webhooks",
+    icon: RiSendPlane2Line,
+    to: "/dashboard",
+    orgPathSuffix: "event-webhooks",
+  },
+  {
+    id: "nav-tags",
+    label: "Tags",
+    icon: RiPriceTagLine,
+    to: "/dashboard",
+    orgPathSuffix: "tags",
+  },
+  {
+    id: "nav-integrations-git-providers",
+    label: "Integrations — Git providers",
+    icon: RiPlugLine,
+    to: "/settings/git-providers",
+  },
+  {
+    id: "nav-integrations-registry",
+    label: "Integrations — Registry",
+    icon: RiArchiveLine,
+    to: "/settings/registry",
+  },
+  {
+    id: "nav-integrations-notifications",
+    label: "Integrations — Notifications",
+    icon: RiNotificationLine,
+    to: "/settings/notifications",
+  },
+  {
+    id: "nav-integrations-api-tokens",
+    label: "Integrations — API tokens",
+    icon: RiKey2Line,
+    to: "/settings/api-tokens",
+  },
+  {
+    id: "nav-settings",
+    label: "Account — Settings",
+    icon: RiSettings3Line,
+    to: "/settings",
+  },
+  {
+    id: "nav-settings-security",
+    label: "Account — Security",
+    icon: RiShieldCheckLine,
+    to: "/settings/security",
+  },
 ]
 
 // ---------------------------------------------------------------------------
@@ -79,7 +222,10 @@ interface CurrentAppActionsProps {
   onClose: () => void
 }
 
-function CurrentAppActions({ appId, onClose }: CurrentAppActionsProps): React.JSX.Element {
+function CurrentAppActions({
+  appId,
+  onClose,
+}: CurrentAppActionsProps): React.JSX.Element {
   const currentOrgSlug = useCurrentOrganizationSlug()
   const deploy = useDeployApp(appId)
   const stop = useStopApp(appId)
@@ -97,7 +243,9 @@ function CurrentAppActions({ appId, onClose }: CurrentAppActionsProps): React.JS
 
   const handleLogs = () => {
     void router.navigate({
-      href: currentOrgSlug ? organizationPath(currentOrgSlug, `apps/${appId}/logs`) : `/apps/${appId}/logs`,
+      href: currentOrgSlug
+        ? organizationPath(currentOrgSlug, `apps/${appId}/logs`)
+        : `/apps/${appId}/logs`,
     })
     onClose()
   }
@@ -134,7 +282,9 @@ interface CommandPaletteContentProps {
   onClose: () => void
 }
 
-function CommandPaletteContent({ onClose }: CommandPaletteContentProps): React.JSX.Element {
+function CommandPaletteContent({
+  onClose,
+}: CommandPaletteContentProps): React.JSX.Element {
   const router = useRouter()
   const matches = useMatches()
   const organization = useCurrentOrganization()
@@ -150,10 +300,12 @@ function CommandPaletteContent({ onClose }: CommandPaletteContentProps): React.J
 
   const handleNavSelect = React.useCallback(
     (to: string, params?: Record<string, string>) => {
-      void router.navigate({ to, params } as Parameters<typeof router.navigate>[0])
+      void router.navigate({ to, params } as Parameters<
+        typeof router.navigate
+      >[0])
       onClose()
     },
-    [router, onClose],
+    [router, onClose]
   )
 
   return (
@@ -166,8 +318,13 @@ function CommandPaletteContent({ onClose }: CommandPaletteContentProps): React.J
               value={`app-${app.name}-${app.slug}`}
               onSelect={() =>
                 handleNavSelect(
-                  currentOrgSlug ? organizationPath(currentOrgSlug, `apps/${app.id}/overview`) : "/apps/$id/overview",
-                  currentOrgSlug ? undefined : { id: app.id },
+                  currentOrgSlug
+                    ? organizationPath(
+                        currentOrgSlug,
+                        `apps/${app.id}/overview`
+                      )
+                    : "/apps/$id/overview",
+                  currentOrgSlug ? undefined : { id: app.id }
                 )
               }
             >
@@ -187,8 +344,8 @@ function CommandPaletteContent({ onClose }: CommandPaletteContentProps): React.J
         {NAV_ITEMS.map((item) => {
           const Icon = item.icon
           const target =
-            currentOrgSlug && (item.id === "nav-dashboard" || item.id === "nav-apps")
-              ? organizationPath(currentOrgSlug, item.id === "nav-dashboard" ? "dashboard" : "apps")
+            currentOrgSlug && item.orgPathSuffix
+              ? organizationPath(currentOrgSlug, item.orgPathSuffix)
               : item.to
           return (
             <CommandItem
@@ -219,22 +376,27 @@ export interface CommandPaletteProps {
   onOpenChange: (open: boolean) => void
 }
 
-export function CommandPalette({ open, onOpenChange }: CommandPaletteProps): React.JSX.Element {
+export function CommandPalette({
+  open,
+  onOpenChange,
+}: CommandPaletteProps): React.JSX.Element {
   const close = React.useCallback(() => onOpenChange(false), [onOpenChange])
 
   return (
     <CommandDialog open={open} onOpenChange={onOpenChange}>
       <CommandInput placeholder="Search apps, navigate, or run an action…" />
-      <CommandList>
+      <CommandList className="max-h-[60vh] sm:max-h-[400px]">
         <CommandEmpty>
-          <span className="text-muted-foreground text-sm">No results found.</span>
+          <span className="text-sm text-muted-foreground">
+            No results found.
+          </span>
         </CommandEmpty>
 
         {open ? <CommandPaletteContent onClose={close} /> : null}
       </CommandList>
 
       <div className="flex items-center justify-end border-t px-3 py-2">
-        <span className="text-muted-foreground font-mono text-[10px]">
+        <span className="font-mono text-[10px] text-muted-foreground">
           ↑↓ navigate · ↵ select · ESC close
         </span>
       </div>

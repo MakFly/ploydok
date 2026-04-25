@@ -3,7 +3,12 @@ import * as React from "react"
 import { useParams, createFileRoute } from "@tanstack/react-router"
 import { RiUploadLine, RiAddLine, RiDatabase2Line } from "@remixicon/react"
 import { Button } from "@workspace/ui/components/button"
-import { Tabs, TabsContent, TabsList, TabsTrigger } from "@workspace/ui/components/tabs"
+import {
+  Tabs,
+  TabsContent,
+  TabsList,
+  TabsTrigger,
+} from "@workspace/ui/components/tabs"
 import { SecretsTable } from "../../../../../../components/secrets/SecretsTable"
 import { AddSecretDialog } from "../../../../../../components/secrets/AddSecretDialog"
 import { RevealSecretDialog } from "../../../../../../components/secrets/RevealSecretDialog"
@@ -40,7 +45,11 @@ function AppEnvTab(): React.JSX.Element {
   const [showAdd, setShowAdd] = React.useState(false)
   const [showImport, setShowImport] = React.useState(false)
   const [showLinkDb, setShowLinkDb] = React.useState(false)
-  const [revealTarget, setRevealTarget] = React.useState<{ key: string; scope: SecretScope; phase: SecretPhase } | null>(null)
+  const [revealTarget, setRevealTarget] = React.useState<{
+    key: string
+    scope: SecretScope
+    phase: SecretPhase
+  } | null>(null)
 
   const { data: app } = useApp(appId)
   const { data: secrets, isLoading, isError } = useSecrets(appId, activeScope)
@@ -52,8 +61,12 @@ function AppEnvTab(): React.JSX.Element {
   if (isError) {
     return (
       <div className="flex flex-col items-center justify-center rounded-lg border border-dashed border-destructive/40 bg-destructive/5 py-12 text-center">
-        <p className="text-sm font-medium text-destructive">Failed to load secrets</p>
-        <p className="mt-1 text-xs text-muted-foreground">Check your connection and try refreshing.</p>
+        <p className="text-sm font-medium text-destructive">
+          Failed to load secrets
+        </p>
+        <p className="mt-1 text-xs text-muted-foreground">
+          Check your connection and try refreshing.
+        </p>
       </div>
     )
   }
@@ -61,9 +74,11 @@ function AppEnvTab(): React.JSX.Element {
   return (
     <div className="w-full space-y-4 px-4 py-6 md:px-8 md:py-8">
       {/* Toolbar */}
-      <div className="flex items-center justify-between gap-3">
-        <h2 className="text-sm font-medium text-muted-foreground">Encrypted secrets — AES-256-GCM at rest</h2>
-        <div className="flex items-center gap-2">
+      <div className="flex flex-col gap-3 sm:flex-row sm:items-center sm:justify-between">
+        <h2 className="text-sm font-medium text-muted-foreground">
+          Encrypted secrets — AES-256-GCM at rest
+        </h2>
+        <div className="flex flex-wrap items-center gap-2">
           <Button
             variant="outline"
             size="sm"
@@ -82,7 +97,11 @@ function AppEnvTab(): React.JSX.Element {
             <RiDatabase2Line className="size-3.5" />
             Link database
           </Button>
-          <Button size="sm" onClick={() => setShowAdd(true)} className="gap-1.5">
+          <Button
+            size="sm"
+            onClick={() => setShowAdd(true)}
+            className="gap-1.5"
+          >
             <RiAddLine className="size-3.5" />
             Add secret
           </Button>
@@ -90,7 +109,10 @@ function AppEnvTab(): React.JSX.Element {
       </div>
 
       {/* Scope tabs */}
-      <Tabs value={activeScope} onValueChange={(v) => setActiveScope(v as SecretScope)}>
+      <Tabs
+        value={activeScope}
+        onValueChange={(v) => setActiveScope(v as SecretScope)}
+      >
         <TabsList>
           {SCOPES.map((s) => (
             <TabsTrigger key={s} value={s} title={SCOPE_LABELS[s].hint}>
@@ -156,7 +178,7 @@ function AppEnvTab(): React.JSX.Element {
 
 function SecretsSkeleton(): React.JSX.Element {
   return (
-    <div className="overflow-hidden rounded-lg border border-border animate-pulse">
+    <div className="animate-pulse overflow-hidden rounded-lg border border-border">
       <div className="border-b border-border bg-muted/40 px-4 py-2.5" />
       <div className="divide-y divide-border">
         {Array.from({ length: 3 }).map((_, i) => (

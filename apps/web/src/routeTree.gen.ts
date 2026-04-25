@@ -36,6 +36,8 @@ import { Route as AuthedSettingsSecurityPostureRouteImport } from './routes/_aut
 import { Route as AuthedSettingsSecurityPasskeysRouteImport } from './routes/_authed/settings/security/passkeys'
 import { Route as AuthedSettingsSecurityPasskeyRouteImport } from './routes/_authed/settings/security/passkey'
 import { Route as AuthedSettingsGitProvidersSlugRouteImport } from './routes/_authed/settings/git-providers/$slug'
+import { Route as AuthedOrgsOrgSlugTemplatesRouteImport } from './routes/_authed/orgs/$orgSlug/templates'
+import { Route as AuthedOrgsOrgSlugTagsRouteImport } from './routes/_authed/orgs/$orgSlug/tags'
 import { Route as AuthedOrgsOrgSlugSharedEnvRouteImport } from './routes/_authed/orgs/$orgSlug/shared-env'
 import { Route as AuthedOrgsOrgSlugSettingsRouteImport } from './routes/_authed/orgs/$orgSlug/settings'
 import { Route as AuthedOrgsOrgSlugScheduledJobsRouteImport } from './routes/_authed/orgs/$orgSlug/scheduled-jobs'
@@ -43,6 +45,7 @@ import { Route as AuthedOrgsOrgSlugMonitoringRouteImport } from './routes/_authe
 import { Route as AuthedOrgsOrgSlugMembersRouteImport } from './routes/_authed/orgs/$orgSlug/members'
 import { Route as AuthedOrgsOrgSlugMarketplaceRouteImport } from './routes/_authed/orgs/$orgSlug/marketplace'
 import { Route as AuthedOrgsOrgSlugEventWebhooksRouteImport } from './routes/_authed/orgs/$orgSlug/event-webhooks'
+import { Route as AuthedOrgsOrgSlugDeploymentsRouteImport } from './routes/_authed/orgs/$orgSlug/deployments'
 import { Route as AuthedOrgsOrgSlugDashboardRouteImport } from './routes/_authed/orgs/$orgSlug/dashboard'
 import { Route as AuthedOrgsOrgSlugBrandingRouteImport } from './routes/_authed/orgs/$orgSlug/branding'
 import { Route as AuthedOrgsOrgSlugAuditRouteImport } from './routes/_authed/orgs/$orgSlug/audit'
@@ -210,6 +213,17 @@ const AuthedSettingsGitProvidersSlugRoute =
     path: '/settings/git-providers/$slug',
     getParentRoute: () => AuthedRoute,
   } as any)
+const AuthedOrgsOrgSlugTemplatesRoute =
+  AuthedOrgsOrgSlugTemplatesRouteImport.update({
+    id: '/templates',
+    path: '/templates',
+    getParentRoute: () => AuthedOrgsOrgSlugRoute,
+  } as any)
+const AuthedOrgsOrgSlugTagsRoute = AuthedOrgsOrgSlugTagsRouteImport.update({
+  id: '/tags',
+  path: '/tags',
+  getParentRoute: () => AuthedOrgsOrgSlugRoute,
+} as any)
 const AuthedOrgsOrgSlugSharedEnvRoute =
   AuthedOrgsOrgSlugSharedEnvRouteImport.update({
     id: '/shared-env',
@@ -250,6 +264,12 @@ const AuthedOrgsOrgSlugEventWebhooksRoute =
   AuthedOrgsOrgSlugEventWebhooksRouteImport.update({
     id: '/event-webhooks',
     path: '/event-webhooks',
+    getParentRoute: () => AuthedOrgsOrgSlugRoute,
+  } as any)
+const AuthedOrgsOrgSlugDeploymentsRoute =
+  AuthedOrgsOrgSlugDeploymentsRouteImport.update({
+    id: '/deployments',
+    path: '/deployments',
     getParentRoute: () => AuthedOrgsOrgSlugRoute,
   } as any)
 const AuthedOrgsOrgSlugDashboardRoute =
@@ -415,6 +435,7 @@ export interface FileRoutesByFullPath {
   '/orgs/$orgSlug/audit': typeof AuthedOrgsOrgSlugAuditRoute
   '/orgs/$orgSlug/branding': typeof AuthedOrgsOrgSlugBrandingRoute
   '/orgs/$orgSlug/dashboard': typeof AuthedOrgsOrgSlugDashboardRoute
+  '/orgs/$orgSlug/deployments': typeof AuthedOrgsOrgSlugDeploymentsRoute
   '/orgs/$orgSlug/event-webhooks': typeof AuthedOrgsOrgSlugEventWebhooksRoute
   '/orgs/$orgSlug/marketplace': typeof AuthedOrgsOrgSlugMarketplaceRoute
   '/orgs/$orgSlug/members': typeof AuthedOrgsOrgSlugMembersRoute
@@ -422,6 +443,8 @@ export interface FileRoutesByFullPath {
   '/orgs/$orgSlug/scheduled-jobs': typeof AuthedOrgsOrgSlugScheduledJobsRoute
   '/orgs/$orgSlug/settings': typeof AuthedOrgsOrgSlugSettingsRouteWithChildren
   '/orgs/$orgSlug/shared-env': typeof AuthedOrgsOrgSlugSharedEnvRoute
+  '/orgs/$orgSlug/tags': typeof AuthedOrgsOrgSlugTagsRoute
+  '/orgs/$orgSlug/templates': typeof AuthedOrgsOrgSlugTemplatesRoute
   '/settings/git-providers/$slug': typeof AuthedSettingsGitProvidersSlugRoute
   '/settings/security/passkey': typeof AuthedSettingsSecurityPasskeyRoute
   '/settings/security/passkeys': typeof AuthedSettingsSecurityPasskeysRoute
@@ -471,12 +494,15 @@ export interface FileRoutesByTo {
   '/orgs/$orgSlug/audit': typeof AuthedOrgsOrgSlugAuditRoute
   '/orgs/$orgSlug/branding': typeof AuthedOrgsOrgSlugBrandingRoute
   '/orgs/$orgSlug/dashboard': typeof AuthedOrgsOrgSlugDashboardRoute
+  '/orgs/$orgSlug/deployments': typeof AuthedOrgsOrgSlugDeploymentsRoute
   '/orgs/$orgSlug/event-webhooks': typeof AuthedOrgsOrgSlugEventWebhooksRoute
   '/orgs/$orgSlug/marketplace': typeof AuthedOrgsOrgSlugMarketplaceRoute
   '/orgs/$orgSlug/members': typeof AuthedOrgsOrgSlugMembersRoute
   '/orgs/$orgSlug/monitoring': typeof AuthedOrgsOrgSlugMonitoringRoute
   '/orgs/$orgSlug/scheduled-jobs': typeof AuthedOrgsOrgSlugScheduledJobsRoute
   '/orgs/$orgSlug/shared-env': typeof AuthedOrgsOrgSlugSharedEnvRoute
+  '/orgs/$orgSlug/tags': typeof AuthedOrgsOrgSlugTagsRoute
+  '/orgs/$orgSlug/templates': typeof AuthedOrgsOrgSlugTemplatesRoute
   '/settings/git-providers/$slug': typeof AuthedSettingsGitProvidersSlugRoute
   '/settings/security/passkey': typeof AuthedSettingsSecurityPasskeyRoute
   '/settings/security/passkeys': typeof AuthedSettingsSecurityPasskeysRoute
@@ -529,6 +555,7 @@ export interface FileRoutesById {
   '/_authed/orgs/$orgSlug/audit': typeof AuthedOrgsOrgSlugAuditRoute
   '/_authed/orgs/$orgSlug/branding': typeof AuthedOrgsOrgSlugBrandingRoute
   '/_authed/orgs/$orgSlug/dashboard': typeof AuthedOrgsOrgSlugDashboardRoute
+  '/_authed/orgs/$orgSlug/deployments': typeof AuthedOrgsOrgSlugDeploymentsRoute
   '/_authed/orgs/$orgSlug/event-webhooks': typeof AuthedOrgsOrgSlugEventWebhooksRoute
   '/_authed/orgs/$orgSlug/marketplace': typeof AuthedOrgsOrgSlugMarketplaceRoute
   '/_authed/orgs/$orgSlug/members': typeof AuthedOrgsOrgSlugMembersRoute
@@ -536,6 +563,8 @@ export interface FileRoutesById {
   '/_authed/orgs/$orgSlug/scheduled-jobs': typeof AuthedOrgsOrgSlugScheduledJobsRoute
   '/_authed/orgs/$orgSlug/settings': typeof AuthedOrgsOrgSlugSettingsRouteWithChildren
   '/_authed/orgs/$orgSlug/shared-env': typeof AuthedOrgsOrgSlugSharedEnvRoute
+  '/_authed/orgs/$orgSlug/tags': typeof AuthedOrgsOrgSlugTagsRoute
+  '/_authed/orgs/$orgSlug/templates': typeof AuthedOrgsOrgSlugTemplatesRoute
   '/_authed/settings/git-providers/$slug': typeof AuthedSettingsGitProvidersSlugRoute
   '/_authed/settings/security/passkey': typeof AuthedSettingsSecurityPasskeyRoute
   '/_authed/settings/security/passkeys': typeof AuthedSettingsSecurityPasskeysRoute
@@ -589,6 +618,7 @@ export interface FileRouteTypes {
     | '/orgs/$orgSlug/audit'
     | '/orgs/$orgSlug/branding'
     | '/orgs/$orgSlug/dashboard'
+    | '/orgs/$orgSlug/deployments'
     | '/orgs/$orgSlug/event-webhooks'
     | '/orgs/$orgSlug/marketplace'
     | '/orgs/$orgSlug/members'
@@ -596,6 +626,8 @@ export interface FileRouteTypes {
     | '/orgs/$orgSlug/scheduled-jobs'
     | '/orgs/$orgSlug/settings'
     | '/orgs/$orgSlug/shared-env'
+    | '/orgs/$orgSlug/tags'
+    | '/orgs/$orgSlug/templates'
     | '/settings/git-providers/$slug'
     | '/settings/security/passkey'
     | '/settings/security/passkeys'
@@ -645,12 +677,15 @@ export interface FileRouteTypes {
     | '/orgs/$orgSlug/audit'
     | '/orgs/$orgSlug/branding'
     | '/orgs/$orgSlug/dashboard'
+    | '/orgs/$orgSlug/deployments'
     | '/orgs/$orgSlug/event-webhooks'
     | '/orgs/$orgSlug/marketplace'
     | '/orgs/$orgSlug/members'
     | '/orgs/$orgSlug/monitoring'
     | '/orgs/$orgSlug/scheduled-jobs'
     | '/orgs/$orgSlug/shared-env'
+    | '/orgs/$orgSlug/tags'
+    | '/orgs/$orgSlug/templates'
     | '/settings/git-providers/$slug'
     | '/settings/security/passkey'
     | '/settings/security/passkeys'
@@ -702,6 +737,7 @@ export interface FileRouteTypes {
     | '/_authed/orgs/$orgSlug/audit'
     | '/_authed/orgs/$orgSlug/branding'
     | '/_authed/orgs/$orgSlug/dashboard'
+    | '/_authed/orgs/$orgSlug/deployments'
     | '/_authed/orgs/$orgSlug/event-webhooks'
     | '/_authed/orgs/$orgSlug/marketplace'
     | '/_authed/orgs/$orgSlug/members'
@@ -709,6 +745,8 @@ export interface FileRouteTypes {
     | '/_authed/orgs/$orgSlug/scheduled-jobs'
     | '/_authed/orgs/$orgSlug/settings'
     | '/_authed/orgs/$orgSlug/shared-env'
+    | '/_authed/orgs/$orgSlug/tags'
+    | '/_authed/orgs/$orgSlug/templates'
     | '/_authed/settings/git-providers/$slug'
     | '/_authed/settings/security/passkey'
     | '/_authed/settings/security/passkeys'
@@ -937,6 +975,20 @@ declare module '@tanstack/react-router' {
       preLoaderRoute: typeof AuthedSettingsGitProvidersSlugRouteImport
       parentRoute: typeof AuthedRoute
     }
+    '/_authed/orgs/$orgSlug/templates': {
+      id: '/_authed/orgs/$orgSlug/templates'
+      path: '/templates'
+      fullPath: '/orgs/$orgSlug/templates'
+      preLoaderRoute: typeof AuthedOrgsOrgSlugTemplatesRouteImport
+      parentRoute: typeof AuthedOrgsOrgSlugRoute
+    }
+    '/_authed/orgs/$orgSlug/tags': {
+      id: '/_authed/orgs/$orgSlug/tags'
+      path: '/tags'
+      fullPath: '/orgs/$orgSlug/tags'
+      preLoaderRoute: typeof AuthedOrgsOrgSlugTagsRouteImport
+      parentRoute: typeof AuthedOrgsOrgSlugRoute
+    }
     '/_authed/orgs/$orgSlug/shared-env': {
       id: '/_authed/orgs/$orgSlug/shared-env'
       path: '/shared-env'
@@ -984,6 +1036,13 @@ declare module '@tanstack/react-router' {
       path: '/event-webhooks'
       fullPath: '/orgs/$orgSlug/event-webhooks'
       preLoaderRoute: typeof AuthedOrgsOrgSlugEventWebhooksRouteImport
+      parentRoute: typeof AuthedOrgsOrgSlugRoute
+    }
+    '/_authed/orgs/$orgSlug/deployments': {
+      id: '/_authed/orgs/$orgSlug/deployments'
+      path: '/deployments'
+      fullPath: '/orgs/$orgSlug/deployments'
+      preLoaderRoute: typeof AuthedOrgsOrgSlugDeploymentsRouteImport
       parentRoute: typeof AuthedOrgsOrgSlugRoute
     }
     '/_authed/orgs/$orgSlug/dashboard': {
@@ -1234,6 +1293,7 @@ interface AuthedOrgsOrgSlugRouteChildren {
   AuthedOrgsOrgSlugAuditRoute: typeof AuthedOrgsOrgSlugAuditRoute
   AuthedOrgsOrgSlugBrandingRoute: typeof AuthedOrgsOrgSlugBrandingRoute
   AuthedOrgsOrgSlugDashboardRoute: typeof AuthedOrgsOrgSlugDashboardRoute
+  AuthedOrgsOrgSlugDeploymentsRoute: typeof AuthedOrgsOrgSlugDeploymentsRoute
   AuthedOrgsOrgSlugEventWebhooksRoute: typeof AuthedOrgsOrgSlugEventWebhooksRoute
   AuthedOrgsOrgSlugMarketplaceRoute: typeof AuthedOrgsOrgSlugMarketplaceRoute
   AuthedOrgsOrgSlugMembersRoute: typeof AuthedOrgsOrgSlugMembersRoute
@@ -1241,6 +1301,8 @@ interface AuthedOrgsOrgSlugRouteChildren {
   AuthedOrgsOrgSlugScheduledJobsRoute: typeof AuthedOrgsOrgSlugScheduledJobsRoute
   AuthedOrgsOrgSlugSettingsRoute: typeof AuthedOrgsOrgSlugSettingsRouteWithChildren
   AuthedOrgsOrgSlugSharedEnvRoute: typeof AuthedOrgsOrgSlugSharedEnvRoute
+  AuthedOrgsOrgSlugTagsRoute: typeof AuthedOrgsOrgSlugTagsRoute
+  AuthedOrgsOrgSlugTemplatesRoute: typeof AuthedOrgsOrgSlugTemplatesRoute
   AuthedOrgsOrgSlugIndexRoute: typeof AuthedOrgsOrgSlugIndexRoute
   AuthedOrgsOrgSlugAppsIdRoute: typeof AuthedOrgsOrgSlugAppsIdRouteWithChildren
   AuthedOrgsOrgSlugDatabasesIdRoute: typeof AuthedOrgsOrgSlugDatabasesIdRoute
@@ -1254,6 +1316,7 @@ const AuthedOrgsOrgSlugRouteChildren: AuthedOrgsOrgSlugRouteChildren = {
   AuthedOrgsOrgSlugAuditRoute: AuthedOrgsOrgSlugAuditRoute,
   AuthedOrgsOrgSlugBrandingRoute: AuthedOrgsOrgSlugBrandingRoute,
   AuthedOrgsOrgSlugDashboardRoute: AuthedOrgsOrgSlugDashboardRoute,
+  AuthedOrgsOrgSlugDeploymentsRoute: AuthedOrgsOrgSlugDeploymentsRoute,
   AuthedOrgsOrgSlugEventWebhooksRoute: AuthedOrgsOrgSlugEventWebhooksRoute,
   AuthedOrgsOrgSlugMarketplaceRoute: AuthedOrgsOrgSlugMarketplaceRoute,
   AuthedOrgsOrgSlugMembersRoute: AuthedOrgsOrgSlugMembersRoute,
@@ -1261,6 +1324,8 @@ const AuthedOrgsOrgSlugRouteChildren: AuthedOrgsOrgSlugRouteChildren = {
   AuthedOrgsOrgSlugScheduledJobsRoute: AuthedOrgsOrgSlugScheduledJobsRoute,
   AuthedOrgsOrgSlugSettingsRoute: AuthedOrgsOrgSlugSettingsRouteWithChildren,
   AuthedOrgsOrgSlugSharedEnvRoute: AuthedOrgsOrgSlugSharedEnvRoute,
+  AuthedOrgsOrgSlugTagsRoute: AuthedOrgsOrgSlugTagsRoute,
+  AuthedOrgsOrgSlugTemplatesRoute: AuthedOrgsOrgSlugTemplatesRoute,
   AuthedOrgsOrgSlugIndexRoute: AuthedOrgsOrgSlugIndexRoute,
   AuthedOrgsOrgSlugAppsIdRoute: AuthedOrgsOrgSlugAppsIdRouteWithChildren,
   AuthedOrgsOrgSlugDatabasesIdRoute: AuthedOrgsOrgSlugDatabasesIdRoute,

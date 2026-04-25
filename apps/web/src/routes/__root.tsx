@@ -149,6 +149,8 @@ function AuthSyncProvider({
 }: {
   children: React.ReactNode
 }): React.JSX.Element {
+  const qc = useQueryClient()
+
   React.useEffect(() => {
     const unsubBroadcast = subscribeAuthEvents({
       onTokenRefreshed: () => {
@@ -173,6 +175,26 @@ function AuthSyncProvider({
       setAuthCallbacks({})
     }
   }, [])
+
+  // When the tab becomes visible again after a long idle, browsers may have
+  // throttled timers and dropped the SSE connection. refetchOnWindowFocus
+  // covers `focus` events, but a tab can become visible without firing one
+  // (e.g. switching back from another tab in the same window). Invalidate
+  // every critical query on visibilitychange so apps grid, monitoring and
+  // /me catch up to any state mutated while we were away.
+  React.useEffect(() => {
+    if (typeof document === "undefined") return
+    const onVisibility = () => {
+      if (document.visibilityState !== "visible") return
+      invalidateGetCache()
+      void qc.invalidateQueries({
+        predicate: (query) => query.meta?.["critical"] === true,
+      })
+    }
+    document.addEventListener("visibilitychange", onVisibility)
+    return () => document.removeEventListener("visibilitychange", onVisibility)
+  }, [qc])
+
   return <>{children}</>
 }
 
@@ -216,10 +238,10 @@ function RootDocument({
     <html lang="en" className="dark" suppressHydrationWarning>
       <head>
         <HeadContent />
-        {/* Apply dark theme before paint */}
+        {/* Resolve theme from cookie (light|dark|system) before paint to avoid flash */}
         <script
           dangerouslySetInnerHTML={{
-            __html: `(function(){var t=localStorage.getItem('ploydok-theme');if(t==='light'){document.documentElement.classList.remove('dark');}})();`,
+            __html: `(function(){var m=document.cookie.match(/(?:^|; )ploydok-theme=([^;]+)/);var v=m?decodeURIComponent(m[1]):'system';var dark=v==='dark'||(v!=='light'&&window.matchMedia('(prefers-color-scheme: dark)').matches);document.documentElement.classList.toggle('dark',dark);document.documentElement.style.colorScheme=dark?'dark':'light';})();`,
           }}
         />
       </head>

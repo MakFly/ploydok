@@ -1,0 +1,135 @@
+// SPDX-License-Identifier: AGPL-3.0-only
+import { Hono } from "hono"
+import { eq, inArray, and } from "drizzle-orm"
+import { getSharedAgent } from "../debug/singletons"
+import { childLogger } from "../logger"
+import type { AuthUser } from "../auth/middleware"
+import type { Db } from "@ploydok/db"
+import { memberships } from "@ploydok/db"
+
+const log = childLogger("host-stats.routes")
+
+type AppEnv = { Variables: { user?: AuthUser } }
+
+interface HostStatsBody {
+  cpu_percent: number
+  cpu_count: number
+  mem_total_bytes: number
+  mem_used_bytes: number
+  mem_available_bytes: number
+  swap_total_bytes: number
+  swap_used_bytes: number
+  load_1: number
+  load_5: number
+  load_15: number
+  disk_total_bytes: number
+  disk_used_bytes: number
+  disk_free_bytes: number
+  inodes_total: number
+  inodes_used: number
+  uptime_seconds: number
+  thresholds: {
+    disk_warn_pct: number
+    mem_warn_pct: number
+    load_warn_per_cpu: number
+  }
+  alerts: string[]
+  error: string
+  fetched_at: number
+}
+
+const DEFAULT_THRESHOLDS = {
+  disk_warn_pct: 85,
+  mem_warn_pct: 90,
+  load_warn_per_cpu: 1.5,
+}
+
+async function isUserAdmin(db: Db, userId: string): Promise<boolean> {
+  const rows = await db
+    .select({ id: memberships.id })
+    .from(memberships)
+    .where(
+      and(eq(memberships.user_id, userId), inArray(memberships.role, ["owner"]))
+    )
+    .limit(1)
+
+  return rows.length > 0
+}
+
+export function createHostStatsRouter(db: Db): Hono<AppEnv> {
+  const router = new Hono<AppEnv>()
+
+  router.get("/", async (c) => {
+    const user = c.get("user") as AuthUser | undefined
+    if (!user) return c.json({ error: "Unauthorized" }, 401)
+
+    const isAdmin = await isUserAdmin(db, user.id)
+    if (!isAdmin) {
+      return c.json({ error: "admin_required" }, 403)
+    }
+
+    try {
+      const agent = getSharedAgent()
+      const r = await agent.hostStats({}, 5000)
+
+      const memPct =
+        r.memTotalBytes > 0
+          ? ((r.memTotalBytes - r.memAvailableBytes) /
+              Number(r.memTotalBytes)) *
+            100
+          : 0
+      const diskPct =
+        r.diskTotalBytes > 0
+          ? (Number(r.diskUsedBytes) / Number(r.diskTotalBytes)) * 100
+          : 0
+      const loadPerCpu = r.cpuCount > 0 ? r.load1 / r.cpuCount : r.load1
+
+      const alerts: string[] = []
+      if (diskPct > DEFAULT_THRESHOLDS.disk_warn_pct) {
+        alerts.push(`disk_high:${diskPct.toFixed(1)}%`)
+      }
+      if (memPct > DEFAULT_THRESHOLDS.mem_warn_pct) {
+        alerts.push(`mem_high:${memPct.toFixed(1)}%`)
+      }
+      if (loadPerCpu > DEFAULT_THRESHOLDS.load_warn_per_cpu) {
+        alerts.push(`load_high:${loadPerCpu.toFixed(2)}/cpu`)
+      }
+
+      const body: HostStatsBody = {
+        cpu_percent: r.cpuPercent,
+        cpu_count: r.cpuCount,
+        mem_total_bytes: Number(r.memTotalBytes),
+        mem_used_bytes: Number(r.memTotalBytes) - Number(r.memAvailableBytes),
+        mem_available_bytes: Number(r.memAvailableBytes),
+        swap_total_bytes: Number(r.swapTotalBytes),
+        swap_used_bytes: Number(r.swapUsedBytes),
+        load_1: r.load1,
+        load_5: r.load5,
+        load_15: r.load15,
+        disk_total_bytes: Number(r.diskTotalBytes),
+        disk_used_bytes: Number(r.diskUsedBytes),
+        disk_free_bytes: Number(r.diskFreeBytes),
+        inodes_total: Number(r.inodesTotal),
+        inodes_used: Number(r.inodesUsed),
+        uptime_seconds: Number(r.uptimeSeconds),
+        thresholds: DEFAULT_THRESHOLDS,
+        alerts,
+        error: r.error ?? "",
+        fetched_at: Date.now(),
+      }
+
+      return c.json(body)
+    } catch (err) {
+      const msg = err instanceof Error ? err.message : "agent error"
+      log.warn({ err: msg }, "host_stats.failed")
+      return c.json(
+        {
+          error: { code: "AGENT_UNAVAILABLE", message: msg },
+        },
+        503
+      )
+    }
+  })
+
+  return router
+}

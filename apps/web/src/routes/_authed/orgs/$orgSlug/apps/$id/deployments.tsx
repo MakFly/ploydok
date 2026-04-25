@@ -9,7 +9,7 @@ import {
 } from "@tanstack/react-router"
 import { DeploymentsTable } from "../../../../../../components/apps/DeploymentsTable"
 import { BuildLogDrawer } from "../../../../../../components/apps/BuildLogDrawer"
-import { useBuilds } from "../../../../../../lib/apps"
+import { useApp, useBuilds } from "../../../../../../lib/apps"
 import {
   useRollbackApp,
   useCancelBuild,
@@ -39,8 +39,14 @@ function AppDeploymentsTab(): React.JSX.Element {
   })
 
   const { data: builds, isLoading, error } = useBuilds(id)
+  const { data: app } = useApp(id)
   const rollback = useRollbackApp(id)
   const cancelBuild = useCancelBuild(id)
+
+  const selectedBuild = React.useMemo(
+    () => builds?.find((b) => b.id === selectedBuildId),
+    [builds, selectedBuildId]
+  )
 
   const handleSelectBuild = React.useCallback(
     (buildId: string) => {
@@ -92,6 +98,8 @@ function AppDeploymentsTab(): React.JSX.Element {
       <BuildLogDrawer
         appId={id}
         buildId={selectedBuildId}
+        build={selectedBuild}
+        appName={app?.name}
         onClose={handleCloseDrawer}
       />
     </div>

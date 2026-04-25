@@ -32,11 +32,12 @@ use ploydok_proto::agent::{
     agent_server::Agent, exec_frame, restore_chunk, BuildProgress, ContainerCreateRequest,
     ContainerCreateResponse, ContainerLogsRequest, ContainerRemoveRequest, ContainerRemoveResponse,
     ContainerStartRequest, ContainerStartResponse, ContainerStatsRequest, ContainerStopRequest,
-    ContainerStopResponse, DumpChunk, DumpRequest, ExecFrame, ImageBuildRequest, ImagePullRequest,
-    ListContainersRequest, ListContainersResponse, LogLine, NetworkConnectRequest,
-    NetworkConnectResponse, NetworkCreateRequest, NetworkCreateResponse, NetworkDisconnectRequest,
-    NetworkDisconnectResponse, NetworkRemoveRequest, NetworkRemoveResponse, PingContainerRequest,
-    PingContainerResponse, PullProgress, RestoreChunk, RestoreResult, StatsFrame,
+    ContainerStopResponse, DumpChunk, DumpRequest, ExecFrame, HostStatsRequest, HostStatsResponse,
+    ImageBuildRequest, ImagePullRequest, ListContainersRequest, ListContainersResponse, LogLine,
+    NetworkConnectRequest, NetworkConnectResponse, NetworkCreateRequest, NetworkCreateResponse,
+    NetworkDisconnectRequest, NetworkDisconnectResponse, NetworkRemoveRequest,
+    NetworkRemoveResponse, PingContainerRequest, PingContainerResponse, PullProgress,
+    RestoreChunk, RestoreResult, StatsFrame,
 };
 
 use crate::audit::audit;
@@ -1113,6 +1114,16 @@ impl Agent for AgentService {
         Ok(Response::new(ReceiverStream::new(rx)))
     }
 
+    // ── HostStats (Sprint 6.6) ───────────────────────────────────────────────
+
+    async fn host_stats(
+        &self,
+        _request: Request<HostStatsRequest>,
+    ) -> Result<Response<HostStatsResponse>, Status> {
+        let resp = crate::host_stats::read_host_stats().await;
+        Ok(Response::new(resp))
+    }
+
     // ── RestoreDatabase (client-side streaming) ──────────────────────────────
 
     async fn restore_database(
@@ -1174,6 +1185,13 @@ impl Agent for AgentService {
 // ─────────────────────────────────────────────────────────────────────────────
 // Private helpers
 // ─────────────────────────────────────────────────────────────────────────────
+
+// ─────────────────────────────────────────────────────────────────────────────
+// HostStats handler — délègue à crate::host_stats
+// ─────────────────────────────────────────────────────────────────────────────
+
+// Note: implémenté dans le bloc impl Agent for AgentService via la méthode
+// host_stats ci-dessous (Sprint 6.6).
 
 // ─────────────────────────────────────────────────────────────────────────────
 // DumpDatabase / RestoreDatabase helpers

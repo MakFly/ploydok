@@ -23,7 +23,7 @@ import { githubRouter } from "./routes/github"
 import { gitlabRouter } from "./routes/gitlab"
 import { registryCredentialsRouter } from "./routes/registry-credentials"
 import { wsRouter } from "./routes/ws"
-import { wsExecRouter } from "./routes/apps-exec"
+import { wsExecRouter, execTicketRouter } from "./routes/apps-exec"
 import { eventsRouter } from "./routes/events"
 import { monitoringRouter, startMonitoringLoop } from "./routes/monitoring"
 import { notificationsRouter } from "./routes/notifications"
@@ -46,7 +46,14 @@ import { createEventWebhooksRouter } from "./routes/event-webhooks"
 import { createScheduledJobsRouter } from "./routes/scheduled-jobs"
 import { createProjectEnvRouter } from "./routes/project-env"
 import { createOrgMonitoringRouter } from "./routes/org-monitoring"
+import { createHostStatsRouter } from "./routes/host-stats"
 import { getDefaultOrganizationForUser } from "./services/organizations"
+import {
+  collectProcessMetrics,
+  httpRequestsTotal,
+  renderMetrics,
+} from "./observability/metrics"
+import { buildHealthReport, buildPublicStatus } from "./observability/health"
 
 const httpLog = childLogger("http")
 const errorLog = childLogger("error")
@@ -118,9 +125,20 @@ app.use("*", async (c, next) => {
     const dur = Date.now() - start
     const status = c.res.status
     c.res.headers.set("x-request-id", reqId)
+    httpRequestsTotal.inc({
+      method: c.req.method,
+      status: String(status),
+    })
 
-    // Skip les preflights CORS et /health pour limiter le bruit.
-    if (c.req.method === "OPTIONS" || c.req.path === "/health") return
+    // Skip les preflights CORS et probes santé/métriques pour limiter le bruit.
+    if (
+      c.req.method === "OPTIONS" ||
+      c.req.path === "/health" ||
+      c.req.path === "/health/ready" ||
+      c.req.path === "/metrics" ||
+      c.req.path === "/status"
+    )
+      return
 
     const msg = `${c.req.method} ${c.req.path} ${status} ${dur}ms`
     const meta = { req_id: reqId }
@@ -257,8 +275,40 @@ app.notFound((c) => {
 // Routes
 // ---------------------------------------------------------------------------
 
-// Health
+// Liveness — répond 200 dès que le process est up. Convention K8s.
 app.get("/health", (c) => c.json({ ok: true, version: "0.0.1" }))
+
+// Readiness — DB + agent socket + Caddy admin. 200 si OK, 503 si dégradé.
+app.get("/health/ready", async (c) => {
+  const report = await buildHealthReport(db, "0.0.1")
+  return c.json(report, report.ok ? 200 : 503)
+})
+
+// Status page minimaliste publique (pas d'auth) — agrégé up/down.
+app.get("/status", async (c) => {
+  const report = await buildPublicStatus(db, "0.0.1")
+  return c.json(report)
+})
+
+// Endpoint Prometheus — gated par token admin (PLOYDOK_METRICS_TOKEN).
+// Si la var n'est pas définie, l'endpoint est inaccessible (403 systématique)
+// pour éviter une fuite de métriques en environnement non-configuré.
+app.get("/metrics", (c) => {
+  const expected = Bun.env["PLOYDOK_METRICS_TOKEN"]
+  if (!expected) {
+    return c.json(
+      { error: "metrics endpoint disabled (set PLOYDOK_METRICS_TOKEN)" },
+      403
+    )
+  }
+  const auth = c.req.header("Authorization")
+  if (auth !== `Bearer ${expected}`) {
+    return c.json({ error: "Unauthorized" }, 401)
+  }
+  collectProcessMetrics()
+  c.header("Content-Type", "text/plain; version=0.0.4; charset=utf-8")
+  return c.body(renderMetrics())
+})
 
 // Test-only routes pour exercer le middleware logger + error handler.
 // SECURITY: actifs UNIQUEMENT si NODE_ENV=test.
@@ -297,6 +347,11 @@ app.use("/api-tokens", requireAuth(db))
 app.use("/api-tokens/*", requireAuth(db))
 app.route("/api-tokens", createApiTokensRouter(db))
 
+// Host VPS stats (Sprint 6.6) — auth requise.
+app.use("/host-stats", requireAuth(db))
+app.use("/host-stats/*", requireAuth(db))
+app.route("/host-stats", createHostStatsRouter(db))
+
 // Apps routes — auth enforced per-endpoint inside the router.
 // Order matters: specific sub-routers (env, domains) are mounted before
 // the main appsRouter to avoid path shadowing on `/:id`.
@@ -333,6 +388,9 @@ app.route("/registry/credentials", registryCredentialsRouter)
 // WebSocket upgrade routes — auth is cookie-based, verified inside the handler.
 app.route("/ws", wsRouter)
 app.route("/ws", wsExecRouter)
+
+// Exec ticket endpoint (Sprint 6.5-ter) — gate passkey/2FA pour mode=rw.
+app.route("/", execTicketRouter)
 app.use("/events", requireAuth(db))
 app.use("/events/*", requireAuth(db))
 app.route("/events", eventsRouter)

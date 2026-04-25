@@ -176,6 +176,20 @@
       "when": 1777075108663,
       "tag": "0024_sticky_infant_terrible",
       "breakpoints": true
+    },
+    {
+      "idx": 25,
+      "version": "7",
+      "when": 1777505000000,
+      "tag": "0025_api_tokens_scopes",
+      "breakpoints": true
+    },
+    {
+      "idx": 26,
+      "version": "7",
+      "when": 1777505100000,
+      "tag": "0026_api_tokens_bcrypt",
+      "breakpoints": true
     }
   ]
 }

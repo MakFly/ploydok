@@ -25,6 +25,7 @@ use tracing::{info, warn};
 use ploydok_proto::agent::agent_server::AgentServer;
 
 mod audit;
+mod host_stats;
 mod pki;
 mod service;
 mod validator;

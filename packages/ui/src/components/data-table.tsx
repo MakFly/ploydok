@@ -40,8 +40,8 @@ function DataTable<TData>({
 
   return (
     <div className={cn("flex flex-col gap-3", className)}>
-      <div className="overflow-x-auto rounded-lg border border-border">
-        <table className="w-full text-sm">
+      <div className="-mx-3 overflow-x-auto rounded-lg border border-border sm:mx-0">
+        <table className="w-full min-w-[640px] text-sm">
           <thead className="border-b border-border bg-muted/50">
             {table.getHeaderGroups().map((headerGroup) => (
               <tr key={headerGroup.id}>
@@ -67,9 +67,8 @@ function DataTable<TData>({
                 key={row.id}
                 data-slot="data-table-row"
                 className={cn(
-                  "border-b border-border last:border-0 transition-colors",
-                  onRowClick &&
-                    "cursor-pointer hover:bg-muted/50"
+                  "border-b border-border transition-colors last:border-0",
+                  onRowClick && "cursor-pointer hover:bg-muted/50"
                 )}
                 onClick={() => onRowClick?.(row.original)}
               >
@@ -109,7 +108,7 @@ function DataTablePagination<TData>({
   const totalPages = table.getPageCount()
 
   return (
-    <div className="flex items-center justify-end gap-2">
+    <div className="flex flex-wrap items-center justify-end gap-2">
       <span className="text-xs text-muted-foreground">
         Page {currentPage} / {totalPages}
       </span>

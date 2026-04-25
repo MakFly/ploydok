@@ -1,17 +1,22 @@
 // SPDX-License-Identifier: AGPL-3.0-only
 
 export interface ManifestOptions {
-  webBaseUrl: string; // e.g. http://localhost:5173
-  apiBaseUrl: string; // e.g. http://localhost:3335
-  webhookUrl?: string; // Public webhook URL (ngrok/cloudflared). Omit in local dev.
+  webBaseUrl: string // e.g. http://localhost:5173
+  apiBaseUrl: string // e.g. http://localhost:3335
+  webhookUrl?: string // Public webhook URL (ngrok/cloudflared). Omit in local dev.
 }
 
 function isLoopbackHost(url: string): boolean {
   try {
-    const host = new URL(url).hostname;
-    return host === "localhost" || host === "127.0.0.1" || host === "::1" || host.endsWith(".localhost");
+    const host = new URL(url).hostname
+    return (
+      host === "localhost" ||
+      host === "127.0.0.1" ||
+      host === "::1" ||
+      host.endsWith(".localhost")
+    )
   } catch {
-    return false;
+    return false
   }
 }
 
@@ -22,7 +27,10 @@ export function buildManifest(opts: ManifestOptions) {
   //  2. apiBaseUrl is public (non-loopback) → default to apiBaseUrl/github/webhook.
   //  3. Loopback → omit hook entirely; user configures webhook manually later.
   const publicWebhook =
-    opts.webhookUrl ?? (isLoopbackHost(opts.apiBaseUrl) ? null : `${opts.apiBaseUrl}/github/webhook`);
+    opts.webhookUrl ??
+    (isLoopbackHost(opts.apiBaseUrl)
+      ? null
+      : `${opts.apiBaseUrl}/github/webhook`)
 
   const base = {
     name: `Ploydok (${new URL(opts.webBaseUrl).hostname})`,
@@ -43,14 +51,18 @@ export function buildManifest(opts: ManifestOptions) {
       deployments: "write",
       metadata: "read",
       pull_requests: "read",
+      // Required for posting commit-status checks (✓/✗) on push SHAs.
+      // Existing installations must re-consent to inherit this scope —
+      // without it, POST /repos/:owner/:repo/statuses/:sha returns 403.
+      statuses: "write",
     },
-  } as const;
+  } as const
 
-  if (!publicWebhook) return base;
+  if (!publicWebhook) return base
 
   return {
     ...base,
     hook_attributes: { url: publicWebhook },
     default_events: ["push", "pull_request"],
-  };
+  }
 }

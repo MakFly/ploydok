@@ -2,7 +2,6 @@
 import * as React from "react"
 import { createFileRoute } from "@tanstack/react-router"
 import { ShellPage } from "../../../components/layout/AppShell"
-import { SettingsTabs } from "../../../components/settings/SettingsTabs"
 import { ChannelList } from "../../../components/notifications/ChannelList"
 
 export const Route = createFileRoute("/_authed/settings/notifications")({
@@ -15,7 +14,6 @@ function NotificationsPage(): React.JSX.Element {
       title="Notifications"
       description="Configurez les channels pour recevoir des alertes sur vos builds et déploiements."
     >
-      <SettingsTabs />
       <ChannelList />
     </ShellPage>
   )

@@ -1,5 +1,11 @@
 // SPDX-License-Identifier: AGPL-3.0-only
-import { pgTable, text, timestamp, uniqueIndex } from "drizzle-orm/pg-core"
+import {
+  pgTable,
+  text,
+  timestamp,
+  uniqueIndex,
+  jsonb,
+} from "drizzle-orm/pg-core"
 import { users } from "./users"
 
 export const api_tokens = pgTable(
@@ -11,6 +17,14 @@ export const api_tokens = pgTable(
       .references(() => users.id, { onDelete: "cascade" }),
     name: text("name").notNull(),
     token_hash: text("token_hash").notNull(),
+    /**
+     * bcrypt hash du token complet — défense-in-depth si la DB fuit.
+     * NULL = token legacy (créé avant Sprint 6.5-bis Vague 2), authentifié par
+     * lookup SHA-256 seul. Tokens créés à partir de la Vague 2 ont bcrypt_hash
+     * non-NULL et le verify bcrypt est obligatoire en plus du lookup.
+     */
+    bcrypt_hash: text("bcrypt_hash"),
+    scopes: jsonb("scopes").$type<string[]>().notNull().default(["admin:*"]),
     last_used_at: timestamp("last_used_at", {
       withTimezone: true,
       mode: "date",

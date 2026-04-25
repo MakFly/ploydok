@@ -8,7 +8,6 @@ import {
   RiGitlabFill,
 } from "@remixicon/react"
 import { ShellPage } from "../../../../components/layout/AppShell"
-import { SettingsTabs } from "../../../../components/settings/SettingsTabs"
 import { GitHubPanel } from "../../../../components/settings/providers/GitHubPanel"
 import { GitLabPanel } from "../../../../components/settings/providers/GitLabPanel"
 import { useGitHubAppConfig } from "../../../../lib/github"
@@ -59,14 +58,8 @@ function ProviderDashboard(): React.JSX.Element {
   const Icon = provider.icon
 
   return (
-    <ShellPage
-      title={provider.title}
-      description={provider.description}
-      
-    >
+    <ShellPage title={provider.title} description={provider.description}>
       <div className="space-y-6">
-        <SettingsTabs />
-
         <section
           aria-label="Provider header"
           className="flex items-center gap-3 rounded-xl border border-border bg-card p-4"
@@ -98,7 +91,9 @@ function ProviderStatusBadge({
   const github = useGitHubAppConfig()
   const gitlab = useGitLabConfig()
   const configured =
-    slug === "github" ? Boolean(github.data?.configured) : Boolean(gitlab.data?.configured)
+    slug === "github"
+      ? Boolean(github.data?.configured)
+      : Boolean(gitlab.data?.configured)
   const loading = slug === "github" ? github.isLoading : gitlab.isLoading
 
   if (loading) {

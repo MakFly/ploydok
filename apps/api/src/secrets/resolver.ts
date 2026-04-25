@@ -1,9 +1,36 @@
 // SPDX-License-Identifier: AGPL-3.0-only
 import { and, eq, or } from "drizzle-orm"
-import { apps, secrets } from "@ploydok/db"
+import { apps, env_vars, secrets } from "@ploydok/db"
 import { getProjectEnv } from "@ploydok/db/queries"
 import type { Db } from "@ploydok/db"
 import { decryptSecret } from "./crypto"
+
+/**
+ * Read user-provided env vars from the legacy `env_vars` table.
+ *
+ * Historically only `secrets` fed the deploy pipeline; the `env_vars` table
+ * was a UI-only surface. That asymmetry meant `PATCH /apps/:id/env` writes
+ * never reached builds (silent no-op for users). We merge `env_vars` into
+ * the resolver here so PATCH /env actually works end-to-end.
+ *
+ * Conflict policy: secrets win on key conflict, because secrets carry the
+ * scope+phase semantics (build vs runtime, prod vs preview, shared vs scoped).
+ * `env_vars` is treated as the lowest-precedence layer below secrets.
+ */
+async function fetchEnvVars(
+  db: Db,
+  appId: string
+): Promise<Record<string, string>> {
+  try {
+    const rows = await db
+      .select({ key: env_vars.key, value: env_vars.value })
+      .from(env_vars)
+      .where(eq(env_vars.app_id, appId))
+    return Object.fromEntries(rows.map((r) => [r.key, r.value]))
+  } catch {
+    return {}
+  }
+}
 
 /**
  * Fetch project-level shared env vars for the app's parent project. Merges
@@ -51,12 +78,15 @@ export async function buildEnvForDeploy(
     )
 
   const appEnv = await mergeScoped(rows)
-  // Runtime-phase only : merge project-level shared env underneath. Build
-  // phase keeps app-only secrets to avoid leaking shared state into image
-  // layers by accident.
-  if (phase !== "runtime") return appEnv
+  const userEnvVars = await fetchEnvVars(db, appId)
+  // Precedence (low → high): app secrets < project shared < user env_vars.
+  // User-provided values win — matches Coolify/Dokploy/Heroku semantics and
+  // lets users override link-injected DATABASE_URL formats (e.g. SQLAlchemy
+  // requires "postgresql://" / "postgresql+psycopg2://", not "postgres://").
+  // Build phase: skip project shared to avoid leaking it into image layers.
+  if (phase !== "runtime") return { ...appEnv, ...userEnvVars }
   const projectEnv = await fetchProjectEnv(db, appId)
-  return { ...projectEnv, ...appEnv }
+  return { ...appEnv, ...projectEnv, ...userEnvVars }
 }
 
 /**
@@ -85,13 +115,18 @@ export async function buildEnvPairForDeploy(
     (r) => r.phase === "runtime" || r.phase === "both"
   )
 
-  const [build, runtimeApp, projectEnv] = await Promise.all([
-    mergeScoped(buildRows),
-    mergeScoped(runtimeRows),
-    fetchProjectEnv(db, appId),
-  ])
-  // Runtime inherits project-level shared env ; app secrets win on conflict.
-  const runtime = { ...projectEnv, ...runtimeApp }
+  const [buildSecrets, runtimeApp, projectEnv, userEnvVars] = await Promise.all(
+    [
+      mergeScoped(buildRows),
+      mergeScoped(runtimeRows),
+      fetchProjectEnv(db, appId),
+      fetchEnvVars(db, appId),
+    ]
+  )
+  // Precedence (low → high): app secrets < project shared < user env_vars.
+  // User-provided values win (PaaS convention).
+  const build = { ...buildSecrets, ...userEnvVars }
+  const runtime = { ...runtimeApp, ...projectEnv, ...userEnvVars }
   return { build, runtime }
 }
 

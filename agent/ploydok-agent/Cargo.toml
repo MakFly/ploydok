@@ -57,5 +57,8 @@ toml = "0.8"
 # Internal
 ploydok-proto = { path = "../crates/ploydok-proto" }
 
+# Syscalls (statvfs pour disk usage host)
+libc = "0.2"
+
 [dev-dependencies]
 tokio = { version = "1", features = ["full", "test-util"] }

@@ -10,12 +10,16 @@ export async function createToken(
     userId,
     name,
     tokenHash,
+    bcryptHash,
     expiresAt,
+    scopes,
   }: {
     userId: string
     name: string
     tokenHash: string
+    bcryptHash?: string
     expiresAt?: Date
+    scopes?: string[]
   }
 ): Promise<ApiTokenRow> {
   const now = new Date()
@@ -31,6 +35,8 @@ export async function createToken(
       user_id: userId,
       name,
       token_hash: tokenHash,
+      bcrypt_hash: bcryptHash ?? null,
+      scopes: scopes && scopes.length > 0 ? scopes : ["admin:*"],
       created_at: now,
       expires_at: expiresAt ?? null,
     })
@@ -46,6 +52,7 @@ export async function listTokensForUser(
   Array<{
     id: string
     name: string
+    scopes: string[]
     created_at: Date
     last_used_at: Date | null
     expires_at: Date | null
@@ -56,6 +63,7 @@ export async function listTokensForUser(
     .select({
       id: api_tokens.id,
       name: api_tokens.name,
+      scopes: api_tokens.scopes,
       created_at: api_tokens.created_at,
       last_used_at: api_tokens.last_used_at,
       expires_at: api_tokens.expires_at,

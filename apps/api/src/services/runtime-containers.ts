@@ -23,6 +23,27 @@ export function normalizeRuntimeContainerSlug(slug: string): string {
   return normalized || "app"
 }
 
+/**
+ * Build a Docker reference-safe image repository name from an app id.
+ *
+ * Docker reference grammar (distribution/reference) only allows runs of a
+ * single separator: `--`, `__`, `..` are valid; `-_` or `_-` are NOT (e.g.
+ * `app-xsr2-_4ut` is rejected by BuildKit with "invalid reference format").
+ * Nanoid's default alphabet mixes `-` and `_`, so the raw `app-${id}` form
+ * occasionally produces invalid sequences depending on the random id.
+ *
+ * Normalize every run of non-alphanumeric characters to a single `-`, which
+ * is universally accepted. Existing apps whose ids contain only `[a-z0-9-]`
+ * are unaffected (idempotent).
+ */
+export function imageRepoForApp(appId: string): string {
+  const sanitized = appId
+    .toLowerCase()
+    .replace(/[^a-z0-9]+/g, "-")
+    .replace(/^-+|-+$/g, "")
+  return `app-${sanitized || "anon"}`
+}
+
 export function runtimeContainerShortId(appId: string): string {
   // Nanoid's default alphabet includes `_`, which the agent validator rejects
   // (container_name_prefix regex `^ploydok-[a-z0-9][a-z0-9-]{0,62}$`). Strip
@@ -37,7 +58,7 @@ export function runtimeContainerShortId(appId: string): string {
 
 export function runtimeContainerName(
   app: { id: string; slug: string },
-  color: RuntimeContainerColor,
+  color: RuntimeContainerColor
 ): string {
   const slug = normalizeRuntimeContainerSlug(app.slug)
   const shortId = runtimeContainerShortId(app.id)
@@ -46,25 +67,25 @@ export function runtimeContainerName(
 
 export function legacyRuntimeContainerName(
   appId: string,
-  color: RuntimeContainerColor,
+  color: RuntimeContainerColor
 ): string {
   return `ploydok-app-${appId.toLowerCase()}-${color}`
 }
 
 export function runtimeContainerNameCandidates(
   app: { id: string; slug: string },
-  color: RuntimeContainerColor,
+  color: RuntimeContainerColor
 ): Array<string> {
   return Array.from(
     new Set([
       runtimeContainerName(app, color),
       legacyRuntimeContainerName(app.id, color),
-    ]),
+    ])
   )
 }
 
 export function inferContainerColor(
-  containerRef: string | null | undefined,
+  containerRef: string | null | undefined
 ): RuntimeContainerColor | null {
   if (!containerRef) return null
   if (containerRef.includes("-blue")) return "blue"
@@ -74,7 +95,7 @@ export function inferContainerColor(
 
 function selectBestAppContainer(
   containers: Array<ContainerSnapshot>,
-  appId: string,
+  appId: string
 ): ContainerSnapshot | null {
   let selected: ContainerSnapshot | null = null
 
@@ -105,7 +126,7 @@ export async function resolveRuntimeContainer(
   opts: {
     appId: string
     preferredContainerRef?: string | null
-  },
+  }
 ): Promise<ContainerSnapshot | null> {
   const { containers } = await agent.listContainers({ kindFilter: "" })
 
@@ -131,7 +152,7 @@ export async function resolveRuntimeContainer(
     const preferred = snapshots.find(
       (container) =>
         container.id === opts.preferredContainerRef ||
-        container.name === opts.preferredContainerRef,
+        container.name === opts.preferredContainerRef
     )
     if (preferred) return preferred
   }

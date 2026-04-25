@@ -21,6 +21,10 @@ import {
   stopRegistryGcCron,
 } from "./handlers/gc-registry"
 import {
+  startAuditRetentionCron,
+  stopAuditRetentionCron,
+} from "./handlers/audit-retention"
+import {
   startPurgeWebhookSecretsCron,
   stopPurgeWebhookSecretsCron,
 } from "./jobs/purge-old-webhook-secrets"
@@ -235,6 +239,7 @@ export function startWorker(
   startBackupDatabasesCron(db)
   startOrphanContainerGcCron(db)
   startReapStuckBuildsCron(db)
+  startAuditRetentionCron({ db })
 
   const abortHandler = () => stop()
   opts?.signal?.addEventListener("abort", abortHandler)
@@ -247,6 +252,7 @@ export function startWorker(
     stopBackupDatabasesCron()
     stopOrphanContainerGcCron()
     stopReapStuckBuildsCron()
+    stopAuditRetentionCron()
     Promise.all(workers.map((w) => w.close())).catch((err) => {
       logger.error({ err }, "error closing BullMQ workers")
     })
