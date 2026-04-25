@@ -29,6 +29,8 @@ export type NotificationType =
   | "provider.sync.progress"
   | "provider.sync.completed"
   | "provider.sync.failed"
+  | "app.deleted"
+  | "app.delete.failed"
 
 export interface NotificationEvent {
   id: string
@@ -71,7 +73,7 @@ class RingBuffer {
     const out: NotificationEvent[] = new Array(count)
     for (let i = 0; i < count; i++) {
       // Walk backwards from (head - 1), then re-order chronologically.
-      const idx = ((this.head - count + i) + this.cap * 2) % this.cap
+      const idx = (this.head - count + i + this.cap * 2) % this.cap
       out[i] = this.buf[idx]!
     }
     return out
@@ -97,7 +99,11 @@ export class EventBus {
    * `id` and `t` are auto-generated if absent.
    * The event is stored in the ring-buffer and forwarded to all live subscribers.
    */
-  publish(channel: string, event: Omit<NotificationEvent, "id" | "t"> & Partial<Pick<NotificationEvent, "id" | "t">>): void {
+  publish(
+    channel: string,
+    event: Omit<NotificationEvent, "id" | "t"> &
+      Partial<Pick<NotificationEvent, "id" | "t">>
+  ): void {
     const full: NotificationEvent = {
       id: event.id ?? nanoid(),
       t: event.t ?? Date.now(),

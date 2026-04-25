@@ -2,8 +2,11 @@
 import { rm } from "node:fs/promises"
 import path from "node:path"
 import { Worker, UnrecoverableError } from "bullmq"
-import { createRedis } from "@ploydok/db"
+import { createRedis, apps } from "@ploydok/db"
 import type { Db } from "@ploydok/db"
+import { eq } from "drizzle-orm"
+import { resolveAppOwner } from "@ploydok/db/queries"
+import { eventBus } from "./event-bus"
 import { env } from "../env"
 import { workerLog as logger } from "./logger"
 import { handleDeploy } from "./handlers/deploy"
@@ -143,8 +146,48 @@ export function startWorker(
       async (job) => {
         logger.info({ jobId: job.id }, "app.delete job started")
         const opts = job.data as DeleteAppOptions
-        const res = await handleDeleteApp(db, opts)
-        logger.info({ jobId: job.id, ...res }, "app.delete done")
+        // Resolve owner + name BEFORE the cascade deletes the apps row, so we
+        // can still publish a user-channel SSE notification once it's gone.
+        const ownerId = await resolveAppOwner(db, opts.appId)
+        const [appRow] = await db
+          .select({ name: apps.name })
+          .from(apps)
+          .where(eq(apps.id, opts.appId))
+          .limit(1)
+        const appName = appRow?.name ?? "App"
+        try {
+          const res = await handleDeleteApp(db, opts)
+          logger.info({ jobId: job.id, ...res }, "app.delete done")
+          if (ownerId) {
+            try {
+              eventBus.publish(`user:${ownerId}`, {
+                type: "app.deleted",
+                appId: opts.appId,
+                message: `${appName} supprimée`,
+                data: { steps: res.steps },
+              })
+            } catch (pubErr) {
+              logger.warn(
+                { pubErr, appId: opts.appId },
+                "eventBus publish app.deleted failed (non-fatal)"
+              )
+            }
+          }
+        } catch (err) {
+          if (ownerId) {
+            try {
+              eventBus.publish(`user:${ownerId}`, {
+                type: "app.delete.failed",
+                appId: opts.appId,
+                message:
+                  err instanceof Error ? err.message : "Suppression échouée",
+              })
+            } catch {
+              // best-effort
+            }
+          }
+          throw err
+        }
       },
       { connection, concurrency: 1 }
     ),
