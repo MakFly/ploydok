@@ -1,6 +1,6 @@
 // SPDX-License-Identifier: AGPL-3.0-only
 import { useMutation, useQueryClient } from "@tanstack/react-query"
-import { apiFetch } from "./api"
+import { apiFetch, invalidateGetCache } from "./api"
 import type { ApiError } from "./api"
 import type {
   AppDetail,
@@ -209,7 +209,10 @@ export function useDeleteApp(appId: string) {
   return useMutation<
     { ok: boolean; jobId: string; status: string },
     ApiError,
-    DeleteAppFlags | void
+    DeleteAppFlags | void,
+    {
+      snapshots: Array<[ReadonlyArray<unknown>, Array<AppListItem> | undefined]>
+    }
   >({
     mutationFn: (flags) => {
       const params = new URLSearchParams()
@@ -224,11 +227,48 @@ export function useDeleteApp(appId: string) {
         { method: "DELETE" }
       )
     },
-    onSuccess: () => {
-      qc.removeQueries({ queryKey: ["apps", appId] })
-      void qc.invalidateQueries({ queryKey: ["apps"] })
+    // Optimistic UI: remove the app from every cached ["apps", *] list right
+    // away so the user sees it disappear instantly. The toast id matches the
+    // SSE listener in useApps so the loading toast is upgraded to success on
+    // app.deleted (or rolled back on app.delete.failed).
+    onMutate: () => {
+      const snapshots = qc
+        .getQueriesData<Array<AppListItem>>({ queryKey: ["apps"] })
+        .map(
+          ([key, data]) =>
+            [key as ReadonlyArray<unknown>, data] as [
+              ReadonlyArray<unknown>,
+              Array<AppListItem> | undefined,
+            ]
+        )
+      for (const [key, data] of snapshots) {
+        if (!Array.isArray(data)) continue
+        qc.setQueryData<Array<AppListItem>>(
+          key as Parameters<typeof qc.setQueryData>[0],
+          data.filter((a) => a.id !== appId)
+        )
+      }
+      toast.loading("Deleting app…", { id: `delete-app:${appId}` })
+      return { snapshots }
     },
-    onError: (error) => {
+    onSuccess: () => {
+      // Bust apiFetch's module-level GET cache for the apps list — without
+      // this, the in-memory Promise from a previous /apps?organizationId=…
+      // fetch is replayed and the deleted app reappears until hard refresh.
+      // Note: the cascade is async on the server (job queue) — final cache
+      // eviction + success toast happen on the SSE app.deleted event handled
+      // by useApps below.
+      invalidateGetCache()
+      qc.removeQueries({ queryKey: ["apps", appId] })
+    },
+    onError: (error, _vars, ctx) => {
+      // Rollback the optimistic remove.
+      if (ctx?.snapshots) {
+        for (const [key, data] of ctx.snapshots) {
+          qc.setQueryData(key as Parameters<typeof qc.setQueryData>[0], data)
+        }
+      }
+      toast.dismiss(`delete-app:${appId}`)
       notifyMutationError(error, "Delete failed")
     },
   })

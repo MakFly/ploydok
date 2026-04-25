@@ -1,4 +1,5 @@
 // SPDX-License-Identifier: AGPL-3.0-only
+import * as React from "react"
 import {
   useMutation,
   useQueries,
@@ -34,6 +35,87 @@ import type {
 } from "./types"
 
 export function useApps(organizationId?: string) {
+  const qc = useQueryClient()
+
+  // Live-patch the matching row on every status-bearing event. setQueriesData
+  // matches all ["apps", *] caches by prefix — covers ["apps", "all"] and the
+  // per-org caches. Without this, the list freezes until next refetch.
+  const patchAppStatus = React.useCallback(
+    (appId: string, status: import("@ploydok/shared").AppStatus) => {
+      qc.setQueriesData<Array<AppListItem>>(
+        { queryKey: ["apps"] },
+        (current) => {
+          if (!Array.isArray(current)) return current
+          let changed = false
+          const next = current.map((app) => {
+            if (app.id !== appId) return app
+            const patched = applyAppStatus(app, status) as AppListItem
+            if (patched !== app) changed = true
+            return patched
+          })
+          return changed ? next : current
+        }
+      )
+    },
+    [qc]
+  )
+
+  // For unknown appIds (a brand-new app spinning up while the user sits on
+  // the list) — refetch once so the new row appears without a manual reload.
+  const refetchListIfMissing = React.useCallback(
+    (appId: string) => {
+      const caches = qc.getQueriesData<Array<AppListItem>>({
+        queryKey: ["apps"],
+      })
+      const known = caches.some(
+        ([, data]) => Array.isArray(data) && data.some((a) => a.id === appId)
+      )
+      if (!known) {
+        invalidateGetCache()
+        void qc.invalidateQueries({ queryKey: ["apps"] })
+      }
+    },
+    [qc]
+  )
+
+  useEventsSubscription<AppStatusEventPayload>("build.started", (payload) => {
+    if (!payload.appId) return
+    const status = getEventAppStatus(payload) ?? "building"
+    patchAppStatus(payload.appId, status)
+    refetchListIfMissing(payload.appId)
+  })
+
+  useEventsSubscription<AppStatusEventPayload>("build.succeeded", (payload) => {
+    if (!payload.appId) return
+    // Final status arrives via deploy.status_change; until then keep the row
+    // in "running"-ish state by trusting the event payload if present.
+    const status = getEventAppStatus(payload)
+    if (status) patchAppStatus(payload.appId, status)
+    invalidateGetCache()
+    void qc.invalidateQueries({ queryKey: ["apps"] })
+  })
+
+  useEventsSubscription<AppStatusEventPayload>("build.failed", (payload) => {
+    if (!payload.appId) return
+    const status = getEventAppStatus(payload) ?? "failed"
+    patchAppStatus(payload.appId, status)
+  })
+
+  useEventsSubscription<AppStatusEventPayload>(
+    "deploy.status_change",
+    (payload) => {
+      if (!payload.appId) return
+      const status = getEventAppStatus(payload)
+      if (status) patchAppStatus(payload.appId, status)
+      // On terminal transitions (running/failed) re-fetch to pick up
+      // domain/branch/repo changes the worker may have updated alongside.
+      if (status === "running" || status === "failed") {
+        invalidateGetCache()
+        void qc.invalidateQueries({ queryKey: ["apps"] })
+      }
+    }
+  )
+
   return useQuery<Array<AppListItem>, ApiError>({
     queryKey: ["apps", organizationId ?? "all"],
     queryFn: async () => {
@@ -61,6 +143,11 @@ export function useCreateApp() {
       }),
     onSuccess: (_, vars) => {
       toast.success("App created")
+      // The new app's auto-deploy emits build.started immediately — but the
+      // GET cache from a prior /apps?organizationId=… read would replay
+      // stale data and hide the new row until hard refresh. Same fix as
+      // useDeleteApp: bust the module-level cache before invalidating RQ.
+      invalidateGetCache()
       qc.invalidateQueries({ queryKey: ["apps"] })
       if (vars.organizationId ?? vars.projectId) {
         qc.invalidateQueries({
@@ -82,11 +169,20 @@ export function useApp(appId: string, opts?: UseAppOptions) {
       ["apps", appId],
       (current) => applyAppStatus(current, status) as AppDetail | undefined
     )
-    qc.setQueryData<Array<AppListItem> | undefined>(["apps"], (current) =>
-      current?.map((app) =>
-        app.id === appId ? (applyAppStatus(app, status) as AppListItem) : app
-      )
-    )
+    // Match every list cache by prefix — ["apps", "all"], ["apps", orgId], …
+    // Plain setQueryData(["apps"], …) only hit the literal ["apps"] key,
+    // which never exists in practice, so the list never updated.
+    qc.setQueriesData<Array<AppListItem>>({ queryKey: ["apps"] }, (current) => {
+      if (!Array.isArray(current)) return current
+      let changed = false
+      const next = current.map((app) => {
+        if (app.id !== appId) return app
+        const patched = applyAppStatus(app, status) as AppListItem
+        if (patched !== app) changed = true
+        return patched
+      })
+      return changed ? next : current
+    })
   }
 
   const refetchApp = () => {
