@@ -8,7 +8,7 @@ export const AuditEventSchema = z.object({
   target_type: z.string(),
   target_id: z.string(),
   metadata: z.string(),
-  created_at: z.date(),
+  created_at: z.coerce.date(),
   prev_hash: z.string().nullable(),
   hash: z.string().nullable(),
   org_id: z.string().nullable(),

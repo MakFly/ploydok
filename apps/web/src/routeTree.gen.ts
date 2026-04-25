@@ -16,7 +16,6 @@ import { Route as PublicRegisterRouteImport } from './routes/_public/register'
 import { Route as PublicLoginRouteImport } from './routes/_public/login'
 import { Route as AuthedMonitoringRouteImport } from './routes/_authed/monitoring'
 import { Route as AuthedGuideRouteImport } from './routes/_authed/guide'
-import { Route as AuthedDockerRouteImport } from './routes/_authed/docker'
 import { Route as AuthedDashboardRouteImport } from './routes/_authed/dashboard'
 import { Route as AuthedSettingsIndexRouteImport } from './routes/_authed/settings/index'
 import { Route as PublicInvitationsAcceptRouteImport } from './routes/_public/invitations/accept'
@@ -40,6 +39,7 @@ import { Route as AuthedSettingsGitProvidersSlugRouteImport } from './routes/_au
 import { Route as AuthedOrgsOrgSlugSharedEnvRouteImport } from './routes/_authed/orgs/$orgSlug/shared-env'
 import { Route as AuthedOrgsOrgSlugSettingsRouteImport } from './routes/_authed/orgs/$orgSlug/settings'
 import { Route as AuthedOrgsOrgSlugScheduledJobsRouteImport } from './routes/_authed/orgs/$orgSlug/scheduled-jobs'
+import { Route as AuthedOrgsOrgSlugMonitoringRouteImport } from './routes/_authed/orgs/$orgSlug/monitoring'
 import { Route as AuthedOrgsOrgSlugMembersRouteImport } from './routes/_authed/orgs/$orgSlug/members'
 import { Route as AuthedOrgsOrgSlugMarketplaceRouteImport } from './routes/_authed/orgs/$orgSlug/marketplace'
 import { Route as AuthedOrgsOrgSlugEventWebhooksRouteImport } from './routes/_authed/orgs/$orgSlug/event-webhooks'
@@ -99,11 +99,6 @@ const AuthedMonitoringRoute = AuthedMonitoringRouteImport.update({
 const AuthedGuideRoute = AuthedGuideRouteImport.update({
   id: '/guide',
   path: '/guide',
-  getParentRoute: () => AuthedRoute,
-} as any)
-const AuthedDockerRoute = AuthedDockerRouteImport.update({
-  id: '/docker',
-  path: '/docker',
   getParentRoute: () => AuthedRoute,
 } as any)
 const AuthedDashboardRoute = AuthedDashboardRouteImport.update({
@@ -231,6 +226,12 @@ const AuthedOrgsOrgSlugScheduledJobsRoute =
   AuthedOrgsOrgSlugScheduledJobsRouteImport.update({
     id: '/scheduled-jobs',
     path: '/scheduled-jobs',
+    getParentRoute: () => AuthedOrgsOrgSlugRoute,
+  } as any)
+const AuthedOrgsOrgSlugMonitoringRoute =
+  AuthedOrgsOrgSlugMonitoringRouteImport.update({
+    id: '/monitoring',
+    path: '/monitoring',
     getParentRoute: () => AuthedOrgsOrgSlugRoute,
   } as any)
 const AuthedOrgsOrgSlugMembersRoute =
@@ -397,7 +398,6 @@ const AuthedOrgsOrgSlugAppsIdSettingsAdvancedRoute =
 export interface FileRoutesByFullPath {
   '/': typeof PublicIndexRoute
   '/dashboard': typeof AuthedDashboardRoute
-  '/docker': typeof AuthedDockerRoute
   '/guide': typeof AuthedGuideRoute
   '/monitoring': typeof AuthedMonitoringRoute
   '/login': typeof PublicLoginRoute
@@ -418,6 +418,7 @@ export interface FileRoutesByFullPath {
   '/orgs/$orgSlug/event-webhooks': typeof AuthedOrgsOrgSlugEventWebhooksRoute
   '/orgs/$orgSlug/marketplace': typeof AuthedOrgsOrgSlugMarketplaceRoute
   '/orgs/$orgSlug/members': typeof AuthedOrgsOrgSlugMembersRoute
+  '/orgs/$orgSlug/monitoring': typeof AuthedOrgsOrgSlugMonitoringRoute
   '/orgs/$orgSlug/scheduled-jobs': typeof AuthedOrgsOrgSlugScheduledJobsRoute
   '/orgs/$orgSlug/settings': typeof AuthedOrgsOrgSlugSettingsRouteWithChildren
   '/orgs/$orgSlug/shared-env': typeof AuthedOrgsOrgSlugSharedEnvRoute
@@ -455,7 +456,6 @@ export interface FileRoutesByFullPath {
 export interface FileRoutesByTo {
   '/': typeof PublicIndexRoute
   '/dashboard': typeof AuthedDashboardRoute
-  '/docker': typeof AuthedDockerRoute
   '/guide': typeof AuthedGuideRoute
   '/monitoring': typeof AuthedMonitoringRoute
   '/login': typeof PublicLoginRoute
@@ -474,6 +474,7 @@ export interface FileRoutesByTo {
   '/orgs/$orgSlug/event-webhooks': typeof AuthedOrgsOrgSlugEventWebhooksRoute
   '/orgs/$orgSlug/marketplace': typeof AuthedOrgsOrgSlugMarketplaceRoute
   '/orgs/$orgSlug/members': typeof AuthedOrgsOrgSlugMembersRoute
+  '/orgs/$orgSlug/monitoring': typeof AuthedOrgsOrgSlugMonitoringRoute
   '/orgs/$orgSlug/scheduled-jobs': typeof AuthedOrgsOrgSlugScheduledJobsRoute
   '/orgs/$orgSlug/shared-env': typeof AuthedOrgsOrgSlugSharedEnvRoute
   '/settings/git-providers/$slug': typeof AuthedSettingsGitProvidersSlugRoute
@@ -510,7 +511,6 @@ export interface FileRoutesById {
   '/_authed': typeof AuthedRouteWithChildren
   '/_public': typeof PublicRouteWithChildren
   '/_authed/dashboard': typeof AuthedDashboardRoute
-  '/_authed/docker': typeof AuthedDockerRoute
   '/_authed/guide': typeof AuthedGuideRoute
   '/_authed/monitoring': typeof AuthedMonitoringRoute
   '/_public/login': typeof PublicLoginRoute
@@ -532,6 +532,7 @@ export interface FileRoutesById {
   '/_authed/orgs/$orgSlug/event-webhooks': typeof AuthedOrgsOrgSlugEventWebhooksRoute
   '/_authed/orgs/$orgSlug/marketplace': typeof AuthedOrgsOrgSlugMarketplaceRoute
   '/_authed/orgs/$orgSlug/members': typeof AuthedOrgsOrgSlugMembersRoute
+  '/_authed/orgs/$orgSlug/monitoring': typeof AuthedOrgsOrgSlugMonitoringRoute
   '/_authed/orgs/$orgSlug/scheduled-jobs': typeof AuthedOrgsOrgSlugScheduledJobsRoute
   '/_authed/orgs/$orgSlug/settings': typeof AuthedOrgsOrgSlugSettingsRouteWithChildren
   '/_authed/orgs/$orgSlug/shared-env': typeof AuthedOrgsOrgSlugSharedEnvRoute
@@ -571,7 +572,6 @@ export interface FileRouteTypes {
   fullPaths:
     | '/'
     | '/dashboard'
-    | '/docker'
     | '/guide'
     | '/monitoring'
     | '/login'
@@ -592,6 +592,7 @@ export interface FileRouteTypes {
     | '/orgs/$orgSlug/event-webhooks'
     | '/orgs/$orgSlug/marketplace'
     | '/orgs/$orgSlug/members'
+    | '/orgs/$orgSlug/monitoring'
     | '/orgs/$orgSlug/scheduled-jobs'
     | '/orgs/$orgSlug/settings'
     | '/orgs/$orgSlug/shared-env'
@@ -629,7 +630,6 @@ export interface FileRouteTypes {
   to:
     | '/'
     | '/dashboard'
-    | '/docker'
     | '/guide'
     | '/monitoring'
     | '/login'
@@ -648,6 +648,7 @@ export interface FileRouteTypes {
     | '/orgs/$orgSlug/event-webhooks'
     | '/orgs/$orgSlug/marketplace'
     | '/orgs/$orgSlug/members'
+    | '/orgs/$orgSlug/monitoring'
     | '/orgs/$orgSlug/scheduled-jobs'
     | '/orgs/$orgSlug/shared-env'
     | '/settings/git-providers/$slug'
@@ -683,7 +684,6 @@ export interface FileRouteTypes {
     | '/_authed'
     | '/_public'
     | '/_authed/dashboard'
-    | '/_authed/docker'
     | '/_authed/guide'
     | '/_authed/monitoring'
     | '/_public/login'
@@ -705,6 +705,7 @@ export interface FileRouteTypes {
     | '/_authed/orgs/$orgSlug/event-webhooks'
     | '/_authed/orgs/$orgSlug/marketplace'
     | '/_authed/orgs/$orgSlug/members'
+    | '/_authed/orgs/$orgSlug/monitoring'
     | '/_authed/orgs/$orgSlug/scheduled-jobs'
     | '/_authed/orgs/$orgSlug/settings'
     | '/_authed/orgs/$orgSlug/shared-env'
@@ -794,13 +795,6 @@ declare module '@tanstack/react-router' {
       path: '/guide'
       fullPath: '/guide'
       preLoaderRoute: typeof AuthedGuideRouteImport
-      parentRoute: typeof AuthedRoute
-    }
-    '/_authed/docker': {
-      id: '/_authed/docker'
-      path: '/docker'
-      fullPath: '/docker'
-      preLoaderRoute: typeof AuthedDockerRouteImport
       parentRoute: typeof AuthedRoute
     }
     '/_authed/dashboard': {
@@ -962,6 +956,13 @@ declare module '@tanstack/react-router' {
       path: '/scheduled-jobs'
       fullPath: '/orgs/$orgSlug/scheduled-jobs'
       preLoaderRoute: typeof AuthedOrgsOrgSlugScheduledJobsRouteImport
+      parentRoute: typeof AuthedOrgsOrgSlugRoute
+    }
+    '/_authed/orgs/$orgSlug/monitoring': {
+      id: '/_authed/orgs/$orgSlug/monitoring'
+      path: '/monitoring'
+      fullPath: '/orgs/$orgSlug/monitoring'
+      preLoaderRoute: typeof AuthedOrgsOrgSlugMonitoringRouteImport
       parentRoute: typeof AuthedOrgsOrgSlugRoute
     }
     '/_authed/orgs/$orgSlug/members': {
@@ -1236,6 +1237,7 @@ interface AuthedOrgsOrgSlugRouteChildren {
   AuthedOrgsOrgSlugEventWebhooksRoute: typeof AuthedOrgsOrgSlugEventWebhooksRoute
   AuthedOrgsOrgSlugMarketplaceRoute: typeof AuthedOrgsOrgSlugMarketplaceRoute
   AuthedOrgsOrgSlugMembersRoute: typeof AuthedOrgsOrgSlugMembersRoute
+  AuthedOrgsOrgSlugMonitoringRoute: typeof AuthedOrgsOrgSlugMonitoringRoute
   AuthedOrgsOrgSlugScheduledJobsRoute: typeof AuthedOrgsOrgSlugScheduledJobsRoute
   AuthedOrgsOrgSlugSettingsRoute: typeof AuthedOrgsOrgSlugSettingsRouteWithChildren
   AuthedOrgsOrgSlugSharedEnvRoute: typeof AuthedOrgsOrgSlugSharedEnvRoute
@@ -1255,6 +1257,7 @@ const AuthedOrgsOrgSlugRouteChildren: AuthedOrgsOrgSlugRouteChildren = {
   AuthedOrgsOrgSlugEventWebhooksRoute: AuthedOrgsOrgSlugEventWebhooksRoute,
   AuthedOrgsOrgSlugMarketplaceRoute: AuthedOrgsOrgSlugMarketplaceRoute,
   AuthedOrgsOrgSlugMembersRoute: AuthedOrgsOrgSlugMembersRoute,
+  AuthedOrgsOrgSlugMonitoringRoute: AuthedOrgsOrgSlugMonitoringRoute,
   AuthedOrgsOrgSlugScheduledJobsRoute: AuthedOrgsOrgSlugScheduledJobsRoute,
   AuthedOrgsOrgSlugSettingsRoute: AuthedOrgsOrgSlugSettingsRouteWithChildren,
   AuthedOrgsOrgSlugSharedEnvRoute: AuthedOrgsOrgSlugSharedEnvRoute,
@@ -1296,7 +1299,6 @@ const AuthedSettingsSecurityRouteWithChildren =
 
 interface AuthedRouteChildren {
   AuthedDashboardRoute: typeof AuthedDashboardRoute
-  AuthedDockerRoute: typeof AuthedDockerRoute
   AuthedGuideRoute: typeof AuthedGuideRoute
   AuthedMonitoringRoute: typeof AuthedMonitoringRoute
   AuthedAppsSplatRoute: typeof AuthedAppsSplatRoute
@@ -1314,7 +1316,6 @@ interface AuthedRouteChildren {
 
 const AuthedRouteChildren: AuthedRouteChildren = {
   AuthedDashboardRoute: AuthedDashboardRoute,
-  AuthedDockerRoute: AuthedDockerRoute,
   AuthedGuideRoute: AuthedGuideRoute,
   AuthedMonitoringRoute: AuthedMonitoringRoute,
   AuthedAppsSplatRoute: AuthedAppsSplatRoute,

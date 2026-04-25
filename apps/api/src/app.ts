@@ -45,7 +45,7 @@ import { createBrandingRouter } from "./routes/branding"
 import { createEventWebhooksRouter } from "./routes/event-webhooks"
 import { createScheduledJobsRouter } from "./routes/scheduled-jobs"
 import { createProjectEnvRouter } from "./routes/project-env"
-import { createDockerHostRouter } from "./routes/docker-host"
+import { createOrgMonitoringRouter } from "./routes/org-monitoring"
 import { getDefaultOrganizationForUser } from "./services/organizations"
 
 const httpLog = childLogger("http")
@@ -436,9 +436,10 @@ const projectEnvOrgScoped = new Hono()
 projectEnvOrgScoped.route("/:orgSlug/shared-env", createProjectEnvRouter(db))
 app.route("/orgs", projectEnvOrgScoped)
 
-// Docker host view — admin read-only.
-app.use("/docker/*", requireAuth(db))
-app.route("/", createDockerHostRouter(db))
+// Organization-scoped monitoring — all endpoints require auth + org membership.
+app.use("/organizations/*/monitoring/*", requireAuth(db))
+app.use("/organizations/*/monitoring", requireAuth(db))
+app.route("/organizations", createOrgMonitoringRouter(db))
 
 // /me — requires auth
 app.get("/me", requireAuth(db), async (c) => {
