@@ -22,11 +22,7 @@ export const Route = createFileRoute("/_authed/orgs/$orgSlug/services/")({
 
 function ServicesPage(): React.JSX.Element {
   const organization = useCurrentOrganization()
-  const {
-    data: services = [],
-    isLoading,
-    error,
-  } = useServices(organization?.id)
+  const { data: services = [], isLoading, error } = useServices()
 
   return (
     <ShellPage

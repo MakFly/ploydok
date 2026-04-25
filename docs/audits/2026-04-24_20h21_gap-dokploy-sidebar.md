@@ -1,99 +1,114 @@
-# Gap Ploydok vs Dokploy — sidebar & système Marketplace
+# Gap Ploydok vs Dokploy — ce qui compte vraiment
 
 **Date** : 2026-04-24
-**Contexte** : suite à l'ajout de la route `/orgs/:slug/marketplace` (v0 read-only, catalogue Dokploy fetché client-side + copy compose). Cet audit liste ce qu'il faut pour atteindre la parité Dokploy côté UI navigation + système d'install de services.
+**Angle** : DevOps engineer. Ploydok = PaaS self-hosted single-host pour déployer des apps Git + DBs managées. Pas Kubernetes, pas multi-VPS, pas SaaS Enterprise. Donc 80% de la feature-list Dokploy est hors-scope pour nous.
 
 ---
 
-## 1. Système « Marketplace » — v0 actuel vs Dokploy
+## Ce qui compte (à faire)
 
-### Ce qui est en place (v0)
+### 1. Marketplace install réel — **priorité #1**
 
-- Route `/orgs/:slug/marketplace` (authed, org-scopée).
-- Catalogue fetché depuis `https://templates.dokploy.com/meta.json` côté client.
-- Dialog détail avec `docker-compose.yml` + copy-to-clipboard + liens GitHub/Docs.
-- **Read-only** : aucune install, aucune persistance, aucune interaction avec l'agent Rust.
+La route v0 actuelle (catalogue + copy compose) n'apporte rien qu'un `curl` ne fait. La vraie valeur c'est le 1-click : Redis, Minio, n8n, Uptime Kuma, Umami, etc. — services que personne ne veut builder depuis un Git.
 
-### Ce que fait Dokploy en plus
+Ce qu'il faut :
 
-| Capacité                                                                                                                    | Effort |
-| --------------------------------------------------------------------------------------------------------------------------- | ------ |
-| Parser + templatiser le compose (DSL : `$SERVICE_PASSWORD_64_X`, `$SERVICE_FQDN_X`, `$SERVICE_USER_X`, `$SERVICE_BASE64_X`) | M      |
-| Service = objet first-class en DB (schema `services` à créer, relations `projects` + `env` + `mounts` + `domains`)          | M      |
-| Déploiement via l'agent (spawn containers sur le réseau `ploydok-public`)                                                   | M      |
-| Lifecycle : start/stop/restart/logs/exec/volumes UI                                                                         | M      |
-| Labels Traefik/Caddy auto (host, port, TLS) + domaine auto-généré (type `*.traefik.me` en dev)                              | S      |
-| Gestion des mounts de fichiers (certs, configs injectées au spawn)                                                          | S      |
-| Backups S3 attachés au service (dépend de Settings > S3 Destinations, cf. §2)                                               | L      |
-| Monitoring CPU/RAM/disk par service (dépend de Monitoring existant)                                                         | S      |
+- Schema `services` (compose + env + domain + status).
+- Parser du DSL Dokploy (`$SERVICE_PASSWORD_64_X`, `$SERVICE_FQDN_X`) — on adopte leur format tel quel, on hérite de leurs 100+ templates sans effort.
+- Déploiement via l'agent Rust sur le réseau `ploydok-public` (déjà en place).
+- Labels Caddy auto (on a déjà l'admin API branchée).
+- Lifecycle minimal : start/stop/logs dans l'UI.
 
-**Total effort install 1-click complète : ~1 sprint (M×4 + S×3 + L×1)**.
+**Effort : ~1 sprint.** C'est le seul gros chantier qui justifie d'exister.
 
----
+### 2. RBAC dans les orgs — **priorité #2**
 
-## 2. Gap sidebar — par priorité
+Les workspaces existent déjà mais les rôles sont implicites. Dès qu'un user invite un collègue, on est exposé : le collègue peut tout faire, y compris supprimer les DBs.
 
-### Tier 1 — core manquant pour parité fonctionnelle
+Ce qu'il faut :
 
-| Item Dokploy                                  | Ploydok                               | Effort | Raison                                                                                                                 |
-| --------------------------------------------- | ------------------------------------- | ------ | ---------------------------------------------------------------------------------------------------------------------- |
-| **Remote Servers** (1 agent par VPS)          | —                                     | L      | Architecture mono-host aujourd'hui. Changement DB + agent registration + selection UI. Bloque le multi-tenant serveur. |
-| **Users / RBAC** (invitations + rôles)        | orgs existent, rôles internes absents | M      | Schema `memberships` à enrichir (rôle `owner/admin/member/viewer`), invite flow, middleware auth.                      |
-| **Deployments (vue globale)**                 | par-app uniquement                    | S      | Queue cross-project, filtres par statut. Route `/orgs/:slug/deployments`.                                              |
-| **Schedules (cron jobs)**                     | —                                     | M      | Schema `schedules`, runner dans `apps/api/src/worker`, UI CRUD.                                                        |
-| **Docker (vue host)**                         | —                                     | M      | Liste containers/images/volumes/networks bruts. UI pour debug. Gated admin.                                            |
-| **Audit Logs**                                | —                                     | S      | Append-only table + middleware log, UI filtrage.                                                                       |
-| **S3 Destinations**                           | —                                     | M      | Schema `backup_destinations`, test connection, attachement backups. Prérequis pour backup off-site.                    |
-| **Certificates** (mTLS / custom certs import) | —                                     | S      | Prod-only, utile pour internal routes et intégrations tierces.                                                         |
+- Rôles `owner` / `member` (2 suffit, pas besoin des 4 de Dokploy).
+- Flow d'invitation par email.
+- Middleware auth qui check le rôle sur les mutations sensibles.
 
-### Tier 2 — confort / ops
+**Effort : M.** Obligatoire avant multi-user réel.
 
-| Item Dokploy                                  | Ploydok                       | Effort                                                                       |
-| --------------------------------------------- | ----------------------------- | ---------------------------------------------------------------------------- |
-| **Traefik File System** (éditeur config live) | —                             | S (on a Caddy admin API déjà branchée, il faut juste une UI read/write JSON) |
-| **Requests** (logs requêtes reverse proxy)    | —                             | M (dépend d'un collecteur de logs Caddy)                                     |
-| **Swarm / Cluster**                           | —                             | L (seulement si on vise multi-node)                                          |
-| **SSH Keys**                                  | —                             | S (si on ajoute Remote Servers)                                              |
-| **Tags**                                      | —                             | XS (metadata libre sur apps/services)                                        |
-| **AI config**                                 | AI Copilot (stub coming soon) | — (déjà planifié)                                                            |
+### 3. Backups S3 off-site — **priorité #3**
 
-### Tier 3 — monétisation / SaaS (v1.5+)
+DBs sans backup externe = jouet. `pg_dump` local sur le même host ne survit pas à une perte de disque.
 
-| Item Dokploy    | Ploydok | Note                                   |
-| --------------- | ------- | -------------------------------------- |
-| Billing         | —       | Stripe intégration, hors-scope core    |
-| License         | —       | Self-hosted licensing, non prioritaire |
-| SSO (SAML/OIDC) | —       | Enterprise feature                     |
-| Whitelabeling   | —       | Branding custom, enterprise feature    |
+Ce qu'il faut :
+
+- Schema `backup_destinations` (endpoint S3, creds chiffrés).
+- Cron dump → upload S3.
+- UI simple : ajouter destination + attacher à une DB.
+
+**Effort : M.** Gating pour prod.
+
+### 4. Audit Logs — **priorité #4**
+
+Toute opération destructive (delete app/db, rotate secret, invite user) doit laisser une trace. Pas de compliance, juste du bon sens ops.
+
+Ce qu'il faut :
+
+- Table append-only `audit_events` (actor, action, target, timestamp).
+- Middleware sur les routes de mutation.
+- UI : timeline filtrable par workspace.
+
+**Effort : S.** Cheap, gros ROI trust.
 
 ---
 
-## 3. Ce qui est déjà à parité
+## Ce qui ne compte pas (à ne PAS faire)
 
-- Dashboard = Home
-- Applications = Projects (nommage différent mais scope équivalent)
-- Databases (managed, Ploydok est même plus propre car ≠ bricolé via compose)
-- Monitoring
-- Settings > Profile / Git providers / Registry / Notifications / Security
-
----
-
-## 4. Recommandation de sprint « parité Dokploy »
-
-Ordre suggéré pour un sprint focalisé :
-
-1. **Services first-class** (schema + install 1-click marketplace) — débloque la valeur user immédiate posée par la route v0.
-2. **RBAC complet** — nécessaire avant tout multi-utilisateur sérieux.
-3. **Remote Servers** — ouvre le multi-host (gros différenciateur vs Coolify aussi).
-4. **Deployments global + Schedules** — quality-of-life ops.
-5. **Audit Logs + S3 Destinations** — prérequis compliance/backup.
-
-**Hors-scope explicite v1** : Swarm, Billing, License, SSO, Whitelabeling. Rester sur le PRD v1 tant que ces items ne sont pas demandés user-side.
+| Feature Dokploy                                 | Pourquoi on skip                                                                                                        |
+| ----------------------------------------------- | ----------------------------------------------------------------------------------------------------------------------- |
+| **Remote Servers / Swarm / Cluster**            | YAGNI. Ploydok = single-host par design. Si un jour on scale, on réévalue.                                              |
+| **Docker (vue host containers/images/volumes)** | `docker ps` en SSH fait le job pour debug. Refaire une UI = duplication d'outils existants.                             |
+| **Schedules (cron jobs)**                       | Un service cron via marketplace (ofelia) ou un cron applicatif dans l'app suffit. Pas besoin d'un runner Ploydok natif. |
+| **Traefik File System (éditeur config live)**   | Caddy auto-config via admin API déjà là. Exposer l'édition raw = foot-gun (user casse son reverse proxy).               |
+| **Requests (logs reverse proxy)**               | Nice-to-have. Si besoin, un service marketplace (Umami/Plausible) couvre l'analytics.                                   |
+| **Certificates (import mTLS custom)**           | Caddy auto-TLS couvre 99% des cas. Le 1% restant peut passer par config manuelle.                                       |
+| **SSH Keys**                                    | Seulement utile si Remote Servers (qu'on skip).                                                                         |
+| **Tags**                                        | Cosmétique. Le filtrage par workspace suffit.                                                                           |
+| **Billing / License / SSO / Whitelabeling**     | SaaS Enterprise. Pas notre produit.                                                                                     |
 
 ---
 
-## 5. Risques
+## Plan concret
 
-- **Divergence compose-DSL** : Dokploy utilise `$SERVICE_PASSWORD_64_X` — si on copie leur DSL, on hérite de leur format. Mieux : adopter le DSL tel quel (compat directe avec leurs 100+ templates) plutôt qu'inventer.
-- **Réseau `ploydok-public`** : tout service installé via marketplace doit y être joint, sinon Caddy ne pourra pas router. À prévoir côté agent.
-- **Secrets générés** : ne jamais les logger, les stocker chiffrés comme les env vars apps (cf. `packages/db/src/queries/secrets.ts`).
+Un sprint dédié parité utile, dans cet ordre :
+
+1. **Marketplace install réel** (débloquer la valeur user posée par la route v0).
+2. **RBAC `owner`/`member` + invites**.
+3. **Backups S3**.
+4. **Audit Logs**.
+
+Tout le reste : ignoré jusqu'à demande user explicite.
+
+---
+
+## Sidebar cible (après ce sprint)
+
+```
+Platform
+├── Dashboard
+├── Applications
+├── Databases
+├── Marketplace          ← v1 réel (pas v0)
+├── Monitoring
+└── AI Copilot (soon)
+
+Workspace
+├── Members              ← nouveau (RBAC)
+└── Audit                ← nouveau
+
+Settings
+├── Profile / Security
+├── Git providers
+├── Registry
+├── Notifications
+└── Backup destinations  ← nouveau (S3)
+```
+
+Rien d'autre.

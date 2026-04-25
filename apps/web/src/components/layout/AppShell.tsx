@@ -15,7 +15,6 @@ import {
   RiDashboardLine,
   RiDatabase2Line,
   RiCodeBoxLine,
-  RiContrastDrop2Line,
   RiFileListLine,
   RiKeyLine,
   RiLogoutBoxRLine,
@@ -114,7 +113,6 @@ const primaryNav: Array<NavItem> = [
   { label: "Services", icon: RiCodeBoxLine },
   { label: "Marketplace", icon: RiShapesLine },
   { label: "Monitoring", to: "/monitoring", icon: RiPulseLine },
-  { label: "Docker", to: "/docker", icon: RiContrastDrop2Line },
   {
     label: "AI Copilot",
     icon: RiSparkling2Line,
@@ -124,6 +122,7 @@ const primaryNav: Array<NavItem> = [
 ]
 
 const workspaceNav: Array<NavItem> = [
+  { label: "Monitoring", icon: RiPulseLine },
   { label: "Members", icon: RiTeamLine },
   { label: "Audit", icon: RiFileListLine },
   { label: "Shared env", icon: RiKeyLine },
@@ -421,6 +420,9 @@ export function AppShell({
         comingSoon: true,
         tooltip: "Sélectionne un workspace",
       }
+    }
+    if (item.label === "Monitoring") {
+      return { ...item, to: organizationPath(currentOrgSlug, "monitoring") }
     }
     if (item.label === "Members") {
       return { ...item, to: organizationPath(currentOrgSlug, "members") }

@@ -30,7 +30,8 @@ export function useServices(projectId?: string) {
     queryKey: servicesKeys.list(projectId),
     queryFn: async () => {
       const url = projectId ? `/services?projectId=${projectId}` : "/services"
-      return apiFetch<ServiceSummary[]>(url)
+      const res = await apiFetch<{ services: ServiceSummary[] }>(url)
+      return res.services
     },
   })
 }
@@ -38,7 +39,10 @@ export function useServices(projectId?: string) {
 export function useService(id: string | undefined) {
   return useQuery({
     queryKey: servicesKeys.detail(id ?? ""),
-    queryFn: async () => apiFetch<ServiceDetail>(`/services/${id}`),
+    queryFn: async () => {
+      const res = await apiFetch<{ service: ServiceDetail }>(`/services/${id}`)
+      return res.service
+    },
     enabled: Boolean(id),
   })
 }

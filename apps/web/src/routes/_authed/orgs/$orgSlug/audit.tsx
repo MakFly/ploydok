@@ -1,7 +1,7 @@
 // SPDX-License-Identifier: AGPL-3.0-only
-import { Suspense, useState } from "react"
+import * as React from "react"
+import { useState } from "react"
 import { createFileRoute } from "@tanstack/react-router"
-import { useParams } from "@tanstack/react-router"
 import { Button } from "@workspace/ui/components/button"
 import {
   Select,
@@ -10,6 +10,8 @@ import {
   SelectTrigger,
   SelectValue,
 } from "@workspace/ui/components/select"
+import { ShellPage, ShellPanel } from "../../../../components/layout/AppShell"
+import { useCurrentOrganization } from "../../../../lib/organizations"
 import { useAuditEvents } from "../../../../lib/audit"
 import type { AuditEvent } from "@ploydok/shared"
 
@@ -17,152 +19,172 @@ export const Route = createFileRoute("/_authed/orgs/$orgSlug/audit")({
   component: AuditPage,
 })
 
-function AuditPage() {
-  const { orgSlug } = useParams({ from: Route.id })
-  const [actionPrefix, setActionPrefix] = useState<string>("")
-  const [targetType, setTargetType] = useState<string>("")
+const ALL = "all"
+
+function AuditPage(): React.JSX.Element {
+  const organization = useCurrentOrganization()
+  const [actionPrefix, setActionPrefix] = useState<string>(ALL)
+  const [targetType, setTargetType] = useState<string>(ALL)
   const [cursor, setCursor] = useState<number | undefined>()
 
+  const filtersDirty =
+    actionPrefix !== ALL || targetType !== ALL || cursor !== undefined
+
+  const query = useAuditEvents(organization?.id, {
+    cursor,
+    actionPrefix: actionPrefix === ALL ? undefined : actionPrefix,
+    targetType: targetType === ALL ? undefined : targetType,
+  })
+
   return (
-    <div className="space-y-4 p-6">
-      <div>
-        <h1 className="text-2xl font-bold">Audit</h1>
-        <p className="text-sm text-gray-500">Historique des événements</p>
-      </div>
-
-      <div className="flex gap-4">
-        <Select value={actionPrefix} onValueChange={setActionPrefix}>
-          <SelectTrigger className="w-48">
-            <SelectValue placeholder="Filtrer par action" />
-          </SelectTrigger>
-          <SelectContent>
-            <SelectItem value="">Toutes les actions</SelectItem>
-            <SelectItem value="app.">Applications</SelectItem>
-            <SelectItem value="secret.">Secrets</SelectItem>
-            <SelectItem value="webhook.">Webhooks</SelectItem>
-          </SelectContent>
-        </Select>
-
-        <Select value={targetType} onValueChange={setTargetType}>
-          <SelectTrigger className="w-48">
-            <SelectValue placeholder="Filtrer par type" />
-          </SelectTrigger>
-          <SelectContent>
-            <SelectItem value="">Tous les types</SelectItem>
-            <SelectItem value="app">Application</SelectItem>
-            <SelectItem value="secret">Secret</SelectItem>
-            <SelectItem value="webhook">Webhook</SelectItem>
-          </SelectContent>
-        </Select>
-
+    <ShellPage
+      title="Audit"
+      eyebrow="Workspace"
+      description="Historique des événements de l'organisation — créations, modifications et suppressions."
+      actions={
         <Button
           variant="outline"
+          size="sm"
+          disabled={!filtersDirty}
           onClick={() => {
-            setActionPrefix("")
-            setTargetType("")
+            setActionPrefix(ALL)
+            setTargetType(ALL)
             setCursor(undefined)
           }}
         >
           Réinitialiser
         </Button>
-      </div>
-
-      <Suspense fallback={<div>Chargement...</div>}>
-        <AuditTimeline
-          orgId={orgSlug}
-          actionPrefix={actionPrefix}
-          targetType={targetType}
-          cursor={cursor}
-          onLoadMore={(nextCursor) => setCursor(nextCursor)}
-        />
-      </Suspense>
-    </div>
+      }
+    >
+      <ShellPanel
+        title="Événements"
+        description="Filtre par type d'action ou de ressource."
+        action={
+          <div className="flex flex-wrap gap-2">
+            <Select value={actionPrefix} onValueChange={setActionPrefix}>
+              <SelectTrigger className="h-9 w-44">
+                <SelectValue placeholder="Action" />
+              </SelectTrigger>
+              <SelectContent>
+                <SelectItem value={ALL}>Toutes les actions</SelectItem>
+                <SelectItem value="app.">Applications</SelectItem>
+                <SelectItem value="secret.">Secrets</SelectItem>
+                <SelectItem value="webhook.">Webhooks</SelectItem>
+              </SelectContent>
+            </Select>
+            <Select value={targetType} onValueChange={setTargetType}>
+              <SelectTrigger className="h-9 w-44">
+                <SelectValue placeholder="Type" />
+              </SelectTrigger>
+              <SelectContent>
+                <SelectItem value={ALL}>Tous les types</SelectItem>
+                <SelectItem value="app">Application</SelectItem>
+                <SelectItem value="secret">Secret</SelectItem>
+                <SelectItem value="webhook">Webhook</SelectItem>
+              </SelectContent>
+            </Select>
+          </div>
+        }
+      >
+        {!organization || query.isLoading ? (
+          <AuditTimelineSkeleton />
+        ) : query.data && query.data.events.length > 0 ? (
+          <div className="space-y-3">
+            <div className="space-y-2">
+              {query.data.events.map((event) => (
+                <AuditEventRow key={event.id} event={event} />
+              ))}
+            </div>
+            {query.data.nextCursor !== null &&
+            query.data.nextCursor !== undefined ? (
+              <Button
+                variant="outline"
+                className="w-full"
+                onClick={() => setCursor(query.data?.nextCursor ?? undefined)}
+              >
+                Charger plus
+              </Button>
+            ) : null}
+          </div>
+        ) : (
+          <AuditEmpty />
+        )}
+      </ShellPanel>
+    </ShellPage>
   )
 }
 
-interface AuditTimelineProps {
-  orgId: string
-  actionPrefix: string
-  targetType: string
-  cursor: number | undefined
-  onLoadMore: (cursor: number | undefined) => void
-}
-
-function AuditTimeline({
-  orgId,
-  actionPrefix,
-  targetType,
-  cursor,
-  onLoadMore,
-}: AuditTimelineProps) {
-  const { data } = useAuditEvents(orgId, {
-    cursor,
-    actionPrefix: actionPrefix || undefined,
-    targetType: targetType || undefined,
-  })
-
-  if (data.events.length === 0) {
-    return (
-      <div className="rounded-lg border border-gray-200 p-8 text-center text-gray-500">
-        Aucun événement enregistré
-      </div>
-    )
-  }
-
+function AuditEmpty(): React.JSX.Element {
   return (
-    <div className="space-y-4">
-      <div className="space-y-2">
-        {data.events.map((event: AuditEvent) => (
-          <AuditEventRow key={event.id} event={event} />
-        ))}
-      </div>
-
-      {data.nextCursor !== null && (
-        <Button
-          variant="outline"
-          className="w-full"
-          onClick={() => onLoadMore(data.nextCursor ?? undefined)}
-        >
-          Charger plus
-        </Button>
-      )}
+    <div className="rounded-md border border-dashed border-border bg-muted/30 px-6 py-12 text-center">
+      <p className="text-sm font-semibold text-foreground">Aucun événement</p>
+      <p className="mt-2 text-sm leading-6 text-muted-foreground">
+        Les actions effectuées sur l'organisation apparaîtront ici.
+      </p>
     </div>
   )
 }
 
 function AuditEventRow({ event }: { event: AuditEvent }): React.JSX.Element {
   const relativeTime = getRelativeTime(event.created_at)
-
   const actionColor = getActionColor(event.action)
 
   return (
-    <div className="flex items-center justify-between rounded-lg border border-gray-200 p-4">
-      <div className="flex items-center gap-4">
+    <div className="flex items-center justify-between gap-4 rounded-md border border-border bg-card px-4 py-3">
+      <div className="flex min-w-0 items-center gap-3">
         <span
-          className={`rounded-full px-3 py-1 text-sm font-medium ${actionColor}`}
+          className={`shrink-0 rounded-full px-2.5 py-1 text-xs font-medium ${actionColor}`}
         >
           {event.action}
         </span>
-        <div className="text-sm">
-          <p className="font-medium">
+        <div className="min-w-0 text-sm">
+          <p className="truncate font-medium text-foreground">
             {event.target_type} {event.target_id}
           </p>
-          {event.user_id && (
-            <p className="text-xs text-gray-500">par {event.user_id}</p>
-          )}
+          {event.user_id ? (
+            <p className="truncate text-xs text-muted-foreground">
+              par {event.user_id}
+            </p>
+          ) : null}
         </div>
       </div>
-      <span className="text-xs text-gray-500">{relativeTime}</span>
+      <span className="shrink-0 text-xs text-muted-foreground">
+        {relativeTime}
+      </span>
+    </div>
+  )
+}
+
+function AuditTimelineSkeleton(): React.JSX.Element {
+  return (
+    <div className="space-y-2">
+      {Array.from({ length: 6 }).map((_, index) => (
+        <div
+          key={index}
+          className="flex items-center justify-between gap-4 rounded-md border border-border bg-card px-4 py-3"
+        >
+          <div className="flex min-w-0 flex-1 items-center gap-3">
+            <div className="h-5 w-20 animate-pulse rounded-full bg-muted" />
+            <div className="min-w-0 flex-1 space-y-2">
+              <div className="h-3 w-48 animate-pulse rounded bg-muted" />
+              <div className="h-3 w-32 animate-pulse rounded bg-muted" />
+            </div>
+          </div>
+          <div className="h-3 w-16 animate-pulse rounded bg-muted" />
+        </div>
+      ))}
     </div>
   )
 }
 
 function getActionColor(action: string | undefined): string {
-  if (!action) return "bg-gray-100 text-gray-800"
-  if (action.includes("created")) return "bg-green-100 text-green-800"
-  if (action.includes("deleted")) return "bg-red-100 text-red-800"
-  if (action.includes("updated")) return "bg-blue-100 text-blue-800"
-  return "bg-gray-100 text-gray-800"
+  if (!action) return "bg-muted text-muted-foreground"
+  if (action.includes("created"))
+    return "bg-emerald-500/10 text-emerald-600 dark:text-emerald-400"
+  if (action.includes("deleted")) return "bg-destructive/10 text-destructive"
+  if (action.includes("updated"))
+    return "bg-blue-500/10 text-blue-600 dark:text-blue-400"
+  return "bg-muted text-muted-foreground"
 }
 
 function getRelativeTime(date: Date): string {
