@@ -25,9 +25,9 @@ describe("extractAppName", () => {
 })
 
 describe("resolveTopbarBreadcrumb", () => {
-  it("prefixes the dashboard with the Platform group", () => {
+  it("prefixes the dashboard with the Workspace group", () => {
     expect(resolveTopbarBreadcrumb("/dashboard", null)).toEqual([
-      { label: "Platform" },
+      { label: "Workspace" },
       { label: "Dashboard" },
     ])
   })
@@ -38,11 +38,11 @@ describe("resolveTopbarBreadcrumb", () => {
     ])
   })
 
-  it("builds the nested git provider breadcrumb", () => {
+  it("builds the nested git provider breadcrumb under Integrations", () => {
     expect(
       resolveTopbarBreadcrumb("/settings/git-providers/github", null)
     ).toEqual([
-      { label: "Settings", to: "/settings" },
+      { label: "Integrations" },
       { label: "Git providers", to: "/settings/git-providers" },
       { label: "GitHub" },
     ])
@@ -68,9 +68,9 @@ describe("resolveTopbarBreadcrumb", () => {
     )
   })
 
-  it("builds the apps list breadcrumb under Platform", () => {
+  it("builds the apps list breadcrumb under Workspace", () => {
     expect(resolveTopbarBreadcrumb("/apps", null)).toEqual([
-      { label: "Platform" },
+      { label: "Workspace" },
       { label: "Applications" },
     ])
   })
@@ -79,7 +79,7 @@ describe("resolveTopbarBreadcrumb", () => {
     expect(
       resolveTopbarBreadcrumb("/apps/app-123/settings", "Billing API")
     ).toEqual([
-      { label: "Platform" },
+      { label: "Workspace" },
       { label: "Applications", to: "/apps" },
       { label: "Billing API", to: "/apps/app-123/overview" },
       { label: "Settings" },
@@ -90,7 +90,7 @@ describe("resolveTopbarBreadcrumb", () => {
     expect(
       resolveTopbarBreadcrumb("/apps/app-123/overview", "Billing API")
     ).toEqual([
-      { label: "Platform" },
+      { label: "Workspace" },
       { label: "Applications", to: "/apps" },
       { label: "Billing API", to: "/apps/app-123/overview" },
       { label: "Overview" },
@@ -99,29 +99,29 @@ describe("resolveTopbarBreadcrumb", () => {
 
   it("builds the databases breadcrumb for org-scoped routes", () => {
     expect(resolveTopbarBreadcrumb("/orgs/acme/databases", null)).toEqual([
-      { label: "Platform" },
+      { label: "Workspace" },
       { label: "Databases" },
     ])
   })
 
   it("builds the database detail breadcrumb with the id", () => {
     expect(resolveTopbarBreadcrumb("/databases/db-123", null)).toEqual([
-      { label: "Platform" },
+      { label: "Workspace" },
       { label: "Databases", to: "/databases" },
       { label: "db-123" },
     ])
   })
 
-  it("builds the services breadcrumb under Platform", () => {
+  it("builds the services breadcrumb under Workspace", () => {
     expect(resolveTopbarBreadcrumb("/services", null)).toEqual([
-      { label: "Platform" },
+      { label: "Workspace" },
       { label: "Services" },
     ])
   })
 
   it("builds the service detail breadcrumb with the id", () => {
     expect(resolveTopbarBreadcrumb("/services/svc-1", null)).toEqual([
-      { label: "Platform" },
+      { label: "Workspace" },
       { label: "Services", to: "/services" },
       { label: "svc-1" },
     ])
@@ -129,53 +129,83 @@ describe("resolveTopbarBreadcrumb", () => {
 
   it("falls back to the app id when no name is loaded", () => {
     expect(resolveTopbarBreadcrumb("/apps/app-xyz", null)).toEqual([
-      { label: "Platform" },
+      { label: "Workspace" },
       { label: "Applications", to: "/apps" },
       { label: "app-xyz" },
     ])
   })
 
-  it("builds the monitoring breadcrumb under Platform", () => {
+  it("builds the monitoring breadcrumb under Workspace", () => {
     expect(resolveTopbarBreadcrumb("/monitoring", null)).toEqual([
-      { label: "Platform" },
+      { label: "Workspace" },
       { label: "Monitoring" },
     ])
   })
 
-  it("builds the docker breadcrumb under Platform", () => {
-    expect(resolveTopbarBreadcrumb("/docker", null)).toEqual([
-      { label: "Platform" },
-      { label: "Docker" },
-    ])
-  })
-
-  it("builds the marketplace breadcrumb under Platform", () => {
+  it("builds the marketplace breadcrumb under Workspace", () => {
     expect(resolveTopbarBreadcrumb("/orgs/acme/marketplace", null)).toEqual([
-      { label: "Platform" },
+      { label: "Workspace" },
       { label: "Marketplace" },
     ])
   })
 
-  it("builds workspace-group breadcrumbs", () => {
-    expect(resolveTopbarBreadcrumb("/members", null)).toEqual([
+  it("builds new workspace-group breadcrumbs (deployments/templates)", () => {
+    expect(resolveTopbarBreadcrumb("/orgs/acme/deployments", null)).toEqual([
       { label: "Workspace" },
+      { label: "Deployments" },
+    ])
+    expect(resolveTopbarBreadcrumb("/orgs/acme/templates", null)).toEqual([
+      { label: "Workspace" },
+      { label: "Templates" },
+    ])
+  })
+
+  it("builds platform-group breadcrumbs", () => {
+    expect(resolveTopbarBreadcrumb("/members", null)).toEqual([
+      { label: "Platform" },
       { label: "Members" },
     ])
     expect(resolveTopbarBreadcrumb("/audit", null)).toEqual([
-      { label: "Workspace" },
+      { label: "Platform" },
       { label: "Audit" },
     ])
     expect(resolveTopbarBreadcrumb("/shared-env", null)).toEqual([
-      { label: "Workspace" },
+      { label: "Platform" },
       { label: "Shared env" },
     ])
     expect(resolveTopbarBreadcrumb("/scheduled-jobs", null)).toEqual([
-      { label: "Workspace" },
+      { label: "Platform" },
       { label: "Scheduled jobs" },
     ])
     expect(resolveTopbarBreadcrumb("/event-webhooks", null)).toEqual([
-      { label: "Workspace" },
+      { label: "Platform" },
       { label: "Event webhooks" },
+    ])
+    expect(resolveTopbarBreadcrumb("/tags", null)).toEqual([
+      { label: "Platform" },
+      { label: "Tags" },
+    ])
+  })
+
+  it("prefixes workspace links with the org slug on org-scoped routes", () => {
+    expect(
+      resolveTopbarBreadcrumb("/orgs/acme/services/svc-1", null, "acme")
+    ).toEqual([
+      { label: "Workspace" },
+      { label: "Services", to: "/orgs/acme/services" },
+      { label: "svc-1" },
+    ])
+    expect(
+      resolveTopbarBreadcrumb(
+        "/orgs/acme/apps/app-123/settings",
+        "Billing API",
+        "acme"
+      )
+    ).toEqual([
+      { label: "Workspace" },
+      { label: "Applications", to: "/orgs/acme/apps" },
+      { label: "Billing API", to: "/orgs/acme/apps/app-123/overview" },
+      { label: "Settings" },
     ])
   })
 

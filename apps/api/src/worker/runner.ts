@@ -507,17 +507,34 @@ export async function runBlueGreen(
         // admin endpoint). Invariant: a Ploydok-managed app is unhealthy only
         // when the app itself is unhealthy, never because of a stale inherited
         // probe.
+        //
+        // Dynamic probe: stack-agnostic, bind-agnostic.
+        //
+        // Tooling: try curl first, fall back to wget. wget ships in busybox so
+        // every alpine image has it; curl is the default on debian/ubuntu
+        // bases. Distroless without either is unsupported (rare in PaaS).
+        //
+        // Bind address: try 127.0.0.1 *and* the container hostname. Many
+        // frameworks (Express/Hono/uvicorn/php-fpm) bind 0.0.0.0 → both work.
+        // Next.js `output: 'standalone'` and apps that read HOSTNAME for the
+        // bind address only listen on the container hostname's eth0 IP, so
+        // 127.0.0.1 is refused. Cycling through both hosts covers the case.
+        //
+        // Permissive: any HTTP response (200, 404, 500, …) counts as alive —
+        // curl/wget without `-f` exit 0 on any status. We only fail on
+        // connection-refused or timeout from every (host, tool) combination.
         healthcheck: {
           test: [
             "CMD-SHELL",
-            // Permissive liveness probe: any HTTP response (including 404)
-            // counts as "app alive". This matches the "always healthy
-            // whatever the stack" goal — Hono/Express/Fastify APIs often
-            // return 404 on `/`, but the TCP port listening + HTTP stack
-            // replying is enough evidence that the process is up. curl
-            // without `-f` exits 0 on any status; it only fails on
-            // connection refused or timeout.
-            `curl -sS -m 5 -o /dev/null http://127.0.0.1:${hcPort}${hcPath} || exit 1`,
+            `for host in 127.0.0.1 "$(hostname 2>/dev/null)"; do ` +
+              `[ -z "$host" ] && continue; ` +
+              `if command -v curl >/dev/null 2>&1; then ` +
+              `curl -sS -m 5 -o /dev/null "http://$host:${hcPort}${hcPath}" && exit 0; ` +
+              `fi; ` +
+              `if command -v wget >/dev/null 2>&1; then ` +
+              `wget -q -O /dev/null --timeout=5 "http://$host:${hcPort}${hcPath}" && exit 0; ` +
+              `fi; ` +
+              `done; exit 1`,
           ],
           intervalSeconds: hcIntervalS,
           timeoutSeconds: hcTimeoutS,
@@ -873,12 +890,22 @@ export async function rollbackApp(
 /**
  * Restart an app: mark restarting → stop containers → runBlueGreen from last
  * succeeded build. Emits SSE events at each transition.
+ *
+ * When `background: true`, only the prelude (build precheck + status write +
+ * SSE event) is awaited; the stop + redeploy run in the background. Callers
+ * that want a quick 202 response (e.g. the POST /apps/:id/restart route) use
+ * this to avoid the toast/badge inversion where the SSE "running" event
+ * (emitted at runBlueGreen `onLive`) lands before the HTTP response.
  */
 export async function restartApp(
   appId: string,
   db: Db,
   userId?: string,
-  opts?: { agentSocketPath?: string; caddyBaseUrl?: string }
+  opts?: {
+    agentSocketPath?: string
+    caddyBaseUrl?: string
+    background?: boolean
+  }
 ): Promise<void> {
   const log = workerLog.child({ appId, op: "restart" })
   const channel = `runtime:${appId}`
@@ -919,6 +946,37 @@ export async function restartApp(
     }
   }
 
+  const heavy = runRestartHeavyWork(
+    appId,
+    db,
+    userId,
+    lastBuild.image_tag,
+    channel,
+    opts
+  )
+
+  if (opts?.background) {
+    void heavy.catch((err) => {
+      log.error(
+        { err: err instanceof Error ? err.message : String(err) },
+        "restart background work failed"
+      )
+    })
+    return
+  }
+
+  await heavy
+}
+
+async function runRestartHeavyWork(
+  appId: string,
+  db: Db,
+  userId: string | undefined,
+  imageRef: string,
+  channel: string,
+  opts?: { agentSocketPath?: string; caddyBaseUrl?: string }
+): Promise<void> {
+  const log = workerLog.child({ appId, op: "restart" })
   // 2. Stop containers (the DB write is already done above — stopApp would
   //    overwrite status to "stopped", so we call the container-stop logic directly).
   logBus.publish(channel, `[runner] restart: stopping current containers`)
@@ -948,10 +1006,7 @@ export async function restartApp(
     stopAgent.close()
   }
 
-  logBus.publish(
-    channel,
-    `[runner] restart: re-deploying ${lastBuild.image_tag}`
-  )
+  logBus.publish(channel, `[runner] restart: re-deploying ${imageRef}`)
 
   // 3. Load current env vars.
   const appRuntimeRows = await db
@@ -970,7 +1025,7 @@ export async function restartApp(
   //    blocking the UI.
   const runOpts: RunBlueGreenOptions = {
     appId,
-    imageRef: lastBuild.image_tag,
+    imageRef,
     env: containerEnv,
     runtimePort,
     db,

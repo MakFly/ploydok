@@ -1,4 +1,5 @@
 // SPDX-License-Identifier: AGPL-3.0-only
+import * as React from "react"
 import { useMutation, useQueryClient } from "@tanstack/react-query"
 import { apiFetch, invalidateGetCache } from "./api"
 import type { ApiError } from "./api"
@@ -11,6 +12,57 @@ import type {
 import { normalizeAppDetail } from "./apps"
 import { notifyMutationError } from "./second-factor-toast"
 import { toast } from "sonner"
+import { useEventsSubscribeFn } from "./events-provider"
+
+// ---------------------------------------------------------------------------
+// useTrackAppRestart
+//
+// Returns a `track()` callback that shows a toast.loading and resolves it on
+// the next `deploy.status_change` SSE event for this appId with a terminal
+// status (running → success, failed/stopped → error). A timeout dismisses
+// the toast if no event arrives.
+// ---------------------------------------------------------------------------
+
+function useTrackAppRestart(appId: string): () => void {
+  const subscribe = useEventsSubscribeFn()
+  return React.useCallback(() => {
+    if (!subscribe) return
+    const toastId = `app-restart-${appId}`
+    toast.loading("Redémarrage en cours…", { id: toastId })
+
+    let unsubscribe: (() => void) | null = null
+    const finish = () => {
+      if (unsubscribe) {
+        unsubscribe()
+        unsubscribe = null
+      }
+      window.clearTimeout(timer)
+    }
+    const timer = window.setTimeout(() => {
+      finish()
+      toast.dismiss(toastId)
+    }, 180_000)
+
+    unsubscribe = subscribe("deploy.status_change", (data) => {
+      const evt = data as {
+        appId?: string
+        data?: { status?: string }
+      }
+      if (evt.appId !== appId) return
+      const status = evt.data?.status
+      if (status === "running") {
+        finish()
+        toast.success("App redémarrée", { id: toastId })
+      } else if (status === "failed") {
+        finish()
+        toast.error("Redémarrage échoué", { id: toastId })
+      } else if (status === "stopped") {
+        finish()
+        toast.error("Redémarrage interrompu", { id: toastId })
+      }
+    })
+  }, [appId, subscribe])
+}
 
 // ---------------------------------------------------------------------------
 // useDeployApp
@@ -156,6 +208,7 @@ export function useStopApp(appId: string) {
 
 export function useRestartApp(appId: string) {
   const qc = useQueryClient()
+  const trackRestart = useTrackAppRestart(appId)
   return useMutation<void, ApiError, void>({
     mutationFn: () =>
       apiFetch<void>(`/apps/${appId}/restart`, { method: "POST" }),
@@ -168,6 +221,11 @@ export function useRestartApp(appId: string) {
           status: "restarting",
         })
       }
+      // The API returns 202 as soon as the prelude is committed; the heavy
+      // work runs in the background and emits a `deploy.status_change` SSE
+      // ("running" or "failed") when finished. Show a toast.loading now and
+      // resolve it on the SSE event so the toast tracks the actual restart.
+      trackRestart()
       return { snapshot }
     },
     onError: (err, _vars, context) => {
@@ -178,7 +236,6 @@ export function useRestartApp(appId: string) {
       }
     },
     onSuccess: () => {
-      toast.success("Restart started")
       void qc.invalidateQueries({ queryKey: ["apps", appId] })
       void qc.invalidateQueries({ queryKey: ["apps", appId, "builds"] })
       void qc.invalidateQueries({ queryKey: ["apps"] })
@@ -305,7 +362,13 @@ export function usePruneRegistry(appId: string) {
 
 export function useUpdateAppSettings(appId: string) {
   const qc = useQueryClient()
-  return useMutation<AppDetail, ApiError, AppSettingsPatch>({
+  const trackRestart = useTrackAppRestart(appId)
+  return useMutation<
+    { app: AppDetail; restartTriggered: boolean },
+    ApiError,
+    AppSettingsPatch,
+    { toastId: string }
+  >({
     mutationFn: async (body) => {
       const { healthcheckPath, healthcheckPort, restartPolicy, ...rest } = body
       const payload: Record<string, unknown> = { ...rest }
@@ -318,18 +381,31 @@ export function useUpdateAppSettings(appId: string) {
           healthcheck.port = healthcheckPort ?? undefined
         payload.healthcheck = healthcheck
       }
-      const { app } = await apiFetch<{
+      const { app, restartTriggered } = await apiFetch<{
         app: RawAppDetail
-        builds: Array<unknown>
+        restartTriggered?: boolean
       }>(`/apps/${appId}`, { method: "PATCH", body: payload })
-      return normalizeAppDetail(app)
+      return {
+        app: normalizeAppDetail(app),
+        restartTriggered: restartTriggered ?? false,
+      }
     },
-    onSuccess: (updated) => {
-      toast.success("Settings saved")
-      qc.setQueryData(["apps", appId], updated)
+    onMutate: () => {
+      const toastId = `app-settings-${appId}`
+      toast.loading("Saving settings…", { id: toastId })
+      return { toastId }
+    },
+    onSuccess: ({ app, restartTriggered }, _vars, ctx) => {
+      toast.success("Settings saved", { id: ctx.toastId })
+      qc.setQueryData(["apps", appId], app)
       void qc.invalidateQueries({ queryKey: ["apps"] })
+      // The PATCH may have triggered a background restart (e.g. restartPolicy
+      // changed on a running app). Show a separate toast that tracks the
+      // restart progress via the next SSE deploy.status_change event.
+      if (restartTriggered) trackRestart()
     },
-    onError: (error) => {
+    onError: (error, _vars, ctx) => {
+      if (ctx?.toastId) toast.dismiss(ctx.toastId)
       notifyMutationError(error, "Settings save failed")
     },
   })

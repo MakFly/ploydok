@@ -12,7 +12,10 @@ import { useNavigate } from "@tanstack/react-router"
 import { resolveNotificationHref } from "../../lib/notification-destinations"
 import { useNotifications } from "../../lib/notifications"
 import { useCurrentOrganizationSlug } from "../../lib/organizations"
-import type { NotificationEvent, NotificationType } from "../../lib/notifications"
+import type {
+  NotificationEvent,
+  NotificationType,
+} from "../../lib/notifications"
 
 function cx(...values: Array<string | false | null | undefined>): string {
   return values.filter(Boolean).join(" ")
@@ -31,8 +34,14 @@ function relativeTime(t: number): string {
 }
 
 function notificationIcon(type: NotificationType): React.JSX.Element {
-  if (type === "build.succeeded" || type === "deploy.status_change" || type === "provider.sync.completed") {
-    return <RiCheckboxCircleLine className="mt-0.5 size-4 shrink-0 text-emerald-500" />
+  if (
+    type === "build.succeeded" ||
+    type === "deploy.status_change" ||
+    type === "provider.sync.completed"
+  ) {
+    return (
+      <RiCheckboxCircleLine className="mt-0.5 size-4 shrink-0 text-emerald-500" />
+    )
   }
   if (type === "build.failed" || type === "provider.sync.failed") {
     return <RiCloseCircleLine className="mt-0.5 size-4 shrink-0 text-red-500" />
@@ -40,16 +49,24 @@ function notificationIcon(type: NotificationType): React.JSX.Element {
   if (type === "provider.sync.started") {
     return <RiRefreshLine className="mt-0.5 size-4 shrink-0 text-blue-500" />
   }
-  return <RiInformationLine className="mt-0.5 size-4 shrink-0 text-muted-foreground" />
+  return (
+    <RiInformationLine className="mt-0.5 size-4 shrink-0 text-muted-foreground" />
+  )
 }
 
-function NotificationItemContent({ item }: { item: NotificationEvent }): React.JSX.Element {
+function NotificationItemContent({
+  item,
+}: {
+  item: NotificationEvent
+}): React.JSX.Element {
   return (
     <>
       {notificationIcon(item.type)}
       <div className="min-w-0 flex-1">
-        <p className="break-words text-xs leading-5">{item.message}</p>
-        <p className="text-muted-foreground text-[10px]">{relativeTime(item.t)}</p>
+        <p className="text-xs leading-5 break-words">{item.message}</p>
+        <p className="text-[10px] text-muted-foreground">
+          {relativeTime(item.t)}
+        </p>
       </div>
     </>
   )
@@ -76,7 +93,7 @@ function NotificationItem({
     <button
       type="button"
       onClick={() => onNavigate(href)}
-      className="hover:bg-muted/70 focus-visible:bg-muted/70 flex w-full items-start gap-2 px-3 py-2 text-left outline-none transition-colors"
+      className="flex w-full items-start gap-2 px-3 py-2 text-left transition-colors outline-none hover:bg-muted/70 focus-visible:bg-muted/70"
     >
       <NotificationItemContent item={item} />
     </button>
@@ -91,7 +108,11 @@ export function NotificationBell(): React.JSX.Element {
   const containerRef = React.useRef<HTMLDivElement>(null)
 
   const badgeLabel =
-    state.unreadCount > 9 ? "9+" : state.unreadCount > 0 ? String(state.unreadCount) : null
+    state.unreadCount > 9
+      ? "9+"
+      : state.unreadCount > 0
+        ? String(state.unreadCount)
+        : null
 
   const handleToggle = (): void => {
     setOpen((v) => !v)
@@ -102,7 +123,7 @@ export function NotificationBell(): React.JSX.Element {
       setOpen(false)
       void navigate({ href })
     },
-    [navigate],
+    [navigate]
   )
 
   // Mark all read when the popover closes (open: true → false).
@@ -137,8 +158,8 @@ export function NotificationBell(): React.JSX.Element {
         aria-label="Notifications"
         aria-expanded={open}
         className={cx(
-          "hover:bg-sidebar-accent/60 relative flex size-8 items-center justify-center rounded-full outline-none transition-colors",
-          open && "bg-sidebar-accent/60",
+          "relative flex size-8 items-center justify-center rounded-full transition-colors outline-none hover:bg-sidebar-accent/60",
+          open && "bg-sidebar-accent/60"
         )}
       >
         {open ? (
@@ -149,7 +170,7 @@ export function NotificationBell(): React.JSX.Element {
 
         {/* Unread badge */}
         {badgeLabel !== null ? (
-          <span className="absolute -top-0.5 -right-0.5 flex min-w-[16px] items-center justify-center rounded-full bg-red-500 px-0.5 text-[9px] font-semibold text-white leading-4">
+          <span className="absolute -top-0.5 -right-0.5 flex min-w-[16px] items-center justify-center rounded-full bg-red-500 px-0.5 text-[9px] leading-4 font-semibold text-white">
             {badgeLabel}
           </span>
         ) : null}
@@ -159,20 +180,20 @@ export function NotificationBell(): React.JSX.Element {
       {state.connected ? (
         <span
           aria-hidden
-          className="absolute -bottom-0.5 -right-0.5 size-2 rounded-full bg-emerald-500 ring-1 ring-background animate-pulse"
+          className="absolute -right-0.5 -bottom-0.5 size-2 animate-pulse rounded-full bg-emerald-500 ring-1 ring-background"
         />
       ) : null}
 
       {/* Dropdown */}
       {open ? (
-        <div className="border-border bg-popover absolute right-0 top-full z-50 mt-2 w-[min(20rem,calc(100vw-2rem))] overflow-hidden rounded-md border shadow-md">
+        <div className="fixed top-14 right-2 left-2 z-50 overflow-hidden rounded-md border border-border bg-popover shadow-md sm:absolute sm:top-full sm:right-0 sm:left-auto sm:mt-2 sm:w-[min(20rem,calc(100vw-2rem))]">
           {/* Header */}
-          <div className="border-border flex items-center justify-between border-b px-3 py-2">
+          <div className="flex items-center justify-between border-b border-border px-3 py-2">
             <span className="text-xs font-semibold">Notifications</span>
             <button
               type="button"
               onClick={clear}
-              className="text-muted-foreground hover:text-foreground text-xs transition-colors"
+              className="text-xs text-muted-foreground transition-colors hover:text-foreground"
             >
               Tout effacer
             </button>
@@ -181,18 +202,18 @@ export function NotificationBell(): React.JSX.Element {
           {/* List — only unread items. Read items stay in `state.items` so
               the dedup-by-id check still works against SSE replay, but the
               dropdown stays focused on what the user hasn't seen yet. */}
-          <div className="max-h-96 overflow-y-auto">
+          <div className="max-h-[60vh] overflow-y-auto sm:max-h-96">
             {(() => {
               const unread = state.items.filter((it) => it.t > state.lastReadAt)
               if (unread.length === 0) {
                 return (
-                  <p className="text-muted-foreground px-3 py-6 text-center text-xs">
+                  <p className="px-3 py-6 text-center text-xs text-muted-foreground">
                     Aucune nouvelle notification
                   </p>
                 )
               }
               return (
-                <ul className="divide-border divide-y">
+                <ul className="divide-y divide-border">
                   {unread.map((item) => (
                     <li key={item.id}>
                       <NotificationItem

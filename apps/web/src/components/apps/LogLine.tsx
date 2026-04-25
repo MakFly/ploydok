@@ -23,12 +23,11 @@ export interface HighlightSegment {
  */
 export function highlightMatches(
   text: string,
-  query: string,
+  query: string
 ): Array<HighlightSegment> {
   const q = query.trim()
   if (!q) return [{ text, isMatch: false }]
 
-  // Escape special regex characters to avoid runtime errors
   const escaped = q.replace(/[.*+?^${}()|[\]\\]/g, "\\$&")
   const re = new RegExp(escaped, "gi")
 
@@ -38,11 +37,13 @@ export function highlightMatches(
 
   while ((match = re.exec(text)) !== null) {
     if (match.index > lastIndex) {
-      segments.push({ text: text.slice(lastIndex, match.index), isMatch: false })
+      segments.push({
+        text: text.slice(lastIndex, match.index),
+        isMatch: false,
+      })
     }
     segments.push({ text: match[0], isMatch: true })
     lastIndex = re.lastIndex
-    // Guard against zero-length match infinite loop
     if (match[0].length === 0) re.lastIndex++
   }
 
@@ -53,10 +54,7 @@ export function highlightMatches(
   return segments
 }
 
-// Timestamp at start of line: HH:MM:SS.mmm or HH:MM:SS
 const TIMESTAMP_PREFIX_RE = /^(\d{2}:\d{2}:\d{2}(?:\.\d+)?)\s+/
-
-// Stack trace line: leading whitespace + "at "
 const STACK_TRACE_RE = /^\s+at\s/
 
 function formatTimestamp(t: number): string {
@@ -80,7 +78,7 @@ function levelColorClass(level: "error" | "warn" | "info"): string {
 }
 
 // ---------------------------------------------------------------------------
-// HighlightedText — renders plain text or text with <mark> spans
+// HighlightedText
 // ---------------------------------------------------------------------------
 
 function HighlightedText({
@@ -100,13 +98,13 @@ function HighlightedText({
         seg.isMatch ? (
           <mark
             key={i}
-            className="bg-yellow-500/30 text-yellow-100 rounded px-0.5"
+            className="rounded bg-yellow-500/30 px-0.5 text-yellow-100"
           >
             {seg.text}
           </mark>
         ) : (
           <React.Fragment key={i}>{seg.text}</React.Fragment>
-        ),
+        )
       )}
     </>
   )
@@ -119,44 +117,72 @@ function HighlightedText({
 export interface LogLineProps {
   line: LogLineData
   search: string
+  /** Word-wrap long lines. When false, lines truncate horizontally with scroll. */
+  wrap?: boolean
+  /** Show the timestamp column. */
+  showTimestamps?: boolean
+  /** Optional 1-based line number for the gutter. */
+  lineNumber?: number
 }
 
 export const LogLine = React.memo(function LogLineRow({
   line,
   search,
+  wrap = true,
+  showTimestamps = true,
+  lineNumber,
 }: LogLineProps): React.JSX.Element {
   const level = detectLevel(line.text)
   const isError = level === "error"
+  const isWarn = level === "warn"
   const isStackTrace = STACK_TRACE_RE.test(line.text)
 
-  // Extract inline timestamp prefix from text (HH:MM:SS.mmm) if present.
-  // We prefer the structured `t` field for the timestamp column.
   const inlineMatch = TIMESTAMP_PREFIX_RE.exec(line.text)
-  const bodyText = inlineMatch ? line.text.slice(inlineMatch[0].length) : line.text
+  const bodyText = inlineMatch
+    ? line.text.slice(inlineMatch[0].length)
+    : line.text
 
   const textColor = isStackTrace ? "text-zinc-400" : levelColorClass(level)
-  const rowBg = isError ? "bg-red-500/5" : ""
+  const rowBg = isError
+    ? "bg-red-500/5 hover:bg-red-500/10"
+    : isWarn
+      ? "hover:bg-amber-500/5"
+      : "hover:bg-zinc-900/60"
+  const wrapCls = wrap
+    ? "whitespace-pre-wrap break-all"
+    : "whitespace-pre overflow-hidden"
 
   return (
     <div
-      className={`flex items-start gap-2 px-4 py-px leading-6 whitespace-pre-wrap break-all ${rowBg}`}
+      className={`group/line flex items-start gap-2 px-4 py-px leading-6 ${wrapCls} ${rowBg} transition-colors`}
       data-level={level}
+      data-line-id={line.id}
     >
-      {/* Timestamp column */}
-      <span
-        className="shrink-0 select-none text-zinc-500 tabular-nums w-[7.5rem] text-right"
-        aria-hidden="true"
-      >
-        {line.t !== undefined
-          ? formatTimestamp(line.t)
-          : inlineMatch
-            ? inlineMatch[1]
-            : null}
-      </span>
+      {lineNumber !== undefined && (
+        <span
+          className="w-10 shrink-0 text-right text-zinc-700 tabular-nums select-none group-hover/line:text-zinc-500"
+          aria-hidden="true"
+        >
+          {lineNumber}
+        </span>
+      )}
+
+      {showTimestamps && (
+        <span
+          className="w-[7.5rem] shrink-0 text-right text-zinc-500 tabular-nums select-none"
+          aria-hidden="true"
+        >
+          {line.t !== undefined
+            ? formatTimestamp(line.t)
+            : inlineMatch
+              ? inlineMatch[1]
+              : null}
+        </span>
+      )}
 
       {/* Level badge */}
       <span
-        className={`shrink-0 select-none w-12 text-right font-semibold ${levelColorClass(level)}`}
+        className={`w-12 shrink-0 text-right font-semibold select-none ${levelColorClass(level)}`}
         aria-hidden="true"
       >
         {level === "info" ? (
@@ -168,8 +194,9 @@ export const LogLine = React.memo(function LogLineRow({
         )}
       </span>
 
-      {/* Body */}
-      <span className={`flex-1 min-w-0 ${textColor} ${isStackTrace ? "text-xs pl-4" : ""}`}>
+      <span
+        className={`min-w-0 flex-1 ${textColor} ${isStackTrace ? "pl-4 text-xs" : ""}`}
+      >
         <HighlightedText text={bodyText} query={search} />
       </span>
     </div>

@@ -30,12 +30,16 @@
 import { Hono } from "hono"
 import { createBunWebSocket } from "hono/bun"
 import { eq, and, isNotNull } from "drizzle-orm"
-import { createDb, apps, projects, memberships } from "@ploydok/db"
+import { createDb, apps, projects, memberships, audit_log } from "@ploydok/db"
 import { verifyAccessToken, ACCESS_COOKIE } from "../auth/jwt"
 import { env } from "../env"
 import { getSharedAgent } from "../debug/singletons"
 import { childLogger } from "../logger"
 import type { ExecFrame } from "@ploydok/agent-proto"
+import { issueExecTicket, verifyExecTicket } from "../auth/exec-ticket"
+import { requireAuth } from "../auth/middleware"
+import { requireTotpVerified } from "../auth/second-factor"
+import type { AuthUser } from "../auth/middleware"
 
 // ---------------------------------------------------------------------------
 // Logger
@@ -156,6 +160,44 @@ export function buildStartFrame(
 }
 
 // ---------------------------------------------------------------------------
+// Exec ticket — issuance routes (gated par 2FA pour mode=rw)
+// ---------------------------------------------------------------------------
+
+type AppEnv = { Variables: { user?: AuthUser } }
+
+export const execTicketRouter = new Hono<AppEnv>()
+
+execTicketRouter.use("/apps/:id/exec/ticket", requireAuth(db))
+
+// Pour mode=rw on chaîne requireTotpVerified ; mode=ro = session cookie suffit.
+execTicketRouter.use("/apps/:id/exec/ticket", async (c, next) => {
+  const mode = c.req.query("mode") === "rw" ? "rw" : "ro"
+  if (mode === "rw") {
+    return requireTotpVerified(db)(c, next)
+  }
+  await next()
+})
+
+execTicketRouter.post("/apps/:id/exec/ticket", async (c) => {
+  const user = c.get("user") as AuthUser | undefined
+  if (!user) return c.json({ error: "Unauthorized" }, 401)
+
+  const appId = c.req.param("id")
+  if (!appId) return c.json({ error: "missing app id" }, 400)
+
+  const owned = await userOwnsApp(appId, user.id)
+  if (!owned) return c.json({ error: "Forbidden" }, 403)
+
+  const mode: "ro" | "rw" = c.req.query("mode") === "rw" ? "rw" : "ro"
+  const t = issueExecTicket({ userId: user.id, appId, mode })
+  log.info(
+    { userId: user.id, appId, mode, expiresAt: t.expiresAt },
+    "exec.ticket.issued"
+  )
+  return c.json({ ticket: t.ticket, expires_at: t.expiresAt, mode })
+})
+
+// ---------------------------------------------------------------------------
 // Exec WS handler
 // ---------------------------------------------------------------------------
 
@@ -167,6 +209,10 @@ wsExecRouter.get(
     const appId = c.req.param("id") ?? ""
     const cols = Math.max(1, parseInt(c.req.query("cols") ?? "80", 10) || 80)
     const rows = Math.max(1, parseInt(c.req.query("rows") ?? "24", 10) || 24)
+    // `mode=ro` (read-only, default) bloque stdin server-side. `mode=rw` autorise
+    // l'écriture (Sprint 6.5-ter — un second challenge passkey côté UI sera
+    // requis pour activer rw, mais le toggle UI suffit pour l'instant).
+    const mode: "ro" | "rw" = c.req.query("mode") === "rw" ? "rw" : "ro"
 
     // Per-connection state
     let closed = false
@@ -257,6 +303,25 @@ wsExecRouter.get(
           return
         }
 
+        // 2-bis. Mode=rw exige un ticket signé fresh (Sprint 6.5-ter).
+        // Mode=ro reste autorisé via cookie session (lecture seule).
+        if (mode === "rw") {
+          const ticket = c.req.query("ticket") ?? ""
+          const v = verifyExecTicket(ticket, {
+            userId,
+            appId,
+            mode: "rw",
+          })
+          if (!v.ok) {
+            log.warn(
+              { userId, appId, reason: v.reason },
+              "exec.rw_ticket_rejected"
+            )
+            ws.close(4003, `forbidden: ${v.reason ?? "missing_ticket"}`)
+            return
+          }
+        }
+
         // 3. Look up container_id from DB — never from query string
         const appRows = await db
           .select({ container_id: apps.container_id })
@@ -271,9 +336,29 @@ wsExecRouter.get(
         }
         sessionContainerId = containerId
 
-        // 4. Audit log
+        // 4. Audit log — pino + table audit_log (queryable via /audit).
         startMs = Date.now()
-        log.info({ userId, appId, containerId }, "exec.start")
+        log.info({ userId, appId, containerId, mode }, "exec.start")
+        try {
+          await db.insert(audit_log).values({
+            user_id: userId,
+            action: "app.exec.start",
+            target_type: "app",
+            target_id: appId,
+            metadata: JSON.stringify({
+              container_id: containerId,
+              mode,
+              cols,
+              rows,
+            }),
+            created_at: new Date(),
+          })
+        } catch (err) {
+          log.warn(
+            { err: (err as Error).message, userId, appId },
+            "exec.audit_log_failed"
+          )
+        }
 
         // 5. Open gRPC bidi stream
         const agent = getSharedAgent()
@@ -334,8 +419,21 @@ wsExecRouter.get(
 
         const data = msg.data
 
-        // Binary → stdin
+        // Binary → stdin (drop si read-only, signale le mode au client).
         if (data instanceof ArrayBuffer || data instanceof Uint8Array) {
+          if (mode === "ro") {
+            try {
+              ws.send(
+                JSON.stringify({
+                  type: "error",
+                  message: "read-only session — stdin disabled",
+                })
+              )
+            } catch {
+              /* ignore */
+            }
+            return
+          }
           const bytes =
             data instanceof ArrayBuffer ? new Uint8Array(data) : data
           execSession.send({ stdin: bytes })

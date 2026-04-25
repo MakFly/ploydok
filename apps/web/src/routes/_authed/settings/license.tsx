@@ -25,17 +25,19 @@ function LicensePage(): React.JSX.Element {
   if (!isLicenseUiEnabled) {
     return (
       <ShellPage title="License" description="License management">
-        <SettingsTabs />
-        <div className="rounded-xl border border-border bg-card p-5">
-          <div className="flex items-start gap-3">
-            <RiAlertLine className="mt-0.5 size-5 text-muted-foreground" />
-            <div>
-              <p className="text-sm font-medium">
-                License management unavailable
-              </p>
-              <p className="text-sm text-muted-foreground">
-                License management is only available on self-hosted installs.
-              </p>
+        <div className="space-y-6">
+          <SettingsTabs />
+          <div className="rounded-xl border border-border bg-card p-5">
+            <div className="flex items-start gap-3">
+              <RiAlertLine className="mt-0.5 size-5 text-muted-foreground" />
+              <div>
+                <p className="text-sm font-medium">
+                  License management unavailable
+                </p>
+                <p className="text-sm text-muted-foreground">
+                  License management is only available on self-hosted installs.
+                </p>
+              </div>
             </div>
           </div>
         </div>

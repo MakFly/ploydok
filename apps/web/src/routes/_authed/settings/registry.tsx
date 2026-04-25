@@ -11,7 +11,6 @@ import { Button } from "@workspace/ui/components/button"
 import { Input } from "@workspace/ui/components/input"
 import { cn } from "@workspace/ui/lib/utils"
 import { ShellPage } from "../../../components/layout/AppShell"
-import { SettingsTabs } from "../../../components/settings/SettingsTabs"
 import {
   useCreateRegistryCredential,
   useDeleteRegistryCredential,
@@ -31,7 +30,6 @@ function RegistryPage(): React.JSX.Element {
     <ShellPage
       title="Registry credentials"
       description="Authentification pour tirer des images depuis un registre Docker privé (Docker Hub, GHCR, GitLab, registry.example.com…)."
-      
       actions={
         !showForm ? (
           <Button size="sm" onClick={() => setShowForm(true)}>
@@ -42,8 +40,6 @@ function RegistryPage(): React.JSX.Element {
       }
     >
       <div className="space-y-6">
-        <SettingsTabs />
-
         {showForm ? (
           <CreateCredentialForm onClose={() => setShowForm(false)} />
         ) : null}
@@ -66,7 +62,11 @@ function RegistryPage(): React.JSX.Element {
 // Create form
 // ---------------------------------------------------------------------------
 
-function CreateCredentialForm({ onClose }: { onClose: () => void }): React.JSX.Element {
+function CreateCredentialForm({
+  onClose,
+}: {
+  onClose: () => void
+}): React.JSX.Element {
   const [label, setLabel] = React.useState("")
   const [registryHost, setRegistryHost] = React.useState("")
   const [username, setUsername] = React.useState("")
@@ -78,7 +78,12 @@ function CreateCredentialForm({ onClose }: { onClose: () => void }): React.JSX.E
   const handleSubmit = async (e: React.FormEvent): Promise<void> => {
     e.preventDefault()
     setError(null)
-    if (!label.trim() || !registryHost.trim() || !username.trim() || !password) {
+    if (
+      !label.trim() ||
+      !registryHost.trim() ||
+      !username.trim() ||
+      !password
+    ) {
       setError("All fields are required")
       return
     }
@@ -91,7 +96,9 @@ function CreateCredentialForm({ onClose }: { onClose: () => void }): React.JSX.E
       })
       onClose()
     } catch (err) {
-      setError(err instanceof Error ? err.message : "Failed to create credential")
+      setError(
+        err instanceof Error ? err.message : "Failed to create credential"
+      )
     }
   }
 
@@ -257,7 +264,7 @@ function CredentialRow({
           "inline-flex h-8 items-center gap-1.5 rounded-md border px-2.5 text-xs font-medium transition-colors",
           confirming
             ? "border-destructive/40 bg-destructive/10 text-destructive hover:bg-destructive/15"
-            : "border-border bg-background text-muted-foreground hover:text-foreground",
+            : "border-border bg-background text-muted-foreground hover:text-foreground"
         )}
       >
         <RiDeleteBinLine className="size-3.5" />
@@ -276,8 +283,8 @@ function EmptyState({ onCreate }: { onCreate: () => void }): React.JSX.Element {
       <div className="space-y-1">
         <p className="text-sm font-medium">No credentials yet</p>
         <p className="max-w-sm text-xs text-muted-foreground">
-          Ajoute tes identifiants de registre privé pour déployer une app à partir
-          d'une image Docker (source « Image »).
+          Ajoute tes identifiants de registre privé pour déployer une app à
+          partir d'une image Docker (source « Image »).
         </p>
       </div>
       <Button size="sm" onClick={onCreate}>

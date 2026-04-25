@@ -78,6 +78,7 @@ const BUILD_METHOD_OPTIONS: Array<FieldOption> = [
   { value: "auto", label: "Auto-detect" },
   { value: "dockerfile", label: "Dockerfile" },
   { value: "nixpacks", label: "Nixpacks" },
+  { value: "railpack", label: "Railpack" },
 ]
 
 const FIELDS: Array<FieldDef> = [
@@ -87,7 +88,7 @@ const FIELDS: Array<FieldDef> = [
     key: "buildMethod",
     label: "Build method",
     placeholder: "auto",
-    hint: "auto · dockerfile · nixpacks",
+    hint: "auto · dockerfile · nixpacks · railpack",
     mono: true,
     options: BUILD_METHOD_OPTIONS,
   },
@@ -745,7 +746,10 @@ function SettingsSkeleton(): React.JSX.Element {
   return (
     <div className="grid w-full gap-6 sm:grid-cols-2 xl:grid-cols-3">
       {Array.from({ length: 3 }).map((_, index) => (
-        <Card key={index} className={index === 0 ? "sm:col-span-2 xl:col-span-2" : undefined}>
+        <Card
+          key={index}
+          className={index === 0 ? "sm:col-span-2 xl:col-span-2" : undefined}
+        >
           <CardHeader>
             <Skeleton className="h-5 w-40" />
             <Skeleton className="h-4 w-72" />

@@ -9,22 +9,32 @@ import {
 import {
   RiAddLine,
   RiApps2Line,
+  RiArchiveLine,
   RiArrowUpDownLine,
   RiBookOpenLine,
   RiCloseLine,
+  RiCodeBoxLine,
   RiDashboardLine,
   RiDatabase2Line,
-  RiCodeBoxLine,
   RiFileListLine,
+  RiKey2Line,
   RiKeyLine,
   RiLogoutBoxRLine,
+  RiMenuLine,
+  RiMoonLine,
+  RiNotificationLine,
+  RiSearchLine,
+  RiPlugLine,
+  RiPriceTagLine,
   RiPulseLine,
+  RiRocketLine,
   RiSendPlane2Line,
   RiSettings3Line,
   RiShapesLine,
   RiShieldCheckLine,
   RiSidebarFoldLine,
-  RiSparkling2Line,
+  RiSunLine,
+  RiStackLine,
   RiTeamLine,
   RiTimerLine,
 } from "@remixicon/react"
@@ -54,9 +64,14 @@ import {
   SelectTrigger,
   SelectValue,
 } from "@workspace/ui/components/select"
+import { Skeleton } from "@workspace/ui/components/skeleton"
 import type { OrganizationSummary } from "@ploydok/shared"
 import { useLogout, useMe } from "../../lib/auth"
-import { CommandPaletteProvider } from "../../lib/hooks/command-palette-context"
+import {
+  CommandPaletteProvider,
+  useCommandPaletteContext,
+} from "../../lib/hooks/command-palette-context"
+import { useTheme } from "../theme/ThemeToggle"
 import { CommandBar } from "./CommandBar"
 import { CommandPaletteRoot } from "./CommandPalette"
 import { NotificationBell } from "./NotificationBell"
@@ -100,40 +115,136 @@ interface ShellPanelProps {
 
 interface NavItem {
   label: string
-  to?: string
   icon: React.ComponentType<{ className?: string }>
+  href?: string
+  orgPathSuffix?: string
+  rootSettingsPathSuffix?: string
+  fallbackHref?: string
   comingSoon?: boolean
   tooltip?: string
 }
 
-const primaryNav: Array<NavItem> = [
-  { label: "Dashboard", icon: RiDashboardLine },
-  { label: "Applications", icon: RiApps2Line },
-  { label: "Databases", icon: RiDatabase2Line },
-  { label: "Services", icon: RiCodeBoxLine },
-  { label: "Marketplace", icon: RiShapesLine },
-  { label: "Monitoring", to: "/monitoring", icon: RiPulseLine },
+interface ResolvedNavItem {
+  label: string
+  icon: React.ComponentType<{ className?: string }>
+  to?: string
+  comingSoon?: boolean
+  tooltip?: string
+}
+
+const workspaceNav: Array<NavItem> = [
   {
-    label: "AI Copilot",
-    icon: RiSparkling2Line,
-    comingSoon: true,
-    tooltip: "Agent IA custom — déploie, debug et opère via prompt",
+    label: "Dashboard",
+    icon: RiDashboardLine,
+    orgPathSuffix: "dashboard",
+    fallbackHref: "/dashboard",
+  },
+  {
+    label: "Applications",
+    icon: RiApps2Line,
+    orgPathSuffix: "apps",
+    fallbackHref: "/apps",
+  },
+  {
+    label: "Databases",
+    icon: RiDatabase2Line,
+    orgPathSuffix: "databases",
+    fallbackHref: "/databases",
+  },
+  { label: "Services", icon: RiCodeBoxLine, orgPathSuffix: "services" },
+  { label: "Deployments", icon: RiRocketLine, orgPathSuffix: "deployments" },
+  { label: "Marketplace", icon: RiShapesLine, orgPathSuffix: "marketplace" },
+  { label: "Templates", icon: RiStackLine, orgPathSuffix: "templates" },
+  { label: "Monitoring", icon: RiPulseLine, orgPathSuffix: "monitoring" },
+]
+
+const platformNav: Array<NavItem> = [
+  { label: "Members", icon: RiTeamLine, orgPathSuffix: "members" },
+  { label: "Audit", icon: RiFileListLine, orgPathSuffix: "audit" },
+  { label: "Shared env", icon: RiKeyLine, orgPathSuffix: "shared-env" },
+  {
+    label: "Scheduled jobs",
+    icon: RiTimerLine,
+    orgPathSuffix: "scheduled-jobs",
+  },
+  {
+    label: "Event webhooks",
+    icon: RiSendPlane2Line,
+    orgPathSuffix: "event-webhooks",
+  },
+  { label: "Tags", icon: RiPriceTagLine, orgPathSuffix: "tags" },
+]
+
+const integrationsNav: Array<NavItem> = [
+  {
+    label: "Git providers",
+    icon: RiPlugLine,
+    rootSettingsPathSuffix: "git-providers",
+  },
+  {
+    label: "Registry",
+    icon: RiArchiveLine,
+    rootSettingsPathSuffix: "registry",
+  },
+  {
+    label: "Notifications",
+    icon: RiNotificationLine,
+    rootSettingsPathSuffix: "notifications",
+  },
+  {
+    label: "API tokens",
+    icon: RiKey2Line,
+    rootSettingsPathSuffix: "api-tokens",
   },
 ]
 
-const workspaceNav: Array<NavItem> = [
-  { label: "Monitoring", icon: RiPulseLine },
-  { label: "Members", icon: RiTeamLine },
-  { label: "Audit", icon: RiFileListLine },
-  { label: "Shared env", icon: RiKeyLine },
-  { label: "Scheduled jobs", icon: RiTimerLine },
-  { label: "Event webhooks", icon: RiSendPlane2Line },
+const accountNav: Array<NavItem> = [
+  { label: "Guide", icon: RiBookOpenLine, href: "/guide" },
+  { label: "Settings", icon: RiSettings3Line, href: "/settings" },
 ]
 
-const secondaryNav: Array<NavItem> = [
-  { label: "Guide", to: "/guide", icon: RiBookOpenLine },
-  { label: "Settings", to: "/settings", icon: RiSettings3Line },
-]
+function resolveNavItem(
+  item: NavItem,
+  currentOrgSlug: string | null
+): ResolvedNavItem {
+  if (item.comingSoon) {
+    return {
+      label: item.label,
+      icon: item.icon,
+      comingSoon: true,
+      tooltip: item.tooltip,
+    }
+  }
+  if (item.href) {
+    return { label: item.label, icon: item.icon, to: item.href }
+  }
+  if (item.rootSettingsPathSuffix) {
+    return {
+      label: item.label,
+      icon: item.icon,
+      to: `/settings/${item.rootSettingsPathSuffix}`,
+    }
+  }
+  if (item.orgPathSuffix) {
+    if (currentOrgSlug) {
+      return {
+        label: item.label,
+        icon: item.icon,
+        to: organizationPath(currentOrgSlug, item.orgPathSuffix),
+      }
+    }
+    if (item.fallbackHref) {
+      return { label: item.label, icon: item.icon, to: item.fallbackHref }
+    }
+    return {
+      label: item.label,
+      icon: item.icon,
+      comingSoon: true,
+      tooltip: "Sélectionne un workspace",
+    }
+  }
+  return { label: item.label, icon: item.icon }
+}
 
 const STORAGE_KEY = "ploydok.sidebar.state"
 const CREATE_WORKSPACE_VALUE = "__create_workspace__"
@@ -308,6 +419,11 @@ export function AppShell({
   const logout = useLogout()
   const router = useRouter()
   const {
+    mode: themeMode,
+    resolved: resolvedTheme,
+    toggle: toggleTheme,
+  } = useTheme()
+  const {
     open: sidebarOpen,
     setOpen: setSidebarOpen,
     toggle: toggleSidebar,
@@ -318,11 +434,22 @@ export function AppShell({
   const [openWorkspaceSelectOnExpand, setOpenWorkspaceSelectOnExpand] =
     React.useState(false)
   const [createWorkspaceOpen, setCreateWorkspaceOpen] = React.useState(false)
+  const [mobileNavOpen, setMobileNavOpen] = React.useState(false)
 
   React.useEffect(() => {
     setProfileOpen(false)
     setWorkspaceSelectOpen(false)
+    setMobileNavOpen(false)
   }, [pathname])
+
+  React.useEffect(() => {
+    if (typeof window === "undefined" || !mobileNavOpen) return
+    const onKey = (e: KeyboardEvent): void => {
+      if (e.key === "Escape") setMobileNavOpen(false)
+    }
+    window.addEventListener("keydown", onKey)
+    return () => window.removeEventListener("keydown", onKey)
+  }, [mobileNavOpen])
 
   React.useEffect(() => {
     if (
@@ -367,86 +494,30 @@ export function AppShell({
     void router.navigate({ to: "/login" })
   }
 
-  const state = sidebarOpen ? "expanded" : "collapsed"
+  const expanded = sidebarOpen || mobileNavOpen
+  const state = expanded ? "expanded" : "collapsed"
   const brandTarget = currentOrgSlug
     ? organizationDashboardPath(currentOrgSlug)
     : "/dashboard"
-  const navItems = primaryNav.map((item) => {
-    if (item.to) return item
-    if (item.label === "Dashboard") {
-      return { ...item, to: brandTarget }
-    }
-    if (item.label === "Applications") {
-      return {
-        ...item,
-        to: currentOrgSlug ? organizationPath(currentOrgSlug, "apps") : "/apps",
-      }
-    }
-    if (item.label === "Databases") {
-      return {
-        ...item,
-        to: currentOrgSlug
-          ? organizationPath(currentOrgSlug, "databases")
-          : "/databases",
-      }
-    }
-    if (item.label === "Marketplace") {
-      if (!currentOrgSlug) {
-        return {
-          ...item,
-          comingSoon: true,
-          tooltip: "Sélectionne un workspace",
-        }
-      }
-      return { ...item, to: organizationPath(currentOrgSlug, "marketplace") }
-    }
-    if (item.label === "Services") {
-      if (!currentOrgSlug) {
-        return {
-          ...item,
-          comingSoon: true,
-          tooltip: "Sélectionne un workspace",
-        }
-      }
-      return { ...item, to: organizationPath(currentOrgSlug, "services") }
-    }
-    return item
-  })
-
-  const workspaceNavItems = workspaceNav.map((item) => {
-    if (!currentOrgSlug) {
-      return {
-        ...item,
-        comingSoon: true,
-        tooltip: "Sélectionne un workspace",
-      }
-    }
-    if (item.label === "Monitoring") {
-      return { ...item, to: organizationPath(currentOrgSlug, "monitoring") }
-    }
-    if (item.label === "Members") {
-      return { ...item, to: organizationPath(currentOrgSlug, "members") }
-    }
-    if (item.label === "Audit") {
-      return { ...item, to: organizationPath(currentOrgSlug, "audit") }
-    }
-    if (item.label === "Shared env") {
-      return { ...item, to: organizationPath(currentOrgSlug, "shared-env") }
-    }
-    if (item.label === "Scheduled jobs") {
-      return {
-        ...item,
-        to: organizationPath(currentOrgSlug, "scheduled-jobs"),
-      }
-    }
-    if (item.label === "Event webhooks") {
-      return {
-        ...item,
-        to: organizationPath(currentOrgSlug, "event-webhooks"),
-      }
-    }
-    return item
-  })
+  const navGroups: Array<{ title: string; items: Array<ResolvedNavItem> }> = [
+    {
+      title: "Workspace",
+      items: workspaceNav.map((item) => resolveNavItem(item, currentOrgSlug)),
+    },
+    {
+      title: "Platform",
+      items: platformNav.map((item) => resolveNavItem(item, currentOrgSlug)),
+    },
+    {
+      title: "Integrations",
+      items: integrationsNav.map((item) =>
+        resolveNavItem(item, currentOrgSlug)
+      ),
+    },
+  ]
+  const accountNavItems = accountNav.map((item) =>
+    resolveNavItem(item, currentOrgSlug)
+  )
 
   const handleOrganizationChange = async (nextSlug: string): Promise<void> => {
     if (!nextSlug || nextSlug === currentOrgSlug) return
@@ -497,36 +568,53 @@ export function AppShell({
         style={wrapperStyle}
         className="group/shell flex h-svh w-full overflow-hidden bg-sidebar/50 text-sidebar-foreground"
       >
+        {/* Mobile backdrop */}
+        {mobileNavOpen ? (
+          <button
+            type="button"
+            aria-label="Close navigation"
+            onClick={() => setMobileNavOpen(false)}
+            className="fixed inset-0 z-40 bg-black/40 backdrop-blur-sm md:hidden"
+          />
+        ) : null}
+
         {/* Sidebar (peer) */}
         <div
           data-slot="sidebar"
           data-state={state}
           data-collapsible={state === "collapsed" ? "icon" : ""}
           data-variant="inset"
-          className="peer hidden md:block"
+          data-mobile-open={mobileNavOpen ? "true" : "false"}
+          className="peer"
         >
-          {/* Gap: reserves horizontal space so main is pushed correctly */}
+          {/* Gap: reserves horizontal space on desktop only */}
           <div
             aria-hidden
             className={cx(
-              "relative h-svh shrink-0 bg-transparent",
+              "relative hidden h-svh shrink-0 bg-transparent md:block",
               "w-[var(--sidebar-width)] transition-[width] duration-(--sidebar-animation-duration) ease-(--sidebar-animation-ease)",
               "group-data-[sidebar-state=collapsed]/shell:w-[calc(var(--sidebar-width-icon)+1rem)]"
             )}
           />
 
-          {/* Container: actual sidebar, fixed positioned */}
+          {/* Container: fixed positioned. Drawer on mobile, persistent on md+. */}
           <div
             className={cx(
-              "fixed inset-y-0 left-0 z-10 flex h-svh p-2",
-              "w-[var(--sidebar-width)] transition-[width] duration-(--sidebar-animation-duration) ease-(--sidebar-animation-ease)",
-              "group-data-[sidebar-state=collapsed]/shell:w-[calc(var(--sidebar-width-icon)+1rem)]"
+              "fixed inset-y-0 left-0 z-50 flex h-svh p-2 md:z-10",
+              "w-[min(18rem,85vw)] md:w-[var(--sidebar-width)]",
+              "max-md:border-r max-md:border-sidebar-border max-md:bg-sidebar max-md:shadow-2xl",
+              "transition-transform duration-(--sidebar-animation-duration) ease-(--sidebar-animation-ease)",
+              "md:transition-[width]",
+              mobileNavOpen
+                ? "translate-x-0"
+                : "-translate-x-full md:translate-x-0",
+              "group-data-[sidebar-state=collapsed]/shell:md:w-[calc(var(--sidebar-width-icon)+1rem)]"
             )}
           >
             <div className="flex size-full flex-col">
               {/* Header */}
               <div className="flex h-14 flex-row items-center p-2">
-                {sidebarOpen ? (
+                {expanded ? (
                   <>
                     <Link
                       to={brandTarget as never}
@@ -540,8 +628,16 @@ export function AppShell({
                     </Link>
                     <button
                       type="button"
+                      onClick={() => setMobileNavOpen(false)}
+                      className="flex size-9 shrink-0 items-center justify-center rounded-md text-muted-foreground outline-none hover:bg-sidebar-accent md:hidden"
+                      aria-label="Close navigation"
+                    >
+                      <RiCloseLine className="size-5" />
+                    </button>
+                    <button
+                      type="button"
                       onClick={toggleSidebar}
-                      className="flex size-9 shrink-0 items-center justify-center rounded-md text-muted-foreground outline-none hover:bg-sidebar-accent"
+                      className="hidden size-9 shrink-0 items-center justify-center rounded-md text-muted-foreground outline-none hover:bg-sidebar-accent md:flex"
                       aria-label="Collapse sidebar"
                       aria-expanded
                     >
@@ -565,10 +661,10 @@ export function AppShell({
               </div>
 
               {/* Content */}
-              <div className="flex min-h-0 flex-1 flex-col overflow-x-hidden overflow-y-auto">
+              <div className="flex scrollbar-thin min-h-0 flex-1 flex-col overflow-x-hidden overflow-y-auto">
                 {/* Team selector */}
                 <div className="p-2">
-                  {sidebarOpen ? (
+                  {expanded ? (
                     <div className="flex flex-col gap-1.5">
                       <span className="px-1 text-[10px] font-medium tracking-wide text-muted-foreground uppercase">
                         Workspace
@@ -576,10 +672,11 @@ export function AppShell({
                       {workspaceLoading ? (
                         <div
                           aria-hidden
+                          aria-busy="true"
                           className="flex h-12 w-full items-center gap-3 rounded-md border border-input bg-background px-3"
                         >
-                          <span className="size-5 shrink-0 animate-pulse rounded-md bg-muted" />
-                          <span className="h-3 w-24 animate-pulse rounded bg-muted" />
+                          <Skeleton className="size-5 shrink-0" />
+                          <Skeleton className="h-3 w-24" />
                         </div>
                       ) : (
                         <div className="relative">
@@ -625,6 +722,14 @@ export function AppShell({
                         </div>
                       )}
                     </div>
+                  ) : workspaceLoading ? (
+                    <div
+                      aria-hidden
+                      aria-busy="true"
+                      className="flex h-8 w-full items-center justify-center"
+                    >
+                      <Skeleton className="size-6 shrink-0" />
+                    </div>
                   ) : (
                     <button
                       type="button"
@@ -640,112 +745,58 @@ export function AppShell({
                   )}
                 </div>
 
-                {/* Platform group */}
-                <div className="p-2">
-                  <div className="flex h-8 shrink-0 items-center overflow-hidden px-2 text-xs font-medium text-muted-foreground group-data-[sidebar-state=collapsed]/shell:opacity-0">
-                    Platform
-                  </div>
-                  <ul className="flex w-full min-w-0 flex-col">
-                    {navItems.map((item) => {
-                      const Icon = item.icon
-                      if (item.comingSoon || !item.to) {
+                {navGroups.map((group) => (
+                  <div key={group.title} className="p-2">
+                    <div className="flex h-8 shrink-0 items-center overflow-hidden px-2 text-xs font-medium text-muted-foreground group-data-[sidebar-state=collapsed]/shell:opacity-0">
+                      {group.title}
+                    </div>
+                    <ul className="flex w-full min-w-0 flex-col">
+                      {group.items.map((item) => {
+                        const Icon = item.icon
+                        if (item.comingSoon || !item.to) {
+                          return (
+                            <li key={item.label} className="relative">
+                              <span
+                                title={item.tooltip ?? "Bientôt disponible"}
+                                aria-disabled="true"
+                                className={cx(
+                                  "flex h-10 w-full cursor-not-allowed items-center gap-2 overflow-hidden rounded-md px-[11px] py-2 text-sm text-sidebar-foreground/50 outline-none",
+                                  "group-data-[sidebar-state=collapsed]/shell:size-8 group-data-[sidebar-state=collapsed]/shell:justify-center group-data-[sidebar-state=collapsed]/shell:p-0"
+                                )}
+                              >
+                                <Icon className="size-4 shrink-0" />
+                                <span className="truncate group-data-[sidebar-state=collapsed]/shell:hidden">
+                                  {item.label}
+                                </span>
+                              </span>
+                            </li>
+                          )
+                        }
+                        const active = isNavActive(pathname, item.to)
                         return (
                           <li key={item.label} className="relative">
-                            <span
-                              title={item.tooltip ?? "Bientôt disponible"}
-                              aria-disabled="true"
+                            <Link
+                              to={item.to}
+                              title={item.label}
                               className={cx(
-                                "flex h-10 w-full cursor-not-allowed items-center gap-2 overflow-hidden rounded-md px-[11px] py-2 text-sm text-sidebar-foreground/50 outline-none",
-                                "group-data-[sidebar-state=collapsed]/shell:size-8 group-data-[sidebar-state=collapsed]/shell:justify-center group-data-[sidebar-state=collapsed]/shell:p-0"
+                                "flex h-10 w-full items-center gap-2 overflow-hidden rounded-md px-[11px] py-2 text-sm transition-colors outline-none",
+                                "group-data-[sidebar-state=collapsed]/shell:size-8 group-data-[sidebar-state=collapsed]/shell:justify-center group-data-[sidebar-state=collapsed]/shell:p-0",
+                                active
+                                  ? "bg-sidebar-accent font-medium text-sidebar-accent-foreground"
+                                  : "text-sidebar-foreground hover:bg-sidebar-accent/60"
                               )}
                             >
                               <Icon className="size-4 shrink-0" />
                               <span className="truncate group-data-[sidebar-state=collapsed]/shell:hidden">
                                 {item.label}
                               </span>
-                              <span className="ml-auto font-mono text-[9px] font-light tracking-wide uppercase opacity-60 group-data-[sidebar-state=collapsed]/shell:hidden">
-                                soon
-                              </span>
-                            </span>
+                            </Link>
                           </li>
                         )
-                      }
-                      const active = isNavActive(pathname, item.to)
-                      return (
-                        <li key={item.label} className="relative">
-                          <Link
-                            to={item.to}
-                            title={item.label}
-                            className={cx(
-                              "flex h-10 w-full items-center gap-2 overflow-hidden rounded-md px-[11px] py-2 text-sm transition-colors outline-none",
-                              "group-data-[sidebar-state=collapsed]/shell:size-8 group-data-[sidebar-state=collapsed]/shell:justify-center group-data-[sidebar-state=collapsed]/shell:p-0",
-                              active
-                                ? "bg-sidebar-accent font-medium text-sidebar-accent-foreground"
-                                : "text-sidebar-foreground hover:bg-sidebar-accent/60"
-                            )}
-                          >
-                            <Icon className="size-4 shrink-0" />
-                            <span className="truncate group-data-[sidebar-state=collapsed]/shell:hidden">
-                              {item.label}
-                            </span>
-                          </Link>
-                        </li>
-                      )
-                    })}
-                  </ul>
-                </div>
-
-                {/* Workspace group */}
-                <div className="p-2">
-                  <div className="flex h-8 shrink-0 items-center overflow-hidden px-2 text-xs font-medium text-muted-foreground group-data-[sidebar-state=collapsed]/shell:opacity-0">
-                    Workspace
+                      })}
+                    </ul>
                   </div>
-                  <ul className="flex w-full min-w-0 flex-col">
-                    {workspaceNavItems.map((item) => {
-                      const Icon = item.icon
-                      if (item.comingSoon || !item.to) {
-                        return (
-                          <li key={item.label} className="relative">
-                            <span
-                              title={item.tooltip ?? "Bientôt disponible"}
-                              aria-disabled="true"
-                              className={cx(
-                                "flex h-10 w-full cursor-not-allowed items-center gap-2 overflow-hidden rounded-md px-[11px] py-2 text-sm text-sidebar-foreground/50 outline-none",
-                                "group-data-[sidebar-state=collapsed]/shell:size-8 group-data-[sidebar-state=collapsed]/shell:justify-center group-data-[sidebar-state=collapsed]/shell:p-0"
-                              )}
-                            >
-                              <Icon className="size-4 shrink-0" />
-                              <span className="truncate group-data-[sidebar-state=collapsed]/shell:hidden">
-                                {item.label}
-                              </span>
-                            </span>
-                          </li>
-                        )
-                      }
-                      const active = isNavActive(pathname, item.to)
-                      return (
-                        <li key={item.label} className="relative">
-                          <Link
-                            to={item.to}
-                            title={item.label}
-                            className={cx(
-                              "flex h-10 w-full items-center gap-2 overflow-hidden rounded-md px-[11px] py-2 text-sm transition-colors outline-none",
-                              "group-data-[sidebar-state=collapsed]/shell:size-8 group-data-[sidebar-state=collapsed]/shell:justify-center group-data-[sidebar-state=collapsed]/shell:p-0",
-                              active
-                                ? "bg-sidebar-accent font-medium text-sidebar-accent-foreground"
-                                : "text-sidebar-foreground hover:bg-sidebar-accent/60"
-                            )}
-                          >
-                            <Icon className="size-4 shrink-0" />
-                            <span className="truncate group-data-[sidebar-state=collapsed]/shell:hidden">
-                              {item.label}
-                            </span>
-                          </Link>
-                        </li>
-                      )
-                    })}
-                  </ul>
-                </div>
+                ))}
               </div>
 
               {/* Footer */}
@@ -779,7 +830,7 @@ export function AppShell({
                 ) : null}
 
                 <ul className="flex w-full min-w-0 flex-col group-data-[sidebar-state=collapsed]/shell:hidden">
-                  {secondaryNav.map((item) => {
+                  {accountNavItems.map((item) => {
                     const Icon = item.icon
                     if (!item.to) return null
                     return (
@@ -834,6 +885,30 @@ export function AppShell({
                       </Link>
                       <button
                         type="button"
+                        onClick={toggleTheme}
+                        className="flex w-full items-center justify-between gap-2 rounded-md px-2 py-1.5 text-left text-xs hover:bg-muted"
+                        aria-label={
+                          resolvedTheme === "dark"
+                            ? "Switch to light theme"
+                            : "Switch to dark theme"
+                        }
+                      >
+                        <span className="flex items-center gap-2">
+                          {resolvedTheme === "dark" ? (
+                            <RiSunLine className="size-3.5" />
+                          ) : (
+                            <RiMoonLine className="size-3.5" />
+                          )}
+                          {resolvedTheme === "dark"
+                            ? "Light theme"
+                            : "Dark theme"}
+                        </span>
+                        <span className="font-mono text-[10px] text-muted-foreground">
+                          {themeMode}
+                        </span>
+                      </button>
+                      <button
+                        type="button"
                         onClick={() => void handleLogout()}
                         className="flex w-full items-center gap-2 rounded-md px-2 py-1.5 text-left text-xs text-destructive hover:bg-destructive/10"
                       >
@@ -859,14 +934,24 @@ export function AppShell({
           )}
         >
           {banner}
-          <div className="relative flex h-12 items-center gap-3 px-4 md:px-8">
+          <div className="relative flex h-12 items-center gap-2 px-3 sm:gap-3 sm:px-4 md:px-8">
+            <button
+              type="button"
+              onClick={() => setMobileNavOpen(true)}
+              className="flex size-9 shrink-0 items-center justify-center rounded-md text-muted-foreground hover:bg-muted hover:text-foreground md:hidden"
+              aria-label="Open navigation"
+              aria-expanded={mobileNavOpen}
+            >
+              <RiMenuLine className="size-5" />
+            </button>
             <div className="flex min-w-0 flex-1 items-center">
               <TopbarBreadcrumb />
             </div>
             <div className="hidden w-full max-w-md shrink-0 md:flex md:basis-[28rem]">
               <CommandBar />
             </div>
-            <div className="flex min-w-0 flex-1 items-center justify-end">
+            <div className="flex shrink-0 items-center gap-1 md:min-w-0 md:flex-1 md:justify-end">
+              <MobileSearchButton />
               <NotificationBell />
             </div>
           </div>
@@ -912,7 +997,9 @@ export function ShellPage({
               {eyebrow}
             </p>
           ) : null}
-          <h1 className="text-2xl font-bold tracking-tight">{title}</h1>
+          <h1 className="text-xl font-bold tracking-tight sm:text-2xl">
+            {title}
+          </h1>
           {description ? (
             <p className="max-w-3xl text-sm leading-6 text-muted-foreground">
               {description}
@@ -920,7 +1007,9 @@ export function ShellPage({
           ) : null}
         </div>
         {actions ? (
-          <div className="flex flex-wrap items-center gap-2">{actions}</div>
+          <div className="flex flex-wrap items-center gap-2 md:justify-end">
+            {actions}
+          </div>
         ) : null}
       </div>
       {children}
@@ -957,6 +1046,20 @@ export function ShellPanel({
   )
 }
 
+function MobileSearchButton(): React.JSX.Element {
+  const { setOpen } = useCommandPaletteContext()
+  return (
+    <button
+      type="button"
+      onClick={() => setOpen(true)}
+      className="flex size-9 items-center justify-center rounded-md text-muted-foreground hover:bg-muted hover:text-foreground md:hidden"
+      aria-label="Open command palette"
+    >
+      <RiSearchLine className="size-4" />
+    </button>
+  )
+}
+
 // ---------------------------------------------------------------------------
 // TopbarBreadcrumb — resolves the current breadcrumb from route matches.
 // Mounted in the global topbar next to NotificationBell so every page shows
@@ -966,16 +1069,17 @@ export function ShellPanel({
 function TopbarBreadcrumb(): React.JSX.Element | null {
   const matches = useMatches()
   const pathname = useRouterState({ select: (s) => s.location.pathname })
+  const orgSlug = useCurrentOrganizationSlug()
 
   const appName = extractAppName(matches)
   const appStatus = extractAppStatus(matches)
-  const items = resolveTopbarBreadcrumb(pathname, appName)
+  const items = resolveTopbarBreadcrumb(pathname, appName, orgSlug)
   if (items.length === 0) return null
 
   return (
     <nav
       aria-label="Breadcrumb"
-      className="flex min-w-0 items-center gap-1.5 text-xs"
+      className="flex min-w-0 items-center gap-1 overflow-hidden text-xs sm:gap-1.5"
     >
       {items.map((item, index) => {
         const isLast = index === items.length - 1
@@ -985,7 +1089,7 @@ function TopbarBreadcrumb(): React.JSX.Element | null {
             {item.to && !isLast ? (
               <Link
                 to={item.to}
-                className="whitespace-nowrap text-muted-foreground transition-colors hover:text-foreground"
+                className="hidden truncate whitespace-nowrap text-muted-foreground transition-colors hover:text-foreground sm:inline"
               >
                 {item.label}
               </Link>

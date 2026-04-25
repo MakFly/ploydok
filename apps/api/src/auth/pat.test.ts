@@ -43,4 +43,16 @@ describe("patAuthMiddleware", () => {
     const actual = createHash("sha256").update(token).digest("hex")
     expect(actual).toBe(expected)
   })
+
+  it("accepte le préfixe legacy ploy_ ET le nouveau plk_live_", async () => {
+    // Test purement syntaxique : on vérifie que le middleware ne court-circuite
+    // pas les Bearer commençant par plk_live_. Le path complet (lookup DB +
+    // verify) est couvert par les tests d'intégration api-tokens.test.ts.
+    mockContext.req.header = mock(() => "Bearer plk_live_abc123")
+    mockDb = {
+      select: () => ({ from: () => ({ where: () => [] }) }),
+    }
+    await patAuthMiddleware(mockContext, mockNext, mockDb)
+    expect(mockNext).toHaveBeenCalled()
+  })
 })

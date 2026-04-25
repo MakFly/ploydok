@@ -9,3 +9,6 @@ pub mod agent {
     // proto `package` declaration: "ploydok.agent.v1".
     tonic::include_proto!("ploydok.agent.v1");
 }
+
+// Re-export pour usage direct dans crates downstream (ex: host_stats.rs).
+pub use agent::{HostStatsRequest, HostStatsResponse};

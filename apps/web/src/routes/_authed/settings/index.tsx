@@ -3,15 +3,12 @@ import * as React from "react"
 import { Link, createFileRoute } from "@tanstack/react-router"
 import {
   RiArrowRightSLine,
-  RiShip2Line,
-  RiFingerprintLine,
-  RiGithubFill,
-  RiGitlabFill,
   RiShieldCheckLine,
   RiUserLine,
 } from "@remixicon/react"
 import { ShellPage } from "../../../components/layout/AppShell"
 import { SettingsTabs } from "../../../components/settings/SettingsTabs"
+import { AppearancePanel } from "../../../components/theme/AppearancePanel"
 import { useMe } from "../../../lib/auth"
 
 export const Route = createFileRoute("/_authed/settings/")({
@@ -33,20 +30,6 @@ const SECTIONS: ReadonlyArray<SectionCard> = [
     title: "Security",
     description: "Passkeys, TOTP, sessions and backup codes.",
     icon: RiShieldCheckLine,
-  },
-  {
-    to: "/settings/git-providers",
-    eyebrow: "Sources",
-    title: "Git providers",
-    description: "Connect GitHub and GitLab to deploy from a repo.",
-    icon: RiGithubFill,
-  },
-  {
-    to: "/settings/registry",
-    eyebrow: "Sources",
-    title: "Registry credentials",
-    description: "Authentifie tes registres Docker privés pour déployer des images.",
-    icon: RiShip2Line,
   },
 ]
 
@@ -108,6 +91,8 @@ function SettingsOverviewPage(): React.JSX.Element {
           </dl>
         </section>
 
+        <AppearancePanel />
+
         <section
           aria-label="Sections"
           className="grid gap-3 md:grid-cols-2 lg:grid-cols-3"
@@ -115,22 +100,6 @@ function SettingsOverviewPage(): React.JSX.Element {
           {SECTIONS.map((s) => (
             <SectionLink key={s.to} section={s} />
           ))}
-        </section>
-
-        <section
-          aria-label="Coming soon"
-          className="grid gap-3 md:grid-cols-2"
-        >
-          <ComingSoonCard
-            icon={RiGitlabFill}
-            title="GitLab"
-            hint="OAuth app + webhook — configurable dans Git providers."
-          />
-          <ComingSoonCard
-            icon={RiFingerprintLine}
-            title="API tokens"
-            hint="Émission + rotation — arrive avec le sprint suivant."
-          />
         </section>
       </div>
     </ShellPage>
@@ -156,27 +125,5 @@ function SectionLink({ section }: { section: SectionCard }): React.JSX.Element {
       </div>
       <RiArrowRightSLine className="size-4 shrink-0 text-muted-foreground opacity-0 transition-opacity group-hover:opacity-100" />
     </Link>
-  )
-}
-
-function ComingSoonCard({
-  icon: Icon,
-  title,
-  hint,
-}: {
-  icon: React.ComponentType<{ className?: string }>
-  title: string
-  hint: string
-}): React.JSX.Element {
-  return (
-    <div className="flex items-start gap-3 rounded-xl border border-dashed border-border bg-muted/30 p-4">
-      <div className="flex size-10 shrink-0 items-center justify-center rounded-md border border-border bg-background/70">
-        <Icon className="size-4 text-muted-foreground" />
-      </div>
-      <div className="min-w-0 flex-1 space-y-1">
-        <p className="text-sm font-medium">{title}</p>
-        <p className="text-xs text-muted-foreground">{hint}</p>
-      </div>
-    </div>
   )
 }

@@ -8,22 +8,27 @@ import {
   RiArrowRightLine,
   RiCheckboxCircleFill,
   RiErrorWarningFill,
-  RiGitBranchLine,
   RiGithubFill,
-  RiHardDrive2Line,
   RiPlayCircleLine,
   RiPulseFill,
   RiTimeLine,
 } from "@remixicon/react"
 import { CreateAppModal } from "../../../../components/apps/CreateAppModal"
+import { GettingStartedPanel } from "../../../../components/apps/GettingStartedPanel"
 import { ShellPage, ShellPanel } from "../../../../components/layout/AppShell"
-import { AppStatusBadge } from "../../../../components/apps/AppStatusBadge"
-import { resolveRuntimeAppStatus, selectAppSnapshot } from "../../../../lib/app-runtime"
+import {
+  resolveRuntimeAppStatus,
+  selectAppSnapshot,
+} from "../../../../lib/app-runtime"
 import { useApps, useRecentBuildsAcrossApps } from "../../../../lib/apps"
 import { useGitHubAppConfig } from "../../../../lib/github"
 import { useMonitoring } from "../../../../lib/monitoring"
-import { organizationPath, useCurrentOrganization, useCurrentOrganizationSlug } from "../../../../lib/organizations"
-import type { AppListItem, BuildWithApp } from "../../../../lib/apps"
+import {
+  organizationPath,
+  useCurrentOrganization,
+  useCurrentOrganizationSlug,
+} from "../../../../lib/organizations"
+import type { BuildWithApp } from "../../../../lib/apps"
 import type { BuildStatus } from "@ploydok/shared"
 
 export const Route = createFileRoute("/_authed/orgs/$orgSlug/dashboard")({
@@ -33,8 +38,13 @@ export const Route = createFileRoute("/_authed/orgs/$orgSlug/dashboard")({
 function DashboardPage(): React.JSX.Element {
   const [modalOpen, setModalOpen] = React.useState(false)
   const organization = useCurrentOrganization()
-  const { data: apps = [], isLoading: appsLoading, error: appsError } = useApps(organization?.id)
-  const { builds: recentBuilds, isLoading: buildsLoading } = useRecentBuildsAcrossApps(apps, 6)
+  const {
+    data: apps = [],
+    isLoading: appsLoading,
+    error: appsError,
+  } = useApps(organization?.id)
+  const { builds: recentBuilds, isLoading: buildsLoading } =
+    useRecentBuildsAcrossApps(apps, 6)
   const { data: appConfig, isLoading: appConfigLoading } = useGitHubAppConfig()
   const { data: monitoring, isLoading: monitoringLoading } = useMonitoring()
   const containers = monitoring?.containers ?? []
@@ -42,15 +52,25 @@ function DashboardPage(): React.JSX.Element {
     () =>
       apps.map((app) => ({
         ...app,
-        runtimeStatus: resolveRuntimeAppStatus(app.status, selectAppSnapshot(containers, app.id)),
+        runtimeStatus: resolveRuntimeAppStatus(
+          app.status,
+          selectAppSnapshot(containers, app.id)
+        ),
       })),
-    [apps, containers],
+    [apps, containers]
   )
 
-  const runningApps = appsWithRuntimeStatus.filter((app) => app.runtimeStatus === "running").length
-  const failedApps = appsWithRuntimeStatus.filter((app) => app.runtimeStatus === "failed").length
+  const runningApps = appsWithRuntimeStatus.filter(
+    (app) => app.runtimeStatus === "running"
+  ).length
+  const failedApps = appsWithRuntimeStatus.filter(
+    (app) => app.runtimeStatus === "failed"
+  ).length
   const latestBuild = recentBuilds.at(0)
-  const runningContainers = containers.filter((c) => c.status === "running").length
+  const runningContainers = containers.filter(
+    (c) => c.status === "running"
+  ).length
+  const showOnboarding = apps.length === 0 || !appConfig?.configured
 
   return (
     <ShellPage
@@ -62,8 +82,11 @@ function DashboardPage(): React.JSX.Element {
       }
       actions={
         <>
-            <Button variant="outline" size="sm" asChild>
-              <Link to="/settings/git-providers/$slug" params={{ slug: "github" }}>
+          <Button variant="outline" size="sm" asChild>
+            <Link
+              to="/settings/git-providers/$slug"
+              params={{ slug: "github" }}
+            >
               <RiGithubFill className="size-4" />
               GitHub setup
             </Link>
@@ -99,7 +122,11 @@ function DashboardPage(): React.JSX.Element {
           icon={<RiTimeLine className="size-4" />}
           label="Last deploy"
           value={latestBuild ? relativeTime(latestBuild.createdAt) : "Never"}
-          hint={latestBuild ? `${latestBuild.appName} · ${latestBuild.status}` : "No deployments yet"}
+          hint={
+            latestBuild
+              ? `${latestBuild.appName} · ${latestBuild.status}`
+              : "No deployments yet"
+          }
           loading={buildsLoading}
           tone={latestBuild?.status === "failed" ? "danger" : "default"}
         />
@@ -107,7 +134,11 @@ function DashboardPage(): React.JSX.Element {
           icon={<RiGithubFill className="size-4" />}
           label="GitHub App"
           value={appConfig?.configured ? "Connected" : "Not configured"}
-          hint={appConfig?.configured ? appConfig.name ?? "Installed" : "Install to deploy from repos"}
+          hint={
+            appConfig?.configured
+              ? (appConfig.name ?? "Installed")
+              : "Install to deploy from repos"
+          }
           loading={appConfigLoading}
           tone={appConfig?.configured ? "success" : "warning"}
         />
@@ -122,40 +153,26 @@ function DashboardPage(): React.JSX.Element {
         </div>
       ) : null}
 
-      <div className="grid gap-4 xl:grid-cols-[2fr_1fr]">
+      <div className="grid gap-4 xl:grid-cols-[1.5fr_1fr]">
         <ShellPanel
-          title="Applications"
-          description="Deployed services and their current state."
+          title="Recent activity"
+          description="Latest build and deploy events across the workspace."
           action={
             apps.length > 0 ? (
-            <Button variant="ghost" size="sm" asChild>
-                <Link to={(organization ? organizationPath(organization.slug, "apps") : "/apps") as never}>
-                  View all
+              <Button variant="ghost" size="sm" asChild>
+                <Link
+                  to={
+                    (organization
+                      ? organizationPath(organization.slug, "apps")
+                      : "/apps") as never
+                  }
+                >
+                  View all applications
                   <RiArrowRightLine className="size-3.5" />
                 </Link>
               </Button>
             ) : null
           }
-        >
-          {appsLoading ? (
-            <AppRowsSkeleton />
-          ) : appsWithRuntimeStatus.length > 0 ? (
-            <div className="divide-y divide-border">
-              {appsWithRuntimeStatus.slice(0, 6).map((app) => (
-                <AppRow key={app.id} app={app} />
-              ))}
-            </div>
-          ) : (
-            <EmptyApps
-              isGitHubConnected={appConfig?.configured ?? false}
-              onCreate={() => setModalOpen(true)}
-            />
-          )}
-        </ShellPanel>
-
-        <ShellPanel
-          title="Activity"
-          description="Recent build and deploy events."
         >
           {buildsLoading ? (
             <ActivitySkeleton />
@@ -171,6 +188,48 @@ function DashboardPage(): React.JSX.Element {
             </p>
           )}
         </ShellPanel>
+
+        {showOnboarding ? (
+          <GettingStartedPanel
+            githubConnected={appConfig?.configured ?? false}
+            onCreateApp={() => setModalOpen(true)}
+          />
+        ) : (
+          <ShellPanel
+            title="Quick links"
+            description="Jump to the rest of your workspace."
+          >
+            <div className="space-y-2">
+              <QuickLink
+                label="All applications"
+                hint={`${apps.length} app${apps.length === 1 ? "" : "s"}`}
+                to={
+                  (organization
+                    ? organizationPath(organization.slug, "apps")
+                    : "/apps") as never
+                }
+              />
+              <QuickLink
+                label="Deployments"
+                hint="Build and deploy history"
+                to={
+                  (organization
+                    ? organizationPath(organization.slug, "deployments")
+                    : "/deployments") as never
+                }
+              />
+              <QuickLink
+                label="Monitoring"
+                hint="Containers and runtime"
+                to={
+                  (organization
+                    ? organizationPath(organization.slug, "monitoring")
+                    : "/monitoring") as never
+                }
+              />
+            </div>
+          </ShellPanel>
+        )}
       </div>
 
       <CreateAppModal
@@ -181,10 +240,6 @@ function DashboardPage(): React.JSX.Element {
     </ShellPage>
   )
 }
-
-// ---------------------------------------------------------------------------
-// StatCard — clean, uniform, tokens only. No wild gradients.
-// ---------------------------------------------------------------------------
 
 type StatTone = "default" | "success" | "warning" | "danger"
 
@@ -216,7 +271,9 @@ function StatCard({
     <div className="rounded-lg border border-border bg-card px-4 py-3.5">
       <div className={`flex items-center gap-1.5 ${accent}`}>
         {icon}
-        <span className="text-xs font-medium uppercase tracking-wide">{label}</span>
+        <span className="text-xs font-medium tracking-wide uppercase">
+          {label}
+        </span>
       </div>
       {loading ? (
         <div className="mt-2 animate-pulse space-y-2" aria-hidden="true">
@@ -225,106 +282,42 @@ function StatCard({
         </div>
       ) : (
         <>
-          <p className="mt-2 text-xl font-semibold tracking-tight text-foreground">{value}</p>
-          <p className="mt-0.5 text-xs text-muted-foreground truncate">{hint}</p>
+          <p className="mt-2 text-xl font-semibold tracking-tight text-foreground">
+            {value}
+          </p>
+          <p className="mt-0.5 truncate text-xs text-muted-foreground">
+            {hint}
+          </p>
         </>
       )}
     </div>
   )
 }
 
-// ---------------------------------------------------------------------------
-// AppRow — dense list item (Dokploy-style).
-// ---------------------------------------------------------------------------
-
-function AppRow({
-  app,
+function QuickLink({
+  label,
+  hint,
+  to,
 }: {
-  app: AppListItem & { runtimeStatus: AppListItem["status"] }
+  label: string
+  hint: string
+  to: string
 }): React.JSX.Element {
-  const orgSlug = useCurrentOrganizationSlug()
   return (
     <Link
-      to={(orgSlug ? organizationPath(orgSlug, `apps/${app.id}/overview`) : `/apps/${app.id}/overview`) as never}
-      className="group flex items-center gap-3 py-3 transition-colors hover:bg-accent/40 -mx-4 px-4 rounded-md"
+      to={to}
+      className="group flex items-center justify-between rounded-md border border-border bg-card px-4 py-3 transition-colors hover:bg-accent/40"
     >
-      <div className="flex size-8 shrink-0 items-center justify-center rounded-md border border-border bg-muted/50 text-muted-foreground">
-        <RiHardDrive2Line className="size-4" />
-      </div>
-      <div className="min-w-0 flex-1">
-        <p className="truncate text-sm font-medium text-foreground">{app.name}</p>
-        <p className="truncate text-xs text-muted-foreground">
-          {app.repoFullName ? (
-            <span className="inline-flex items-center gap-1">
-              <RiGitBranchLine className="size-3" />
-              {app.repoFullName}
-              {app.branch ? <span className="opacity-60">· {app.branch}</span> : null}
-            </span>
-          ) : (
-            "Repository pending"
-          )}
-        </p>
-      </div>
-      <AppStatusBadge status={app.runtimeStatus} />
-      <RiArrowRightLine className="size-4 text-muted-foreground/40 transition-colors group-hover:text-muted-foreground" />
+      <span>
+        <span className="block text-sm font-medium text-foreground">
+          {label}
+        </span>
+        <span className="block text-xs text-muted-foreground">{hint}</span>
+      </span>
+      <RiArrowRightLine className="size-4 text-muted-foreground/60 transition-colors group-hover:text-muted-foreground" />
     </Link>
   )
 }
-
-function AppRowsSkeleton(): React.JSX.Element {
-  return (
-    <div className="divide-y divide-border">
-      {Array.from({ length: 4 }).map((_, i) => (
-        <div key={i} className="flex items-center gap-3 py-3 animate-pulse">
-          <div className="size-8 rounded-md bg-muted" />
-          <div className="flex-1 space-y-1.5">
-            <div className="h-3 w-32 rounded bg-muted" />
-            <div className="h-2.5 w-48 rounded bg-muted" />
-          </div>
-          <div className="h-5 w-16 rounded-full bg-muted" />
-        </div>
-      ))}
-    </div>
-  )
-}
-
-function EmptyApps({
-  isGitHubConnected,
-  onCreate,
-}: {
-  isGitHubConnected: boolean
-  onCreate: () => void
-}): React.JSX.Element {
-  return (
-    <div className="rounded-md border border-dashed border-border bg-muted/30 px-6 py-10 text-center">
-      <p className="text-sm font-semibold text-foreground">No applications yet</p>
-      <p className="mt-1.5 text-sm text-muted-foreground">
-        {isGitHubConnected
-          ? "Deploy your first application to get started."
-          : "Connect GitHub so Ploydok can read your repositories."}
-      </p>
-      <div className="mt-4">
-        {isGitHubConnected ? (
-          <Button size="sm" onClick={onCreate}>
-            <RiAddLine className="size-4" />
-            New application
-          </Button>
-        ) : (
-          <Button size="sm" variant="outline" asChild>
-            <Link to="/settings/git-providers/$slug" params={{ slug: "github" }}>
-              <RiGithubFill className="size-4" />
-              Connect GitHub
-            </Link>
-          </Button>
-        )}
-      </div>
-    </div>
-  )
-}
-
-// ---------------------------------------------------------------------------
-// Activity feed
-// ---------------------------------------------------------------------------
 
 function ActivityRow({ build }: { build: BuildWithApp }): React.JSX.Element {
   const tone = buildTone(build.status)
@@ -334,12 +327,18 @@ function ActivityRow({ build }: { build: BuildWithApp }): React.JSX.Element {
   return (
     <li>
       <Link
-        to={(orgSlug ? organizationPath(orgSlug, `apps/${build.appId}/overview`) : `/apps/${build.appId}/overview`) as never}
-        className="group flex items-start gap-2.5 rounded-md py-2 -mx-2 px-2 transition-colors hover:bg-accent/40"
+        to={
+          (orgSlug
+            ? organizationPath(orgSlug, `apps/${build.appId}/overview`)
+            : `/apps/${build.appId}/overview`) as never
+        }
+        className="group -mx-2 flex items-start gap-2.5 rounded-md px-2 py-2 transition-colors hover:bg-accent/40"
       >
         <span className={`mt-1.5 inline-flex ${tone.color}`}>{tone.icon}</span>
         <div className="min-w-0 flex-1">
-          <p className="truncate text-sm font-medium text-foreground">{build.appName}</p>
+          <p className="truncate text-sm font-medium text-foreground">
+            {build.appName}
+          </p>
           <p className="truncate text-xs text-muted-foreground">
             <span className="font-mono">{sha}</span>
             <span className="mx-1 opacity-60">·</span>
@@ -357,7 +356,7 @@ function ActivitySkeleton(): React.JSX.Element {
   return (
     <div className="space-y-3">
       {Array.from({ length: 4 }).map((_, i) => (
-        <div key={i} className="flex items-start gap-2.5 animate-pulse">
+        <div key={i} className="flex animate-pulse items-start gap-2.5">
           <div className="mt-1 size-3 rounded-full bg-muted" />
           <div className="flex-1 space-y-1.5">
             <div className="h-3 w-24 rounded bg-muted" />
@@ -369,24 +368,35 @@ function ActivitySkeleton(): React.JSX.Element {
   )
 }
 
-function buildTone(status: BuildStatus): { icon: React.JSX.Element; color: string } {
+function buildTone(status: BuildStatus): {
+  icon: React.JSX.Element
+  color: string
+} {
   switch (status) {
     case "succeeded":
-      return { icon: <RiCheckboxCircleFill className="size-3.5" />, color: "text-green-600 dark:text-green-400" }
+      return {
+        icon: <RiCheckboxCircleFill className="size-3.5" />,
+        color: "text-green-600 dark:text-green-400",
+      }
     case "failed":
     case "cancelled":
-      return { icon: <RiErrorWarningFill className="size-3.5" />, color: "text-destructive" }
+      return {
+        icon: <RiErrorWarningFill className="size-3.5" />,
+        color: "text-destructive",
+      }
     case "running":
-      return { icon: <RiPulseFill className="size-3.5 animate-pulse" />, color: "text-blue-600 dark:text-blue-400" }
+      return {
+        icon: <RiPulseFill className="size-3.5 animate-pulse" />,
+        color: "text-blue-600 dark:text-blue-400",
+      }
     case "pending":
     default:
-      return { icon: <RiTimeLine className="size-3.5" />, color: "text-muted-foreground" }
+      return {
+        icon: <RiTimeLine className="size-3.5" />,
+        color: "text-muted-foreground",
+      }
   }
 }
-
-// ---------------------------------------------------------------------------
-// relativeTime — small dependency-free helper
-// ---------------------------------------------------------------------------
 
 function relativeTime(ms: number): string {
   const delta = Date.now() - ms
@@ -397,5 +407,8 @@ function relativeTime(ms: number): string {
   if (hours < 24) return `${hours}h ago`
   const days = Math.floor(hours / 24)
   if (days < 7) return `${days}d ago`
-  return new Date(ms).toLocaleDateString("en-GB", { day: "2-digit", month: "short" })
+  return new Date(ms).toLocaleDateString("en-GB", {
+    day: "2-digit",
+    month: "short",
+  })
 }

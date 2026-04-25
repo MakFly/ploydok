@@ -50,6 +50,22 @@ const IN_PROGRESS_STATUSES: ReadonlySet<BuildStatus> = new Set([
   "running",
 ])
 
+const BUILD_METHOD_LABEL: Record<string, string> = {
+  docker: "Dockerfile",
+  dockerfile: "Dockerfile",
+  compose: "Compose",
+  nixpacks: "Nixpacks",
+  railpack: "Railpack",
+}
+
+const BUILD_METHOD_CLASS: Record<string, string> = {
+  docker: "bg-sky-500/10 text-sky-600 dark:text-sky-400",
+  dockerfile: "bg-sky-500/10 text-sky-600 dark:text-sky-400",
+  compose: "bg-sky-500/10 text-sky-600 dark:text-sky-400",
+  nixpacks: "bg-violet-500/10 text-violet-600 dark:text-violet-400",
+  railpack: "bg-emerald-500/10 text-emerald-600 dark:text-emerald-400",
+}
+
 export function formatDuration(startMs?: number, endMs?: number): string {
   if (!startMs) return "—"
   const diff = ((endMs ?? Date.now()) - startMs) / 1000
@@ -294,11 +310,25 @@ function makeColumns(
     {
       id: "method",
       header: "Method",
-      cell: ({ row }) => (
-        <span className="text-xs text-muted-foreground">
-          {row.original.buildMethod}
-        </span>
-      ),
+      cell: ({ row }) => {
+        const method = row.original.buildMethod
+        if (!method) {
+          return <span className="text-xs text-muted-foreground">—</span>
+        }
+        const label = BUILD_METHOD_LABEL[method] ?? method
+        const cls =
+          BUILD_METHOD_CLASS[method] ?? "bg-muted text-muted-foreground"
+        return (
+          <span
+            className={[
+              "inline-flex items-center rounded-full px-2 py-0.5 text-xs font-medium",
+              cls,
+            ].join(" ")}
+          >
+            {label}
+          </span>
+        )
+      },
     },
     {
       id: "started",

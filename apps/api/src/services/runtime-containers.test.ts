@@ -1,6 +1,7 @@
 // SPDX-License-Identifier: AGPL-3.0-only
 import { describe, expect, it } from "bun:test"
 import {
+  imageRepoForApp,
   inferContainerColor,
   legacyRuntimeContainerName,
   normalizeRuntimeContainerSlug,
@@ -12,7 +13,7 @@ import {
 describe("runtime container naming", () => {
   it("normalizes slug text for Docker-safe readable names", () => {
     expect(normalizeRuntimeContainerSlug("Hello / Runtime_App")).toBe(
-      "hello-runtime-app",
+      "hello-runtime-app"
     )
   })
 
@@ -20,8 +21,8 @@ describe("runtime container naming", () => {
     expect(
       runtimeContainerName(
         { id: "3gfA0pcC3DRtNqqNPWioi", slug: "my-app" },
-        "blue",
-      ),
+        "blue"
+      )
     ).toBe("ploydok-app-my-app-3gfa0pcc-blue")
   })
 
@@ -29,8 +30,8 @@ describe("runtime container naming", () => {
     expect(
       runtimeContainerNameCandidates(
         { id: "3gfA0pcC3DRtNqqNPWioi", slug: "my-app" },
-        "green",
-      ),
+        "green"
+      )
     ).toEqual([
       "ploydok-app-my-app-3gfa0pcc-green",
       "ploydok-app-3gfa0pcc3drtnqqnpwioi-green",
@@ -63,7 +64,7 @@ describe("runtime container naming", () => {
           ],
         }),
       } as never,
-      { appId: "3gfA0pcC3DRtNqqNPWioi" },
+      { appId: "3gfA0pcC3DRtNqqNPWioi" }
     )
 
     expect(result?.id).toBe("ctr-1")
@@ -72,12 +73,40 @@ describe("runtime container naming", () => {
   it("infers color from either legacy or new-style container refs", () => {
     expect(inferContainerColor("ploydok-app-my-app-3gfa0pcc-blue")).toBe("blue")
     expect(
-      inferContainerColor(legacyRuntimeContainerName("3gfA0pcC3DRtNqqNPWioi", "green")),
+      inferContainerColor(
+        legacyRuntimeContainerName("3gfA0pcC3DRtNqqNPWioi", "green")
+      )
     ).toBe("green")
     expect(inferContainerColor("ploydok-app-no-color")).toBeNull()
   })
 
   it("derives a stable lowercase short id", () => {
     expect(runtimeContainerShortId("3gfA0pcC3DRtNqqNPWioi")).toBe("3gfa0pcc")
+  })
+
+  it("imageRepoForApp keeps clean ids unchanged", () => {
+    expect(imageRepoForApp("W6bztsOSKPBclkVI6uBKz")).toBe(
+      "app-w6bztsoskpbclkvi6ubkz"
+    )
+  })
+
+  it("imageRepoForApp collapses '-_' / '_-' into a single '-' (Docker reference grammar requires uniform separators)", () => {
+    expect(imageRepoForApp("xSR2fO2K8XFDa4LO-_4uT")).toBe(
+      "app-xsr2fo2k8xfda4lo-4ut"
+    )
+    expect(imageRepoForApp("abc_-def")).toBe("app-abc-def")
+  })
+
+  it("imageRepoForApp normalizes runs of underscores into a single '-'", () => {
+    expect(imageRepoForApp("a__b___c")).toBe("app-a-b-c")
+  })
+
+  it("imageRepoForApp trims leading and trailing separators", () => {
+    expect(imageRepoForApp("-_abc-_")).toBe("app-abc")
+  })
+
+  it("imageRepoForApp falls back to 'anon' for empty/non-alphanumeric ids", () => {
+    expect(imageRepoForApp("___")).toBe("app-anon")
+    expect(imageRepoForApp("")).toBe("app-anon")
   })
 })

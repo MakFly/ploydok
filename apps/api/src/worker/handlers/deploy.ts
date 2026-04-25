@@ -27,6 +27,7 @@ import { diskGuard, gcKeepLast, tagManifest } from "../registry"
 import { workerLog } from "../logger"
 import { eventBus } from "../event-bus"
 import { runBlueGreen } from "../runner"
+import { imageRepoForApp } from "../../services/runtime-containers"
 import { classifyAgentError, FatalDeployError } from "../errors"
 import { createRedis } from "@ploydok/db"
 import { postCommitStatusForApp } from "../../providers/commit-status"
@@ -625,7 +626,7 @@ export async function handleDeploy(
     const commitSha = resolvedCommitSha ?? buildId
     const pushRegistry = stripScheme(env.PLOYDOK_REGISTRY_PUSH_URL)
     const pullRegistry = stripScheme(env.PLOYDOK_REGISTRY_URL)
-    const repo = `app-${app.id.toLowerCase()}`
+    const repo = imageRepoForApp(app.id)
     const pushRef = `${pushRegistry}/${repo}:${commitSha}`
     const imageRef = `${pullRegistry}/${repo}:${commitSha}`
 

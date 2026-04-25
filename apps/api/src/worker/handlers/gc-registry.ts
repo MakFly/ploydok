@@ -8,62 +8,63 @@
  *  - stopRegistryGcCron()     : cancel the scheduled cron (used in tests / shutdown)
  *  - getRegistryUsageForApp() : per-app registry stats (tags, bytes, diskPct)
  */
-import { and, desc, eq } from "drizzle-orm";
-import { apps, builds } from "@ploydok/db";
+import { and, desc, eq } from "drizzle-orm"
+import { apps, builds } from "@ploydok/db"
 import {
   deleteDigest,
   diskUsagePct,
   getManifest,
   listTags,
   runtimeGarbageCollect,
-} from "../registry";
-import type { Db } from "@ploydok/db";
+} from "../registry"
+import type { Db } from "@ploydok/db"
+import { imageRepoForApp } from "../../services/runtime-containers"
 
 // ---------------------------------------------------------------------------
 // Types
 // ---------------------------------------------------------------------------
 
 export interface RegistryClient {
-  listTags: (repo: string) => Promise<string[]>;
+  listTags: (repo: string) => Promise<string[]>
   getManifest: (
     repo: string,
-    tag: string,
-  ) => Promise<{ digest: string; createdAt?: Date } | null>;
-  deleteDigest: (repo: string, digest: string) => Promise<void>;
-  diskUsagePct: () => Promise<number>;
+    tag: string
+  ) => Promise<{ digest: string; createdAt?: Date } | null>
+  deleteDigest: (repo: string, digest: string) => Promise<void>
+  diskUsagePct: () => Promise<number>
   /** Reclaim blob storage by running `registry garbage-collect` on the host. */
-  garbageCollect: () => Promise<{ ok: boolean; output: string }>;
+  garbageCollect: () => Promise<{ ok: boolean; output: string }>
 }
 
 export interface GcOptions {
   /** Injected registry client (defaults to the real client from registry.ts). */
-  registryClient?: RegistryClient;
+  registryClient?: RegistryClient
   /** Keep at most N images per app repo. Default: 3. */
-  keepPerRepo?: number;
+  keepPerRepo?: number
   /** DB instance. */
-  db: Db;
+  db: Db
   /** When set, only GC the given app id. */
-  appFilter?: string;
+  appFilter?: string
   /**
    * Skip blob reclamation (`registry garbage-collect`). The HTTP manifest
    * deletes still happen. Useful for unit tests + when a follow-up call will
    * reclaim blobs in batch (e.g. cron tick scanning many apps).
    */
-  skipBlobReclaim?: boolean;
+  skipBlobReclaim?: boolean
 }
 
 export interface GcResult {
-  reposScanned: number;
-  tagsDeleted: number;
-  bytesFreed: number;
+  reposScanned: number
+  tagsDeleted: number
+  bytesFreed: number
   /** Whether the binary `registry garbage-collect` ran and succeeded. */
-  blobReclaim?: { ok: boolean; output: string };
+  blobReclaim?: { ok: boolean; output: string }
 }
 
 export interface RegistryUsage {
-  tags: number;
-  bytes: number;
-  diskPct: number;
+  tags: number
+  bytes: number
+  diskPct: number
 }
 
 // ---------------------------------------------------------------------------
@@ -76,7 +77,7 @@ const defaultRegistryClient: RegistryClient = {
   deleteDigest,
   diskUsagePct,
   garbageCollect: runtimeGarbageCollect,
-};
+}
 
 // ---------------------------------------------------------------------------
 // runRegistryGc
@@ -102,7 +103,7 @@ export async function runRegistryGc(opts: GcOptions): Promise<GcResult> {
     db,
     appFilter,
     skipBlobReclaim,
-  } = opts;
+  } = opts
 
   // 1. Load all app ids (or just the filtered one). Pull container_id +
   //    keep_per_repo override so per-app config wins over the cron default.
@@ -122,124 +123,124 @@ export async function runRegistryGc(opts: GcOptions): Promise<GcResult> {
           container_id: apps.container_id,
           keep_per_repo: apps.keep_per_repo,
         })
-        .from(apps);
+        .from(apps)
 
-  let reposScanned = 0;
-  let tagsDeleted = 0;
+  let reposScanned = 0
+  let tagsDeleted = 0
 
   for (const { id: appId, container_id, keep_per_repo } of appRows) {
-    const repo = `app-${appId.toLowerCase()}`;
-    const tags = await rc.listTags(repo);
-    if (tags.length === 0) continue;
+    const repo = imageRepoForApp(appId)
+    const tags = await rc.listTags(repo)
+    if (tags.length === 0) continue
 
-    reposScanned++;
+    reposScanned++
 
     // Per-app override beats the global default, unless the caller explicitly
     // forced keepPerRepo=0 (delete-app wipes everything regardless of config).
-    const effectiveKeep =
-      keepPerRepo === 0
-        ? 0
-        : (keep_per_repo ?? keepPerRepo);
+    const effectiveKeep = keepPerRepo === 0 ? 0 : (keep_per_repo ?? keepPerRepo)
 
     // Compute protected tags: latest succeeded build tied to the running
     // container, plus any build flagged by container_id. Always keep at least
     // these even if `effectiveKeep === 0` (delete-app uses 0 to wipe everything).
-    const protectedTags = await loadProtectedTags(db, appId, container_id);
+    const protectedTags = await loadProtectedTags(db, appId, container_id)
 
-    if (effectiveKeep > 0 && tags.length <= effectiveKeep) continue;
+    if (effectiveKeep > 0 && tags.length <= effectiveKeep) continue
 
     // 2. Join with builds table to get creation dates.
     const buildRows = await db
       .select({ image_tag: builds.image_tag, created_at: builds.created_at })
       .from(builds)
       .where(eq(builds.app_id, appId))
-      .orderBy(desc(builds.created_at));
+      .orderBy(desc(builds.created_at))
 
     // Map image_tag → created_at for quick lookup.
-    const buildDateByTag = new Map<string, Date>();
+    const buildDateByTag = new Map<string, Date>()
     for (const row of buildRows) {
       if (row.image_tag && row.created_at) {
         // image_tag format: <registry>/app-<id>:<tag>  — extract the tag part.
-        const shortTag = row.image_tag.split(":").at(-1) ?? row.image_tag;
-        buildDateByTag.set(shortTag, row.created_at);
+        const shortTag = row.image_tag.split(":").at(-1) ?? row.image_tag
+        buildDateByTag.set(shortTag, row.created_at)
       }
     }
 
     // 3. Resolve manifests (digest + creation date).
     const resolved = await Promise.all(
       tags.map(async (tag) => {
-        const manifest = await rc.getManifest(repo, tag);
-        if (!manifest) return null;
-        const createdAt = buildDateByTag.get(tag) ?? manifest.createdAt;
-        return { tag, digest: manifest.digest, createdAt };
-      }),
-    );
+        const manifest = await rc.getManifest(repo, tag)
+        if (!manifest) return null
+        const createdAt = buildDateByTag.get(tag) ?? manifest.createdAt
+        return { tag, digest: manifest.digest, createdAt }
+      })
+    )
 
     // Filter nulls and unknown digests.
     const valid = resolved.filter(
       (m): m is NonNullable<typeof m> & { digest: string } =>
-        m !== null && m.digest !== "sha256:unknown" && m.digest !== "",
-    );
+        m !== null && m.digest !== "sha256:unknown" && m.digest !== ""
+    )
 
     // 4. Sort: known date newest-first, then unknown.
     valid.sort((a, b) => {
-      if (a.createdAt && b.createdAt) return b.createdAt.getTime() - a.createdAt.getTime();
-      if (a.createdAt) return -1;
-      if (b.createdAt) return 1;
-      return 0;
-    });
+      if (a.createdAt && b.createdAt)
+        return b.createdAt.getTime() - a.createdAt.getTime()
+      if (a.createdAt) return -1
+      if (b.createdAt) return 1
+      return 0
+    })
 
     // Collect digests of protected tags so we never delete them, even if they
     // sort beyond keepPerRepo (e.g. running container holds an old tag).
-    const protectedDigests = new Set<string>();
+    const protectedDigests = new Set<string>()
     for (const item of valid) {
-      if (protectedTags.has(item.tag)) protectedDigests.add(item.digest);
+      if (protectedTags.has(item.tag)) protectedDigests.add(item.digest)
     }
 
     // 5. Delete extras, deduplicated by digest, skipping protected digests.
-    const toDelete = valid.slice(effectiveKeep);
-    const seen = new Set<string>();
+    const toDelete = valid.slice(effectiveKeep)
+    const seen = new Set<string>()
 
     for (const item of toDelete) {
-      if (seen.has(item.digest)) continue;
-      seen.add(item.digest);
+      if (seen.has(item.digest)) continue
+      seen.add(item.digest)
       if (protectedDigests.has(item.digest)) {
         // eslint-disable-next-line no-console
         console.log(
-          `[gc-registry] skipped protected ${repo}:${item.tag} (${item.digest})`,
-        );
-        continue;
+          `[gc-registry] skipped protected ${repo}:${item.tag} (${item.digest})`
+        )
+        continue
       }
       try {
-        await rc.deleteDigest(repo, item.digest);
-        tagsDeleted++;
+        await rc.deleteDigest(repo, item.digest)
+        tagsDeleted++
         // eslint-disable-next-line no-console
-        console.log(`[gc-registry] deleted ${repo}:${item.tag} (${item.digest})`);
+        console.log(
+          `[gc-registry] deleted ${repo}:${item.tag} (${item.digest})`
+        )
       } catch (err) {
         // Non-fatal — log and continue.
         // eslint-disable-next-line no-console
-        console.warn(`[gc-registry] failed to delete ${repo}:${item.tag}:`, err);
+        console.warn(`[gc-registry] failed to delete ${repo}:${item.tag}:`, err)
       }
     }
   }
 
   // eslint-disable-next-line no-console
   console.log(
-    `[gc-registry] manifests pass — scanned ${reposScanned} repos, deleted ${tagsDeleted} tags`,
-  );
+    `[gc-registry] manifests pass — scanned ${reposScanned} repos, deleted ${tagsDeleted} tags`
+  )
 
-  let blobReclaim: GcResult["blobReclaim"];
+  let blobReclaim: GcResult["blobReclaim"]
   if (!skipBlobReclaim && tagsDeleted > 0) {
-    blobReclaim = await rc.garbageCollect();
+    blobReclaim = await rc.garbageCollect()
     // eslint-disable-next-line no-console
     console.log(
-      `[gc-registry] blob reclaim — ok=${blobReclaim.ok} output=${blobReclaim.output.slice(0, 200)}`,
-    );
+      `[gc-registry] blob reclaim — ok=${blobReclaim.ok} output=${blobReclaim.output.slice(0, 200)}`
+    )
   }
 
-  const result: GcResult = { reposScanned, tagsDeleted, bytesFreed: 0 };
-  if (blobReclaim) result.blobReclaim = blobReclaim;
-  return result;
+  const result: GcResult = { reposScanned, tagsDeleted, bytesFreed: 0 }
+  if (blobReclaim) result.blobReclaim = blobReclaim
+  return result
 }
 
 /**
@@ -253,18 +254,18 @@ export async function runRegistryGc(opts: GcOptions): Promise<GcResult> {
 async function loadProtectedTags(
   db: Db,
   appId: string,
-  containerId: string | null,
+  containerId: string | null
 ): Promise<Set<string>> {
-  const tags = new Set<string>();
+  const tags = new Set<string>()
   // Build tied to the running container.
   if (containerId) {
     const rows = await db
       .select({ image_tag: builds.image_tag })
       .from(builds)
       .where(eq(builds.container_id, containerId))
-      .limit(1);
-    const tag = rows[0]?.image_tag;
-    if (tag) tags.add(tag.split(":").at(-1) ?? tag);
+      .limit(1)
+    const tag = rows[0]?.image_tag
+    if (tag) tags.add(tag.split(":").at(-1) ?? tag)
   }
 
   // Latest succeeded build (rollback safety net). Filter on status so a
@@ -274,11 +275,11 @@ async function loadProtectedTags(
     .from(builds)
     .where(and(eq(builds.app_id, appId), eq(builds.status, "succeeded")))
     .orderBy(desc(builds.created_at))
-    .limit(1);
-  const latestTag = latestSucceeded[0]?.image_tag;
-  if (latestTag) tags.add(latestTag.split(":").at(-1) ?? latestTag);
+    .limit(1)
+  const latestTag = latestSucceeded[0]?.image_tag
+  if (latestTag) tags.add(latestTag.split(":").at(-1) ?? latestTag)
 
-  return tags;
+  return tags
 }
 
 // ---------------------------------------------------------------------------
@@ -286,13 +287,13 @@ async function loadProtectedTags(
 // ---------------------------------------------------------------------------
 
 export interface AggressiveGcOptions {
-  db: Db;
+  db: Db
   /** Threshold above which the aggressive sweep kicks in. Default: 80. */
-  thresholdPct?: number;
+  thresholdPct?: number
   /** Keep this many tags per repo when triggered. Default: 1. */
-  keepPerRepoUnderPressure?: number;
+  keepPerRepoUnderPressure?: number
   /** Injected registry client. */
-  registryClient?: RegistryClient;
+  registryClient?: RegistryClient
 }
 
 /**
@@ -304,30 +305,29 @@ export interface AggressiveGcOptions {
  * nothing ran.
  */
 export async function runAggressiveDiskGuard(
-  opts: AggressiveGcOptions,
+  opts: AggressiveGcOptions
 ): Promise<GcResult | null> {
   const {
     db,
     thresholdPct = 80,
     keepPerRepoUnderPressure = 1,
     registryClient: rc = defaultRegistryClient,
-  } = opts;
+  } = opts
 
-  const pct = await rc.diskUsagePct();
-  if (pct < thresholdPct) return null;
+  const pct = await rc.diskUsagePct()
+  if (pct < thresholdPct) return null
 
   // eslint-disable-next-line no-console
   console.warn(
-    `[gc-registry] disk pressure ${pct}% >= ${thresholdPct}% — aggressive sweep keep=${keepPerRepoUnderPressure}`,
-  );
+    `[gc-registry] disk pressure ${pct}% >= ${thresholdPct}% — aggressive sweep keep=${keepPerRepoUnderPressure}`
+  )
 
   return runRegistryGc({
     db,
     registryClient: rc,
     keepPerRepo: keepPerRepoUnderPressure,
-  });
+  })
 }
-
 
 // ---------------------------------------------------------------------------
 // getRegistryUsageForApp
@@ -345,29 +345,29 @@ export async function runAggressiveDiskGuard(
 export async function getRegistryUsageForApp(
   appId: string,
   db: Db,
-  rc: RegistryClient = defaultRegistryClient,
+  rc: RegistryClient = defaultRegistryClient
 ): Promise<RegistryUsage> {
-  const repo = `app-${appId.toLowerCase()}`;
+  const repo = `app-${appId.toLowerCase()}`
 
   const [tags, diskPct] = await Promise.all([
     rc.listTags(repo),
     rc.diskUsagePct(),
-  ]);
+  ])
 
   // Attempt to compute total bytes from manifest layer sizes.
-  let bytes = 0;
+  let bytes = 0
   if (tags.length > 0) {
     const manifests = await Promise.all(
-      tags.map((tag) => rc.getManifest(repo, tag)),
-    );
+      tags.map((tag) => rc.getManifest(repo, tag))
+    )
     // The manifest type from registry.ts doesn't expose layer sizes.
     // We accept 0 bytes for now — accurate disk breakdown requires a
     // registry catalog + blob listing API which is out of scope for M4.2.
     // The count of manifests and diskPct are sufficient for the widget.
-    void manifests;
+    void manifests
   }
 
-  return { tags: tags.length, bytes, diskPct };
+  return { tags: tags.length, bytes, diskPct }
 }
 
 // ---------------------------------------------------------------------------
@@ -375,18 +375,18 @@ export async function getRegistryUsageForApp(
 // ---------------------------------------------------------------------------
 
 /** Default run hour in UTC (04:00). */
-const DEFAULT_HOUR_UTC = 4;
+const DEFAULT_HOUR_UTC = 4
 /** 24 hours in milliseconds. */
-const ONE_DAY_MS = 24 * 60 * 60 * 1000;
+const ONE_DAY_MS = 24 * 60 * 60 * 1000
 
-let _cronTimer: ReturnType<typeof setTimeout> | null = null;
-let _cronInterval: ReturnType<typeof setInterval> | null = null;
+let _cronTimer: ReturnType<typeof setTimeout> | null = null
+let _cronInterval: ReturnType<typeof setInterval> | null = null
 
 /**
  * Compute milliseconds until the next occurrence of `hourUtc:00:00 UTC`.
  */
 function msUntilNextUtcHour(hourUtc: number): number {
-  const now = new Date();
+  const now = new Date()
   const next = new Date(
     Date.UTC(
       now.getUTCFullYear(),
@@ -395,23 +395,23 @@ function msUntilNextUtcHour(hourUtc: number): number {
       hourUtc,
       0,
       0,
-      0,
-    ),
-  );
+      0
+    )
+  )
   // If that time has already passed today, schedule for tomorrow.
   if (next.getTime() <= now.getTime()) {
-    next.setUTCDate(next.getUTCDate() + 1);
+    next.setUTCDate(next.getUTCDate() + 1)
   }
-  return next.getTime() - now.getTime();
+  return next.getTime() - now.getTime()
 }
 
 export interface StartGcCronOptions {
   /** Override interval in ms (for testing). Default: 24h. */
-  intervalMs?: number;
+  intervalMs?: number
   /** UTC hour to align the first run (default: 4). */
-  hourUtc?: number;
+  hourUtc?: number
   /** GC options forwarded to runRegistryGc. */
-  gcOptions: GcOptions;
+  gcOptions: GcOptions
 }
 
 /**
@@ -425,31 +425,35 @@ export interface StartGcCronOptions {
  */
 export function startRegistryGcCron(opts: StartGcCronOptions): void {
   // Prevent double-start.
-  stopRegistryGcCron();
+  stopRegistryGcCron()
 
-  const { intervalMs = ONE_DAY_MS, hourUtc = DEFAULT_HOUR_UTC, gcOptions } = opts;
+  const {
+    intervalMs = ONE_DAY_MS,
+    hourUtc = DEFAULT_HOUR_UTC,
+    gcOptions,
+  } = opts
 
   async function tick(): Promise<void> {
     try {
-      const result = await runRegistryGc(gcOptions);
+      const result = await runRegistryGc(gcOptions)
       // eslint-disable-next-line no-console
-      console.log("[gc-registry] cron tick result:", result);
+      console.log("[gc-registry] cron tick result:", result)
     } catch (err) {
       // eslint-disable-next-line no-console
-      console.error("[gc-registry] cron tick error:", err);
+      console.error("[gc-registry] cron tick error:", err)
     }
   }
 
-  const delay = msUntilNextUtcHour(hourUtc);
+  const delay = msUntilNextUtcHour(hourUtc)
   // eslint-disable-next-line no-console
   console.log(
-    `[gc-registry] cron scheduled — first run in ${Math.round(delay / 60_000)} min (at ${hourUtc}:00 UTC)`,
-  );
+    `[gc-registry] cron scheduled — first run in ${Math.round(delay / 60_000)} min (at ${hourUtc}:00 UTC)`
+  )
 
   _cronTimer = setTimeout(() => {
-    void tick();
-    _cronInterval = setInterval(() => void tick(), intervalMs);
-  }, delay);
+    void tick()
+    _cronInterval = setInterval(() => void tick(), intervalMs)
+  }, delay)
 }
 
 /**
@@ -458,11 +462,11 @@ export function startRegistryGcCron(opts: StartGcCronOptions): void {
  */
 export function stopRegistryGcCron(): void {
   if (_cronTimer !== null) {
-    clearTimeout(_cronTimer);
-    _cronTimer = null;
+    clearTimeout(_cronTimer)
+    _cronTimer = null
   }
   if (_cronInterval !== null) {
-    clearInterval(_cronInterval);
-    _cronInterval = null;
+    clearInterval(_cronInterval)
+    _cronInterval = null
   }
 }

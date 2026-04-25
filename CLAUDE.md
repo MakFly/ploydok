@@ -8,6 +8,19 @@ This file is the repo-level agent guide for Codex-style coding agents. Keep it f
 - If a deeper `AGENTS.md` exists in a subdirectory, the deeper file takes precedence for files under that subtree.
 - Direct user or system instructions override this file.
 
+## Références externes (benchmark UX/feature parity)
+
+Deux repos clonés localement servent de référence pour aligner Ploydok sur l'état de l'art self-hosted PaaS. À consulter avant de concevoir une nouvelle feature, refondre la sidebar, ou trancher un choix UX :
+
+- `/tmp/dokploy` — Dokploy (Next.js + tRPC + Drizzle + Docker Swarm). Cible principale pour la sidebar, l'orga des routes, le découpage des settings, et les flows app/database/compose.
+- `/tmp/coolify` — Coolify (Laravel + Livewire + PHP). Cible pour la richesse fonctionnelle (notifications, destinations, sources, teams, backups, terminal in-browser, S3 storages).
+
+Règles d'usage :
+
+- Ne **jamais** copier-coller du code (licences différentes, stacks différentes). Lire pour s'inspirer du modèle, pas pour le porter.
+- Quand on cite une idée venant de l'un des deux, le préciser dans le commit/PR (`Inspired by dokploy/<path>`).
+- Si l'un des deux clones manque, le re-cloner : `git clone --depth 1 https://github.com/Dokploy/dokploy.git /tmp/dokploy` et `git clone --depth 1 https://github.com/coollabsio/coolify.git /tmp/coolify`.
+
 ## Roadmap — suivre le plan par sprint
 
 - La roadmap v1.0 est décrite dans `docs/sprints/README.md`. Elle est **la source de vérité** : toute décision de prio/scope passe par là.

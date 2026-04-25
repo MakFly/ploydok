@@ -3,6 +3,7 @@
 // Library entry point — exposes internal modules for integration tests.
 
 pub mod audit;
+pub mod host_stats;
 pub mod pki;
 pub mod service;
 pub mod validator;

@@ -32,6 +32,15 @@ export interface AuthUser {
   email: string
   display_name: string
   session_id: string
+  /**
+   * Scopes accordés par le PAT utilisé. Absent ⇒ session cookie classique
+   * (équivaut à `["admin:*"]` côté checks de scope).
+   */
+  token_scopes?: string[]
+  /**
+   * id du PAT utilisé (présent uniquement si l'auth vient d'un Bearer plk_/ploy_).
+   */
+  pat_id?: string
 }
 
 // Hono context variable types

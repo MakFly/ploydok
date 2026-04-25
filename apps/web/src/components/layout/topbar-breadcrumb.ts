@@ -53,22 +53,29 @@ function humanizeSegment(segment: string): string {
     .join(" ")
 }
 
-const PLATFORM: BreadcrumbItem = { label: "Platform" }
 const WORKSPACE: BreadcrumbItem = { label: "Workspace" }
+const PLATFORM: BreadcrumbItem = { label: "Platform" }
+const INTEGRATIONS: BreadcrumbItem = { label: "Integrations" }
 
 export function resolveTopbarBreadcrumb(
   pathname: string,
-  appName: string | null
+  appName: string | null,
+  orgSlug?: string | null
 ): Array<BreadcrumbItem> {
   let normalized = normalizePathname(pathname)
+  let isOrgScoped = false
   if (normalized.startsWith("/orgs/")) {
+    isOrgScoped = true
     const parts = normalized.split("/").filter(Boolean)
+    if (!orgSlug) orgSlug = parts[1] ?? null
     normalized =
       parts.length > 2 ? `/${parts.slice(2).join("/")}` : "/dashboard"
   }
+  const orgPrefix = isOrgScoped && orgSlug ? `/orgs/${orgSlug}` : ""
+  const ws = (path: string) => `${orgPrefix}${path}`
 
   if (normalized === "/dashboard") {
-    return [PLATFORM, { label: "Dashboard" }]
+    return [WORKSPACE, { label: "Dashboard" }]
   }
 
   if (normalized === "/guide") {
@@ -76,15 +83,19 @@ export function resolveTopbarBreadcrumb(
   }
 
   if (normalized === "/monitoring") {
-    return [PLATFORM, { label: "Monitoring" }]
+    return [WORKSPACE, { label: "Monitoring" }]
   }
 
   if (normalized === "/marketplace") {
-    return [PLATFORM, { label: "Marketplace" }]
+    return [WORKSPACE, { label: "Marketplace" }]
   }
 
-  if (normalized === "/docker") {
-    return [PLATFORM, { label: "Docker" }]
+  if (normalized === "/templates") {
+    return [WORKSPACE, { label: "Templates" }]
+  }
+
+  if (normalized === "/deployments") {
+    return [WORKSPACE, { label: "Deployments" }]
   }
 
   if (normalized === "/settings") {
@@ -115,6 +126,15 @@ export function resolveTopbarBreadcrumb(
       return items
     }
 
+    if (
+      segments[0] === "git-providers" ||
+      segments[0] === "registry" ||
+      segments[0] === "notifications" ||
+      segments[0] === "api-tokens"
+    ) {
+      items[0] = INTEGRATIONS
+    }
+
     if (segments[0] === "git-providers") {
       items.push({
         label: "Git providers",
@@ -138,55 +158,63 @@ export function resolveTopbarBreadcrumb(
   }
 
   if (normalized === "/apps") {
-    return [PLATFORM, { label: "Applications" }]
+    return [WORKSPACE, { label: "Applications" }]
   }
 
   if (normalized === "/databases") {
-    return [PLATFORM, { label: "Databases" }]
+    return [WORKSPACE, { label: "Databases" }]
   }
 
   if (normalized === "/members") {
-    return [WORKSPACE, { label: "Members" }]
+    return [PLATFORM, { label: "Members" }]
   }
 
   if (normalized === "/audit") {
-    return [WORKSPACE, { label: "Audit" }]
+    return [PLATFORM, { label: "Audit" }]
   }
 
   if (normalized === "/shared-env") {
-    return [WORKSPACE, { label: "Shared env" }]
+    return [PLATFORM, { label: "Shared env" }]
   }
 
   if (normalized === "/scheduled-jobs") {
-    return [WORKSPACE, { label: "Scheduled jobs" }]
+    return [PLATFORM, { label: "Scheduled jobs" }]
   }
 
   if (normalized === "/event-webhooks") {
-    return [WORKSPACE, { label: "Event webhooks" }]
+    return [PLATFORM, { label: "Event webhooks" }]
+  }
+
+  if (normalized === "/tags") {
+    return [PLATFORM, { label: "Tags" }]
   }
 
   if (normalized === "/branding") {
-    return [WORKSPACE, { label: "Branding" }]
+    return [PLATFORM, { label: "Branding" }]
   }
 
   if (normalized.startsWith("/databases/")) {
     const segments = normalized.split("/").filter(Boolean)
     const dbId = segments[1]
-    if (!dbId) return [PLATFORM, { label: "Databases" }]
-    return [PLATFORM, { label: "Databases", to: "/databases" }, { label: dbId }]
+    if (!dbId) return [WORKSPACE, { label: "Databases" }]
+    return [
+      WORKSPACE,
+      { label: "Databases", to: ws("/databases") },
+      { label: dbId },
+    ]
   }
 
   if (normalized === "/services") {
-    return [PLATFORM, { label: "Services" }]
+    return [WORKSPACE, { label: "Services" }]
   }
 
   if (normalized.startsWith("/services/")) {
     const segments = normalized.split("/").filter(Boolean)
     const serviceId = segments[1]
-    if (!serviceId) return [PLATFORM, { label: "Services" }]
+    if (!serviceId) return [WORKSPACE, { label: "Services" }]
     return [
-      PLATFORM,
-      { label: "Services", to: "/services" },
+      WORKSPACE,
+      { label: "Services", to: ws("/services") },
       { label: serviceId },
     ]
   }
@@ -194,13 +222,16 @@ export function resolveTopbarBreadcrumb(
   if (normalized.startsWith("/apps/")) {
     const segments = normalized.split("/").filter(Boolean)
     const items: Array<BreadcrumbItem> = [
-      PLATFORM,
-      { label: "Applications", to: "/apps" },
+      WORKSPACE,
+      { label: "Applications", to: ws("/apps") },
     ]
     const appId = segments[1]
     if (!appId) return items
 
-    items.push({ label: appName ?? appId, to: `/apps/${appId}/overview` })
+    items.push({
+      label: appName ?? appId,
+      to: ws(`/apps/${appId}/overview`),
+    })
 
     const appTabLabels: Record<string, string> = {
       overview: "Overview",

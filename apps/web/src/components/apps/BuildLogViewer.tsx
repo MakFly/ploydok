@@ -3,6 +3,7 @@ import * as React from "react"
 import { RiArrowDownLine } from "@remixicon/react"
 import { cn } from "@workspace/ui/lib/utils"
 import {
+  detectLevel,
   filterByLevel,
   filterBySearch,
   useLogStream,
@@ -17,7 +18,6 @@ import type { LogFiltersState } from "./LogFilters"
 // ---------------------------------------------------------------------------
 
 interface BuildLogViewerProps {
-  /** App ID */
   appId: string
   /** Build ID — if undefined or "latest", streams runtime logs */
   buildId?: string
@@ -34,29 +34,43 @@ function TitleBar({
   title,
   isLive,
   lineCount,
+  errorCount,
+  warnCount,
 }: {
   title: string
   isLive: boolean
   lineCount: number
+  errorCount: number
+  warnCount: number
 }): React.JSX.Element {
   return (
-    <div className="flex h-8 items-center gap-2 border-b border-zinc-800 bg-zinc-900 px-4 shrink-0">
+    <div className="flex h-8 shrink-0 items-center gap-2 border-b border-zinc-800 bg-zinc-900 px-4">
       <span
         className={cn(
-          "size-2 rounded-full shrink-0",
-          isLive ? "bg-green-500" : "bg-zinc-600",
+          "size-2 shrink-0 rounded-full",
+          isLive ? "animate-pulse bg-emerald-500" : "bg-zinc-600"
         )}
         aria-hidden="true"
       />
-      <span className="text-[11px] font-medium text-zinc-300 truncate">
+      <span className="truncate text-[11px] font-medium text-zinc-300">
         {title}
       </span>
-      <span className="text-[11px] text-zinc-600 shrink-0">
+      <span className="shrink-0 text-[11px] text-zinc-600">
         {isLive ? "Live" : "Disconnected"}
       </span>
       <div className="flex-1" />
+      {errorCount > 0 && (
+        <span className="shrink-0 text-[11px] text-red-400 tabular-nums">
+          {errorCount.toLocaleString()} err
+        </span>
+      )}
+      {warnCount > 0 && (
+        <span className="shrink-0 text-[11px] text-amber-400 tabular-nums">
+          {warnCount.toLocaleString()} warn
+        </span>
+      )}
       {lineCount > 0 && (
-        <span className="text-[11px] text-zinc-600 shrink-0 tabular-nums">
+        <span className="shrink-0 text-[11px] text-zinc-500 tabular-nums">
           {lineCount.toLocaleString()} lines
         </span>
       )}
@@ -65,7 +79,7 @@ function TitleBar({
 }
 
 // ---------------------------------------------------------------------------
-// FollowButton — floating pill shown when user has scrolled away from bottom
+// FollowButton
 // ---------------------------------------------------------------------------
 
 function FollowButton({
@@ -82,7 +96,8 @@ function FollowButton({
     <button
       type="button"
       onClick={onClick}
-      className="absolute bottom-4 right-4 flex items-center gap-1.5 rounded-full bg-primary px-3 py-1.5 text-xs font-medium text-primary-foreground shadow-lg hover:bg-primary/90 transition-colors"
+      className="absolute right-4 bottom-4 flex items-center gap-1.5 rounded-full bg-primary px-3 py-1.5 text-xs font-medium text-primary-foreground shadow-lg transition-colors hover:bg-primary/90"
+      title="Resume tailing (F)"
     >
       <RiArrowDownLine className="size-3.5" aria-hidden="true" />
       Follow latest
@@ -96,7 +111,59 @@ function FollowButton({
 }
 
 // ---------------------------------------------------------------------------
-// BuildLogViewer — integrates title bar + filters + auto-scroll + MutationObserver
+// EmptyState
+// ---------------------------------------------------------------------------
+
+function EmptyState({
+  filtered,
+  total,
+  filters,
+  connected,
+  hasError,
+}: {
+  filtered: number
+  total: number
+  filters: LogFiltersState
+  connected: boolean
+  hasError: boolean
+}): React.JSX.Element {
+  const hasFilter = filters.search.length > 0 || filters.level !== "all"
+  if (filtered === 0 && total > 0 && hasFilter) {
+    return (
+      <div className="flex h-full flex-col items-center justify-center gap-2 px-4 py-12 text-center text-sm text-zinc-500">
+        <span>No lines match the current filters.</span>
+        <span className="text-xs text-zinc-600">
+          {total.toLocaleString()} total — try clearing search or level.
+        </span>
+      </div>
+    )
+  }
+  if (filtered === 0 && total === 0) {
+    return (
+      <div className="flex h-full flex-col items-center justify-center gap-2 px-4 py-12 text-center text-sm text-zinc-500">
+        {hasError ? (
+          <span className="text-red-400">Stream error — see banner above.</span>
+        ) : connected ? (
+          <>
+            <span className="inline-flex items-center gap-2">
+              <span className="size-2 animate-pulse rounded-full bg-emerald-500" />
+              Connected — waiting for output…
+            </span>
+            <span className="text-xs text-zinc-600">
+              Logs will stream here as the build emits them.
+            </span>
+          </>
+        ) : (
+          <span>Connecting to log stream…</span>
+        )}
+      </div>
+    )
+  }
+  return <></>
+}
+
+// ---------------------------------------------------------------------------
+// BuildLogViewer
 // ---------------------------------------------------------------------------
 
 export function BuildLogViewer({
@@ -116,7 +183,8 @@ export function BuildLogViewer({
   // ---------------------------------------------------------------------------
   // Pause / resume buffer
   // ---------------------------------------------------------------------------
-  const [displayLines, setDisplayLines] = React.useState<Array<LogLineData>>(lines)
+  const [displayLines, setDisplayLines] =
+    React.useState<Array<LogLineData>>(lines)
   const pauseBufferRef = React.useRef<Array<LogLineData>>([])
 
   React.useEffect(() => {
@@ -139,7 +207,7 @@ export function BuildLogViewer({
       }
       setFilters(next)
     },
-    [lines, setFilters],
+    [lines, setFilters]
   )
 
   // ---------------------------------------------------------------------------
@@ -148,6 +216,18 @@ export function BuildLogViewer({
   const levelFiltered = filterByLevel(displayLines, filters.level)
   const filtered = filterBySearch(levelFiltered, filters.search)
 
+  // Counters computed against filtered set so they reflect the view
+  const { errorCount, warnCount } = React.useMemo(() => {
+    let e = 0
+    let w = 0
+    for (const l of filtered) {
+      const lvl = detectLevel(l.text)
+      if (lvl === "error") e++
+      else if (lvl === "warn") w++
+    }
+    return { errorCount: e, warnCount: w }
+  }, [filtered])
+
   // ---------------------------------------------------------------------------
   // Auto-scroll with MutationObserver
   // ---------------------------------------------------------------------------
@@ -155,7 +235,6 @@ export function BuildLogViewer({
   const logBodyRef = React.useRef<HTMLDivElement>(null)
   const followRef = React.useRef(true)
   const [showFollowBtn, setShowFollowBtn] = React.useState(false)
-  // Track how many lines were visible when user detached
   const detachLineCountRef = React.useRef(0)
 
   const scrollToBottom = React.useCallback(() => {
@@ -163,13 +242,22 @@ export function BuildLogViewer({
     if (el) el.scrollTop = el.scrollHeight
   }, [])
 
+  const scrollToTop = React.useCallback(() => {
+    const el = scrollRef.current
+    if (el) {
+      el.scrollTop = 0
+      followRef.current = false
+      setShowFollowBtn(true)
+      detachLineCountRef.current = filtered.length
+    }
+  }, [filtered.length])
+
   const handleScroll = React.useCallback(() => {
     const el = scrollRef.current
     if (!el) return
     const distFromBottom = el.scrollHeight - el.scrollTop - el.clientHeight
     if (distFromBottom > 50) {
       if (followRef.current) {
-        // Just detached — snapshot line count
         detachLineCountRef.current = filtered.length
         followRef.current = false
         setShowFollowBtn(true)
@@ -198,12 +286,72 @@ export function BuildLogViewer({
     return () => observer.disconnect()
   }, [scrollToBottom])
 
-  // New lines since detachment
   const newLineCount = Math.max(0, filtered.length - detachLineCountRef.current)
 
   // ---------------------------------------------------------------------------
-  // Download
+  // Jump to error (n / Shift+N)
   // ---------------------------------------------------------------------------
+  const jumpCursorRef = React.useRef<number>(-1)
+
+  const jumpToError = React.useCallback(
+    (direction: "next" | "prev") => {
+      const errorIndices: Array<number> = []
+      for (let i = 0; i < filtered.length; i++) {
+        if (detectLevel(filtered[i].text) === "error") errorIndices.push(i)
+      }
+      if (errorIndices.length === 0) return
+
+      const cursor = jumpCursorRef.current
+      let target: number
+      if (direction === "next") {
+        target = errorIndices.find((i) => i > cursor) ?? errorIndices[0]
+      } else {
+        const reversed = [...errorIndices].reverse()
+        target =
+          reversed.find((i) => i < cursor) ??
+          errorIndices[errorIndices.length - 1]
+      }
+      jumpCursorRef.current = target
+
+      // Detach from follow + scroll the target row into view
+      followRef.current = false
+      setShowFollowBtn(true)
+      detachLineCountRef.current = filtered.length
+
+      const targetLine = filtered[target]
+      requestAnimationFrame(() => {
+        const body = logBodyRef.current
+        if (!body) return
+        const node = body.querySelector<HTMLDivElement>(
+          `[data-line-id="${targetLine.id}"]`
+        )
+        if (node) {
+          node.scrollIntoView({ block: "center", behavior: "smooth" })
+          node.animate(
+            [
+              { backgroundColor: "rgba(239, 68, 68, 0.35)" },
+              { backgroundColor: "rgba(239, 68, 68, 0)" },
+            ],
+            { duration: 800, easing: "ease-out" }
+          )
+        }
+      })
+    },
+    [filtered]
+  )
+
+  // ---------------------------------------------------------------------------
+  // Copy / Download
+  // ---------------------------------------------------------------------------
+  const handleCopy = React.useCallback(async () => {
+    const content = filtered.map((l) => l.text).join("\n")
+    try {
+      await navigator.clipboard.writeText(content)
+    } catch (err) {
+      console.error("Copy error:", err)
+    }
+  }, [filtered])
+
   const handleDownload = React.useCallback(() => {
     const content = filtered.map((l) => l.text).join("\n")
     const blob = new Blob([content], { type: "text/plain" })
@@ -218,6 +366,92 @@ export function BuildLogViewer({
   }, [filtered, appId, appName])
 
   // ---------------------------------------------------------------------------
+  // Keyboard shortcuts: /, p, g, G, n, N, w, t
+  // ---------------------------------------------------------------------------
+  const searchInputRef = React.useRef<HTMLInputElement | null>(null)
+  const containerRef = React.useRef<HTMLDivElement>(null)
+
+  React.useEffect(() => {
+    const onKey = (e: KeyboardEvent) => {
+      const target = e.target as HTMLElement | null
+      const tag = target?.tagName
+      const isInput =
+        tag === "INPUT" ||
+        tag === "TEXTAREA" ||
+        tag === "SELECT" ||
+        target?.isContentEditable
+
+      // "/" — focus search even when not in an input
+      if (e.key === "/" && !isInput && !e.ctrlKey && !e.metaKey) {
+        e.preventDefault()
+        searchInputRef.current?.focus()
+        searchInputRef.current?.select()
+        return
+      }
+
+      // Allow Escape to blur a focused search input
+      if (
+        e.key === "Escape" &&
+        tag === "INPUT" &&
+        target &&
+        target === searchInputRef.current
+      ) {
+        target.blur()
+        return
+      }
+
+      if (isInput) return
+
+      // Only handle shortcuts when our viewer is in the active document
+      if (!containerRef.current?.isConnected) return
+
+      switch (e.key) {
+        case "p":
+        case "P":
+          e.preventDefault()
+          handleFiltersChange({ paused: !filters.paused })
+          break
+        case "w":
+        case "W":
+          e.preventDefault()
+          handleFiltersChange({ wrap: !filters.wrap })
+          break
+        case "t":
+        case "T":
+          e.preventDefault()
+          handleFiltersChange({ timestamps: !filters.timestamps })
+          break
+        case "g":
+          e.preventDefault()
+          scrollToTop()
+          break
+        case "G":
+          e.preventDefault()
+          handleFollowLatest()
+          break
+        case "n":
+          e.preventDefault()
+          jumpToError("next")
+          break
+        case "N":
+          e.preventDefault()
+          jumpToError("prev")
+          break
+      }
+    }
+    window.addEventListener("keydown", onKey)
+    return () => window.removeEventListener("keydown", onKey)
+  }, [
+    filters.paused,
+    filters.wrap,
+    filters.timestamps,
+    handleFiltersChange,
+    scrollToTop,
+    handleFollowLatest,
+    jumpToError,
+  ])
+
+  // ---------------------------------------------------------------------------
   // Title
   // ---------------------------------------------------------------------------
   const title =
@@ -229,31 +463,39 @@ export function BuildLogViewer({
 
   return (
     <div
+      ref={containerRef}
       className={cn(
-        "flex flex-col w-full min-h-0 overflow-hidden rounded-lg border border-zinc-800 bg-zinc-950",
-        className,
+        "flex min-h-0 w-full flex-col overflow-hidden rounded-lg border border-zinc-800 bg-zinc-950",
+        className
       )}
     >
-      {/* Title bar */}
-      <TitleBar title={title} isLive={connected} lineCount={filtered.length} />
+      <TitleBar
+        title={title}
+        isLive={connected}
+        lineCount={filtered.length}
+        errorCount={errorCount}
+        warnCount={warnCount}
+      />
 
-      {/* Error banner */}
       {error && (
-        <div className="px-4 py-1.5 text-xs text-red-400 bg-red-500/10 border-b border-red-500/20 shrink-0">
+        <div className="shrink-0 border-b border-red-500/20 bg-red-500/10 px-4 py-1.5 text-xs text-red-400">
           {error}
         </div>
       )}
 
-      {/* Filter bar */}
       <LogFilters
         state={filters}
         onChange={handleFiltersChange}
         onDownload={handleDownload}
+        onCopy={() => void handleCopy()}
+        onJumpError={jumpToError}
         bufferedCount={pauseBufferRef.current.length}
+        errorCount={errorCount}
+        warnCount={warnCount}
+        searchInputRef={searchInputRef}
       />
 
-      {/* Log body — scrollable, fills remaining space */}
-      <div className="relative flex-1 min-h-0">
+      <div className="relative min-h-0 flex-1">
         <div
           ref={scrollRef}
           onScroll={handleScroll}
@@ -262,23 +504,29 @@ export function BuildLogViewer({
           aria-live="polite"
           aria-label={`${title} output`}
         >
-          {/* Log lines container — observed by MutationObserver */}
           <div ref={logBodyRef} className="py-2">
             {filtered.length === 0 ? (
-              <div className="px-4 py-2 text-zinc-500">
-                {filters.search || filters.level !== "all"
-                  ? "No lines match the current filters."
-                  : "Waiting for logs\u2026"}
-              </div>
+              <EmptyState
+                filtered={filtered.length}
+                total={displayLines.length}
+                filters={filters}
+                connected={connected}
+                hasError={Boolean(error)}
+              />
             ) : (
               filtered.map((line) => (
-                <LogLine key={line.id} line={line} search={filters.search} />
+                <LogLine
+                  key={line.id}
+                  line={line}
+                  search={filters.search}
+                  wrap={filters.wrap}
+                  showTimestamps={filters.timestamps}
+                />
               ))
             )}
           </div>
         </div>
 
-        {/* Floating "Follow latest" button */}
         <FollowButton
           visible={showFollowBtn}
           newCount={newLineCount}

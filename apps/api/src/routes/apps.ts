@@ -709,12 +709,16 @@ export function createAppsRouter(db: Db): Hono {
     // Docker only applies restart policy at container creation time.
     // If a running app changes policy, immediately recreate the runtime so the
     // new policy from the DB becomes effective right away.
+    let restartTriggered = false
     if (restartPolicyChanged && existing.status === "running") {
       const { restartApp } = await import("../worker/runner.js")
-      await restartApp(appId, db, user.id)
+      // Background restart so the PATCH response (and the toast tied to it)
+      // doesn't block on runBlueGreen — the badge transitions via SSE.
+      await restartApp(appId, db, user.id, { background: true })
+      restartTriggered = true
     }
 
-    return c.json({ app: serializeApp(updated) })
+    return c.json({ app: serializeApp(updated), restartTriggered })
   })
 
   // -------------------------------------------------------------------------
@@ -1195,8 +1199,13 @@ export function createAppsRouter(db: Db): Hono {
 
     try {
       const { restartApp } = await import("../worker/runner.js")
-      await restartApp(appId, db, user.id)
-      return c.json({ ok: true })
+      // Await only the prelude (build precheck + DB write to "restarting" +
+      // SSE event); stop + redeploy run in the background so the response
+      // returns before runBlueGreen's onLive emits the "running" event.
+      // Otherwise the front sees the SSE flip status to "running" before the
+      // mutation promise resolves, inverting toast/badge ordering.
+      await restartApp(appId, db, user.id, { background: true })
+      return c.json({ ok: true }, 202)
     } catch (err) {
       const message = err instanceof Error ? err.message : String(err)
       return c.json({ error: { code: "RESTART_FAILED", message } }, 500)

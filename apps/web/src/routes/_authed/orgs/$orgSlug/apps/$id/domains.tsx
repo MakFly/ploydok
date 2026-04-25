@@ -12,6 +12,7 @@ import { DomainCard } from "../../../../../../components/domains/DomainCard"
 import { AddDomainDialog } from "../../../../../../components/domains/AddDomainDialog"
 import { TlsModeSwitcher } from "../../../../../../components/domains/TlsModeSwitcher"
 import { useMe } from "../../../../../../lib/auth"
+import { Skeleton } from "@workspace/ui/components/skeleton"
 import type { Domain } from "../../../../../../lib/domains"
 
 function AppDomainsTab(): React.JSX.Element {
@@ -20,8 +21,10 @@ function AppDomainsTab(): React.JSX.Element {
   const { data: domains, isLoading, isError } = useDomains(appId)
   const { mutate: createDomain, isPending: isAdding } = useCreateDomain(appId)
   const { mutate: deleteDomain, isPending: isDeleting } = useDeleteDomain(appId)
-  const { mutate: switchTlsMode, isPending: isSwitching } = useSwitchTlsMode(appId)
-  const { mutate: retryVerification, isPending: isRetrying } = useRetryVerification(appId)
+  const { mutate: switchTlsMode, isPending: isSwitching } =
+    useSwitchTlsMode(appId)
+  const { mutate: retryVerification, isPending: isRetrying } =
+    useRetryVerification(appId)
   const { data: me } = useMe()
 
   const lockReason = me?.needs_second_factor
@@ -33,7 +36,9 @@ function AppDomainsTab(): React.JSX.Element {
   if (isError) {
     return (
       <div className="flex flex-col items-center justify-center rounded-lg border border-dashed border-destructive/40 bg-destructive/5 py-12 text-center">
-        <p className="text-sm font-medium text-destructive">Failed to load domains</p>
+        <p className="text-sm font-medium text-destructive">
+          Failed to load domains
+        </p>
         <p className="mt-1 text-xs text-muted-foreground">
           Check your connection and try refreshing.
         </p>
@@ -46,7 +51,7 @@ function AppDomainsTab(): React.JSX.Element {
       <div className="flex items-center justify-between">
         <div>
           <h2 className="text-sm font-semibold">Custom domains</h2>
-          <p className="text-xs text-muted-foreground mt-0.5">
+          <p className="mt-0.5 text-xs text-muted-foreground">
             Point your DNS to this app and manage TLS certificates here.
           </p>
         </div>
@@ -60,8 +65,24 @@ function AppDomainsTab(): React.JSX.Element {
 
       {isLoading ? (
         <div className="space-y-2">
-          {[1, 2].map((i) => (
-            <div key={i} className="h-14 animate-pulse rounded-lg border border-border bg-muted/30" />
+          {[1, 2, 3].map((i) => (
+            <div
+              key={i}
+              className="flex flex-col gap-2 rounded-lg border border-border bg-card px-4 py-3"
+            >
+              <div className="flex items-center justify-between gap-2">
+                <div className="flex min-w-0 flex-1 items-center gap-2">
+                  <Skeleton className="h-4 w-48" />
+                  <Skeleton className="h-4 w-14 rounded" />
+                  <Skeleton className="h-3 w-12" />
+                </div>
+                <div className="flex shrink-0 items-center gap-1">
+                  <Skeleton className="h-5 w-16 rounded" />
+                  <Skeleton className="h-6 w-20 rounded" />
+                  <Skeleton className="h-6 w-16 rounded" />
+                </div>
+              </div>
+            </div>
           ))}
         </div>
       ) : domains && domains.length > 0 ? (
@@ -83,7 +104,9 @@ function AppDomainsTab(): React.JSX.Element {
         </div>
       ) : (
         <div className="flex flex-col items-center justify-center rounded-lg border border-dashed border-border py-12 text-center">
-          <p className="text-sm font-medium text-muted-foreground">No custom domains yet</p>
+          <p className="text-sm font-medium text-muted-foreground">
+            No custom domains yet
+          </p>
           <p className="mt-1 text-xs text-muted-foreground">
             Add a domain to expose your app on a custom URL.
           </p>
@@ -91,8 +114,8 @@ function AppDomainsTab(): React.JSX.Element {
       )}
 
       <p className="px-1 text-[11px] text-muted-foreground">
-        After adding a domain, verify ownership by adding the TXT record shown. TLS certificates
-        are provisioned automatically via Caddy.
+        After adding a domain, verify ownership by adding the TXT record shown.
+        TLS certificates are provisioned automatically via Caddy.
       </p>
 
       {switchTarget && (
@@ -100,7 +123,9 @@ function AppDomainsTab(): React.JSX.Element {
           domainId={switchTarget.id}
           currentMode={switchTarget.tlsMode}
           open={Boolean(switchTarget)}
-          onOpenChange={(open) => { if (!open) setSwitchTarget(null) }}
+          onOpenChange={(open) => {
+            if (!open) setSwitchTarget(null)
+          }}
           onSwitch={(params) => switchTlsMode(params)}
           isSwitching={isSwitching}
         />
@@ -109,6 +134,8 @@ function AppDomainsTab(): React.JSX.Element {
   )
 }
 
-export const Route = createFileRoute("/_authed/orgs/$orgSlug/apps/$id/domains")({
-  component: AppDomainsTab,
-})
+export const Route = createFileRoute("/_authed/orgs/$orgSlug/apps/$id/domains")(
+  {
+    component: AppDomainsTab,
+  }
+)

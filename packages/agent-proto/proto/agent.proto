@@ -414,6 +414,37 @@ message RestoreResult {
 }
 
 // ─────────────────────────────────────────────────────────────────────────────
+// Host stats (Sprint 6.6 — VPS health monitoring)
+// ─────────────────────────────────────────────────────────────────────────────
+
+message HostStatsRequest {}
+
+message HostStatsResponse {
+  // CPU usage averaged on a short window (0.0 → 100.0).
+  double cpu_percent = 1;
+  uint64 mem_total_bytes = 2;
+  uint64 mem_used_bytes = 3;
+  uint64 mem_available_bytes = 4;
+  uint64 swap_total_bytes = 5;
+  uint64 swap_used_bytes = 6;
+  // /proc/loadavg : 1m, 5m, 15m
+  double load_1 = 7;
+  double load_5 = 8;
+  double load_15 = 9;
+  // Disk usage on the root filesystem.
+  uint64 disk_total_bytes = 10;
+  uint64 disk_used_bytes = 11;
+  uint64 disk_free_bytes = 12;
+  // Inode usage on the root filesystem.
+  uint64 inodes_total = 13;
+  uint64 inodes_used = 14;
+  uint32 cpu_count = 15;
+  uint64 uptime_seconds = 16;
+  // Optional error message if a partial read failed.
+  string error = 17;
+}
+
+// ─────────────────────────────────────────────────────────────────────────────
 // Service definition
 // ─────────────────────────────────────────────────────────────────────────────
 
@@ -448,4 +479,7 @@ service Agent {
   // Database backup / restore (streaming)
   rpc DumpDatabase    (DumpRequest)             returns (stream DumpChunk);
   rpc RestoreDatabase (stream RestoreChunk)     returns (RestoreResult);
+
+  // Host monitoring (VPS health — Sprint 6.6)
+  rpc HostStats       (HostStatsRequest)        returns (HostStatsResponse);
 }

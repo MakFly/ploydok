@@ -422,6 +422,34 @@ export interface RestoreResult {
   error: string;
 }
 
+export interface HostStatsRequest {
+}
+
+export interface HostStatsResponse {
+  /** CPU usage averaged on a short window (0.0 → 100.0). */
+  cpuPercent: number;
+  memTotalBytes: number;
+  memUsedBytes: number;
+  memAvailableBytes: number;
+  swapTotalBytes: number;
+  swapUsedBytes: number;
+  /** /proc/loadavg : 1m, 5m, 15m */
+  load1: number;
+  load5: number;
+  load15: number;
+  /** Disk usage on the root filesystem. */
+  diskTotalBytes: number;
+  diskUsedBytes: number;
+  diskFreeBytes: number;
+  /** Inode usage on the root filesystem. */
+  inodesTotal: number;
+  inodesUsed: number;
+  cpuCount: number;
+  uptimeSeconds: number;
+  /** Optional error message if a partial read failed. */
+  error: string;
+}
+
 function createBaseVolumeMount(): VolumeMount {
   return { hostPath: "", containerPath: "", readOnly: false };
 }
@@ -5199,6 +5227,447 @@ export const RestoreResult: MessageFns<RestoreResult> = {
   },
 };
 
+function createBaseHostStatsRequest(): HostStatsRequest {
+  return {};
+}
+
+export const HostStatsRequest: MessageFns<HostStatsRequest> = {
+  encode(_: HostStatsRequest, writer: BinaryWriter = new BinaryWriter()): BinaryWriter {
+    return writer;
+  },
+
+  decode(input: BinaryReader | Uint8Array, length?: number): HostStatsRequest {
+    const reader = input instanceof BinaryReader ? input : new BinaryReader(input);
+    const end = length === undefined ? reader.len : reader.pos + length;
+    const message = createBaseHostStatsRequest();
+    while (reader.pos < end) {
+      const tag = reader.uint32();
+      switch (tag >>> 3) {
+      }
+      if ((tag & 7) === 4 || tag === 0) {
+        break;
+      }
+      reader.skip(tag & 7);
+    }
+    return message;
+  },
+
+  fromJSON(_: any): HostStatsRequest {
+    return {};
+  },
+
+  toJSON(_: HostStatsRequest): unknown {
+    const obj: any = {};
+    return obj;
+  },
+
+  create(base?: DeepPartial<HostStatsRequest>): HostStatsRequest {
+    return HostStatsRequest.fromPartial(base ?? {});
+  },
+  fromPartial(_: DeepPartial<HostStatsRequest>): HostStatsRequest {
+    const message = createBaseHostStatsRequest();
+    return message;
+  },
+};
+
+function createBaseHostStatsResponse(): HostStatsResponse {
+  return {
+    cpuPercent: 0,
+    memTotalBytes: 0,
+    memUsedBytes: 0,
+    memAvailableBytes: 0,
+    swapTotalBytes: 0,
+    swapUsedBytes: 0,
+    load1: 0,
+    load5: 0,
+    load15: 0,
+    diskTotalBytes: 0,
+    diskUsedBytes: 0,
+    diskFreeBytes: 0,
+    inodesTotal: 0,
+    inodesUsed: 0,
+    cpuCount: 0,
+    uptimeSeconds: 0,
+    error: "",
+  };
+}
+
+export const HostStatsResponse: MessageFns<HostStatsResponse> = {
+  encode(message: HostStatsResponse, writer: BinaryWriter = new BinaryWriter()): BinaryWriter {
+    if (message.cpuPercent !== 0) {
+      writer.uint32(9).double(message.cpuPercent);
+    }
+    if (message.memTotalBytes !== 0) {
+      writer.uint32(16).uint64(message.memTotalBytes);
+    }
+    if (message.memUsedBytes !== 0) {
+      writer.uint32(24).uint64(message.memUsedBytes);
+    }
+    if (message.memAvailableBytes !== 0) {
+      writer.uint32(32).uint64(message.memAvailableBytes);
+    }
+    if (message.swapTotalBytes !== 0) {
+      writer.uint32(40).uint64(message.swapTotalBytes);
+    }
+    if (message.swapUsedBytes !== 0) {
+      writer.uint32(48).uint64(message.swapUsedBytes);
+    }
+    if (message.load1 !== 0) {
+      writer.uint32(57).double(message.load1);
+    }
+    if (message.load5 !== 0) {
+      writer.uint32(65).double(message.load5);
+    }
+    if (message.load15 !== 0) {
+      writer.uint32(73).double(message.load15);
+    }
+    if (message.diskTotalBytes !== 0) {
+      writer.uint32(80).uint64(message.diskTotalBytes);
+    }
+    if (message.diskUsedBytes !== 0) {
+      writer.uint32(88).uint64(message.diskUsedBytes);
+    }
+    if (message.diskFreeBytes !== 0) {
+      writer.uint32(96).uint64(message.diskFreeBytes);
+    }
+    if (message.inodesTotal !== 0) {
+      writer.uint32(104).uint64(message.inodesTotal);
+    }
+    if (message.inodesUsed !== 0) {
+      writer.uint32(112).uint64(message.inodesUsed);
+    }
+    if (message.cpuCount !== 0) {
+      writer.uint32(120).uint32(message.cpuCount);
+    }
+    if (message.uptimeSeconds !== 0) {
+      writer.uint32(128).uint64(message.uptimeSeconds);
+    }
+    if (message.error !== "") {
+      writer.uint32(138).string(message.error);
+    }
+    return writer;
+  },
+
+  decode(input: BinaryReader | Uint8Array, length?: number): HostStatsResponse {
+    const reader = input instanceof BinaryReader ? input : new BinaryReader(input);
+    const end = length === undefined ? reader.len : reader.pos + length;
+    const message = createBaseHostStatsResponse();
+    while (reader.pos < end) {
+      const tag = reader.uint32();
+      switch (tag >>> 3) {
+        case 1: {
+          if (tag !== 9) {
+            break;
+          }
+
+          message.cpuPercent = reader.double();
+          continue;
+        }
+        case 2: {
+          if (tag !== 16) {
+            break;
+          }
+
+          message.memTotalBytes = longToNumber(reader.uint64());
+          continue;
+        }
+        case 3: {
+          if (tag !== 24) {
+            break;
+          }
+
+          message.memUsedBytes = longToNumber(reader.uint64());
+          continue;
+        }
+        case 4: {
+          if (tag !== 32) {
+            break;
+          }
+
+          message.memAvailableBytes = longToNumber(reader.uint64());
+          continue;
+        }
+        case 5: {
+          if (tag !== 40) {
+            break;
+          }
+
+          message.swapTotalBytes = longToNumber(reader.uint64());
+          continue;
+        }
+        case 6: {
+          if (tag !== 48) {
+            break;
+          }
+
+          message.swapUsedBytes = longToNumber(reader.uint64());
+          continue;
+        }
+        case 7: {
+          if (tag !== 57) {
+            break;
+          }
+
+          message.load1 = reader.double();
+          continue;
+        }
+        case 8: {
+          if (tag !== 65) {
+            break;
+          }
+
+          message.load5 = reader.double();
+          continue;
+        }
+        case 9: {
+          if (tag !== 73) {
+            break;
+          }
+
+          message.load15 = reader.double();
+          continue;
+        }
+        case 10: {
+          if (tag !== 80) {
+            break;
+          }
+
+          message.diskTotalBytes = longToNumber(reader.uint64());
+          continue;
+        }
+        case 11: {
+          if (tag !== 88) {
+            break;
+          }
+
+          message.diskUsedBytes = longToNumber(reader.uint64());
+          continue;
+        }
+        case 12: {
+          if (tag !== 96) {
+            break;
+          }
+
+          message.diskFreeBytes = longToNumber(reader.uint64());
+          continue;
+        }
+        case 13: {
+          if (tag !== 104) {
+            break;
+          }
+
+          message.inodesTotal = longToNumber(reader.uint64());
+          continue;
+        }
+        case 14: {
+          if (tag !== 112) {
+            break;
+          }
+
+          message.inodesUsed = longToNumber(reader.uint64());
+          continue;
+        }
+        case 15: {
+          if (tag !== 120) {
+            break;
+          }
+
+          message.cpuCount = reader.uint32();
+          continue;
+        }
+        case 16: {
+          if (tag !== 128) {
+            break;
+          }
+
+          message.uptimeSeconds = longToNumber(reader.uint64());
+          continue;
+        }
+        case 17: {
+          if (tag !== 138) {
+            break;
+          }
+
+          message.error = reader.string();
+          continue;
+        }
+      }
+      if ((tag & 7) === 4 || tag === 0) {
+        break;
+      }
+      reader.skip(tag & 7);
+    }
+    return message;
+  },
+
+  fromJSON(object: any): HostStatsResponse {
+    return {
+      cpuPercent: isSet(object.cpuPercent)
+        ? globalThis.Number(object.cpuPercent)
+        : isSet(object.cpu_percent)
+        ? globalThis.Number(object.cpu_percent)
+        : 0,
+      memTotalBytes: isSet(object.memTotalBytes)
+        ? globalThis.Number(object.memTotalBytes)
+        : isSet(object.mem_total_bytes)
+        ? globalThis.Number(object.mem_total_bytes)
+        : 0,
+      memUsedBytes: isSet(object.memUsedBytes)
+        ? globalThis.Number(object.memUsedBytes)
+        : isSet(object.mem_used_bytes)
+        ? globalThis.Number(object.mem_used_bytes)
+        : 0,
+      memAvailableBytes: isSet(object.memAvailableBytes)
+        ? globalThis.Number(object.memAvailableBytes)
+        : isSet(object.mem_available_bytes)
+        ? globalThis.Number(object.mem_available_bytes)
+        : 0,
+      swapTotalBytes: isSet(object.swapTotalBytes)
+        ? globalThis.Number(object.swapTotalBytes)
+        : isSet(object.swap_total_bytes)
+        ? globalThis.Number(object.swap_total_bytes)
+        : 0,
+      swapUsedBytes: isSet(object.swapUsedBytes)
+        ? globalThis.Number(object.swapUsedBytes)
+        : isSet(object.swap_used_bytes)
+        ? globalThis.Number(object.swap_used_bytes)
+        : 0,
+      load1: isSet(object.load1)
+        ? globalThis.Number(object.load1)
+        : isSet(object.load_1)
+        ? globalThis.Number(object.load_1)
+        : 0,
+      load5: isSet(object.load5)
+        ? globalThis.Number(object.load5)
+        : isSet(object.load_5)
+        ? globalThis.Number(object.load_5)
+        : 0,
+      load15: isSet(object.load15)
+        ? globalThis.Number(object.load15)
+        : isSet(object.load_15)
+        ? globalThis.Number(object.load_15)
+        : 0,
+      diskTotalBytes: isSet(object.diskTotalBytes)
+        ? globalThis.Number(object.diskTotalBytes)
+        : isSet(object.disk_total_bytes)
+        ? globalThis.Number(object.disk_total_bytes)
+        : 0,
+      diskUsedBytes: isSet(object.diskUsedBytes)
+        ? globalThis.Number(object.diskUsedBytes)
+        : isSet(object.disk_used_bytes)
+        ? globalThis.Number(object.disk_used_bytes)
+        : 0,
+      diskFreeBytes: isSet(object.diskFreeBytes)
+        ? globalThis.Number(object.diskFreeBytes)
+        : isSet(object.disk_free_bytes)
+        ? globalThis.Number(object.disk_free_bytes)
+        : 0,
+      inodesTotal: isSet(object.inodesTotal)
+        ? globalThis.Number(object.inodesTotal)
+        : isSet(object.inodes_total)
+        ? globalThis.Number(object.inodes_total)
+        : 0,
+      inodesUsed: isSet(object.inodesUsed)
+        ? globalThis.Number(object.inodesUsed)
+        : isSet(object.inodes_used)
+        ? globalThis.Number(object.inodes_used)
+        : 0,
+      cpuCount: isSet(object.cpuCount)
+        ? globalThis.Number(object.cpuCount)
+        : isSet(object.cpu_count)
+        ? globalThis.Number(object.cpu_count)
+        : 0,
+      uptimeSeconds: isSet(object.uptimeSeconds)
+        ? globalThis.Number(object.uptimeSeconds)
+        : isSet(object.uptime_seconds)
+        ? globalThis.Number(object.uptime_seconds)
+        : 0,
+      error: isSet(object.error) ? globalThis.String(object.error) : "",
+    };
+  },
+
+  toJSON(message: HostStatsResponse): unknown {
+    const obj: any = {};
+    if (message.cpuPercent !== 0) {
+      obj.cpuPercent = message.cpuPercent;
+    }
+    if (message.memTotalBytes !== 0) {
+      obj.memTotalBytes = Math.round(message.memTotalBytes);
+    }
+    if (message.memUsedBytes !== 0) {
+      obj.memUsedBytes = Math.round(message.memUsedBytes);
+    }
+    if (message.memAvailableBytes !== 0) {
+      obj.memAvailableBytes = Math.round(message.memAvailableBytes);
+    }
+    if (message.swapTotalBytes !== 0) {
+      obj.swapTotalBytes = Math.round(message.swapTotalBytes);
+    }
+    if (message.swapUsedBytes !== 0) {
+      obj.swapUsedBytes = Math.round(message.swapUsedBytes);
+    }
+    if (message.load1 !== 0) {
+      obj.load1 = message.load1;
+    }
+    if (message.load5 !== 0) {
+      obj.load5 = message.load5;
+    }
+    if (message.load15 !== 0) {
+      obj.load15 = message.load15;
+    }
+    if (message.diskTotalBytes !== 0) {
+      obj.diskTotalBytes = Math.round(message.diskTotalBytes);
+    }
+    if (message.diskUsedBytes !== 0) {
+      obj.diskUsedBytes = Math.round(message.diskUsedBytes);
+    }
+    if (message.diskFreeBytes !== 0) {
+      obj.diskFreeBytes = Math.round(message.diskFreeBytes);
+    }
+    if (message.inodesTotal !== 0) {
+      obj.inodesTotal = Math.round(message.inodesTotal);
+    }
+    if (message.inodesUsed !== 0) {
+      obj.inodesUsed = Math.round(message.inodesUsed);
+    }
+    if (message.cpuCount !== 0) {
+      obj.cpuCount = Math.round(message.cpuCount);
+    }
+    if (message.uptimeSeconds !== 0) {
+      obj.uptimeSeconds = Math.round(message.uptimeSeconds);
+    }
+    if (message.error !== "") {
+      obj.error = message.error;
+    }
+    return obj;
+  },
+
+  create(base?: DeepPartial<HostStatsResponse>): HostStatsResponse {
+    return HostStatsResponse.fromPartial(base ?? {});
+  },
+  fromPartial(object: DeepPartial<HostStatsResponse>): HostStatsResponse {
+    const message = createBaseHostStatsResponse();
+    message.cpuPercent = object.cpuPercent ?? 0;
+    message.memTotalBytes = object.memTotalBytes ?? 0;
+    message.memUsedBytes = object.memUsedBytes ?? 0;
+    message.memAvailableBytes = object.memAvailableBytes ?? 0;
+    message.swapTotalBytes = object.swapTotalBytes ?? 0;
+    message.swapUsedBytes = object.swapUsedBytes ?? 0;
+    message.load1 = object.load1 ?? 0;
+    message.load5 = object.load5 ?? 0;
+    message.load15 = object.load15 ?? 0;
+    message.diskTotalBytes = object.diskTotalBytes ?? 0;
+    message.diskUsedBytes = object.diskUsedBytes ?? 0;
+    message.diskFreeBytes = object.diskFreeBytes ?? 0;
+    message.inodesTotal = object.inodesTotal ?? 0;
+    message.inodesUsed = object.inodesUsed ?? 0;
+    message.cpuCount = object.cpuCount ?? 0;
+    message.uptimeSeconds = object.uptimeSeconds ?? 0;
+    message.error = object.error ?? "";
+    return message;
+  },
+};
+
 export type AgentService = typeof AgentService;
 export const AgentService = {
   /** Container lifecycle */
@@ -5378,6 +5847,16 @@ export const AgentService = {
     responseSerialize: (value: RestoreResult): Buffer => Buffer.from(RestoreResult.encode(value).finish()),
     responseDeserialize: (value: Buffer): RestoreResult => RestoreResult.decode(value),
   },
+  /** Host monitoring (VPS health — Sprint 6.6) */
+  hostStats: {
+    path: "/ploydok.agent.v1.Agent/HostStats" as const,
+    requestStream: false as const,
+    responseStream: false as const,
+    requestSerialize: (value: HostStatsRequest): Buffer => Buffer.from(HostStatsRequest.encode(value).finish()),
+    requestDeserialize: (value: Buffer): HostStatsRequest => HostStatsRequest.decode(value),
+    responseSerialize: (value: HostStatsResponse): Buffer => Buffer.from(HostStatsResponse.encode(value).finish()),
+    responseDeserialize: (value: Buffer): HostStatsResponse => HostStatsResponse.decode(value),
+  },
 } as const;
 
 export interface AgentServer extends UntypedServiceImplementation {
@@ -5405,6 +5884,8 @@ export interface AgentServer extends UntypedServiceImplementation {
   /** Database backup / restore (streaming) */
   dumpDatabase: handleServerStreamingCall<DumpRequest, DumpChunk>;
   restoreDatabase: handleClientStreamingCall<RestoreChunk, RestoreResult>;
+  /** Host monitoring (VPS health — Sprint 6.6) */
+  hostStats: handleUnaryCall<HostStatsRequest, HostStatsResponse>;
 }
 
 export interface AgentClient extends Client {
@@ -5614,6 +6095,22 @@ export interface AgentClient extends Client {
     options: Partial<CallOptions>,
     callback: (error: ServiceError | null, response: RestoreResult) => void,
   ): ClientWritableStream<RestoreChunk>;
+  /** Host monitoring (VPS health — Sprint 6.6) */
+  hostStats(
+    request: HostStatsRequest,
+    callback: (error: ServiceError | null, response: HostStatsResponse) => void,
+  ): ClientUnaryCall;
+  hostStats(
+    request: HostStatsRequest,
+    metadata: Metadata,
+    callback: (error: ServiceError | null, response: HostStatsResponse) => void,
+  ): ClientUnaryCall;
+  hostStats(
+    request: HostStatsRequest,
+    metadata: Metadata,
+    options: Partial<CallOptions>,
+    callback: (error: ServiceError | null, response: HostStatsResponse) => void,
+  ): ClientUnaryCall;
 }
 
 export const AgentClient = makeGenericClientConstructor(AgentService, "ploydok.agent.v1.Agent") as unknown as {

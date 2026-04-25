@@ -31,12 +31,15 @@ export function EventsProvider({
   const backendUnavailable = useBackendUnavailable()
   const [connected, setConnected] = React.useState(false)
   const listenersRef = React.useRef(new Map<string, Set<Listener>>())
+  const abortRef = React.useRef<AbortController | null>(null)
   const attachedRef = React.useRef(new Set<string>())
   const esRef = React.useRef<EventSource | null>(null)
 
   React.useEffect(() => {
     if (typeof window === "undefined") return
     if (backendUnavailable.active) {
+      abortRef.current?.abort()
+      abortRef.current = null
       esRef.current?.close()
       esRef.current = null
       attachedRef.current = new Set<string>()
@@ -46,6 +49,8 @@ export function EventsProvider({
 
     const es = new EventSource(`${API_BASE}/events`, { withCredentials: true })
     esRef.current = es
+    const abort = new AbortController()
+    abortRef.current = abort
     attachedRef.current = new Set<string>()
 
     es.onopen = () => setConnected(true)
@@ -55,12 +60,14 @@ export function EventsProvider({
     // Needed if a consumer subscribed before the EventSource was opened.
     for (const eventType of listenersRef.current.keys()) {
       if (!attachedRef.current.has(eventType)) {
-        attachListener(es, eventType, listenersRef.current)
+        attachListener(es, eventType, listenersRef.current, abort.signal)
         attachedRef.current.add(eventType)
       }
     }
 
     return () => {
+      abort.abort()
+      if (abortRef.current === abort) abortRef.current = null
       es.close()
       esRef.current = null
       attachedRef.current = new Set<string>()
@@ -81,8 +88,9 @@ export function EventsProvider({
     // emptied then re-populated — that duplicated listener calls on every
     // resubscription (e.g. after a `connected` flip).
     const es = esRef.current
-    if (es && !attachedRef.current.has(eventType)) {
-      attachListener(es, eventType, listenersRef.current)
+    const abort = abortRef.current
+    if (es && abort && !attachedRef.current.has(eventType)) {
+      attachListener(es, eventType, listenersRef.current, abort.signal)
       attachedRef.current.add(eventType)
     }
 
@@ -90,8 +98,7 @@ export function EventsProvider({
       const s = listenersRef.current.get(eventType)
       if (!s) return
       s.delete(cb)
-      // Keep the empty Set in the map so the attached listener stays
-      // registered — no removeEventListener handle available anyway.
+      if (s.size === 0) listenersRef.current.delete(eventType)
     }
   }, [])
 
@@ -109,30 +116,35 @@ function attachListener(
   es: EventSource,
   eventType: string,
   map: Map<string, Set<Listener>>,
+  signal: AbortSignal
 ): void {
-  es.addEventListener(eventType, (ev: Event) => {
-    const set = map.get(eventType)
-    if (!set || set.size === 0) return
-    const msgEvent = ev as MessageEvent<string>
-    let parsed: unknown
-    try {
-      parsed = JSON.parse(msgEvent.data)
-    } catch {
-      return
-    }
-    for (const cb of set) {
+  es.addEventListener(
+    eventType,
+    (ev: Event) => {
+      const set = map.get(eventType)
+      if (!set || set.size === 0) return
+      const msgEvent = ev as MessageEvent<string>
+      let parsed: unknown
       try {
-        cb(parsed)
+        parsed = JSON.parse(msgEvent.data)
       } catch {
-        // Subscriber errors must not crash the dispatcher.
+        return
       }
-    }
-  })
+      for (const cb of set) {
+        try {
+          cb(parsed)
+        } catch {
+          // Subscriber errors must not crash the dispatcher.
+        }
+      }
+    },
+    { signal }
+  )
 }
 
 export function useEventsSubscription<T>(
   eventType: string,
-  callback: (data: T) => void,
+  callback: (data: T) => void
 ): void {
   const subscribe = React.useContext(SubscribeContext)
   const cbRef = React.useRef(callback)
@@ -151,4 +163,13 @@ export function useEventsSubscription<T>(
 
 export function useEventsConnected(): boolean {
   return React.useContext(ConnectedContext)
+}
+
+/**
+ * Imperative access to the SSE subscribe function. Lets callers arm a one-shot
+ * listener (e.g. wait for the next `deploy.status_change` event for an app
+ * after triggering a background restart) without React-Effect lifecycle.
+ */
+export function useEventsSubscribeFn(): Subscribe | null {
+  return React.useContext(SubscribeContext)
 }

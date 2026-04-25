@@ -22,6 +22,7 @@ let _clientAccessExpiresAt: number | null = null
 
 interface RuntimeState {
   csrfToken: string | null
+  csrfPromise: Promise<string> | null
   refreshPromise: Promise<RefreshResult> | null
   getCache: Map<string, Promise<unknown>>
 }
@@ -29,6 +30,7 @@ interface RuntimeState {
 function createRuntimeState(): RuntimeState {
   return {
     csrfToken: null,
+    csrfPromise: null,
     refreshPromise: null,
     getCache: new Map(),
   }
@@ -79,7 +81,8 @@ export function getAccessExpiry(): number | null {
 //   evaluates the import() at runtime.
 // ---------------------------------------------------------------------------
 
-const DEBUG_AUTH = typeof process !== "undefined" && !!process.env["PLOYDOK_DEBUG_AUTH"]
+const DEBUG_AUTH =
+  typeof process !== "undefined" && !!process.env["PLOYDOK_DEBUG_AUTH"]
 
 // Per-request cookie rotation: when /auth/refresh sets new cookies during the
 // SSR cycle, the in-flight retry must use them. The incoming Cookie header is
@@ -95,10 +98,13 @@ let _serverModPromise: Promise<ReactStartServer | null> | null = null
 async function getServerMod(): Promise<ReactStartServer | null> {
   if (typeof window !== "undefined") return null
   if (!_serverModPromise) {
-    _serverModPromise = import("@tanstack/react-start/server").catch((e: unknown) => {
-      if (DEBUG_AUTH) console.log("[ssr-auth] failed to load react-start/server:", e)
-      return null
-    })
+    _serverModPromise = import("@tanstack/react-start/server").catch(
+      (e: unknown) => {
+        if (DEBUG_AUTH)
+          console.log("[ssr-auth] failed to load react-start/server:", e)
+        return null
+      }
+    )
   }
   return _serverModPromise
 }
@@ -161,7 +167,7 @@ async function buildSsrCookieHeader(): Promise<string> {
       "[ssr-auth] buildSsrCookieHeader → names:",
       Object.keys(merged).join(",") || "(none)",
       "len:",
-      header.length,
+      header.length
     )
   }
   return header
@@ -175,7 +181,11 @@ async function applySsrSetCookies(setCookies: Array<string>): Promise<void> {
   try {
     mod.setResponseHeader("set-cookie", setCookies)
     if (DEBUG_AUTH) {
-      console.log("[ssr-auth] forwarded", setCookies.length, "Set-Cookie headers to browser")
+      console.log(
+        "[ssr-auth] forwarded",
+        setCookies.length,
+        "Set-Cookie headers to browser"
+      )
     }
   } catch (e) {
     if (DEBUG_AUTH) console.log("[ssr-auth] setResponseHeader threw:", e)
@@ -208,11 +218,10 @@ async function applySsrSetCookies(setCookies: Array<string>): Promise<void> {
 // CSRF
 // ---------------------------------------------------------------------------
 
-async function fetchCsrf(): Promise<string> {
+async function fetchCsrf(state: RuntimeState): Promise<string> {
   const res = await rawRequest("/auth/csrf", { method: "GET" })
   if (!res.ok) throw new Error("Failed to fetch CSRF token")
   const data = (await res.json()) as { token: string }
-  const state = await getRuntimeState()
   state.csrfToken = data.token
   return data.token
 }
@@ -220,7 +229,13 @@ async function fetchCsrf(): Promise<string> {
 async function getCsrfToken(): Promise<string> {
   const state = await getRuntimeState()
   if (state.csrfToken) return state.csrfToken
-  return fetchCsrf()
+  if (state.csrfPromise) return state.csrfPromise
+  const promise = fetchCsrf(state)
+  state.csrfPromise = promise
+  void promise.finally(() => {
+    if (state.csrfPromise === promise) state.csrfPromise = null
+  })
+  return promise
 }
 
 // ---------------------------------------------------------------------------
@@ -244,10 +259,14 @@ async function rawRequest(path: string, init: RequestInit): Promise<Response> {
       "hasAccess:",
       ck.includes("ploydok_access="),
       "hasRefresh:",
-      ck.includes("ploydok_refresh="),
+      ck.includes("ploydok_refresh=")
     )
   }
-  const res = await fetch(`${API_BASE}${path}`, { credentials: "include", ...init, headers })
+  const res = await fetch(`${API_BASE}${path}`, {
+    credentials: "include",
+    ...init,
+    headers,
+  })
   if (typeof window === "undefined" && process.env["PLOYDOK_DEBUG_AUTH"]) {
     console.log("[ssr-auth] rawRequest", path, "→", res.status)
   }
@@ -283,14 +302,17 @@ async function doRefresh(): Promise<RefreshResult> {
     return { ok: false, reason }
   }
   const setCookies =
-    typeof res.headers.getSetCookie === "function" ? res.headers.getSetCookie() : []
+    typeof res.headers.getSetCookie === "function"
+      ? res.headers.getSetCookie()
+      : []
   if (typeof window === "undefined") {
     await applySsrSetCookies(setCookies)
   }
   let accessExpiresAt: number | null = null
   try {
     const data = (await res.json()) as { accessExpiresAt?: unknown }
-    if (typeof data.accessExpiresAt === "number") accessExpiresAt = data.accessExpiresAt
+    if (typeof data.accessExpiresAt === "number")
+      accessExpiresAt = data.accessExpiresAt
   } catch {
     // ignore
   }
@@ -344,7 +366,7 @@ async function apiFetchCore<T>(
   method: Method,
   body: unknown,
   extraHeaders: Record<string, string>,
-  retried: boolean,
+  retried: boolean
 ): Promise<T> {
   const isMutating = method !== "GET"
   const headers: Record<string, string> = {
@@ -371,10 +393,15 @@ async function apiFetchCore<T>(
   if (res.status === 401 && !retried && !isPreSessionPath(path)) {
     await invalidateRuntimeGetCache()
     const result = await refreshSession()
-    if (result.ok) return apiFetchCore<T>(path, method, body, extraHeaders, true)
+    if (result.ok)
+      return apiFetchCore<T>(path, method, body, extraHeaders, true)
     if (result.reason === "refresh_expired") throw new SessionExpiredError()
     if (result.reason === "network_error") throw new BackendUnavailableError()
-    throw new ApiError(503, "REFRESH_FAILED", `Refresh failed: ${result.reason}`)
+    throw new ApiError(
+      503,
+      "REFRESH_FAILED",
+      `Refresh failed: ${result.reason}`
+    )
   }
 
   if (res.status === 204) return undefined as T
@@ -385,7 +412,10 @@ async function apiFetchCore<T>(
     const errData = data as { error?: { code?: string; message?: string } }
     const code = errData.error?.code ?? "UNKNOWN"
     const message = errData.error?.message ?? "An error occurred"
-    if (res.status === 403 && (code === "SECOND_FACTOR_REQUIRED" || code === "totp_required")) {
+    if (
+      res.status === 403 &&
+      (code === "SECOND_FACTOR_REQUIRED" || code === "totp_required")
+    ) {
       throw new SecondFactorRequiredError(message)
     }
     throw new ApiError(res.status, code, message)
@@ -409,13 +439,19 @@ async function apiFetchCore<T>(
 
 export async function apiFetch<T = unknown>(
   path: string,
-  { method = "GET", body, headers: extraHeaders = {} }: ApiRequestInit = {},
+  { method = "GET", body, headers: extraHeaders = {} }: ApiRequestInit = {}
 ): Promise<T> {
   if (method === "GET") {
     const state = await getRuntimeState()
     const cached = state.getCache.get(path)
     if (cached) return cached as Promise<T>
-    const promise = apiFetchCore<T>(path, method, body, extraHeaders, false).catch((err) => {
+    const promise = apiFetchCore<T>(
+      path,
+      method,
+      body,
+      extraHeaders,
+      false
+    ).catch((err) => {
       state.getCache.delete(path)
       throw err
     })
@@ -427,7 +463,7 @@ export async function apiFetch<T = unknown>(
 
 export async function apiFetchAllowErrorBody<T = unknown>(
   path: string,
-  init: RequestInit = {},
+  init: RequestInit = {}
 ): Promise<{ response: Response; data: T | undefined }> {
   let response: Response
   try {

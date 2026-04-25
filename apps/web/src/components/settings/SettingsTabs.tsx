@@ -1,15 +1,7 @@
 // SPDX-License-Identifier: AGPL-3.0-only
 import * as React from "react"
 import { Link, useRouterState } from "@tanstack/react-router"
-import {
-  RiShip2Line,
-  RiGitMergeLine,
-  RiShieldCheckLine,
-  RiUserLine,
-  RiBellLine,
-  RiKey2Line,
-  RiTerminalBoxLine,
-} from "@remixicon/react"
+import { RiKey2Line, RiShieldCheckLine, RiUserLine } from "@remixicon/react"
 import { cn } from "@workspace/ui/lib/utils"
 
 interface SettingsTab {
@@ -33,34 +25,10 @@ const TABS: ReadonlyArray<SettingsTab> = [
     matches: (p) => p.startsWith("/settings/security"),
   },
   {
-    to: "/settings/git-providers",
-    label: "Git providers",
-    icon: RiGitMergeLine,
-    matches: (p) => p.startsWith("/settings/git-providers"),
-  },
-  {
-    to: "/settings/registry",
-    label: "Registry",
-    icon: RiShip2Line,
-    matches: (p) => p.startsWith("/settings/registry"),
-  },
-  {
-    to: "/settings/notifications",
-    label: "Notifications",
-    icon: RiBellLine,
-    matches: (p) => p.startsWith("/settings/notifications"),
-  },
-  {
     to: "/settings/license",
     label: "License",
     icon: RiKey2Line,
     matches: (p) => p.startsWith("/settings/license"),
-  },
-  {
-    to: "/settings/api-tokens",
-    label: "API tokens",
-    icon: RiTerminalBoxLine,
-    matches: (p) => p.startsWith("/settings/api-tokens"),
   },
 ]
 
