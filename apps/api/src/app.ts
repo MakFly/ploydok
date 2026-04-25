@@ -10,6 +10,7 @@ import { createDb } from "@ploydok/db"
 import { users, passkeys, totp_secrets } from "@ploydok/db"
 import { createAuthRouter } from "./routes/auth"
 import { requireAuth, type AuthUser } from "./auth/middleware"
+import { createApiTokensRouter } from "./routes/api-tokens"
 import { countActive } from "./auth/backup-codes"
 import { createDebugRouter } from "./debug/index.js"
 import { getSharedAgent, getSharedCaddy } from "./debug/singletons.js"
@@ -41,6 +42,10 @@ import { createStripeWebhookRouter } from "./routes/webhooks-stripe"
 import { createLicenseRouter } from "./routes/license"
 import { createSSORouter } from "./routes/sso"
 import { createBrandingRouter } from "./routes/branding"
+import { createEventWebhooksRouter } from "./routes/event-webhooks"
+import { createScheduledJobsRouter } from "./routes/scheduled-jobs"
+import { createProjectEnvRouter } from "./routes/project-env"
+import { createDockerHostRouter } from "./routes/docker-host"
 import { getDefaultOrganizationForUser } from "./services/organizations"
 
 const httpLog = childLogger("http")
@@ -287,6 +292,11 @@ const debugRouter = createDebugRouter()
 app.use("/debug/*", CI_AUTH_BYPASS ? ciBypassAuth : requireAuth(db))
 app.route("/debug", debugRouter)
 
+// API tokens — all endpoints require auth.
+app.use("/api-tokens", requireAuth(db))
+app.use("/api-tokens/*", requireAuth(db))
+app.route("/api-tokens", createApiTokensRouter(db))
+
 // Apps routes — auth enforced per-endpoint inside the router.
 // Order matters: specific sub-routers (env, domains) are mounted before
 // the main appsRouter to avoid path shadowing on `/:id`.
@@ -398,6 +408,37 @@ app.route("/", createSSORouter(db))
 
 // Branding (whitelabel) — requires auth ; feature-gated at route level.
 app.route("/", createBrandingRouter(db))
+
+// Event webhooks (outbound) — /orgs/:orgSlug/event-webhooks/*, requireAuth + owner.
+app.use("/orgs/*/event-webhooks/*", requireAuth(db))
+app.use("/orgs/*/event-webhooks", requireAuth(db))
+const eventWebhooksOrgScoped = new Hono()
+eventWebhooksOrgScoped.route(
+  "/:orgSlug/event-webhooks",
+  createEventWebhooksRouter(db)
+)
+app.route("/orgs", eventWebhooksOrgScoped)
+
+// Scheduled jobs (cron) — /orgs/:orgSlug/scheduled-jobs/*, requireAuth + owner.
+app.use("/orgs/*/scheduled-jobs/*", requireAuth(db))
+app.use("/orgs/*/scheduled-jobs", requireAuth(db))
+const scheduledJobsOrgScoped = new Hono()
+scheduledJobsOrgScoped.route(
+  "/:orgSlug/scheduled-jobs",
+  createScheduledJobsRouter()
+)
+app.route("/orgs", scheduledJobsOrgScoped)
+
+// Project-level shared env vars — /orgs/:orgSlug/shared-env/*.
+app.use("/orgs/*/shared-env/*", requireAuth(db))
+app.use("/orgs/*/shared-env", requireAuth(db))
+const projectEnvOrgScoped = new Hono()
+projectEnvOrgScoped.route("/:orgSlug/shared-env", createProjectEnvRouter(db))
+app.route("/orgs", projectEnvOrgScoped)
+
+// Docker host view — admin read-only.
+app.use("/docker/*", requireAuth(db))
+app.route("/", createDockerHostRouter(db))
 
 // /me — requires auth
 app.get("/me", requireAuth(db), async (c) => {

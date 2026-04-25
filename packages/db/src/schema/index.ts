@@ -1,5 +1,7 @@
 // SPDX-License-Identifier: AGPL-3.0-only
 export { apps } from "./apps"
+export { api_tokens } from "./api-tokens"
+export type { ApiTokenRow, ApiTokenInsert } from "./api-tokens"
 export { app_db_links } from "./app_db_links"
 export type { AppDbLinkRow, AppDbLinkInsert } from "./app_db_links"
 export { databases } from "./databases"
@@ -8,6 +10,7 @@ export { domains } from "./domains"
 export type { DomainRow, DomainInsert } from "./domains"
 export { env_vars } from "./env-vars"
 export type { EnvVarRow, EnvVarInsert } from "./env-vars"
+export { eventWebhooks } from "./event-webhooks"
 export { audit_log } from "./audit-log"
 export { backup_codes } from "./backup-codes"
 export { builds } from "./builds"
@@ -21,6 +24,8 @@ export type {
 } from "./instance-license"
 export { instance_settings } from "./instance_settings"
 export { passkeys } from "./passkeys"
+export { project_env_vars } from "./project-env"
+export type { ProjectEnvVarRow, ProjectEnvVarInsert } from "./project-env"
 export { projects } from "./projects"
 export { registry_credentials } from "./registry_credentials"
 export { secrets } from "./secrets"
@@ -29,6 +34,7 @@ export { sso_configs } from "./sso-configs"
 export type { SSOConfigRow, SSOConfigInsert } from "./sso-configs"
 export { totp_secrets } from "./totp"
 export { users } from "./users"
+export type { UserRow, UserInsert } from "./users"
 export { webhook_deliveries } from "./webhook-deliveries"
 export { notification_channels } from "./notification-channels"
 export { tls_certificates } from "./tls_certificates"
@@ -59,3 +65,10 @@ export type {
   OrgSubscriptionRow,
   OrgSubscriptionInsert,
 } from "./org-subscriptions"
+export { scheduled_jobs } from "./scheduled-jobs"
+export type { ScheduledJobRow, ScheduledJobInsert } from "./scheduled-jobs"
+export { scheduled_job_runs } from "./scheduled-job-runs"
+export type {
+  ScheduledJobRunRow,
+  ScheduledJobRunInsert,
+} from "./scheduled-job-runs"

@@ -22,7 +22,10 @@ export type {
   ColumnDef,
 } from "@workspace/ui/components/data-table"
 export { LogConsole } from "@workspace/ui/components/log-console"
-export type { LogLine, LogConsoleProps } from "@workspace/ui/components/log-console"
+export type {
+  LogLine,
+  LogConsoleProps,
+} from "@workspace/ui/components/log-console"
 export {
   DropdownMenu,
   DropdownMenuPortal,
@@ -75,3 +78,21 @@ export {
   CommandShortcut,
   CommandSeparator,
 } from "@workspace/ui/components/command"
+export {
+  Card,
+  CardHeader,
+  CardTitle,
+  CardContent,
+} from "@workspace/ui/components/card"
+export { Input } from "@workspace/ui/components/input"
+export { Label } from "@workspace/ui/components/label"
+export {
+  Select,
+  SelectValue,
+  SelectTrigger,
+  SelectContent,
+  SelectItem,
+  SelectGroup,
+  SelectLabel,
+  SelectScroll,
+} from "@workspace/ui/components/select"
