@@ -14,15 +14,20 @@ import {
   RiCloseLine,
   RiDashboardLine,
   RiDatabase2Line,
+  RiCodeBoxLine,
+  RiContrastDrop2Line,
   RiFileListLine,
+  RiKeyLine,
   RiLogoutBoxRLine,
   RiPulseLine,
+  RiSendPlane2Line,
   RiSettings3Line,
   RiShapesLine,
   RiShieldCheckLine,
   RiSidebarFoldLine,
   RiSparkling2Line,
   RiTeamLine,
+  RiTimerLine,
 } from "@remixicon/react"
 import { Button } from "@workspace/ui/components/button"
 import {
@@ -106,8 +111,10 @@ const primaryNav: Array<NavItem> = [
   { label: "Dashboard", icon: RiDashboardLine },
   { label: "Applications", icon: RiApps2Line },
   { label: "Databases", icon: RiDatabase2Line },
+  { label: "Services", icon: RiCodeBoxLine },
   { label: "Marketplace", icon: RiShapesLine },
   { label: "Monitoring", to: "/monitoring", icon: RiPulseLine },
+  { label: "Docker", to: "/docker", icon: RiContrastDrop2Line },
   {
     label: "AI Copilot",
     icon: RiSparkling2Line,
@@ -119,6 +126,9 @@ const primaryNav: Array<NavItem> = [
 const workspaceNav: Array<NavItem> = [
   { label: "Members", icon: RiTeamLine },
   { label: "Audit", icon: RiFileListLine },
+  { label: "Shared env", icon: RiKeyLine },
+  { label: "Scheduled jobs", icon: RiTimerLine },
+  { label: "Event webhooks", icon: RiSendPlane2Line },
 ]
 
 const secondaryNav: Array<NavItem> = [
@@ -391,6 +401,16 @@ export function AppShell({
       }
       return { ...item, to: organizationPath(currentOrgSlug, "marketplace") }
     }
+    if (item.label === "Services") {
+      if (!currentOrgSlug) {
+        return {
+          ...item,
+          comingSoon: true,
+          tooltip: "Sélectionne un workspace",
+        }
+      }
+      return { ...item, to: organizationPath(currentOrgSlug, "services") }
+    }
     return item
   })
 
@@ -407,6 +427,21 @@ export function AppShell({
     }
     if (item.label === "Audit") {
       return { ...item, to: organizationPath(currentOrgSlug, "audit") }
+    }
+    if (item.label === "Shared env") {
+      return { ...item, to: organizationPath(currentOrgSlug, "shared-env") }
+    }
+    if (item.label === "Scheduled jobs") {
+      return {
+        ...item,
+        to: organizationPath(currentOrgSlug, "scheduled-jobs"),
+      }
+    }
+    if (item.label === "Event webhooks") {
+      return {
+        ...item,
+        to: organizationPath(currentOrgSlug, "event-webhooks"),
+      }
     }
     return item
   })

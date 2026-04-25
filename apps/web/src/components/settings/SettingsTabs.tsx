@@ -8,6 +8,7 @@ import {
   RiUserLine,
   RiBellLine,
   RiKey2Line,
+  RiTerminalBoxLine,
 } from "@remixicon/react"
 import { cn } from "@workspace/ui/lib/utils"
 
@@ -54,6 +55,12 @@ const TABS: ReadonlyArray<SettingsTab> = [
     label: "License",
     icon: RiKey2Line,
     matches: (p) => p.startsWith("/settings/license"),
+  },
+  {
+    to: "/settings/api-tokens",
+    label: "API tokens",
+    icon: RiTerminalBoxLine,
+    matches: (p) => p.startsWith("/settings/api-tokens"),
   },
 ]
 
