@@ -250,7 +250,7 @@ function RootDocument({
           <BrandingInjector />
           <AuthSyncProvider>
             <BackendUnavailableGate>{children}</BackendUnavailableGate>
-            <Toaster position="bottom-center" richColors />
+            <Toaster position="bottom-center" theme="system" />
           </AuthSyncProvider>
         </QueryClientProvider>
         <Scripts />

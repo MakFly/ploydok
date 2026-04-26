@@ -8,13 +8,12 @@ import { nanoid } from "nanoid"
 import { createDb } from "@ploydok/db"
 import {
   projects,
-  secrets,
   memberships,
   builds,
+  secrets,
   app_delete_jobs,
   system_jobs,
 } from "@ploydok/db"
-import { encryptSecret } from "../secrets/crypto"
 import {
   BuildMethodSchema,
   GitProviderKindSchema,
@@ -65,6 +64,8 @@ import {
 import { dispatch as notifyDispatch } from "../notify/index"
 import { createRedis } from "@ploydok/db"
 import { ensureDefaultOrganizationForUser } from "../services/organizations"
+import { ensureFrameworkEnvVars } from "../services/framework-env"
+import { encryptSecret } from "../secrets/crypto"
 
 // ---------------------------------------------------------------------------
 // Validation schemas
@@ -132,6 +133,17 @@ const CreateAppBodyBase = z.object({
   restartPolicy: RestartPolicySchema.optional(),
   healthcheck: HealthcheckConfigSchema.partial().optional(),
   domain: z.string().optional(),
+  initialSecrets: z
+    .array(
+      z.object({
+        key: z.literal("PLOYDOK_LARAVEL_SEED"),
+        value: z.literal("true"),
+        scope: z.literal("shared").optional().default("shared"),
+        phase: z.literal("runtime").optional().default("runtime"),
+      })
+    )
+    .max(1)
+    .optional(),
   /** Per-app GC override. null clears the override (falls back to default 3). */
   keepPerRepo: z.number().int().min(0).max(50).nullable().optional(),
 })
@@ -529,50 +541,19 @@ export function createAppsRouter(db: Db): Hono {
           })
         )
         const classification = classifyStack(probeResults)
-        const suggested = classification.suggestedEnvVars
-        if (Object.keys(suggested).length > 0) {
-          // Write to the `secrets` table (phase=both, scope=shared) because
-          // that's what `buildEnvPairForDeploy` reads at deploy time. The
-          // legacy `env_vars` table is read by the UI but never by the
-          // deploy pipeline. User-provided values already present for the
-          // same key+scope+phase are preserved (skip-if-exists).
-          const existingRows = await db
-            .select({
-              key: secrets.key,
-              scope: secrets.scope,
-              phase: secrets.phase,
-            })
-            .from(secrets)
-            .where(eq(secrets.app_id, id))
-          const existingSet = new Set(
-            existingRows.map((r) => `${r.key}|${r.scope}|${r.phase}`)
-          )
-          const injected: string[] = []
-          for (const [k, v] of Object.entries(suggested)) {
-            const signature = `${k}|shared|both`
-            if (existingSet.has(signature)) continue
-            const { enc, nonce } = await encryptSecret(v)
-            await db.insert(secrets).values({
-              id: nanoid(),
-              app_id: id,
-              project_id: projectId,
-              scope: "shared",
-              phase: "both",
-              key: k,
-              value_ciphertext: enc,
-              nonce,
-              created_at: new Date(),
-            })
-            injected.push(k)
-          }
+        const { injected, skipped } = await ensureFrameworkEnvVars({
+          db,
+          appId: id,
+          projectId,
+          classification,
+        })
+        if (injected.length > 0 || skipped.length > 0) {
           childLogger("apps-autoinject").info(
             {
               appId: id,
               stack: classification.stack,
               injected,
-              skipped: Object.keys(suggested).filter((k) =>
-                existingSet.has(`${k}|shared|both`)
-              ),
+              skipped,
             },
             "auto-inject env vars for detected framework (user values preserved)"
           )
@@ -582,6 +563,24 @@ export function createAppsRouter(db: Db): Hono {
           { err, appId: id },
           "auto-inject failed (non-fatal)"
         )
+      }
+    }
+
+    if (body.initialSecrets?.length) {
+      const nowForSecrets = new Date()
+      for (const item of body.initialSecrets) {
+        const { enc, nonce } = await encryptSecret(item.value)
+        await db.insert(secrets).values({
+          id: nanoid(),
+          app_id: id,
+          project_id: projectId,
+          scope: item.scope,
+          phase: item.phase,
+          key: item.key,
+          value_ciphertext: enc,
+          nonce,
+          created_at: nowForSecrets,
+        })
       }
     }
 

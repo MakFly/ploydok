@@ -1,0 +1,1 @@
+ALTER TABLE "users" ADD COLUMN "require_totp_for_secret_reveal" boolean DEFAULT true NOT NULL;

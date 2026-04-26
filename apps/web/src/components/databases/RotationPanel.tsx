@@ -2,7 +2,13 @@
 import * as React from "react"
 import { Badge } from "@workspace/ui/components/badge"
 import { Button } from "@workspace/ui/components/button"
-import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "@workspace/ui/components/select"
+import {
+  Select,
+  SelectContent,
+  SelectItem,
+  SelectTrigger,
+  SelectValue,
+} from "@workspace/ui/components/select"
 import { apiFetch } from "../../lib/api"
 import { toast } from "sonner"
 import type { Database } from "../../lib/databases"
@@ -22,9 +28,13 @@ function formatRotatedAt(isoStr: string | null): string {
   return `${days} days ago`
 }
 
-export function RotationPanel({ db, onScheduleChange }: RotationPanelProps): React.JSX.Element {
+export function RotationPanel({
+  db,
+  onScheduleChange,
+}: RotationPanelProps): React.JSX.Element {
   const [rotateOpen, setRotateOpen] = React.useState(false)
   const [scheduleLoading, setScheduleLoading] = React.useState(false)
+  const rotationSupported = db.kind !== "libsql"
 
   async function handleScheduleChange(value: string) {
     setScheduleLoading(true)
@@ -44,27 +54,37 @@ export function RotationPanel({ db, onScheduleChange }: RotationPanelProps): Rea
   }
 
   return (
-    <div className="border rounded-lg p-4 flex flex-col gap-4">
+    <div className="flex flex-col gap-4 rounded-lg border p-4">
       <div className="flex items-center justify-between">
-        <h2 className="font-semibold text-sm">Password Rotation</h2>
-        {db.rotation_in_progress && (
-          <Badge variant="secondary" className="text-amber-600 bg-amber-500/10">
+        <h2 className="text-sm font-semibold">Password Rotation</h2>
+        {!rotationSupported ? (
+          <Badge variant="outline">Not supported for libSQL</Badge>
+        ) : db.rotation_in_progress ? (
+          <Badge variant="secondary" className="bg-amber-500/10 text-amber-600">
             Rotation in progress…
           </Badge>
-        )}
+        ) : null}
       </div>
 
       <div className="grid grid-cols-2 gap-3 text-sm">
         <div>
-          <span className="text-muted-foreground block text-xs mb-1">Last rotated</span>
-          <div className="font-medium">{formatRotatedAt(db.password_rotated_at)}</div>
+          <span className="mb-1 block text-xs text-muted-foreground">
+            Last rotated
+          </span>
+          <div className="font-medium">
+            {formatRotatedAt(db.password_rotated_at)}
+          </div>
         </div>
         <div>
-          <span className="text-muted-foreground block text-xs mb-1">Schedule</span>
+          <span className="mb-1 block text-xs text-muted-foreground">
+            Schedule
+          </span>
           <Select
             value={db.rotation_schedule}
             onValueChange={handleScheduleChange}
-            disabled={scheduleLoading || db.rotation_in_progress}
+            disabled={
+              scheduleLoading || db.rotation_in_progress || !rotationSupported
+            }
           >
             <SelectTrigger className="h-8 text-sm">
               <SelectValue />
@@ -83,7 +103,11 @@ export function RotationPanel({ db, onScheduleChange }: RotationPanelProps): Rea
         variant="outline"
         size="sm"
         className="w-fit"
-        disabled={db.rotation_in_progress || db.status !== "running"}
+        disabled={
+          db.rotation_in_progress ||
+          db.status !== "running" ||
+          !rotationSupported
+        }
         onClick={() => setRotateOpen(true)}
       >
         Rotate password now

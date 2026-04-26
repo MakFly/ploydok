@@ -131,15 +131,16 @@ export function useRevealSecret(appId: string) {
   return useMutation<
     { value: string },
     ApiError,
-    { key: string; scope: SecretScope; phase?: SecretPhase; totpCode: string }
+    { key: string; scope: SecretScope; phase?: SecretPhase; totpCode?: string }
   >({
     mutationFn: async ({ key, scope, phase, totpCode }) => {
       const safePhase = phase ?? "runtime"
+      const headers = totpCode ? { "X-TOTP-Code": totpCode } : undefined
       return apiFetch(
         `/apps/${appId}/secrets/${encodeURIComponent(key)}/reveal?scope=${scope}&phase=${safePhase}`,
         {
           method: "POST",
-          headers: { "X-TOTP-Code": totpCode },
+          ...(headers ? { headers } : {}),
           body: JSON.stringify({}),
         }
       )

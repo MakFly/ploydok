@@ -25,6 +25,8 @@ import type {
   ContainerStopResponse,
   ContainerRemoveResponse,
   InspectContainerHealthResponse,
+  LogLine,
+  ReadContainerFileResponse,
 } from "@ploydok/agent-proto"
 import { ContainerHealthStatus } from "@ploydok/agent-proto"
 import { apps, builds, projects } from "@ploydok/db"
@@ -52,6 +54,13 @@ import { buildEnvForDeploy } from "../secrets/resolver.js"
 
 const GRACE_MS = 30_000 // 30 s traffic-drain window
 const STOP_TIMEOUT_S = 10 // SIGKILL after N seconds when stopping
+const APP_LOG_TAIL_LINES = 200
+const APP_LOG_MAX_BYTES = 512 * 1024
+const KNOWN_APP_LOG_PATHS = [
+  "/app/storage/logs/laravel.log",
+  "/app/var/log/prod.log",
+  "/app/var/log/dev.log",
+]
 
 // ---------------------------------------------------------------------------
 // Errors
@@ -361,6 +370,124 @@ async function pullImage(
   })
 }
 
+export async function publishContainerLogTail(
+  agent: Pick<InstanceType<typeof AgentClient>, "containerLogs">,
+  containerId: string,
+  channel: string,
+  opts: { tail?: number; timeoutMs?: number } = {}
+): Promise<void> {
+  const tail = opts.tail ?? 200
+  const timeoutMs = opts.timeoutMs ?? 5_000
+
+  logBus.publish(
+    channel,
+    `[runner] collecting last ${tail} container log lines before rollback`
+  )
+
+  let stream: grpc.ClientReadableStream<LogLine>
+  try {
+    stream = agent.containerLogs({
+      containerId,
+      follow: false,
+      sinceUnix: 0,
+      tail,
+    })
+  } catch (err) {
+    logBus.publish(
+      channel,
+      `[runner] failed to start container log collection: ${errMsg(err)}`
+    )
+    return
+  }
+
+  let count = 0
+  await new Promise<void>((resolve) => {
+    let done = false
+    const finish = () => {
+      if (done) return
+      done = true
+      clearTimeout(timer)
+      resolve()
+    }
+    const timer = setTimeout(() => {
+      stream.cancel()
+      logBus.publish(
+        channel,
+        `[runner] container log collection timed out after ${timeoutMs}ms`
+      )
+      finish()
+    }, timeoutMs)
+
+    stream.on("data", (entry: LogLine) => {
+      const streamName = entry.stream === "stderr" ? "stderr" : "stdout"
+      const line = entry.line.trimEnd()
+      if (!line) return
+      count++
+      const parsedTs = Date.parse(entry.timestamp)
+      logBus.publish(channel, `[container ${streamName}] ${line}`, {
+        ...(Number.isFinite(parsedTs) ? { t: parsedTs } : {}),
+      })
+    })
+    stream.on("error", (err: Error) => {
+      logBus.publish(
+        channel,
+        `[runner] container log collection failed: ${errMsg(err)}`
+      )
+      finish()
+    })
+    stream.on("end", finish)
+  })
+
+  logBus.publish(channel, `[runner] collected ${count} container log lines`)
+}
+
+export async function publishKnownAppLogFiles(
+  agent: Pick<InstanceType<typeof AgentClient>, "readContainerFile">,
+  containerId: string,
+  channel: string,
+  paths: ReadonlyArray<string> = KNOWN_APP_LOG_PATHS
+): Promise<void> {
+  for (const filePath of paths) {
+    let response: ReadContainerFileResponse
+    try {
+      response = await grpcUnary<ReadContainerFileResponse>(
+        agent.readContainerFile.bind(agent),
+        {
+          containerId,
+          path: filePath,
+          maxBytes: APP_LOG_MAX_BYTES,
+        }
+      )
+    } catch (err) {
+      logBus.publish(
+        channel,
+        `[runner] failed to read app log ${filePath}: ${errMsg(err)}`
+      )
+      continue
+    }
+
+    if (response.error || response.isBinary || response.content.length === 0) {
+      continue
+    }
+
+    const text = new TextDecoder("utf-8", { fatal: false }).decode(
+      response.content
+    )
+    const lines = text
+      .split(/\r?\n/g)
+      .map((line) => line.trimEnd())
+      .filter(Boolean)
+      .slice(-APP_LOG_TAIL_LINES)
+
+    if (lines.length === 0) continue
+    const suffix = response.truncated ? " (file truncated by reader)" : ""
+    logBus.publish(channel, `[runner] app log tail: ${filePath}${suffix}`)
+    for (const line of lines) {
+      logBus.publish(channel, `[app log ${filePath}] ${line}`)
+    }
+  }
+}
+
 /**
  * Load env vars for an app from the DB and return them as a plain Record.
  * Secret values are passed as-is — the caller is responsible for not leaking.
@@ -584,16 +711,18 @@ export async function runBlueGreen(
         // bind address only listen on the container hostname's eth0 IP, so
         // 127.0.0.1 is refused. Cycling through both hosts covers the case.
         //
-        // Permissive: any HTTP response (200, 404, 500, …) counts as alive —
-        // curl/wget without `-f` exit 0 on any status. We only fail on
-        // connection-refused or timeout from every (host, tool) combination.
+        // Guardrail: 5xx means the app booted but is broken, so do not switch
+        // traffic. 4xx can still be a valid "alive" signal for API apps whose
+        // root path is not routable; users can set a custom healthcheck path
+        // when they need stricter semantics.
         healthcheck: {
           test: [
             "CMD-SHELL",
             `for host in 127.0.0.1 "$(hostname 2>/dev/null)"; do ` +
               `[ -z "$host" ] && continue; ` +
               `if command -v curl >/dev/null 2>&1; then ` +
-              `curl -sS -m 5 -o /dev/null "http://$host:${hcPort}${hcPath}" && exit 0; ` +
+              `code="$(curl -sS -m 5 -o /dev/null -w '%{http_code}' "http://$host:${hcPort}${hcPath}" || true)"; ` +
+              `case "$code" in [234][0-9][0-9]) exit 0;; esac; ` +
               `fi; ` +
               `if command -v wget >/dev/null 2>&1; then ` +
               `wget -q -O /dev/null --timeout=5 "http://$host:${hcPort}${hcPath}" && exit 0; ` +
@@ -634,6 +763,8 @@ export async function runBlueGreen(
 
     if (!healthy) {
       logBus.publish(channel, `[runner] healthcheck FAILED — rolling back`)
+      await publishContainerLogTail(agent, newContainerId, channel)
+      await publishKnownAppLogFiles(agent, newContainerId, channel)
       await stopContainer(agent, newContainerId)
       throw new DeployFailedError(
         appId,

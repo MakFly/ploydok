@@ -77,8 +77,12 @@ export async function upsertInstallation(
     .insert(provider_installations)
     .values(row)
     .onConflictDoUpdate({
-      target: provider_installations.id,
+      target: [
+        provider_installations.provider,
+        provider_installations.external_id,
+      ],
       set: {
+        id: row.id,
         provider: row.provider,
         external_id: row.external_id,
         account_login: row.account_login,

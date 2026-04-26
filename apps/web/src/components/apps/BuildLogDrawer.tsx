@@ -210,6 +210,9 @@ export function BuildLogDrawer({
   onClose,
 }: BuildLogDrawerProps): React.JSX.Element {
   const isOpen = Boolean(buildId)
+  const isTerminalBuild = build
+    ? build.status !== "pending" && build.status !== "running"
+    : false
 
   // Persisted fullscreen preference
   const [fullscreen, setFullscreen] = React.useState<boolean>(() => {
@@ -334,6 +337,17 @@ export function BuildLogDrawer({
                     post-deploy hook failed
                   </span>
                 )}
+                {build.errorMessage && (
+                  <span
+                    className="inline-flex min-w-0 items-center gap-1 text-red-400"
+                    title={build.errorMessage}
+                  >
+                    <RiErrorWarningLine className="size-3" aria-hidden="true" />
+                    <span className="max-w-[420px] truncate">
+                      {build.errorMessage}
+                    </span>
+                  </span>
+                )}
               </div>
             )}
           </div>
@@ -382,6 +396,7 @@ export function BuildLogDrawer({
             <BuildLogViewer
               appId={appId}
               buildId={buildId}
+              archiveOnly={isTerminalBuild}
               appName={appName}
               className="h-full min-h-[500px]"
             />

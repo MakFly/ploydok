@@ -8,7 +8,7 @@
  * injection, and error handling without running an actual build.
  */
 import { describe, it, expect, beforeEach, afterEach, spyOn } from "bun:test"
-import { mkdtemp, rm } from "node:fs/promises"
+import { mkdir, mkdtemp, rm, writeFile } from "node:fs/promises"
 import { existsSync } from "node:fs"
 import path from "node:path"
 import os from "node:os"
@@ -25,11 +25,9 @@ function fakeBunProcess(opts: {
   exitCode?: number
 }) {
   const stdoutText =
-    (opts.stdoutLines ?? []).join("\n") +
-    (opts.stdoutLines?.length ? "\n" : "")
+    (opts.stdoutLines ?? []).join("\n") + (opts.stdoutLines?.length ? "\n" : "")
   const stderrText =
-    (opts.stderrLines ?? []).join("\n") +
-    (opts.stderrLines?.length ? "\n" : "")
+    (opts.stderrLines ?? []).join("\n") + (opts.stderrLines?.length ? "\n" : "")
   const enc = new TextEncoder()
 
   function makeStream(text: string): ReadableStream<Uint8Array> {
@@ -61,10 +59,9 @@ describe("nixpacksBuild", () => {
   beforeEach(async () => {
     tmpDir = await mkdtemp(path.join(os.tmpdir(), "ploydok-nixpacks-test-"))
     // Stub binary resolution so tests don't hit the network or filesystem.
-    ensureSpy = spyOn(
-      nixpacksMod,
-      "ensureNixpacksInstalled",
-    ).mockResolvedValue("/usr/local/bin/nixpacks")
+    ensureSpy = spyOn(nixpacksMod, "ensureNixpacksInstalled").mockResolvedValue(
+      "/usr/local/bin/nixpacks"
+    )
   })
 
   afterEach(async () => {
@@ -77,7 +74,7 @@ describe("nixpacksBuild", () => {
     spawnSpy = spyOn(Bun, "spawn").mockReturnValue(
       fakeBunProcess({
         stdoutLines: ["[nixpacks] Building..."],
-      }) as ReturnType<typeof Bun.spawn>,
+      }) as ReturnType<typeof Bun.spawn>
     )
 
     await nixpacksMod.nixpacksBuild({
@@ -101,7 +98,7 @@ describe("nixpacksBuild", () => {
 
   it("creates cacheDir before spawning", async () => {
     spawnSpy = spyOn(Bun, "spawn").mockReturnValue(
-      fakeBunProcess({}) as ReturnType<typeof Bun.spawn>,
+      fakeBunProcess({}) as ReturnType<typeof Bun.spawn>
     )
 
     const cacheDir = path.join(tmpDir, "nested", ".nixpacks-cache")
@@ -118,7 +115,7 @@ describe("nixpacksBuild", () => {
 
   it("falls back to basename of cacheDir as cache key when cacheKey is omitted", async () => {
     spawnSpy = spyOn(Bun, "spawn").mockReturnValue(
-      fakeBunProcess({}) as ReturnType<typeof Bun.spawn>,
+      fakeBunProcess({}) as ReturnType<typeof Bun.spawn>
     )
 
     const cacheDir = path.join(tmpDir, "my-app-id")
@@ -141,7 +138,7 @@ describe("nixpacksBuild", () => {
 
   it("does NOT pass --cache-key when neither cacheDir nor cacheKey is given", async () => {
     spawnSpy = spyOn(Bun, "spawn").mockReturnValue(
-      fakeBunProcess({}) as ReturnType<typeof Bun.spawn>,
+      fakeBunProcess({}) as ReturnType<typeof Bun.spawn>
     )
 
     await nixpacksMod.nixpacksBuild({
@@ -160,7 +157,7 @@ describe("nixpacksBuild", () => {
   it("streams stdout and stderr via onLog", async () => {
     const lines = ["Step 1: install", "Step 2: build", "Step 3: done"]
     spawnSpy = spyOn(Bun, "spawn").mockReturnValue(
-      fakeBunProcess({ stdoutLines: lines }) as ReturnType<typeof Bun.spawn>,
+      fakeBunProcess({ stdoutLines: lines }) as ReturnType<typeof Bun.spawn>
     )
 
     const captured: string[] = []
@@ -181,7 +178,7 @@ describe("nixpacksBuild", () => {
       fakeBunProcess({
         stderrLines: ["Error: failed to build — unknown plan"],
         exitCode: 1,
-      }) as ReturnType<typeof Bun.spawn>,
+      }) as ReturnType<typeof Bun.spawn>
     )
 
     await expect(
@@ -190,13 +187,13 @@ describe("nixpacksBuild", () => {
         tag: "127.0.0.1:5000/app-fail:sha",
         cacheKey: "app-fail",
         cacheDir: path.join(tmpDir, ".nixpacks-cache"),
-      }),
+      })
     ).rejects.toThrow(/nixpacks build failed \(exit 1\)/)
   })
 
   it("injects --incremental-cache-image when dockerCacheRef + cacheDir are provided", async () => {
     spawnSpy = spyOn(Bun, "spawn").mockReturnValue(
-      fakeBunProcess({}) as ReturnType<typeof Bun.spawn>,
+      fakeBunProcess({}) as ReturnType<typeof Bun.spawn>
     )
 
     const cacheDir = path.join(tmpDir, ".nixpacks-cache")
@@ -222,7 +219,7 @@ describe("nixpacksBuild", () => {
 
   it("does NOT inject --incremental-cache-image when dockerCacheRef is absent", async () => {
     spawnSpy = spyOn(Bun, "spawn").mockReturnValue(
-      fakeBunProcess({}) as ReturnType<typeof Bun.spawn>,
+      fakeBunProcess({}) as ReturnType<typeof Bun.spawn>
     )
 
     await nixpacksMod.nixpacksBuild({
@@ -237,12 +234,14 @@ describe("nixpacksBuild", () => {
     }
     const buildCall = spawnMock.mock.calls[0]
     const cmd = buildCall![0] as string[]
-    expect(cmd.some((a) => a.startsWith("--incremental-cache-image="))).toBe(false)
+    expect(cmd.some((a) => a.startsWith("--incremental-cache-image="))).toBe(
+      false
+    )
   })
 
   it("does NOT inject --incremental-cache-image when cacheDir is absent", async () => {
     spawnSpy = spyOn(Bun, "spawn").mockReturnValue(
-      fakeBunProcess({}) as ReturnType<typeof Bun.spawn>,
+      fakeBunProcess({}) as ReturnType<typeof Bun.spawn>
     )
 
     await nixpacksMod.nixpacksBuild({
@@ -257,12 +256,14 @@ describe("nixpacksBuild", () => {
     }
     const buildCall = spawnMock.mock.calls[0]
     const cmd = buildCall![0] as string[]
-    expect(cmd.some((a) => a.startsWith("--incremental-cache-image="))).toBe(false)
+    expect(cmd.some((a) => a.startsWith("--incremental-cache-image="))).toBe(
+      false
+    )
   })
 
   it("passes optional installCmd, buildCmd, startCmd flags", async () => {
     spawnSpy = spyOn(Bun, "spawn").mockReturnValue(
-      fakeBunProcess({}) as ReturnType<typeof Bun.spawn>,
+      fakeBunProcess({}) as ReturnType<typeof Bun.spawn>
     )
 
     await nixpacksMod.nixpacksBuild({
@@ -289,7 +290,9 @@ describe("nixpacksBuild", () => {
   it("passes config path, node version env, and build env", async () => {
     let spawnEnv: Record<string, string> | undefined
     spawnSpy = spyOn(Bun, "spawn").mockImplementation(((...args: unknown[]) => {
-      const opts = (args.length === 1 ? args[0] : args[1]) as { env?: Record<string, string> } | undefined
+      const opts = (args.length === 1 ? args[0] : args[1]) as
+        | { env?: Record<string, string> }
+        | undefined
       spawnEnv = opts?.env
       return fakeBunProcess({}) as ReturnType<typeof Bun.spawn>
     }) as typeof Bun.spawn)
@@ -315,10 +318,56 @@ describe("nixpacksBuild", () => {
     expect(cmd).toContain("NEXT_PUBLIC_API_URL=https://api.example.com")
   })
 
+  it("uses Node 22 as the default Nixpacks Node version", async () => {
+    let spawnEnv: Record<string, string> | undefined
+    spawnSpy = spyOn(Bun, "spawn").mockImplementation(((...args: unknown[]) => {
+      const opts = (args.length === 1 ? args[0] : args[1]) as
+        | { env?: Record<string, string> }
+        | undefined
+      spawnEnv = opts?.env
+      return fakeBunProcess({}) as ReturnType<typeof Bun.spawn>
+    }) as typeof Bun.spawn)
+
+    await nixpacksMod.nixpacksBuild({
+      workspacePath: tmpDir,
+      tag: "127.0.0.1:5000/app-abc:sha123",
+    })
+
+    const spawnMock = spawnSpy as unknown as {
+      mock: { calls: Array<[unknown[], unknown]> }
+    }
+    const buildCall = spawnMock.mock.calls[0]
+    const cmd = buildCall![0] as string[]
+    expect(spawnEnv?.["NIXPACKS_NODE_VERSION"]).toBe("22")
+    expect(cmd).toContain("NIXPACKS_NODE_VERSION=22")
+  })
+
+  it("lets app nodeVersion override buildEnv NIXPACKS_NODE_VERSION", async () => {
+    let spawnEnv: Record<string, string> | undefined
+    spawnSpy = spyOn(Bun, "spawn").mockImplementation(((...args: unknown[]) => {
+      const opts = (args.length === 1 ? args[0] : args[1]) as
+        | { env?: Record<string, string> }
+        | undefined
+      spawnEnv = opts?.env
+      return fakeBunProcess({}) as ReturnType<typeof Bun.spawn>
+    }) as typeof Bun.spawn)
+
+    await nixpacksMod.nixpacksBuild({
+      workspacePath: tmpDir,
+      tag: "127.0.0.1:5000/app-abc:sha123",
+      nodeVersion: "22",
+      buildEnv: { NIXPACKS_NODE_VERSION: "20" },
+    })
+
+    expect(spawnEnv?.["NIXPACKS_NODE_VERSION"]).toBe("22")
+  })
+
   it("injects NPM_CONFIG_LEGACY_PEER_DEPS=true into build env by default", async () => {
     let spawnEnv: Record<string, string> | undefined
     spawnSpy = spyOn(Bun, "spawn").mockImplementation(((...args: unknown[]) => {
-      const opts = (args.length === 1 ? args[0] : args[1]) as { env?: Record<string, string> } | undefined
+      const opts = (args.length === 1 ? args[0] : args[1]) as
+        | { env?: Record<string, string> }
+        | undefined
       spawnEnv = opts?.env
       return fakeBunProcess({}) as ReturnType<typeof Bun.spawn>
     }) as typeof Bun.spawn)
@@ -338,10 +387,165 @@ describe("nixpacksBuild", () => {
     expect(cmd).toContain("NPM_CONFIG_LEGACY_PEER_DEPS=true")
   })
 
+  it("rewrites the Nixpacks PHP packages from composer.lock constraints", async () => {
+    await writeFile(
+      path.join(tmpDir, "composer.json"),
+      JSON.stringify({ require: { php: "^8.3" } })
+    )
+    await writeFile(
+      path.join(tmpDir, "composer.lock"),
+      JSON.stringify({
+        packages: [
+          {
+            name: "symfony/var-dumper",
+            require: { php: ">=8.4" },
+          },
+        ],
+      })
+    )
+
+    const rawPlan = {
+      providers: [],
+      phases: {
+        setup: {
+          nixPkgs: [
+            "(php83.withExtensions (pe: pe.enabled ++ []))",
+            "php83Packages.composer",
+            "nginx",
+          ],
+        },
+        install: { cmds: ["composer install --ignore-platform-reqs"] },
+      },
+    }
+
+    spawnSpy = spyOn(Bun, "spawn").mockImplementation(((cmd: string[]) => {
+      if (cmd.includes("plan")) {
+        return fakeBunProcess({
+          stdoutLines: [JSON.stringify(rawPlan)],
+        }) as ReturnType<typeof Bun.spawn>
+      }
+      return fakeBunProcess({}) as ReturnType<typeof Bun.spawn>
+    }) as typeof Bun.spawn)
+
+    const logs: string[] = []
+    await nixpacksMod.nixpacksBuild({
+      workspacePath: tmpDir,
+      tag: "127.0.0.1:5000/app-abc:sha123",
+      onLog: (line) => logs.push(line),
+    })
+
+    const spawnMock = spawnSpy as unknown as {
+      mock: { calls: Array<[unknown[], unknown]> }
+    }
+    const buildCall = spawnMock.mock.calls.find((call) =>
+      (call[0] as string[]).includes("build")
+    )
+    const cmd = buildCall![0] as string[]
+    const jsonPlanIdx = cmd.indexOf("--json-plan")
+    expect(jsonPlanIdx).toBeGreaterThan(-1)
+
+    const plan = JSON.parse(cmd[jsonPlanIdx + 1]!) as {
+      phases: { setup: { nixPkgs: string[] } }
+    }
+    expect(plan.phases.setup.nixPkgs).toContain(
+      "(php84.withExtensions (pe: pe.enabled ++ []))"
+    )
+    expect(plan.phases.setup.nixPkgs).toContain("php84Packages.composer")
+    expect(logs.join("\n")).toContain(
+      "PHP version resolved from Composer constraints: 8.4"
+    )
+  })
+
+  it("wraps Laravel SQLite start commands to create the database and migrate", async () => {
+    await writeFile(
+      path.join(tmpDir, "composer.json"),
+      JSON.stringify({ require: { php: "^8.4" } })
+    )
+    await writeFile(path.join(tmpDir, "artisan"), "")
+    await mkdir(path.join(tmpDir, "database", "migrations"), {
+      recursive: true,
+    })
+    await writeFile(path.join(tmpDir, ".env.example"), "DB_CONNECTION=sqlite\n")
+
+    const rawPlan = {
+      providers: [],
+      phases: {
+        setup: {
+          nixPkgs: ["php84Packages.composer"],
+        },
+        install: { cmds: ["composer install --ignore-platform-reqs"] },
+      },
+      start: { cmd: "php artisan serve --host=0.0.0.0 --port=$PORT" },
+    }
+
+    spawnSpy = spyOn(Bun, "spawn").mockImplementation(((cmd: string[]) => {
+      if (cmd.includes("plan")) {
+        return fakeBunProcess({
+          stdoutLines: [JSON.stringify(rawPlan)],
+        }) as ReturnType<typeof Bun.spawn>
+      }
+      return fakeBunProcess({}) as ReturnType<typeof Bun.spawn>
+    }) as typeof Bun.spawn)
+
+    const logs: string[] = []
+    await nixpacksMod.nixpacksBuild({
+      workspacePath: tmpDir,
+      tag: "127.0.0.1:5000/app-laravel:sha123",
+      runtimeEnv: { DB_CONNECTION: "sqlite" },
+      onLog: (line) => logs.push(line),
+    })
+
+    const spawnMock = spawnSpy as unknown as {
+      mock: { calls: Array<[unknown[], unknown]> }
+    }
+    const buildCall = spawnMock.mock.calls.find((call) =>
+      (call[0] as string[]).includes("build")
+    )
+    const cmd = buildCall![0] as string[]
+    const jsonPlanIdx = cmd.indexOf("--json-plan")
+    expect(jsonPlanIdx).toBeGreaterThan(-1)
+
+    const plan = JSON.parse(cmd[jsonPlanIdx + 1]!) as {
+      start: { cmd: string }
+    }
+    expect(plan.start.cmd).toContain("PLOYDOK_LARAVEL_SQLITE_BOOTSTRAP")
+    expect(plan.start.cmd).toContain("php artisan migrate --force")
+    expect(plan.start.cmd).toContain("PLOYDOK_LARAVEL_SEED")
+    expect(plan.start.cmd).toContain("php artisan db:seed --force")
+    expect(plan.start.cmd).toContain(
+      "php artisan serve --host=0.0.0.0 --port=$PORT"
+    )
+    expect(logs.join("\n")).toContain("Laravel SQLite bootstrap enabled")
+  })
+
+  it("fails fast with a Dockerfile/custom image hint for unsupported PHP constraints", async () => {
+    await writeFile(
+      path.join(tmpDir, "composer.json"),
+      JSON.stringify({ require: { php: "^7.4" } })
+    )
+
+    spawnSpy = spyOn(Bun, "spawn").mockReturnValue(
+      fakeBunProcess({}) as ReturnType<typeof Bun.spawn>
+    )
+
+    await expect(
+      nixpacksMod.nixpacksBuild({
+        workspacePath: tmpDir,
+        tag: "127.0.0.1:5000/app-legacy:sha123",
+      })
+    ).rejects.toThrow(
+      /Supported PHP versions are 8\.1, 8\.2, 8\.3, 8\.4.*Dockerfile or a custom image.*7\.4/
+    )
+
+    expect(spawnSpy).not.toHaveBeenCalled()
+  })
+
   it("allows buildEnv to override NPM_CONFIG_LEGACY_PEER_DEPS", async () => {
     let spawnEnv: Record<string, string> | undefined
     spawnSpy = spyOn(Bun, "spawn").mockImplementation(((...args: unknown[]) => {
-      const opts = (args.length === 1 ? args[0] : args[1]) as { env?: Record<string, string> } | undefined
+      const opts = (args.length === 1 ? args[0] : args[1]) as
+        | { env?: Record<string, string> }
+        | undefined
       spawnEnv = opts?.env
       return fakeBunProcess({}) as ReturnType<typeof Bun.spawn>
     }) as typeof Bun.spawn)
@@ -353,5 +557,24 @@ describe("nixpacksBuild", () => {
     })
 
     expect(spawnEnv?.["NPM_CONFIG_LEGACY_PEER_DEPS"]).toBe("false")
+  })
+
+  it("passes the default Node version to nixpacks plan", async () => {
+    spawnSpy = spyOn(Bun, "spawn").mockReturnValue(
+      fakeBunProcess({
+        stdoutLines: ['{"providers":["node"],"phases":{"build":{}}}'],
+      }) as ReturnType<typeof Bun.spawn>
+    )
+
+    await nixpacksMod.nixpacksPlan({
+      workspacePath: tmpDir,
+    })
+
+    const spawnMock = spawnSpy as unknown as {
+      mock: { calls: Array<[unknown[], unknown]> }
+    }
+    const buildCall = spawnMock.mock.calls[0]
+    const cmd = buildCall![0] as string[]
+    expect(cmd).toContain("NIXPACKS_NODE_VERSION=22")
   })
 })

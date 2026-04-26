@@ -64,7 +64,7 @@ export function detectLevel(text: string): "error" | "warn" | "info" {
  */
 export function filterByLevel(
   lines: ReadonlyArray<LogLine>,
-  level: LogLevel,
+  level: LogLevel
 ): Array<LogLine> {
   if (level === "all") return lines as Array<LogLine>
   return lines.filter((l) => detectLevel(l.text) === level)
@@ -76,7 +76,7 @@ export function filterByLevel(
  */
 export function filterBySearch(
   lines: ReadonlyArray<LogLine>,
-  query: string,
+  query: string
 ): Array<LogLine> {
   const q = query.trim().toLowerCase()
   if (!q) return lines as Array<LogLine>
@@ -99,9 +99,7 @@ function parseLine(raw: string, fallbackT: number): LogLine & { _raw: string } {
       ) {
         const obj = parsed as Record<string, unknown>
         const t =
-          typeof obj["t"] === "number"
-            ? (obj["t"] as number)
-            : fallbackT
+          typeof obj["t"] === "number" ? (obj["t"] as number) : fallbackT
         const stream =
           obj["stream"] === "stdout" || obj["stream"] === "stderr"
             ? (obj["stream"] as "stdout" | "stderr")
@@ -122,6 +120,8 @@ function parseLine(raw: string, fallbackT: number): LogLine & { _raw: string } {
 export interface UseLogStreamOptions {
   appId: string
   buildId?: string
+  /** Load the persisted build log file without opening a live WebSocket. */
+  archiveOnly?: boolean
   /** Maximum number of lines retained in memory. Defaults to ABSOLUTE_MAX_LINES. */
   maxLines?: number
 }
@@ -147,7 +147,7 @@ type FallbackResult =
 
 async function loadArchivedBuildLogs(
   appId: string,
-  buildId: string,
+  buildId: string
 ): Promise<FallbackResult> {
   const path = `/apps/${appId}/logs?buildId=${encodeURIComponent(buildId)}`
   const res = await fetch(`${API_BASE}${path}`, { credentials: "include" })
@@ -171,6 +171,7 @@ async function loadRuntimeLogs(appId: string): Promise<FallbackResult> {
 export function useLogStream({
   appId,
   buildId,
+  archiveOnly,
   maxLines,
 }: UseLogStreamOptions): UseLogStreamResult {
   const cap = Math.min(maxLines ?? ABSOLUTE_MAX_LINES, ABSOLUTE_MAX_LINES)
@@ -190,20 +191,42 @@ export function useLogStream({
         return next.length > cap ? next.slice(next.length - cap) : next
       })
     },
-    [cap],
+    [cap]
   )
 
   // When maxLines changes (user picks a smaller volume), trim existing lines
   React.useEffect(() => {
     setLines((prev) =>
-      prev.length > cap ? prev.slice(prev.length - cap) : prev,
+      prev.length > cap ? prev.slice(prev.length - cap) : prev
     )
   }, [cap])
 
   React.useEffect(() => {
     setLines([])
     setError(null)
+    setConnected(false)
     counterRef.current = 0
+
+    if (archiveOnly && buildId && buildId !== "latest") {
+      let cancelled = false
+      loadArchivedBuildLogs(appId, buildId)
+        .then((result) => {
+          if (cancelled) return
+          if (result.kind !== "lines") return
+          setError(null)
+          setLines([])
+          counterRef.current = 0
+          for (const raw of result.lines) appendLine(raw)
+        })
+        .catch((err: unknown) => {
+          if (cancelled) return
+          const msg = err instanceof Error ? err.message : "Failed to load logs"
+          setError(msg)
+        })
+      return () => {
+        cancelled = true
+      }
+    }
 
     const wsBase = API_BASE.replace(/^http/, "ws")
     const wsPath =
@@ -218,7 +241,7 @@ export function useLogStream({
       setError(
         buildId && buildId !== "latest"
           ? "WebSocket unavailable — loading archived logs\u2026"
-          : "WebSocket unavailable — loading recent runtime logs\u2026",
+          : "WebSocket unavailable — loading recent runtime logs\u2026"
       )
 
       const loader =
@@ -238,8 +261,7 @@ export function useLogStream({
           for (const raw of result.lines) appendLine(raw)
         })
         .catch((err: unknown) => {
-          const msg =
-            err instanceof Error ? err.message : "Failed to load logs"
+          const msg = err instanceof Error ? err.message : "Failed to load logs"
           setError(msg)
         })
     }
@@ -253,8 +275,7 @@ export function useLogStream({
       }
 
       ws.onmessage = (ev: MessageEvent<string>) => {
-        const text =
-          typeof ev.data === "string" ? ev.data : String(ev.data)
+        const text = typeof ev.data === "string" ? ev.data : String(ev.data)
         if (text.includes('"type":"runtime.missing"')) {
           setError("No runtime container found for this app")
           return
@@ -286,7 +307,7 @@ export function useLogStream({
     return () => {
       ws?.close()
     }
-  }, [appId, buildId, appendLine])
+  }, [appId, buildId, archiveOnly, appendLine])
 
   return { lines, connected, error }
 }

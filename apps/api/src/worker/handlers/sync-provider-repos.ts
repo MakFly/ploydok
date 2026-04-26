@@ -9,8 +9,12 @@ import type {
   ProviderRepoRow,
 } from "@ploydok/db/queries"
 import type { Db } from "@ploydok/db"
-import { gitlab_tokens, provider_credentials } from "@ploydok/db"
-import { and, eq, inArray, sql } from "drizzle-orm"
+import {
+  gitlab_tokens,
+  provider_credentials,
+  provider_installations,
+} from "@ploydok/db"
+import { and, eq, inArray, ne, notInArray, sql } from "drizzle-orm"
 import { listAppInstallations } from "../../github/installation-tokens"
 import { ghProvider } from "../../routes/github"
 import { GitLabProvider } from "../../gitlab/client"
@@ -48,15 +52,23 @@ export type SyncProviderReposPayload =
 export async function enqueueProviderReposSync(
   payload: SyncProviderReposPayload
 ): Promise<void> {
+  const normalizedPayload =
+    payload.provider === "github" && payload.installationId
+      ? {
+          ...payload,
+          installationId: normalizeGitHubInstallationId(payload.installationId),
+        }
+      : payload
+
   // BullMQ rejects ":" in custom job ids (Redis key separator). Use "-".
   const target =
-    payload.provider === "github"
-      ? `github-${payload.installationId ?? "all"}`
-      : `gitlab-${payload.userId ?? "all"}`
+    normalizedPayload.provider === "github"
+      ? `github-${normalizedPayload.installationId ?? "all"}`
+      : `gitlab-${normalizedPayload.userId ?? "all"}`
   // Suffix with timestamp so repeated manual syncs each enqueue a fresh job
   // instead of being deduped against an already-running one.
   const jobId = `${target}-${Date.now()}`
-  await providerReposSyncQueue.add(target, payload, { jobId })
+  await providerReposSyncQueue.add(target, normalizedPayload, { jobId })
 }
 
 // ---------------------------------------------------------------------------
@@ -138,6 +150,87 @@ function emit(
 // GitHub
 // ---------------------------------------------------------------------------
 
+function normalizeGitHubInstallationId(installationId: string): string {
+  return installationId.startsWith("github:")
+    ? installationId.slice("github:".length)
+    : installationId
+}
+
+function getGitHubInstallationDbId(installationId: string): string {
+  return `github:${normalizeGitHubInstallationId(installationId)}`
+}
+
+async function deleteLegacyGitHubInstallationDuplicates(
+  db: Db,
+  installationId: string
+): Promise<void> {
+  const externalId = normalizeGitHubInstallationId(installationId)
+  const dbId = getGitHubInstallationDbId(externalId)
+
+  await db
+    .delete(provider_installations)
+    .where(
+      and(
+        eq(provider_installations.provider, "github"),
+        eq(provider_installations.external_id, externalId),
+        ne(provider_installations.id, dbId)
+      )
+    )
+}
+
+async function upsertLiveGitHubInstallation(
+  db: Db,
+  installation: Awaited<ReturnType<typeof listAppInstallations>>[number]
+): Promise<void> {
+  const installId = String(installation.id)
+  const now = new Date()
+
+  await deleteLegacyGitHubInstallationDuplicates(db, installId)
+  await upsertInstallation(db, {
+    id: getGitHubInstallationDbId(installId),
+    provider: "github",
+    external_id: installId,
+    account_login: installation.accountLogin,
+    account_type: installation.accountType,
+    repository_selection: installation.repositorySelection,
+    suspended_at: installation.suspendedAt
+      ? new Date(installation.suspendedAt)
+      : null,
+    html_url: installation.htmlUrl,
+    avatar_url: installation.avatarUrl,
+    repository_count: null,
+    last_synced_at: now,
+    created_at: now,
+  })
+}
+
+async function pruneStaleGitHubInstallations(
+  db: Db,
+  installations: Awaited<ReturnType<typeof listAppInstallations>>
+): Promise<void> {
+  const liveDbIds = installations.map((installation) =>
+    getGitHubInstallationDbId(String(installation.id))
+  )
+
+  const credentialsWhere =
+    liveDbIds.length === 0
+      ? eq(provider_credentials.provider, "github")
+      : and(
+          eq(provider_credentials.provider, "github"),
+          notInArray(provider_credentials.id, liveDbIds)
+        )
+  const installationsWhere =
+    liveDbIds.length === 0
+      ? eq(provider_installations.provider, "github")
+      : and(
+          eq(provider_installations.provider, "github"),
+          notInArray(provider_installations.id, liveDbIds)
+        )
+
+  await db.delete(provider_credentials).where(credentialsWhere)
+  await db.delete(provider_installations).where(installationsWhere)
+}
+
 async function syncGitHub(
   db: Db,
   installationId: string | undefined,
@@ -152,6 +245,7 @@ async function syncGitHub(
 
 async function syncGitHubFanOut(db: Db, ctx: SyncCtx): Promise<void> {
   const installations = await listAppInstallations()
+  await pruneStaleGitHubInstallations(db, installations)
   workerLog.info(
     { count: installations.length },
     "github fan-out: enqueuing per-installation jobs"
@@ -170,25 +264,9 @@ async function syncGitHubFanOut(db: Db, ctx: SyncCtx): Promise<void> {
 
   for (const install of installations) {
     const installId = String(install.id)
-    const now = new Date()
-
-    const row: ProviderInstallationRow = {
-      id: `github:${installId}`,
-      provider: "github",
-      external_id: installId,
-      account_login: install.accountLogin,
-      account_type: install.accountType,
-      repository_selection: install.repositorySelection,
-      suspended_at: install.suspendedAt ? new Date(install.suspendedAt) : null,
-      html_url: install.htmlUrl,
-      avatar_url: install.avatarUrl,
-      repository_count: null,
-      last_synced_at: now,
-      created_at: now,
-    }
 
     try {
-      await upsertInstallation(db, row)
+      await upsertLiveGitHubInstallation(db, install)
     } catch (err) {
       workerLog.warn(
         { err, installId },
@@ -197,7 +275,7 @@ async function syncGitHubFanOut(db: Db, ctx: SyncCtx): Promise<void> {
       continue
     }
 
-    const credentialId = `github:${installId}`
+    const credentialId = getGitHubInstallationDbId(installId)
     try {
       await db
         .insert(provider_credentials)
@@ -242,16 +320,22 @@ async function syncGitHubInstallation(
   installationId: string,
   ctx: SyncCtx
 ): Promise<void> {
-  workerLog.info({ installationId }, "github sync: starting")
+  const externalInstallationId = normalizeGitHubInstallationId(installationId)
+  const dbInstallationId = getGitHubInstallationDbId(externalInstallationId)
+
+  workerLog.info(
+    { installationId: externalInstallationId },
+    "github sync: starting"
+  )
   const startedAt = Date.now()
-  const credentialId = `github:${installationId}`
+  const credentialId = dbInstallationId
 
   const claimed = await claimProviderCredential(db, credentialId)
   if (!claimed) {
     auditUnauthorized({
       jobName: "provider.repos.sync",
       jobId: `sync-${credentialId}`,
-      payload: { provider: "github", installationId },
+      payload: { provider: "github", installationId: externalInstallationId },
       reason: "Credential not found or not in pending/running state",
     })
     throw new Error(
@@ -273,10 +357,25 @@ async function syncGitHubInstallation(
     {
       provider: "github",
       scope: "installation",
-      installationId: `github:${installationId}`,
+      installationId: dbInstallationId,
     },
-    `Importing GitHub repositories for installation ${installationId}…`
+    `Importing GitHub repositories for installation ${externalInstallationId}…`
   )
+
+  try {
+    const liveInstallations = await listAppInstallations()
+    const liveInstallation = liveInstallations.find(
+      (installation) => String(installation.id) === externalInstallationId
+    )
+    if (liveInstallation) {
+      await upsertLiveGitHubInstallation(db, liveInstallation)
+    }
+  } catch (err) {
+    workerLog.warn(
+      { err, installationId: externalInstallationId },
+      "github sync: live installation lookup failed"
+    )
+  }
 
   const allRepos: ProviderRepoRow[] = []
   const MAX_PAGES = 50
@@ -294,13 +393,13 @@ async function syncGitHubInstallation(
       hasMore: boolean
     }
     try {
-      result = await ghProvider.listRepos(installationId, {
+      result = await ghProvider.listRepos(externalInstallationId, {
         page,
         perPage: 100,
       })
     } catch (err) {
       workerLog.warn(
-        { err, installationId, page },
+        { err, installationId: externalInstallationId, page },
         "github sync: listRepos failed, stopping pagination"
       )
       emit(
@@ -308,7 +407,7 @@ async function syncGitHubInstallation(
         "provider.sync.failed",
         {
           provider: "github",
-          installationId: `github:${installationId}`,
+          installationId: dbInstallationId,
           page,
           error: err instanceof Error ? err.message : String(err),
         },
@@ -320,7 +419,7 @@ async function syncGitHubInstallation(
     for (const repo of result.repos) {
       allRepos.push({
         id: `github:${repo.id}`,
-        installation_id: `github:${installationId}`,
+        installation_id: dbInstallationId,
         provider: "github",
         full_name: repo.fullName,
         name: repo.fullName.split("/").at(-1) ?? repo.fullName,
@@ -339,7 +438,7 @@ async function syncGitHubInstallation(
       "provider.sync.progress",
       {
         provider: "github",
-        installationId: `github:${installationId}`,
+        installationId: dbInstallationId,
         page,
         reposFetched: allRepos.length,
         hasMore: result.hasMore,
@@ -351,7 +450,7 @@ async function syncGitHubInstallation(
   }
 
   try {
-    await replaceInstallationRepos(db, `github:${installationId}`, allRepos)
+    await replaceInstallationRepos(db, dbInstallationId, allRepos)
     await db
       .update(provider_credentials)
       .set({
@@ -360,7 +459,7 @@ async function syncGitHubInstallation(
       })
       .where(eq(provider_credentials.id, credentialId))
     workerLog.info(
-      { installationId, count: allRepos.length },
+      { installationId: externalInstallationId, count: allRepos.length },
       "github sync: done"
     )
     emit(
@@ -368,7 +467,7 @@ async function syncGitHubInstallation(
       "provider.sync.completed",
       {
         provider: "github",
-        installationId: `github:${installationId}`,
+        installationId: dbInstallationId,
         totalRepos: allRepos.length,
         durationMs: Date.now() - startedAt,
       },
@@ -383,7 +482,7 @@ async function syncGitHubInstallation(
       })
       .where(eq(provider_credentials.id, credentialId))
     workerLog.error(
-      { err, installationId },
+      { err, installationId: externalInstallationId },
       "github sync: replaceInstallationRepos failed"
     )
     emit(
@@ -391,7 +490,7 @@ async function syncGitHubInstallation(
       "provider.sync.failed",
       {
         provider: "github",
-        installationId: `github:${installationId}`,
+        installationId: dbInstallationId,
         error: err instanceof Error ? err.message : String(err),
       },
       "Failed to write GitHub repos to cache"

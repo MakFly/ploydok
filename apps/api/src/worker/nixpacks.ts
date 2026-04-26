@@ -1,8 +1,13 @@
 // SPDX-License-Identifier: AGPL-3.0-only
-import { mkdir, chmod } from "node:fs/promises"
+import { mkdir, chmod, readFile } from "node:fs/promises"
 import { existsSync, mkdirSync } from "node:fs"
 import path from "node:path"
 import os from "node:os"
+import {
+  NIXPACKS_SUPPORTED_PHP_VERSIONS,
+  NIXPACKS_SUPPORTED_PHP_VERSIONS_LABEL,
+  type NixpacksSupportedPhpVersion,
+} from "@ploydok/shared"
 
 // ---------------------------------------------------------------------------
 // Binary resolution
@@ -123,11 +128,26 @@ export interface NixpacksBuildOptions {
   configFile?: string
   nodeVersion?: string
   buildEnv?: Record<string, string>
+  runtimeEnv?: Record<string, string>
   installCmd?: string
   buildCmd?: string
   startCmd?: string
   /** Called for every stdout/stderr line emitted by nixpacks. */
   onLog?: (line: string) => void
+}
+
+export const DEFAULT_NIXPACKS_NODE_VERSION = "22"
+
+function effectiveNixpacksEnv(
+  opts: Pick<NixpacksBuildOptions, "nodeVersion" | "buildEnv">,
+  defaults: Record<string, string> = {}
+): Record<string, string> {
+  return {
+    ...defaults,
+    NIXPACKS_NODE_VERSION: DEFAULT_NIXPACKS_NODE_VERSION,
+    ...(opts.buildEnv ?? {}),
+    ...(opts.nodeVersion ? { NIXPACKS_NODE_VERSION: opts.nodeVersion } : {}),
+  }
 }
 
 /**
@@ -139,12 +159,45 @@ export async function nixpacksBuild(opts: NixpacksBuildOptions): Promise<void> {
   const bin = await ensureNixpacksInstalled()
   const ctx = path.join(opts.workspacePath, opts.rootDir ?? ".")
 
+  // npm v7+ defaults to strict peer-dep resolution, which breaks on the very
+  // common Next.js / React pre-release mismatches (e.g. next@15.0.3 peer
+  // ^18 || 19.0.0-rc-... vs react@19.0.0 stable). Other PaaS (Vercel,
+  // Netlify, Railway) relax this by default; we follow suit so auto-detected
+  // Node projects build out-of-the-box. User-provided buildEnv can override.
+  //
+  // Nixpacks still falls back to Node 18 on some PHP+Vite projects. Modern
+  // Laravel/Vite dependencies now require Node 20.19+ or 22.12+, so pin a
+  // platform default and let per-app nodeVersion/env settings override it.
+  const effectiveBuildEnv = effectiveNixpacksEnv(opts, {
+    NPM_CONFIG_LEGACY_PEER_DEPS: "true",
+  })
+
+  const phpPlanOverride = await resolvePhpAwareNixpacksPlan({
+    bin,
+    ctx,
+    env: effectiveBuildEnv,
+    ...(opts.configFile
+      ? { configFile: path.join(opts.workspacePath, opts.configFile) }
+      : {}),
+    ...(opts.installCmd ? { installCmd: opts.installCmd } : {}),
+    ...(opts.buildCmd ? { buildCmd: opts.buildCmd } : {}),
+    ...(opts.startCmd ? { startCmd: opts.startCmd } : {}),
+    ...(opts.runtimeEnv ? { runtimeEnv: opts.runtimeEnv } : {}),
+    ...(opts.onLog ? { onLog: opts.onLog } : {}),
+  })
+
   // Ensure the cache directory exists before spawning.
   if (opts.cacheDir) {
     mkdirSync(opts.cacheDir, { recursive: true })
   }
 
-  const args = ["build", ctx, "--name", opts.tag]
+  const args = [
+    ...(phpPlanOverride ? ["--json-plan", phpPlanOverride] : []),
+    "build",
+    ctx,
+    "--name",
+    opts.tag,
+  ]
 
   // Pass a stable cache key so Nixpacks can reuse layer cache across builds
   // of the same app.  We use `cacheKey` (the app ID) rather than `tag` because
@@ -170,16 +223,6 @@ export async function nixpacksBuild(opts: NixpacksBuildOptions): Promise<void> {
   if (opts.buildCmd) args.push("--build-cmd", opts.buildCmd)
   if (opts.startCmd) args.push("--start-cmd", opts.startCmd)
 
-  // npm v7+ defaults to strict peer-dep resolution, which breaks on the very
-  // common Next.js / React pre-release mismatches (e.g. next@15.0.3 peer
-  // ^18 || 19.0.0-rc-... vs react@19.0.0 stable). Other PaaS (Vercel,
-  // Netlify, Railway) relax this by default; we follow suit so auto-detected
-  // Node projects build out-of-the-box. User-provided buildEnv can override.
-  const effectiveBuildEnv: Record<string, string> = {
-    NPM_CONFIG_LEGACY_PEER_DEPS: "true",
-    ...(opts.buildEnv ?? {}),
-  }
-
   // Propagate build env into the generated Dockerfile via nixpacks `--env`.
   // Without this flag, variables set on the host process are NOT seen by the
   // RUN steps inside the image build.
@@ -193,7 +236,6 @@ export async function nixpacksBuild(opts: NixpacksBuildOptions): Promise<void> {
     env: {
       ...process.env,
       ...effectiveBuildEnv,
-      ...(opts.nodeVersion ? { NIXPACKS_NODE_VERSION: opts.nodeVersion } : {}),
     },
   })
 
@@ -228,6 +270,503 @@ export async function nixpacksBuild(opts: NixpacksBuildOptions): Promise<void> {
 }
 
 // ---------------------------------------------------------------------------
+// Dynamic PHP version resolution
+// ---------------------------------------------------------------------------
+
+type JsonObject = Record<string, unknown>
+
+interface ComposerPhpConstraint {
+  source: string
+  constraint: string
+}
+
+interface PhpResolution {
+  version: NixpacksSupportedPhpVersion
+  constraints: ComposerPhpConstraint[]
+}
+
+interface Interval {
+  min: number
+  max: number
+}
+
+async function resolvePhpAwareNixpacksPlan(opts: {
+  bin: string
+  ctx: string
+  env: Record<string, string>
+  configFile?: string
+  installCmd?: string
+  buildCmd?: string
+  startCmd?: string
+  runtimeEnv?: Record<string, string>
+  onLog?: (line: string) => void
+}): Promise<string | null> {
+  const resolution = await resolveComposerPhpVersion(opts.ctx)
+  const shouldBootstrapSqlite = await shouldBootstrapLaravelSqlite(
+    opts.ctx,
+    opts.runtimeEnv ?? {}
+  )
+  if (!resolution && !shouldBootstrapSqlite) return null
+
+  const plan = await loadRawNixpacksPlan(opts)
+  if (!plan) return null
+
+  let changed = false
+  if (resolution) {
+    const rewritten = rewriteNixpacksPhpPackages(plan, resolution.version)
+    changed = rewritten.changed
+
+    if (rewritten.changed) {
+      const reason = strongestPhpConstraint(resolution.constraints)
+      opts.onLog?.(
+        `[nixpacks] PHP version resolved from Composer constraints: ${resolution.version}` +
+          (reason ? ` (${reason.source}: ${reason.constraint})` : "")
+      )
+    }
+  }
+
+  if (shouldBootstrapSqlite && injectLaravelSqliteStartBootstrap(plan)) {
+    changed = true
+    opts.onLog?.(
+      "[nixpacks] Laravel SQLite bootstrap enabled: create database file and run migrations before start; seeders are opt-in"
+    )
+  }
+
+  return changed ? JSON.stringify(plan) : null
+}
+
+async function loadRawNixpacksPlan(opts: {
+  bin: string
+  ctx: string
+  env: Record<string, string>
+  configFile?: string
+  installCmd?: string
+  buildCmd?: string
+  startCmd?: string
+}): Promise<JsonObject | null> {
+  const args = ["plan", opts.ctx, "--format=json"]
+  if (opts.configFile) args.push("--config", opts.configFile)
+  if (opts.installCmd) args.push("--install-cmd", opts.installCmd)
+  if (opts.buildCmd) args.push("--build-cmd", opts.buildCmd)
+  if (opts.startCmd) args.push("--start-cmd", opts.startCmd)
+
+  for (const [key, value] of Object.entries(opts.env)) {
+    args.push("--env", `${key}=${value}`)
+  }
+
+  const proc = Bun.spawn([opts.bin, ...args], {
+    stdout: "pipe",
+    stderr: "pipe",
+    env: { ...process.env, ...opts.env },
+  })
+  const code = await proc.exited
+  if (code !== 0) return null
+
+  const out = await new Response(proc.stdout).text()
+  const start = out.indexOf("{")
+  const end = out.lastIndexOf("}")
+  if (start === -1 || end === -1 || end <= start) return null
+
+  try {
+    return JSON.parse(out.slice(start, end + 1)) as JsonObject
+  } catch {
+    return null
+  }
+}
+
+function rewriteNixpacksPhpPackages(
+  plan: JsonObject,
+  version: NixpacksSupportedPhpVersion
+): { plan: JsonObject; changed: boolean } {
+  const setup = readPlanSetupPhase(plan)
+  const nixPkgs = setup?.["nixPkgs"]
+  if (!Array.isArray(nixPkgs)) return { plan, changed: false }
+
+  const phpSuffix = version.replace(".", "")
+  let sawPhpPackage = false
+  let changed = false
+  const nextPkgs = nixPkgs.map((pkg) => {
+    if (typeof pkg !== "string") return pkg
+    const next = pkg
+      .replace(/\bphp\d{2}(?=\.withExtensions\b|\b)/g, `php${phpSuffix}`)
+      .replace(/\bphp\d{2}Packages\b/g, `php${phpSuffix}Packages`)
+
+    if (next !== pkg) {
+      sawPhpPackage = true
+      changed = true
+    } else if (/\bphp\d{2}(?:Packages|\.withExtensions\b|\b)/.test(pkg)) {
+      sawPhpPackage = true
+    }
+    return next
+  })
+
+  if (!sawPhpPackage || !changed) return { plan, changed: false }
+  if (!setup) return { plan, changed: false }
+  setup["nixPkgs"] = nextPkgs
+  return { plan, changed: true }
+}
+
+async function shouldBootstrapLaravelSqlite(
+  ctx: string,
+  runtimeEnv: Record<string, string>
+): Promise<boolean> {
+  if (!existsSync(path.join(ctx, "artisan"))) return false
+  if (!existsSync(path.join(ctx, "database", "migrations"))) return false
+
+  const explicitConnection = normalizeEnvValue(runtimeEnv["DB_CONNECTION"])
+  if (explicitConnection && explicitConnection !== "sqlite") return false
+  if (normalizeEnvValue(runtimeEnv["DATABASE_URL"])) return false
+  if (!explicitConnection && normalizeEnvValue(runtimeEnv["DB_HOST"])) {
+    return false
+  }
+
+  const exampleConnection = normalizeEnvValue(
+    await readEnvFileValue(path.join(ctx, ".env.example"), "DB_CONNECTION")
+  )
+  if (
+    !explicitConnection &&
+    exampleConnection &&
+    exampleConnection !== "sqlite"
+  ) {
+    return false
+  }
+
+  return explicitConnection === "sqlite" || exampleConnection === "sqlite"
+}
+
+function injectLaravelSqliteStartBootstrap(plan: JsonObject): boolean {
+  const start = plan["start"]
+  if (!isJsonObject(start)) return false
+  const cmd = start["cmd"]
+  if (typeof cmd !== "string" || cmd.trim().length === 0) return false
+  if (cmd.includes("PLOYDOK_LARAVEL_SQLITE_BOOTSTRAP")) return false
+
+  start["cmd"] = `${LARAVEL_SQLITE_BOOTSTRAP_CMD}; ${cmd}`
+  return true
+}
+
+const LARAVEL_SQLITE_BOOTSTRAP_CMD =
+  `if [ -f artisan ] && [ -z "\${DATABASE_URL:-}" ] && ` +
+  `[ "\${DB_CONNECTION:-sqlite}" = "sqlite" ]; then ` +
+  `export PLOYDOK_LARAVEL_SQLITE_BOOTSTRAP=1; ` +
+  `db="\${DB_DATABASE:-/app/database/database.sqlite}"; ` +
+  `case "$db" in /*) ;; *) db="/app/$db";; esac; ` +
+  `created=0; if [ ! -f "$db" ]; then created=1; fi; ` +
+  `mkdir -p "$(dirname "$db")"; touch "$db"; ` +
+  `echo "[ploydok] preparing Laravel SQLite database at $db"; ` +
+  `php artisan migrate --force; ` +
+  `seed="\${PLOYDOK_LARAVEL_SEED:-\${LARAVEL_SEED:-false}}"; ` +
+  `case "$seed" in 1|true|TRUE|yes|YES) ` +
+  `if [ "$created" = "1" ]; then ` +
+  `echo "[ploydok] seeding fresh Laravel SQLite database"; ` +
+  `php artisan db:seed --force; ` +
+  `fi ;; ` +
+  `*) if [ "$created" = "1" ] && [ -d database/seeders ]; then ` +
+  `echo "[ploydok] Laravel seeders detected but not run; set PLOYDOK_LARAVEL_SEED=true to seed a fresh SQLite database"; ` +
+  `fi ;; ` +
+  `esac; ` +
+  `fi`
+
+async function readEnvFileValue(
+  filePath: string,
+  key: string
+): Promise<string | null> {
+  if (!existsSync(filePath)) return null
+  try {
+    const text = await readFile(filePath, "utf8")
+    const escapedKey = key.replace(/[.*+?^${}()|[\]\\]/g, "\\$&")
+    const match = text.match(
+      new RegExp(`^\\s*${escapedKey}\\s*=\\s*(.*)$`, "m")
+    )
+    if (!match) return null
+    return stripEnvQuotes(match[1] ?? "")
+  } catch {
+    return null
+  }
+}
+
+function stripEnvQuotes(value: string): string {
+  const trimmed = value.trim()
+  if (
+    (trimmed.startsWith('"') && trimmed.endsWith('"')) ||
+    (trimmed.startsWith("'") && trimmed.endsWith("'"))
+  ) {
+    return trimmed.slice(1, -1)
+  }
+  return trimmed
+}
+
+function normalizeEnvValue(value: string | null | undefined): string | null {
+  const normalized = value?.trim().toLowerCase()
+  return normalized ? normalized : null
+}
+
+function readPlanSetupPhase(plan: JsonObject): JsonObject | null {
+  const phases = plan["phases"]
+  if (!isJsonObject(phases)) return null
+  const setup = phases["setup"]
+  return isJsonObject(setup) ? setup : null
+}
+
+async function resolveComposerPhpVersion(
+  ctx: string
+): Promise<PhpResolution | null> {
+  if (!existsSync(path.join(ctx, "composer.json"))) return null
+
+  const constraints = await readComposerPhpConstraints(ctx)
+  if (constraints.length === 0) return null
+
+  const version = NIXPACKS_SUPPORTED_PHP_VERSIONS.find((candidate) =>
+    constraints.every(({ constraint }) =>
+      composerConstraintAllowsPhpMinor(constraint, candidate)
+    )
+  )
+
+  if (!version) {
+    throw new Error(
+      "Nixpacks cannot build this PHP version. " +
+        `Supported PHP versions are ${NIXPACKS_SUPPORTED_PHP_VERSIONS_LABEL}. ` +
+        "Use a Dockerfile or a custom image for older PHP versions such as 7.4. " +
+        `Composer constraints: ${constraints
+          .map((c) => `${c.source}=${c.constraint}`)
+          .join(", ")}`
+    )
+  }
+
+  return { version, constraints }
+}
+
+async function readComposerPhpConstraints(
+  ctx: string
+): Promise<ComposerPhpConstraint[]> {
+  const constraints: ComposerPhpConstraint[] = []
+  const composerJson = await readJsonFile(path.join(ctx, "composer.json"))
+  const rootPhp = readRequirePhp(composerJson)
+  if (rootPhp) {
+    constraints.push({ source: "composer.json", constraint: rootPhp })
+  }
+
+  const lock = await readJsonFile(path.join(ctx, "composer.lock"))
+  if (!lock) return constraints
+
+  const platform = lock["platform"]
+  if (isJsonObject(platform) && typeof platform["php"] === "string") {
+    constraints.push({
+      source: "composer.lock platform",
+      constraint: platform["php"],
+    })
+  }
+
+  for (const key of ["packages", "packages-dev"] as const) {
+    const packages = lock[key]
+    if (!Array.isArray(packages)) continue
+    for (const pkg of packages) {
+      if (!isJsonObject(pkg)) continue
+      const php = readRequirePhp(pkg)
+      const name = typeof pkg["name"] === "string" ? pkg["name"] : key
+      if (php) constraints.push({ source: name, constraint: php })
+    }
+  }
+
+  return constraints
+}
+
+function readRequirePhp(obj: unknown): string | null {
+  if (!isJsonObject(obj)) return null
+  const require = obj["require"]
+  if (!isJsonObject(require)) return null
+  return typeof require["php"] === "string" ? require["php"] : null
+}
+
+async function readJsonFile(filePath: string): Promise<JsonObject | null> {
+  if (!existsSync(filePath)) return null
+  try {
+    const parsed = JSON.parse(await readFile(filePath, "utf8"))
+    return isJsonObject(parsed) ? parsed : null
+  } catch {
+    return null
+  }
+}
+
+function strongestPhpConstraint(
+  constraints: ComposerPhpConstraint[]
+): ComposerPhpConstraint | null {
+  let strongest: ComposerPhpConstraint | null = null
+  let strongestMin = -1
+  for (const constraint of constraints) {
+    const min = minAllowedScore(constraint.constraint)
+    if (min > strongestMin) {
+      strongest = constraint
+      strongestMin = min
+    }
+  }
+  return strongest
+}
+
+function minAllowedScore(constraint: string): number {
+  const intervals = parseComposerConstraint(constraint)
+  if (intervals.length === 0) return 0
+  return Math.min(...intervals.map((interval) => interval.min))
+}
+
+function composerConstraintAllowsPhpMinor(
+  constraint: string,
+  version: NixpacksSupportedPhpVersion
+): boolean {
+  const intervals = parseComposerConstraint(constraint)
+  if (intervals.length === 0) return true
+
+  const [major, minor] = version.split(".").map(Number) as [number, number]
+  const candidate: Interval = {
+    min: versionScore(major, minor, 0),
+    max: versionScore(major, minor + 1, 0),
+  }
+
+  return intervals.some((interval) => intervalsOverlap(interval, candidate))
+}
+
+function parseComposerConstraint(constraint: string): Interval[] {
+  const alternatives = constraint
+    .split(/\s*\|\|?\s*/g)
+    .map((part) => part.trim())
+    .filter(Boolean)
+
+  const intervals: Interval[] = []
+  for (const alternative of alternatives) {
+    const parsed = parseConstraintAlternative(alternative)
+    if (parsed) intervals.push(parsed)
+  }
+  return intervals
+}
+
+function parseConstraintAlternative(alternative: string): Interval | null {
+  const tokens = alternative
+    .split(/[\s,]+/g)
+    .map((token) => token.trim())
+    .filter(Boolean)
+
+  let interval: Interval = { min: 0, max: Number.POSITIVE_INFINITY }
+  for (const token of tokens) {
+    const next = parseConstraintToken(token)
+    if (!next) continue
+    interval = intersectIntervals(interval, next)
+  }
+
+  return interval.max > interval.min ? interval : null
+}
+
+function parseConstraintToken(token: string): Interval | null {
+  const clean = token.replace(/@[\w.-]+$/, "")
+  if (!clean || clean === "*" || clean.toLowerCase() === "x") return null
+  if (clean.startsWith("!=") || clean.startsWith("<>")) return null
+
+  if (clean.startsWith("^")) {
+    const version = parseVersion(clean.slice(1))
+    if (!version) return null
+    return {
+      min: versionScore(...version),
+      max: versionScore(version[0] + 1, 0, 0),
+    }
+  }
+
+  if (clean.startsWith("~")) {
+    const raw = clean.slice(1)
+    const version = parseVersion(raw)
+    if (!version) return null
+    const parts = raw.split(".").filter(Boolean)
+    return {
+      min: versionScore(...version),
+      max:
+        parts.length >= 3
+          ? versionScore(version[0], version[1] + 1, 0)
+          : versionScore(version[0] + 1, 0, 0),
+    }
+  }
+
+  const comparator = clean.match(/^(>=|<=|>|<|={1,2})?(.+)$/)
+  if (!comparator) return null
+
+  const op = comparator[1] ?? "="
+  const rawVersion = comparator[2] ?? ""
+  if (/[xX*]/.test(rawVersion)) return wildcardInterval(rawVersion)
+
+  const version = parseVersion(rawVersion)
+  if (!version) return null
+  const score = versionScore(...version)
+
+  switch (op) {
+    case ">=":
+      return { min: score, max: Number.POSITIVE_INFINITY }
+    case ">":
+      return { min: score + 1, max: Number.POSITIVE_INFINITY }
+    case "<=":
+      return { min: 0, max: score + 1 }
+    case "<":
+      return { min: 0, max: score }
+    case "=":
+    case "==": {
+      const upper =
+        rawVersion.split(".").filter(Boolean).length <= 2
+          ? versionScore(version[0], version[1] + 1, 0)
+          : score + 1
+      return { min: score, max: upper }
+    }
+    default:
+      return null
+  }
+}
+
+function wildcardInterval(rawVersion: string): Interval | null {
+  const parts = rawVersion.split(".")
+  const major = numberPart(parts[0])
+  if (major === null) return null
+
+  const minor = numberPart(parts[1])
+  if (minor === null) {
+    return {
+      min: versionScore(major, 0, 0),
+      max: versionScore(major + 1, 0, 0),
+    }
+  }
+
+  return {
+    min: versionScore(major, minor, 0),
+    max: versionScore(major, minor + 1, 0),
+  }
+}
+
+function parseVersion(raw: string): [number, number, number] | null {
+  const match = raw.match(/^v?(\d+)(?:\.(\d+|x|X|\*))?(?:\.(\d+|x|X|\*))?/)
+  if (!match) return null
+  const major = Number(match[1])
+  const minor = numberPart(match[2]) ?? 0
+  const patch = numberPart(match[3]) ?? 0
+  return [major, minor, patch]
+}
+
+function numberPart(value: string | undefined): number | null {
+  if (!value || /^(x|\*)$/i.test(value)) return null
+  const n = Number(value)
+  return Number.isFinite(n) ? n : null
+}
+
+function versionScore(major: number, minor: number, patch: number): number {
+  return major * 1_000_000 + minor * 1_000 + patch
+}
+
+function intersectIntervals(a: Interval, b: Interval): Interval {
+  return { min: Math.max(a.min, b.min), max: Math.min(a.max, b.max) }
+}
+
+function intervalsOverlap(a: Interval, b: Interval): boolean {
+  return a.min < b.max && b.min < a.max
+}
+
+function isJsonObject(value: unknown): value is JsonObject {
+  return typeof value === "object" && value !== null && !Array.isArray(value)
+}
+
+// ---------------------------------------------------------------------------
 // Plan (pre-check)
 // ---------------------------------------------------------------------------
 
@@ -255,20 +794,22 @@ export interface NixpacksPlan {
 export async function nixpacksPlan(opts: {
   workspacePath: string
   rootDir?: string
+  nodeVersion?: string
   buildEnv?: Record<string, string>
 }): Promise<NixpacksPlan | null> {
   const bin = await ensureNixpacksInstalled()
   const ctx = path.join(opts.workspacePath, opts.rootDir ?? ".")
 
+  const effectiveBuildEnv = effectiveNixpacksEnv(opts)
   const args = ["plan", ctx, "--format=json"]
-  for (const [key, value] of Object.entries(opts.buildEnv ?? {})) {
+  for (const [key, value] of Object.entries(effectiveBuildEnv)) {
     args.push("--env", `${key}=${value}`)
   }
 
   const proc = Bun.spawn([bin, ...args], {
     stdout: "pipe",
     stderr: "pipe",
-    env: { ...process.env, ...(opts.buildEnv ?? {}) },
+    env: { ...process.env, ...effectiveBuildEnv },
   })
   const code = await proc.exited
   if (code !== 0) return null

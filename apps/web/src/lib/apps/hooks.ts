@@ -253,7 +253,8 @@ export function useBuilds(appId: string, opts?: UseBuildsOptions) {
   // invalidateQueries proved unreliable here — both no-op when RQ considers
   // the query "fresh" and when multiple refetches are batched within a few
   // ms (replay). A direct fetch+setQueryData is deterministic.
-  const syncFromServer = async () => {
+  const syncFromServer = async (payload?: AppStatusEventPayload) => {
+    if (payload?.appId !== appId) return
     try {
       // Bust apiFetch's module-level GET cache before fetching — without this
       // we'd get the first response's cached Promise for the whole session.
@@ -266,10 +267,16 @@ export function useBuilds(appId: string, opts?: UseBuildsOptions) {
     }
   }
 
-  useEventsSubscription("build.started", syncFromServer)
-  useEventsSubscription("build.succeeded", syncFromServer)
-  useEventsSubscription("build.failed", syncFromServer)
-  useEventsSubscription("deploy.status_change", syncFromServer)
+  useEventsSubscription<AppStatusEventPayload>("build.started", syncFromServer)
+  useEventsSubscription<AppStatusEventPayload>(
+    "build.succeeded",
+    syncFromServer
+  )
+  useEventsSubscription<AppStatusEventPayload>("build.failed", syncFromServer)
+  useEventsSubscription<AppStatusEventPayload>(
+    "deploy.status_change",
+    syncFromServer
+  )
 
   return useQuery<Array<Build>, ApiError>({
     queryKey: ["apps", appId, "builds"],

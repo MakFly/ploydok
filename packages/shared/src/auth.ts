@@ -1,6 +1,6 @@
 // SPDX-License-Identifier: AGPL-3.0-only
-import { z } from "zod";
-import { OrganizationSummarySchema } from "./organizations";
+import { z } from "zod"
+import { OrganizationSummarySchema } from "./organizations"
 
 // ---------------------------------------------------------------------------
 // Registration
@@ -9,14 +9,16 @@ import { OrganizationSummarySchema } from "./organizations";
 export const RegisterStartBodySchema = z.object({
   email: z.string().email(),
   display_name: z.string().min(1).max(100),
-});
-export type RegisterStartBody = z.infer<typeof RegisterStartBodySchema>;
+})
+export type RegisterStartBody = z.infer<typeof RegisterStartBodySchema>
 
 export const RegisterOptionsResponseSchema = z.object({
   options: z.unknown(), // PublicKeyCredentialCreationOptionsJSON from @simplewebauthn
   userId: z.string(),
-});
-export type RegisterOptionsResponse = z.infer<typeof RegisterOptionsResponseSchema>;
+})
+export type RegisterOptionsResponse = z.infer<
+  typeof RegisterOptionsResponseSchema
+>
 
 // ---------------------------------------------------------------------------
 // Login
@@ -24,13 +26,13 @@ export type RegisterOptionsResponse = z.infer<typeof RegisterOptionsResponseSche
 
 export const LoginStartBodySchema = z.object({
   email: z.string().email(),
-});
-export type LoginStartBody = z.infer<typeof LoginStartBodySchema>;
+})
+export type LoginStartBody = z.infer<typeof LoginStartBodySchema>
 
 export const LoginOptionsResponseSchema = z.object({
   options: z.unknown(), // PublicKeyCredentialRequestOptionsJSON from @simplewebauthn
-});
-export type LoginOptionsResponse = z.infer<typeof LoginOptionsResponseSchema>;
+})
+export type LoginOptionsResponse = z.infer<typeof LoginOptionsResponseSchema>
 
 // ---------------------------------------------------------------------------
 // User / Session types
@@ -46,15 +48,16 @@ export const MeSchema = z.object({
   has_passkey_plus: z.boolean(), // >= 2 passkeys
   has_backup_codes: z.boolean(), // >= 1 non-consumed backup code
   has_totp: z.boolean(), // verified TOTP enrolled
+  require_totp_for_secret_reveal: z.boolean(),
   needs_second_factor: z.boolean(),
-});
-export type Me = z.infer<typeof MeSchema>;
+})
+export type Me = z.infer<typeof MeSchema>
 
 export const RefreshResponseSchema = z.object({
   ok: z.literal(true),
   accessExpiresAt: z.number(),
-});
-export type RefreshResponse = z.infer<typeof RefreshResponseSchema>;
+})
+export type RefreshResponse = z.infer<typeof RefreshResponseSchema>
 
 export const SessionInfoSchema = z.object({
   id: z.string(),
@@ -64,8 +67,8 @@ export const SessionInfoSchema = z.object({
   last_seen_at: z.string().datetime(),
   expires_at: z.string().datetime(),
   is_current: z.boolean(),
-});
-export type SessionInfo = z.infer<typeof SessionInfoSchema>;
+})
+export type SessionInfo = z.infer<typeof SessionInfoSchema>
 
 export const PasskeyInfoSchema = z.object({
   id: z.string(),
@@ -73,8 +76,8 @@ export const PasskeyInfoSchema = z.object({
   device_name: z.string().nullable(),
   created_at: z.string().datetime(),
   last_used_at: z.string().datetime(),
-});
-export type PasskeyInfo = z.infer<typeof PasskeyInfoSchema>;
+})
+export type PasskeyInfo = z.infer<typeof PasskeyInfoSchema>
 
 // ---------------------------------------------------------------------------
 // Backup codes
@@ -82,11 +85,11 @@ export type PasskeyInfo = z.infer<typeof PasskeyInfoSchema>;
 
 export const BackupCodesResponseSchema = z.object({
   codes: z.array(z.string()).length(10),
-});
-export type BackupCodesResponse = z.infer<typeof BackupCodesResponseSchema>;
+})
+export type BackupCodesResponse = z.infer<typeof BackupCodesResponseSchema>
 
 export const ConsumeBackupCodeBodySchema = z.object({
   email: z.string().email(),
   code: z.string(),
-});
-export type ConsumeBackupCodeBody = z.infer<typeof ConsumeBackupCodeBodySchema>;
+})
+export type ConsumeBackupCodeBody = z.infer<typeof ConsumeBackupCodeBodySchema>

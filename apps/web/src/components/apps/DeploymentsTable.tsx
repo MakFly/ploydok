@@ -270,6 +270,7 @@ function makeColumns(
         const inProgress = IN_PROGRESS_STATUSES.has(status)
         const isWarning = status === "succeeded_with_warning"
         const postDeployError = row.original.postDeployError
+        const errorMessage = row.original.errorMessage
         return (
           <span
             className={[
@@ -277,9 +278,11 @@ function makeColumns(
               BUILD_STATUS_CLASS[status],
             ].join(" ")}
             title={
-              isWarning && postDeployError
-                ? `Post-deploy hook failed: ${postDeployError}`
-                : undefined
+              status === "failed" && errorMessage
+                ? errorMessage
+                : isWarning && postDeployError
+                  ? `Post-deploy hook failed: ${postDeployError}`
+                  : undefined
             }
           >
             {inProgress && (

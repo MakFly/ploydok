@@ -5,7 +5,9 @@ import type { DbKind, DbPlan } from "./spawner"
 
 // ── Mocks ─────────────────────────────────────────────────────────────────────
 
-const mockContainerCreate = mock(async () => ({ containerId: "test-container-id" }))
+const mockContainerCreate = mock(async () => ({
+  containerId: "test-container-id",
+}))
 const mockContainerStart = mock(async () => ({}))
 const mockNetworkCreate = mock(async () => ({ networkId: "test-net-id" }))
 const mockListContainers = mock(async () => ({
@@ -44,7 +46,9 @@ const mockEncryptSecret = mock(async (plaintext: string) => ({
 
 mock.module("../secrets/crypto", () => ({
   encryptSecret: mockEncryptSecret,
-  decryptSecret: mock(async (enc: Buffer) => enc.toString().replace("enc:", "")),
+  decryptSecret: mock(async (enc: Buffer) =>
+    enc.toString().replace("enc:", "")
+  ),
 }))
 
 let insertedRow: Record<string, unknown> = {}
@@ -79,7 +83,7 @@ describe("spawnDatabase", () => {
     mockEncryptSecret.mockClear()
   })
 
-  const kinds: DbKind[] = ["postgres", "redis", "mongo"]
+  const kinds: DbKind[] = ["postgres", "redis", "mongo", "libsql"]
   const plan: DbPlan = "small"
 
   for (const kind of kinds) {
@@ -101,7 +105,9 @@ describe("spawnDatabase", () => {
       expect(insertedRow.status).toBe("creating")
       expect(insertedRow.project_id).toBe("test-project")
 
-      expect(updatedRows.some((row) => row.container_id === "test-container-id")).toBe(true)
+      expect(
+        updatedRows.some((row) => row.container_id === "test-container-id")
+      ).toBe(true)
       expect(updatedRows.some((row) => row.connection_string_enc)).toBe(true)
       expect(updatedRows[updatedRows.length - 1]?.status).toBe("running")
 
@@ -120,11 +126,18 @@ describe("spawnDatabase", () => {
       const createCall = calls.length > 0 ? calls[0] : null
       if (createCall && createCall.length > 0) {
         const callArg = createCall[0]
-        expect(callArg?.image).toContain(kind === "mongo" ? "mongo" : kind)
+        expect(callArg?.image).toContain(
+          kind === "mongo" ? "mongo" : kind === "libsql" ? "libsql" : kind
+        )
         expect(callArg?.name).toMatch(/^ploydok-[a-z0-9][a-z0-9-]{0,62}$/)
         expect(callArg?.healthcheck?.test?.[0]).toBe("CMD-SHELL")
         if (kind === "postgres") {
-          expect(callArg?.healthcheck?.test?.[1]).toContain("pg_isready -U $POSTGRES_USER -d $POSTGRES_DB")
+          expect(callArg?.healthcheck?.test?.[1]).toContain(
+            "pg_isready -U $POSTGRES_USER -d $POSTGRES_DB"
+          )
+        }
+        if (kind === "libsql") {
+          expect(callArg?.healthcheck?.test?.[1]).toContain("127.0.0.1:8080")
         }
         expect(callArg?.labels?.["ploydok.owner_id"]).toBe("user-1")
         expect(callArg?.labels?.["ploydok.app_id"]).toBe(result.id)
@@ -144,6 +157,8 @@ describe("spawnDatabase", () => {
     expect(result.connectionString).toMatch(/^postgres:\/\//)
     expect(result.connectionString).toContain("@ploydok-db-")
     expect(result.connectionString).toContain(":5432/app")
+    expect(result.connectionString).toContain("serverVersion=16")
+    expect(result.connectionString).toContain("charset=utf8")
   })
 
   it("connection string for redis includes correct format", async () => {
@@ -169,6 +184,19 @@ describe("spawnDatabase", () => {
     expect(result.connectionString).toMatch(/^mongodb:\/\//)
     expect(result.connectionString).toContain(":27017")
     expect(result.connectionString).toContain("authSource=admin")
+  })
+
+  it("connection string for libsql matches Dokploy-style internal URL", async () => {
+    const result = await spawnDatabase(mockDb, {
+      projectId: "proj-4",
+      ownerId: "user-1",
+      kind: "libsql",
+      name: "mylibsql",
+      plan: "small",
+    })
+    expect(result.connectionString).toMatch(/^http:\/\/libsql:/)
+    expect(result.connectionString).toContain("@ploydok-db-")
+    expect(result.connectionString).toContain(":8080")
   })
 
   it("reprovisions a missing container on start", async () => {
@@ -205,19 +233,27 @@ describe("spawnDatabase", () => {
 
     expect(mockContainerCreate).toHaveBeenCalledTimes(1)
     expect(mockContainerStart).toHaveBeenCalledTimes(1)
-    const createCalls = Array.from(mockContainerCreate.mock.calls as Array<Array<unknown>>)
-    const createArg = (createCalls[0]?.[0] ?? null) as
-      | null
-      | {
-        name: string
-        healthcheck?: { test?: string[] }
-        labels?: Record<string, string>
-      }
+    const createCalls = Array.from(
+      mockContainerCreate.mock.calls as Array<Array<unknown>>
+    )
+    const createArg = (createCalls[0]?.[0] ?? null) as null | {
+      name: string
+      healthcheck?: { test?: string[] }
+      labels?: Record<string, string>
+    }
     expect(createArg?.name).toBe("ploydok-db-vw6p3llb5e-refyv-xhrg")
     expect(createArg?.healthcheck?.test?.[0]).toBe("CMD-SHELL")
     expect(createArg?.labels?.["ploydok.owner_id"]).toBe("user-1")
     expect(createArg?.labels?.["ploydok.app_id"]).toBe("vw6P3lLB5e-rEFyV-XhRG")
-    expect(updatedRows.some((nextRow) => nextRow.host === "ploydok-db-vw6p3llb5e-refyv-xhrg")).toBe(true)
-    expect(updatedRows.some((nextRow) => nextRow.container_id === "test-container-id")).toBe(true)
+    expect(
+      updatedRows.some(
+        (nextRow) => nextRow.host === "ploydok-db-vw6p3llb5e-refyv-xhrg"
+      )
+    ).toBe(true)
+    expect(
+      updatedRows.some(
+        (nextRow) => nextRow.container_id === "test-container-id"
+      )
+    ).toBe(true)
   })
 })

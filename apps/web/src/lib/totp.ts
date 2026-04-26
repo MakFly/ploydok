@@ -12,6 +12,7 @@ export interface TotpEnrollResponse {
 export interface TotpStatus {
   enrolled: boolean
   verified: boolean
+  requireTotpForSecretReveal: boolean
 }
 
 /** Fetch current TOTP enrollment status for the authed user. */
@@ -19,10 +20,39 @@ export function useTotpStatus() {
   return useQuery<TotpStatus, ApiError>({
     queryKey: ["totp", "status"],
     queryFn: async () => {
-      const me = await apiFetch<{ has_totp: boolean }>("/me")
+      const me = await apiFetch<{
+        has_totp: boolean
+        require_totp_for_secret_reveal: boolean
+      }>("/me")
       // Simplification: if has_totp is true the secret is enrolled AND verified.
       // An in-progress (unverified) enroll is tracked locally by the component.
-      return { enrolled: me.has_totp, verified: me.has_totp }
+      return {
+        enrolled: me.has_totp,
+        verified: me.has_totp,
+        requireTotpForSecretReveal: me.require_totp_for_secret_reveal,
+      }
+    },
+  })
+}
+
+export function useUpdateTotpPreferences() {
+  const qc = useQueryClient()
+  return useMutation<
+    { require_totp_for_secret_reveal: boolean },
+    ApiError,
+    { requireTotpForSecretReveal: boolean }
+  >({
+    mutationFn: async (body) =>
+      apiFetch<{ require_totp_for_secret_reveal: boolean }>(
+        "/auth/totp/preferences",
+        {
+          method: "PATCH",
+          body,
+        }
+      ),
+    onSuccess: () => {
+      qc.invalidateQueries({ queryKey: ["totp", "status"] })
+      qc.invalidateQueries({ queryKey: ["me"] })
     },
   })
 }
@@ -31,7 +61,9 @@ export function useTotpStatus() {
 export function useEnrollTotp() {
   return useMutation<TotpEnrollResponse, ApiError, void>({
     mutationFn: async () => {
-      return apiFetch<TotpEnrollResponse>("/auth/totp/enroll", { method: "POST" })
+      return apiFetch<TotpEnrollResponse>("/auth/totp/enroll", {
+        method: "POST",
+      })
     },
   })
 }

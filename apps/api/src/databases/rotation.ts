@@ -19,7 +19,13 @@
 import { randomBytes } from "node:crypto"
 import { nanoid } from "nanoid"
 import { and, eq, inArray, lt } from "drizzle-orm"
-import { databases, app_db_links, secrets, apps, password_history } from "@ploydok/db"
+import {
+  databases,
+  app_db_links,
+  secrets,
+  apps,
+  password_history,
+} from "@ploydok/db"
 import type { Db } from "@ploydok/db"
 import { childLogger } from "../logger"
 import { encryptSecret, decryptSecret } from "../secrets/crypto"
@@ -29,6 +35,7 @@ import { dispatch } from "../notify/index"
 import { createRedis } from "@ploydok/db"
 import { env } from "../env"
 import type { Agent } from "../agent/index"
+import { normalizePostgresConnectionString } from "./connection-strings"
 
 const log = childLogger("databases.rotation")
 
@@ -39,7 +46,7 @@ const log = childLogger("databases.rotation")
 export class RotationFailedError extends Error {
   constructor(
     message: string,
-    public readonly databaseId: string,
+    public readonly databaseId: string
   ) {
     super(message)
     this.name = "RotationFailedError"
@@ -81,7 +88,7 @@ async function execInDbContainer(
   agent: Agent,
   containerId: string,
   cmd: string[],
-  timeoutMs = 15_000,
+  timeoutMs = 15_000
 ): Promise<{ stdout: string; exitCode: number }> {
   const exec = agent.containerExec()
   exec.send({
@@ -100,7 +107,8 @@ async function execInDbContainer(
   const timeoutHandle = setTimeout(() => exec.close(), timeoutMs)
   try {
     for await (const frame of exec.events) {
-      if (frame.stdout?.length) chunks.push(Buffer.from(frame.stdout).toString("utf-8"))
+      if (frame.stdout?.length)
+        chunks.push(Buffer.from(frame.stdout).toString("utf-8"))
       if (frame.exit !== undefined) {
         exitCode = frame.exit.code
         break
@@ -121,7 +129,7 @@ async function addNewPassword(
   agent: Agent,
   containerId: string,
   kind: DbKind,
-  opts: { oldUser: string; newUser: string; newPwd: string; database: string },
+  opts: { oldUser: string; newUser: string; newPwd: string; database: string }
 ): Promise<void> {
   const { oldUser, newUser, newPwd, database } = opts
   let cmd: string[]
@@ -153,7 +161,9 @@ async function addNewPassword(
 
   const result = await execInDbContainer(agent, containerId, cmd)
   if (result.exitCode !== 0) {
-    throw new Error(`Failed to add new DB user ${newUser}: exit ${result.exitCode}\n${result.stdout}`)
+    throw new Error(
+      `Failed to add new DB user ${newUser}: exit ${result.exitCode}\n${result.stdout}`
+    )
   }
 }
 
@@ -161,7 +171,7 @@ async function dropOldUser(
   agent: Agent,
   containerId: string,
   kind: DbKind,
-  opts: { oldUser: string; newUser: string; database: string },
+  opts: { oldUser: string; newUser: string; database: string }
 ): Promise<void> {
   const { oldUser, newUser, database } = opts
   let cmd: string[]
@@ -185,7 +195,10 @@ async function dropOldUser(
   const result = await execInDbContainer(agent, containerId, cmd)
   if (result.exitCode !== 0) {
     // Non-fatal — log warning and continue
-    log.warn({ exitCode: result.exitCode, oldUser, kind }, "dropOldUser failed (non-fatal)")
+    log.warn(
+      { exitCode: result.exitCode, oldUser, kind },
+      "dropOldUser failed (non-fatal)"
+    )
   }
 }
 
@@ -197,7 +210,7 @@ function rebuildConnectionString(
   kind: DbKind,
   oldConnStr: string,
   newPwd: string,
-  newUser: string,
+  newUser: string
 ): string {
   const url = new URL(oldConnStr)
   url.password = encodeURIComponent(newPwd)
@@ -210,11 +223,15 @@ function buildSecretVars(
   newConnString: string,
   prefix: string,
   newUser: string,
-  newPwd: string,
+  newPwd: string
 ): Record<string, string> {
-  const url = new URL(newConnString)
+  const normalizedConnString =
+    kind === "postgres"
+      ? normalizePostgresConnectionString(newConnString)
+      : newConnString
+  const url = new URL(normalizedConnString)
   const vars: Record<string, string> = {}
-  vars[`${prefix}_URL`] = newConnString
+  vars[`${prefix}_URL`] = normalizedConnString
   vars[`${prefix}_PASSWORD`] = newPwd
   if (kind !== "redis") {
     vars[`${prefix}_USER`] = newUser
@@ -231,7 +248,7 @@ function buildSecretVars(
 export async function rotatePassword(
   db: Db,
   databaseId: string,
-  opts?: { reason?: string },
+  opts?: { reason?: string }
 ): Promise<RotationResult> {
   const rotLog = log.child({ databaseId, reason: opts?.reason ?? "manual" })
 
@@ -244,7 +261,9 @@ export async function rotatePassword(
   const dbRow = dbRows[0]
   if (!dbRow) throw new Error(`Database not found: ${databaseId}`)
   if (dbRow.status !== "running") {
-    throw new Error(`Cannot rotate password for database with status ${dbRow.status}`)
+    throw new Error(
+      `Cannot rotate password for database with status ${dbRow.status}`
+    )
   }
   if (dbRow.rotation_in_progress) {
     throw new RotationInProgressError(databaseId)
@@ -262,7 +281,7 @@ export async function rotatePassword(
   }
   const oldPwd = await decryptSecret(
     dbRow.master_password_enc as Buffer,
-    dbRow.master_password_nonce as Buffer,
+    dbRow.master_password_nonce as Buffer
   )
 
   // Derive old connection string
@@ -270,14 +289,16 @@ export async function rotatePassword(
   if (dbRow.connection_string_enc && dbRow.connection_string_nonce) {
     oldConnStr = await decryptSecret(
       dbRow.connection_string_enc as Buffer,
-      dbRow.connection_string_nonce as Buffer,
+      dbRow.connection_string_nonce as Buffer
     )
   }
 
   // Parse old user and database from connection string
   const connUrl = oldConnStr ? new URL(oldConnStr) : null
   const oldUser = connUrl ? decodeURIComponent(connUrl.username) : "ploydok"
-  const database = connUrl ? connUrl.pathname.replace(/^\//, "").split("?")[0] ?? "app" : "app"
+  const database = connUrl
+    ? (connUrl.pathname.replace(/^\//, "").split("?")[0] ?? "app")
+    : "app"
 
   // New credentials
   const newPwd = generatePassword()
@@ -294,7 +315,12 @@ export async function rotatePassword(
   try {
     // 4. Create new user with new password in DB container
     const agent = getSharedAgent()
-    await addNewPassword(agent, containerId, kind, { oldUser, newUser, newPwd, database })
+    await addNewPassword(agent, containerId, kind, {
+      oldUser,
+      newUser,
+      newPwd,
+      database,
+    })
     rotLog.info({ newUser }, "new DB user created with new password")
 
     // 5. Store old password in password_history (for audit + rollback reference)
@@ -313,7 +339,10 @@ export async function rotatePassword(
     const { enc: newPwEnc, nonce: newPwNonce } = await encryptSecret(newPwd)
     const { enc: newConnEnc, nonce: newConnNonce } = newConnStr
       ? await encryptSecret(newConnStr)
-      : { enc: dbRow.connection_string_enc, nonce: dbRow.connection_string_nonce }
+      : {
+          enc: dbRow.connection_string_enc,
+          nonce: dbRow.connection_string_nonce,
+        }
 
     await db
       .update(databases)
@@ -347,7 +376,13 @@ export async function rotatePassword(
 
     for (const link of links) {
       const prefix = link.env_prefix
-      const vars = buildSecretVars(kind, newConnStr || oldConnStr, prefix, newUser, newPwd)
+      const vars = buildSecretVars(
+        kind,
+        newConnStr || oldConnStr,
+        prefix,
+        newUser,
+        newPwd
+      )
       const appProjectId = appProjectMap.get(link.app_id) ?? null
 
       // Delete old linked secrets for this (app, db) pair
@@ -356,8 +391,8 @@ export async function rotatePassword(
         .where(
           and(
             eq(secrets.app_id, link.app_id),
-            eq(secrets.linked_database_id, databaseId),
-          ),
+            eq(secrets.linked_database_id, databaseId)
+          )
         )
 
       // Insert fresh secrets
@@ -385,7 +420,7 @@ export async function rotatePassword(
       await deployQueue.add(
         "deploy.requested",
         { appId, kind: "rotation_redeploy" },
-        { jobId: `rotation-redeploy-${databaseId}-${appId}-${Date.now()}` },
+        { jobId: `rotation-redeploy-${databaseId}-${appId}-${Date.now()}` }
       )
     }
 
@@ -427,7 +462,7 @@ export async function rotatePassword(
         })
         throw new RotationFailedError(
           "Rolling redeploy after rotation failed — rolled back to old password",
-          databaseId,
+          databaseId
         )
       }
     }
@@ -464,7 +499,7 @@ export async function rotatePassword(
           appId: databaseId,
           appName: dbRow.name,
         },
-        { userId: dbRow.project_id }, // best-effort scope
+        { userId: dbRow.project_id } // best-effort scope
       )
     } catch (notifyErr) {
       rotLog.warn({ notifyErr }, "db.rotated dispatch failed (non-fatal)")
@@ -505,9 +540,19 @@ interface RollbackOpts {
 async function rollbackRotation(
   db: Db,
   agent: Agent,
-  opts: RollbackOpts,
+  opts: RollbackOpts
 ): Promise<void> {
-  const { databaseId, containerId, kind, oldPwd, oldUser, newUser, database, oldConnStr, linkedAppIds } = opts
+  const {
+    databaseId,
+    containerId,
+    kind,
+    oldPwd,
+    oldUser,
+    newUser,
+    database,
+    oldConnStr,
+    linkedAppIds,
+  } = opts
   const rollLog = log.child({ databaseId, phase: "rollback" })
 
   try {
@@ -552,10 +597,16 @@ async function rollbackRotation(
         .where(
           and(
             eq(secrets.app_id, link.app_id),
-            eq(secrets.linked_database_id, databaseId),
-          ),
+            eq(secrets.linked_database_id, databaseId)
+          )
         )
-      const vars = buildSecretVars(kind, oldConnStr, link.env_prefix, oldUser, oldPwd)
+      const vars = buildSecretVars(
+        kind,
+        oldConnStr,
+        link.env_prefix,
+        oldUser,
+        oldPwd
+      )
       const appProjectId = rollbackAppMap.get(link.app_id) ?? null
       const now = new Date()
       for (const [key, value] of Object.entries(vars)) {
@@ -576,18 +627,29 @@ async function rollbackRotation(
 
     // Re-deploy all linked apps with old credentials
     for (const appId of linkedAppIds) {
-      await deployQueue.add(
-        "deploy.requested",
-        { appId, kind: "rotation_rollback" },
-        { jobId: `rotation-rollback-${databaseId}-${appId}-${Date.now()}` },
-      ).catch((err) => rollLog.warn({ err, appId }, "rollback redeploy enqueue failed"))
+      await deployQueue
+        .add(
+          "deploy.requested",
+          { appId, kind: "rotation_rollback" },
+          { jobId: `rotation-rollback-${databaseId}-${appId}-${Date.now()}` }
+        )
+        .catch((err) =>
+          rollLog.warn({ err, appId }, "rollback redeploy enqueue failed")
+        )
     }
 
     // Try to drop the new user that was created
-    await dropOldUser(agent, containerId, kind, { oldUser: newUser, newUser: oldUser, database })
+    await dropOldUser(agent, containerId, kind, {
+      oldUser: newUser,
+      newUser: oldUser,
+      database,
+    })
     rollLog.info({ newUser }, "new user dropped during rollback")
   } catch (err) {
-    rollLog.error({ err }, "rollback failed — manual intervention may be required")
+    rollLog.error(
+      { err },
+      "rollback failed — manual intervention may be required"
+    )
   } finally {
     await db
       .update(databases)

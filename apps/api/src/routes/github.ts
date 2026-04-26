@@ -2,6 +2,8 @@
 import { Hono } from "hono"
 import { nanoid } from "nanoid"
 import { createHash, createHmac, randomBytes } from "node:crypto"
+import { z } from "zod"
+import { and, eq, notInArray, or } from "drizzle-orm"
 import { createDb } from "@ploydok/db"
 import {
   deleteGitHubAppConfig,
@@ -13,7 +15,7 @@ import {
   saveGitHubAppConfig,
 } from "@ploydok/db/queries"
 import type { ProviderRepoRow } from "@ploydok/db/queries"
-import { provider_credentials } from "@ploydok/db"
+import { provider_credentials, provider_installations } from "@ploydok/db"
 import { decryptField, encryptField } from "../github/app-credentials"
 import { buildManifest } from "../github/manifest"
 import { childLogger } from "../logger"
@@ -38,6 +40,38 @@ export const ghProvider = new GitHubProvider(ghCache)
 
 const log = childLogger("github.routes")
 
+const ImportGitHubAppConfigBody = z.object({
+  appId: z.string().trim().regex(/^\d+$/, "appId must be numeric"),
+  clientId: z.string().trim().min(1),
+  clientSecret: z.string().min(1),
+  privateKey: z.string().min(1),
+  webhookSecret: z.string().optional().default(""),
+  slug: z.string().trim().min(1),
+  name: z.string().trim().min(1),
+})
+
+function readFileProbeQuery(
+  url: string
+): { paths: string[]; ref: string } | null {
+  const parsed = new URL(url)
+  const ref = parsed.searchParams.get("ref")?.trim() ?? ""
+  const paths = parsed.searchParams
+    .getAll("path")
+    .map((path) => path.trim())
+    .filter((path) => path.length > 0)
+
+  if (!ref || paths.length === 0 || paths.length > 100) return null
+  return { paths: Array.from(new Set(paths)), ref }
+}
+
+function emptyFileProbeResult(
+  paths: ReadonlyArray<string>
+): Record<string, boolean> {
+  return Object.fromEntries(paths.map((path) => [path, false]))
+}
+
+const RESET_APP_CONFIRMATION = "uninstall-github-installations"
+
 // ---------------------------------------------------------------------------
 // Router
 // ---------------------------------------------------------------------------
@@ -49,6 +83,100 @@ export const githubRouter = new Hono<GithubRouterEnv>()
 
 // Database singleton for this router
 const db = createDb(env.DATABASE_URL)
+
+async function markGitHubInstallationSyncPending(opts: {
+  installationId: string
+  actorUserId?: string | null
+  source?: "api" | "webhook:github" | "system"
+}): Promise<void> {
+  const credentialId = `github:${opts.installationId}`
+  await db
+    .insert(provider_credentials)
+    .values({
+      id: credentialId,
+      provider: "github",
+      credential_type: "installation",
+      last_sync_status: "pending",
+      last_sync_actor_user_id: opts.actorUserId ?? null,
+      last_sync_source: opts.source ?? "api",
+      last_sync_claimed_at: null,
+    })
+    .onConflictDoUpdate({
+      target: provider_credentials.id,
+      set: {
+        last_sync_status: "pending",
+        last_sync_actor_user_id: opts.actorUserId ?? null,
+        last_sync_source: opts.source ?? "api",
+        last_sync_claimed_at: null,
+        updated_at: new Date(),
+      },
+    })
+}
+
+function normalizeGitHubInstallationId(value: string | undefined): string | null {
+  if (!value) return null
+  const raw = value.startsWith("github:") ? value.slice("github:".length) : value
+  if (!/^\d+$/.test(raw)) return null
+  return raw
+}
+
+function getGitHubInstallationDbId(installationId: string): string {
+  return `github:${installationId}`
+}
+
+async function deleteGitHubInstallationLocalState(
+  installationId: string
+): Promise<void> {
+  const externalId = normalizeGitHubInstallationId(installationId)
+  if (!externalId) return
+  const dbId = getGitHubInstallationDbId(externalId)
+
+  await db.delete(provider_credentials).where(eq(provider_credentials.id, dbId))
+  await db
+    .delete(provider_installations)
+    .where(
+      and(
+        eq(provider_installations.provider, "github"),
+        or(
+          eq(provider_installations.id, dbId),
+          eq(provider_installations.external_id, externalId)
+        )
+      )
+    )
+}
+
+async function pruneStaleGitHubInstallationLocalState(
+  installations: Awaited<ReturnType<typeof listAppInstallations>>
+): Promise<void> {
+  const liveDbIds = installations.map((installation) =>
+    getGitHubInstallationDbId(String(installation.id))
+  )
+
+  const credentialsWhere =
+    liveDbIds.length === 0
+      ? eq(provider_credentials.provider, "github")
+      : and(
+          eq(provider_credentials.provider, "github"),
+          notInArray(provider_credentials.id, liveDbIds)
+        )
+  const installationsWhere =
+    liveDbIds.length === 0
+      ? eq(provider_installations.provider, "github")
+      : and(
+          eq(provider_installations.provider, "github"),
+          notInArray(provider_installations.id, liveDbIds)
+        )
+
+  await db.delete(provider_credentials).where(credentialsWhere)
+  await db.delete(provider_installations).where(installationsWhere)
+}
+
+function normalizePem(value: string): string {
+  const trimmed = value.trim()
+  return trimmed.includes("\\n") && !trimmed.includes("\n")
+    ? trimmed.replaceAll("\\n", "\n")
+    : trimmed
+}
 
 // ---------------------------------------------------------------------------
 // App-manifest state cookie helpers
@@ -281,30 +409,20 @@ githubRouter.post("/installations/sync", async (c) => {
   }
 
   const installationId =
-    typeof body.installationId === "string" ? body.installationId : undefined
+    typeof body.installationId === "string"
+      ? normalizeGitHubInstallationId(body.installationId)
+      : undefined
+  if (installationId === null) {
+    return c.json({ error: "invalid_installation_id" }, 400)
+  }
   const syncId = nanoid()
 
   if (installationId) {
-    const credentialId = `github:${installationId}`
-    await db
-      .insert(provider_credentials)
-      .values({
-        id: credentialId,
-        provider: "github",
-        credential_type: "installation",
-        last_sync_status: "pending",
-        last_sync_actor_user_id: user?.id ?? null,
-        last_sync_source: "api",
-      })
-      .onConflictDoUpdate({
-        target: provider_credentials.id,
-        set: {
-          last_sync_status: "pending",
-          last_sync_actor_user_id: user?.id ?? null,
-          last_sync_source: "api",
-          updated_at: new Date(),
-        },
-      })
+    await markGitHubInstallationSyncPending({
+      installationId,
+      actorUserId: user?.id ?? null,
+      source: "api",
+    })
   }
 
   await enqueueProviderReposSync({
@@ -441,6 +559,61 @@ githubRouter.get("/repos/:owner/:repo/file-exists", async (c) => {
 })
 
 // ---------------------------------------------------------------------------
+// GET /github/repos/:owner/:repo/files-exist?path=&path=&ref=  (auth required)
+// Batch variant used by the create-app wizard stack classifier.
+// ---------------------------------------------------------------------------
+
+githubRouter.get("/repos/:owner/:repo/files-exist", async (c) => {
+  const owner = c.req.param("owner")
+  const repo = c.req.param("repo")
+  const fullName = `${owner}/${repo}`
+  const query = readFileProbeQuery(c.req.url)
+
+  if (!query) {
+    return c.json({ error: "missing_or_invalid_paths_or_ref" }, 400)
+  }
+
+  const config = await getGitHubAppConfig(db)
+  if (!config) {
+    return c.json({ error: "github_app_not_configured" }, 503)
+  }
+
+  const installations = await listAppInstallations().catch(() => [])
+  if (installations.length === 0) {
+    return c.json({ files: emptyFileProbeResult(query.paths) })
+  }
+
+  const match = installations.find(
+    (i) => i.accountLogin.toLowerCase() === owner.toLowerCase()
+  )
+  const candidates = match ? [match] : installations
+
+  for (const inst of candidates) {
+    try {
+      const entries = await Promise.all(
+        query.paths.map(async (filePath) => [
+          filePath,
+          await ghProvider.fileExists(
+            String(inst.id),
+            fullName,
+            filePath,
+            query.ref
+          ),
+        ] as const)
+      )
+      return c.json({ files: Object.fromEntries(entries) })
+    } catch (err) {
+      log.warn(
+        { err, installationId: inst.id, fullName },
+        "filesExist failed; trying next"
+      )
+    }
+  }
+
+  return c.json({ error: "repo_not_accessible", detail: fullName }, 404)
+})
+
+// ---------------------------------------------------------------------------
 // GET /github/installations  (auth required)
 // Lists every account/org where the Ploydok GitHub App is installed.
 // ---------------------------------------------------------------------------
@@ -453,6 +626,7 @@ githubRouter.get("/installations", async (c) => {
 
   try {
     const installations = await listAppInstallations()
+    await pruneStaleGitHubInstallationLocalState(installations)
     // Enrich each with a repository count (best-effort; skip on error).
     const enriched = await Promise.all(
       installations.map(async (inst) => {
@@ -522,6 +696,7 @@ githubRouter.delete("/installations/:id", async (c) => {
 
   try {
     await revokeAppInstallation(installationId)
+    await deleteGitHubInstallationLocalState(String(installationId))
     return c.json({ ok: true, revoked: installationId })
   } catch (err) {
     log.error({ err, installationId }, "revokeAppInstallation failed")
@@ -539,7 +714,7 @@ githubRouter.delete("/installations/:id", async (c) => {
 // /github/installations via App JWT to get the authoritative list.
 // ---------------------------------------------------------------------------
 
-githubRouter.get("/app/setup", (c) => {
+githubRouter.get("/app/setup", async (c) => {
   const installationId = c.req.query("installation_id")
   const setupAction = c.req.query("setup_action")
   const state = c.req.query("state")
@@ -554,9 +729,34 @@ githubRouter.get("/app/setup", (c) => {
     verifyAppState(rawInstallStateCookie, state)
 
   c.header("Set-Cookie", clearCookieStr(INSTALL_STATE_COOKIE))
-  if (stateValid) params.set("installed", "1")
-  else if (state || rawInstallStateCookie)
+  if (stateValid) {
+    const normalizedInstallationId = normalizeGitHubInstallationId(installationId)
+    if (!normalizedInstallationId) {
+      params.set("install_error", "missing_installation_id")
+    } else {
+      const syncId = nanoid()
+      try {
+        await markGitHubInstallationSyncPending({
+          installationId: normalizedInstallationId,
+          source: "api",
+        })
+        await enqueueProviderReposSync({
+          provider: "github",
+          installationId: normalizedInstallationId,
+          syncId,
+        })
+        params.set("installed", "1")
+      } catch (err) {
+        log.error(
+          { err, installationId: normalizedInstallationId, syncId },
+          "github setup callback sync enqueue failed"
+        )
+        params.set("install_error", "sync_failed")
+      }
+    }
+  } else if (state || rawInstallStateCookie) {
     params.set("install_error", "state_mismatch")
+  }
   const qs = params.toString()
   return c.redirect(
     `${env.WEB_ORIGIN}/settings/git-providers/github${qs ? `?${qs}` : ""}`,
@@ -598,6 +798,71 @@ githubRouter.post("/app/manifest", async (c) => {
     manifest,
     state,
     post_url: `https://github.com/settings/apps/new?state=${state}`,
+  })
+})
+
+// ---------------------------------------------------------------------------
+// POST /github/app/import  (auth required)
+// Reconnects a GitHub App that already exists on github.com after a local DB
+// reset. The installation may already exist; this endpoint restores the App
+// credentials needed to sign JWTs, then kicks a global sync.
+// ---------------------------------------------------------------------------
+
+githubRouter.post("/app/import", async (c) => {
+  const body = await c.req.json().catch(() => null)
+  const parsed = ImportGitHubAppConfigBody.safeParse(body)
+  if (!parsed.success) {
+    return c.json(
+      {
+        error: "invalid_body",
+        details: parsed.error.flatten().fieldErrors,
+      },
+      400
+    )
+  }
+
+  const privateKey = normalizePem(parsed.data.privateKey)
+  if (!privateKey.includes("BEGIN") || !privateKey.includes("PRIVATE KEY")) {
+    return c.json(
+      {
+        error: "invalid_private_key",
+        message: "privateKey must be a PEM private key.",
+      },
+      400
+    )
+  }
+
+  const [clientSecretResult, pemResult, webhookSecretResult] =
+    await Promise.all([
+      encryptField(parsed.data.clientSecret),
+      encryptField(privateKey),
+      encryptField(parsed.data.webhookSecret ?? ""),
+    ])
+
+  await saveGitHubAppConfig(db, {
+    app_id: parsed.data.appId,
+    client_id: parsed.data.clientId,
+    slug: parsed.data.slug,
+    name: parsed.data.name,
+    client_secret_enc: clientSecretResult.enc,
+    client_secret_nonce: clientSecretResult.nonce,
+    pem_enc: pemResult.enc,
+    pem_nonce: pemResult.nonce,
+    webhook_secret_enc: webhookSecretResult.enc,
+    webhook_secret_nonce: webhookSecretResult.nonce,
+  })
+
+  const syncId = nanoid()
+  void enqueueProviderReposSync({ provider: "github", syncId }).catch((err) =>
+    log.warn({ err, syncId }, "github app import sync enqueue failed")
+  )
+
+  return c.json({
+    configured: true,
+    name: parsed.data.name,
+    slug: parsed.data.slug,
+    app_id: parsed.data.appId,
+    install_url: `${getApiOrigin()}/github/installations/start`,
   })
 })
 
@@ -678,6 +943,11 @@ githubRouter.get("/app/callback", async (c) => {
     webhook_secret_nonce: webhookSecretResult.nonce,
   })
 
+  const syncId = nanoid()
+  void enqueueProviderReposSync({ provider: "github", syncId }).catch((err) =>
+    log.warn({ err, syncId }, "github app config post-create sync enqueue failed")
+  )
+
   return c.redirect(
     `${env.WEB_ORIGIN}/settings/git-providers/github?app=created`,
     302
@@ -703,12 +973,67 @@ githubRouter.get("/app/config", async (c) => {
 })
 
 // ---------------------------------------------------------------------------
-// DELETE /github/app/config  (auth required — admin reset)
+// DELETE /github/app/config  (auth required — destructive admin reset)
 // ---------------------------------------------------------------------------
 
 githubRouter.delete("/app/config", async (c) => {
+  if (c.req.query("confirm") !== RESET_APP_CONFIRMATION) {
+    return c.json(
+      {
+        error: "confirmation_required",
+        message:
+          "Pass confirm=uninstall-github-installations to uninstall all GitHub App installations before deleting the local config.",
+      },
+      400
+    )
+  }
+
+  const config = await getGitHubAppConfig(db)
+  if (!config) {
+    return c.json({ ok: true, uninstalled: 0 })
+  }
+
+  let installations: Awaited<ReturnType<typeof listAppInstallations>>
+  try {
+    installations = await listAppInstallations()
+  } catch (err) {
+    log.error({ err }, "github app reset failed while listing installations")
+    return c.json(
+      {
+        error: "github_api_error",
+        detail: String(err),
+      },
+      502
+    )
+  }
+
+  for (const installation of installations) {
+    try {
+      await revokeAppInstallation(installation.id)
+    } catch (err) {
+      log.error(
+        { err, installationId: installation.id },
+        "github app reset failed while revoking installation"
+      )
+      return c.json(
+        {
+          error: "github_api_error",
+          detail: String(err),
+          failed_installation_id: installation.id,
+        },
+        502
+      )
+    }
+  }
+
+  await db
+    .delete(provider_credentials)
+    .where(eq(provider_credentials.provider, "github"))
+  await db
+    .delete(provider_installations)
+    .where(eq(provider_installations.provider, "github"))
   await deleteGitHubAppConfig(db)
-  return c.json({ ok: true })
+  return c.json({ ok: true, uninstalled: installations.length })
 })
 
 // [S4.2.A App flow — END]

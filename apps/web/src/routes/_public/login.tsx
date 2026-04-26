@@ -1,6 +1,6 @@
 // SPDX-License-Identifier: AGPL-3.0-only
 import * as React from "react"
-import { Link, createFileRoute, useRouter } from "@tanstack/react-router"
+import { createFileRoute, useRouter } from "@tanstack/react-router"
 import { Button } from "@workspace/ui/components/button"
 import { apiFetch } from "../../lib/api"
 import type { Me } from "@ploydok/shared"
@@ -15,6 +15,7 @@ export const Route = createFileRoute("/_public/login")({
 function LoginPage(): React.JSX.Element {
   const router = useRouter()
   const [backupMode, setBackupMode] = React.useState(false)
+  const [email, setEmail] = React.useState("")
 
   const handlePasskeySuccess = async (): Promise<void> => {
     const me = await apiFetch<Me>("/me")
@@ -25,25 +26,27 @@ function LoginPage(): React.JSX.Element {
   }
 
   return (
-    <div className="bg-background text-foreground flex min-h-svh items-center justify-center p-4">
+    <div className="flex min-h-svh items-center justify-center bg-background p-4 text-foreground">
       <div className="w-full max-w-sm space-y-8">
         <div className="flex flex-col items-center gap-3 text-center">
-          <div className="bg-primary text-primary-foreground flex size-10 items-center justify-center rounded-[10px] text-base font-bold">
+          <div className="flex size-10 items-center justify-center rounded-[10px] bg-primary text-base font-bold text-primary-foreground">
             P
           </div>
           <div className="space-y-1">
             <h1 className="text-2xl leading-tight font-semibold tracking-tight">
               Welcome back
             </h1>
-            <p className="text-muted-foreground text-sm">
+            <p className="text-sm text-muted-foreground">
               Sign in to your Ploydok workspace.
             </p>
           </div>
         </div>
 
-        <div className="bg-card border-border rounded-[10px] border p-5 shadow-[0_0_2.5px_1px_var(--border)]">
+        <div className="rounded-[10px] border border-border bg-card p-5 shadow-[0_0_2.5px_1px_var(--border)]">
           {!backupMode ? (
             <PasskeyModePanel
+              email={email}
+              onEmailChange={setEmail}
               onSuccess={() => void handlePasskeySuccess()}
               onSwitchBackup={() => setBackupMode(true)}
             />
@@ -55,16 +58,7 @@ function LoginPage(): React.JSX.Element {
           )}
         </div>
 
-        <div className="text-muted-foreground flex flex-col items-center gap-2 text-center text-xs">
-          <p>
-            Pas encore de compte ?{" "}
-            <Link
-              to="/register"
-              className="text-foreground font-medium underline-offset-4 hover:underline"
-            >
-              Créer un compte
-            </Link>
-          </p>
+        <div className="flex flex-col items-center gap-2 text-center text-xs text-muted-foreground">
           <p className="font-mono text-[10px] tracking-wide uppercase">
             AGPL-3.0 · self-hosted
           </p>
@@ -75,21 +69,34 @@ function LoginPage(): React.JSX.Element {
 }
 
 function PasskeyModePanel({
+  email,
+  onEmailChange,
   onSuccess,
   onSwitchBackup,
 }: {
+  email: string
+  onEmailChange: (value: string) => void
   onSuccess: () => void
   onSwitchBackup: () => void
 }): React.JSX.Element {
   return (
     <div className="space-y-4">
-      <PasskeyButton onSuccess={onSuccess} />
+      <Field
+        id="passkey-email"
+        label="Email"
+        type="email"
+        autoComplete="email webauthn"
+        value={email}
+        onChange={onEmailChange}
+        placeholder="you@example.com"
+      />
+      <PasskeyButton email={email} onSuccess={onSuccess} />
       <div className="relative">
-        <div className="border-border absolute inset-0 flex items-center">
+        <div className="absolute inset-0 flex items-center border-border">
           <span className="w-full border-t" />
         </div>
         <div className="relative flex justify-center">
-          <span className="bg-card text-muted-foreground px-2 font-mono text-[10px] tracking-wide uppercase">
+          <span className="bg-card px-2 font-mono text-[10px] tracking-wide text-muted-foreground uppercase">
             or
           </span>
         </div>
@@ -97,7 +104,7 @@ function PasskeyModePanel({
       <button
         type="button"
         onClick={onSwitchBackup}
-        className="text-muted-foreground hover:text-foreground block w-full text-center text-xs underline-offset-2 hover:underline"
+        className="block w-full text-center text-xs text-muted-foreground underline-offset-2 hover:text-foreground hover:underline"
       >
         Use backup code instead
       </button>
@@ -129,7 +136,7 @@ function BackupCodePanel({
           credentials: "include",
           headers: { "Content-Type": "application/json" },
           body: JSON.stringify({ email, code }),
-        },
+        }
       )
       if (!res.ok) {
         const data = (await res.json()) as { error?: { message?: string } }
@@ -149,7 +156,7 @@ function BackupCodePanel({
     <form onSubmit={(e) => void handleSubmit(e)} className="space-y-4">
       <div className="space-y-1">
         <h2 className="text-sm font-medium">Sign in with backup code</h2>
-        <p className="text-muted-foreground text-xs">
+        <p className="text-xs text-muted-foreground">
           Use one of the backup codes you saved when setting up your passkey.
         </p>
       </div>
@@ -173,7 +180,7 @@ function BackupCodePanel({
       />
       {error && (
         <p
-          className="bg-destructive/10 text-destructive rounded-md px-3 py-2 text-sm"
+          className="rounded-md bg-destructive/10 px-3 py-2 text-sm text-destructive"
           role="alert"
         >
           {error}
@@ -220,10 +227,7 @@ function Field({
 }: FieldProps): React.JSX.Element {
   return (
     <div className="space-y-1.5">
-      <label
-        htmlFor={id}
-        className="text-muted-foreground text-xs font-medium"
-      >
+      <label htmlFor={id} className="text-xs font-medium text-muted-foreground">
         {label}
       </label>
       <input
@@ -235,7 +239,7 @@ function Field({
         autoComplete={autoComplete}
         placeholder={placeholder}
         className={
-          "border-input bg-background focus-visible:border-ring focus-visible:ring-ring/40 placeholder:text-muted-foreground/60 flex h-9 w-full rounded-md border px-3 text-sm transition-colors outline-none focus-visible:ring-3" +
+          "flex h-9 w-full rounded-md border border-input bg-background px-3 text-sm transition-colors outline-none placeholder:text-muted-foreground/60 focus-visible:border-ring focus-visible:ring-3 focus-visible:ring-ring/40" +
           (mono ? " font-mono tracking-wider uppercase" : "")
         }
       />

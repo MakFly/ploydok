@@ -35,8 +35,11 @@ function AppsPage(): React.JSX.Element {
   const organization = useCurrentOrganization()
   const currentOrgSlug = useCurrentOrganizationSlug()
   const { data: apps = [], isLoading, error } = useApps(organization?.id)
-  const { data: appConfig } = useGitHubAppConfig()
-  const { data: monitoring } = useMonitoring()
+  const shouldShowEmptyState = !isLoading && !error && apps.length === 0
+  const { data: appConfig } = useGitHubAppConfig({
+    enabled: shouldShowEmptyState,
+  })
+  const { data: monitoring } = useMonitoring({ enabled: apps.length > 0 })
   const containers = monitoring?.containers ?? []
   const appsWithRuntimeStatus = React.useMemo(
     () =>

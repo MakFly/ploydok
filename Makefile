@@ -1,4 +1,4 @@
-.PHONY: help dev dev-agent agent-restart agent-logs db-migrate db-seed infra-up infra-down infra-logs build start test lint typecheck clean secrets-init dod
+.PHONY: help dev dev-agent agent-restart agent-logs db-migrate db-reset db-seed infra-up infra-down infra-logs build start test lint typecheck clean secrets-init dod
 
 # Ports locaux :
 #   API 3335 — Web 5173 — Caddy 8180/8543/2020 — Agent unix /tmp/ploydok/agent.sock
@@ -12,6 +12,7 @@ help:
 	@echo "  agent-restart  - Redémarre le container 'ploydok-agent' (utile après modif Rust)"
 	@echo "  agent-logs     - Tail logs du container 'ploydok-agent'"
 	@echo "  db-migrate     - Applique les migrations Postgres"
+	@echo "  db-reset       - Wipe Postgres + Redis + apply migrations (état fresh install, aucun user)"
 	@echo "  db-seed        - Seed dev (user dev@ploydok.local + backup code DEVD-EVDE-VDEV)"
 	@echo "  secrets-init   - Génère PLOYDOK_PG_PASSWORD + PLOYDOK_REDIS_PASSWORD dans .env.local"
 	@echo "  infra-up       - docker compose up (postgres + redis + caddy + buildkitd + registry + agent)"
@@ -38,6 +39,16 @@ agent-logs:
 
 db-migrate:
 	set -a; . apps/api/.env.local; set +a; bun run --cwd packages/db migrate
+
+db-reset:
+	@echo "[db-reset] dropping public + drizzle schemas..."
+	@docker compose --env-file apps/api/.env.local -f infra/docker-compose.yml exec -T postgres psql -U ploydok -d ploydok -v ON_ERROR_STOP=1 --quiet -c 'SET client_min_messages = warning; DROP SCHEMA IF EXISTS public CASCADE; DROP SCHEMA IF EXISTS drizzle CASCADE; CREATE SCHEMA public; GRANT ALL ON SCHEMA public TO ploydok; GRANT ALL ON SCHEMA public TO public;' >/dev/null
+	@echo "[db-reset] flushing redis..."
+	@set -a; . apps/api/.env.local; set +a; docker compose --env-file apps/api/.env.local -f infra/docker-compose.yml exec -T redis redis-cli --no-auth-warning -a "$$PLOYDOK_REDIS_PASSWORD" FLUSHDB >/dev/null
+	@echo "[db-reset] applying migrations..."
+	@set -a; . apps/api/.env.local; set +a; bun run --cwd packages/db migrate
+	@echo "[db-reset] done — instance is back to a fresh-install state (no users, no projects)"
+	@echo "                next: restart 'make dev' so the API prints the /setup token in its logs"
 
 secrets-init:
 	@ENV_FILE=apps/api/.env.local; \
@@ -127,4 +138,4 @@ dod:
 # Seed dev DB : user dev@ploydok.local + project + backup code fixe (DEVD-EVDE-VDEV).
 # Utilisé par `make dod` pour skipper l'export des creds.
 db-seed:
-	bun --cwd packages/db run seed
+	bun run --cwd packages/db seed

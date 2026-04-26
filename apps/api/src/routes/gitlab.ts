@@ -34,6 +34,20 @@ export const gitlabRouter = new Hono<GitLabRouterEnv>()
 // Per-router DB singleton (same pattern as routes/github.ts).
 const db = createDb(env.DATABASE_URL)
 
+function readFileProbeQuery(
+  url: string
+): { paths: string[]; ref: string } | null {
+  const parsed = new URL(url)
+  const ref = parsed.searchParams.get("ref")?.trim() ?? ""
+  const paths = parsed.searchParams
+    .getAll("path")
+    .map((path) => path.trim())
+    .filter((path) => path.length > 0)
+
+  if (!ref || paths.length === 0 || paths.length > 100) return null
+  return { paths: Array.from(new Set(paths)), ref }
+}
+
 // ---------------------------------------------------------------------------
 // State cookie helpers (OAuth anti-CSRF + redirect-after-connect)
 // ---------------------------------------------------------------------------
@@ -527,6 +541,38 @@ gitlabRouter.get("/repos/:fullName{.+}/file-exists", async (c) => {
     return c.json({ exists })
   } catch (err) {
     log.error({ err, fullName, filePath }, "fileExists failed")
+    return c.json({ error: "gitlab_api_error" }, 502)
+  }
+})
+
+gitlabRouter.get("/repos/:fullName{.+}/files-exist", async (c) => {
+  const user = c.get("user") ?? null
+  if (!user) return c.json({ error: "unauthenticated" }, 401)
+
+  const ctx = await getProviderAndTokenForUser(user.id)
+  if (!ctx) return c.json({ error: "gitlab_not_connected" }, 412)
+
+  const fullName = c.req.param("fullName")
+  const query = readFileProbeQuery(c.req.url)
+  if (!query) {
+    return c.json({ error: "missing_or_invalid_paths_or_ref" }, 400)
+  }
+
+  try {
+    const entries = await Promise.all(
+      query.paths.map(async (filePath) => [
+        filePath,
+        await ctx.provider.fileExists(
+          ctx.accessToken,
+          fullName,
+          filePath,
+          query.ref
+        ),
+      ] as const)
+    )
+    return c.json({ files: Object.fromEntries(entries) })
+  } catch (err) {
+    log.error({ err, fullName }, "filesExist failed")
     return c.json({ error: "gitlab_api_error" }, 502)
   }
 })

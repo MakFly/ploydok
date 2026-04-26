@@ -1,16 +1,21 @@
 // SPDX-License-Identifier: AGPL-3.0-only
-import { Hono } from "hono";
-import { nanoid } from "nanoid";
-import { eq, and, ne } from "drizzle-orm";
-import { users, passkeys, sessions as sessionsTable, totp_secrets } from "@ploydok/db";
-import type { Db } from "@ploydok/db";
-import { env } from "../env";
+import { Hono } from "hono"
+import { nanoid } from "nanoid"
+import { eq, and, ne } from "drizzle-orm"
+import {
+  users,
+  passkeys,
+  sessions as sessionsTable,
+  totp_secrets,
+} from "@ploydok/db"
+import type { Db } from "@ploydok/db"
+import { env } from "../env"
 import {
   generateRegOptions,
   verifyRegResponse,
   generateAuthOptions,
   verifyAuthResponse,
-} from "../auth/webauthn";
+} from "../auth/webauthn"
 import {
   signAccessToken,
   verifyAccessToken,
@@ -20,19 +25,30 @@ import {
   REFRESH_COOKIE,
   ACCESS_MAX_AGE,
   REFRESH_MAX_AGE,
-} from "../auth/jwt";
-import * as BackupCodes from "../auth/backup-codes";
-import * as Sessions from "../auth/sessions";
-import { setChallenge, consumeChallenge } from "../auth/challenges";
-import { requireAuth, requireSecondFactor, type AuthUser } from "../auth/middleware";
-import { sendMail, renderWelcomeEmail } from "../mailer";
+} from "../auth/jwt"
+import * as BackupCodes from "../auth/backup-codes"
+import * as Sessions from "../auth/sessions"
+import { setChallenge, consumeChallenge } from "../auth/challenges"
+import {
+  requireAuth,
+  requireSecondFactor,
+  type AuthUser,
+} from "../auth/middleware"
+import { sendMail, renderWelcomeEmail } from "../mailer"
+import { ensureDefaultOrganizationForUser } from "../services/organizations"
+import {
+  bootstrapSetupToken,
+  clearSetupToken,
+  consumeSetupToken,
+  peekSetupTokenUnsafe,
+} from "../auth/setup-token"
 import {
   saveTotpSecret,
   getTotpSecret,
   markTotpVerified,
   deleteTotpSecret,
-} from "../auth/totp-storage";
-import { generateSecret, buildOtpauthUrl, verifyCode } from "../auth/totp";
+} from "../auth/totp-storage"
+import { generateSecret, buildOtpauthUrl, verifyCode } from "../auth/totp"
 // AuthenticatorTransportFuture is re-exported from @simplewebauthn/server internals
 // We use a simple string type alias to avoid the missing @simplewebauthn/types package
 type AuthenticatorTransportFuture =
@@ -42,80 +58,89 @@ type AuthenticatorTransportFuture =
   | "internal"
   | "nfc"
   | "smart-card"
-  | "usb";
+  | "usb"
 
 // ---------------------------------------------------------------------------
 // Helpers
 // ---------------------------------------------------------------------------
 
-const isSecure = env.NODE_ENV === "prod";
+const isSecure = env.NODE_ENV === "prod"
 
 function setCookies(
   headers: Headers,
   accessToken: string,
   refreshToken: string,
-  sessionId: string,
+  sessionId: string
 ): void {
   headers.append(
     "Set-Cookie",
-    buildCookieStr(ACCESS_COOKIE, accessToken, ACCESS_MAX_AGE, isSecure),
-  );
-  const refreshValue = `${sessionId}:${refreshToken}`;
+    buildCookieStr(ACCESS_COOKIE, accessToken, ACCESS_MAX_AGE, isSecure)
+  )
+  const refreshValue = `${sessionId}:${refreshToken}`
   headers.append(
     "Set-Cookie",
-    buildCookieStr(REFRESH_COOKIE, refreshValue, REFRESH_MAX_AGE, isSecure),
-  );
+    buildCookieStr(REFRESH_COOKIE, refreshValue, REFRESH_MAX_AGE, isSecure)
+  )
 }
 
 function clearCookies(headers: Headers): void {
-  headers.append("Set-Cookie", buildCookieStr(ACCESS_COOKIE, "", 0, isSecure));
-  headers.append("Set-Cookie", buildCookieStr(REFRESH_COOKIE, "", 0, isSecure));
+  headers.append("Set-Cookie", buildCookieStr(ACCESS_COOKIE, "", 0, isSecure))
+  headers.append("Set-Cookie", buildCookieStr(REFRESH_COOKIE, "", 0, isSecure))
 }
 
 function parseCookies(cookieHeader: string): Record<string, string> {
-  const out: Record<string, string> = {};
+  const out: Record<string, string> = {}
   for (const part of cookieHeader.split(";")) {
-    const idx = part.indexOf("=");
-    if (idx === -1) continue;
-    const k = part.slice(0, idx).trim();
-    const v = part.slice(idx + 1).trim();
-    out[k] = decodeURIComponent(v);
+    const idx = part.indexOf("=")
+    if (idx === -1) continue
+    const k = part.slice(0, idx).trim()
+    const v = part.slice(idx + 1).trim()
+    out[k] = decodeURIComponent(v)
   }
-  return out;
+  return out
 }
 
 function getClientInfo(req: Request): { userAgent: string; ip: string } {
   return {
     userAgent: req.headers.get("user-agent") ?? "unknown",
     ip: req.headers.get("x-forwarded-for") ?? "unknown",
-  };
+  }
 }
 
 async function getUserMeta(db: Db, userId: string) {
   const passkeyRows = await db
     .select({ id: passkeys.id })
     .from(passkeys)
-    .where(eq(passkeys.user_id, userId));
-  const passkeyCount = passkeyRows.length;
-  const backupCount = await BackupCodes.countActive(db, userId);
+    .where(eq(passkeys.user_id, userId))
+  const passkeyCount = passkeyRows.length
+  const backupCount = await BackupCodes.countActive(db, userId)
   const totpRows = await db
     .select({ verified_at: totp_secrets.verified_at })
     .from(totp_secrets)
     .where(eq(totp_secrets.user_id, userId))
-    .limit(1);
-  const hasTotp = Boolean(totpRows[0]?.verified_at);
+    .limit(1)
+  const hasTotp = Boolean(totpRows[0]?.verified_at)
+  const userRows = await db
+    .select({
+      require_totp_for_secret_reveal: users.require_totp_for_secret_reveal,
+    })
+    .from(users)
+    .where(eq(users.id, userId))
+    .limit(1)
   return {
     has_passkey_plus: passkeyCount >= 2,
     has_backup_codes: backupCount >= 1,
     has_totp: hasTotp,
+    require_totp_for_secret_reveal:
+      userRows[0]?.require_totp_for_secret_reveal ?? true,
     needs_second_factor: passkeyCount < 2 && backupCount < 1 && !hasTotp,
-  };
+  }
 }
 
 // Cast to bypass Hono's strict context variable typing without a full typed app
 // (app.ts sets up the Hono instance; routes receive generic Context)
 function getUser(c: { get: (key: string) => unknown }): AuthUser {
-  return c.get("user") as AuthUser;
+  return c.get("user") as AuthUser
 }
 
 // ---------------------------------------------------------------------------
@@ -123,110 +148,329 @@ function getUser(c: { get: (key: string) => unknown }): AuthUser {
 // ---------------------------------------------------------------------------
 
 export function createAuthRouter(db: Db): Hono {
-  const auth = new Hono();
+  const auth = new Hono()
+
+  // -------------------------------------------------------------------------
+  // GET /auth/instance-state
+  // Public probe consumed by the frontend public-route guard. Tells the UI
+  // whether the instance still needs to be bootstrapped (no users yet) so it
+  // can route the visitor to /setup or /login accordingly.
+  // -------------------------------------------------------------------------
+  auth.get("/auth/instance-state", async (c) => {
+    const userRow = await db.select({ id: users.id }).from(users).limit(1)
+    const bootstrapped = userRow.length > 0
+    // Lazy-bootstrap: if the DB is empty and no token is currently active
+    // (e.g. the API was running before `make db-reset` so the boot probe saw a
+    // non-empty DB), regenerate one now. The banner hits the API logs the
+    // moment a human opens /setup, so the operator never has to time the
+    // restart of `make dev` against the wipe.
+    if (!bootstrapped) {
+      await bootstrapSetupToken(db)
+    }
+    return c.json({ bootstrapped })
+  })
+
+  // -------------------------------------------------------------------------
+  // GET /auth/setup/dev-token
+  // DEV-ONLY shortcut: returns the active setup token to the browser so the
+  // /setup page can auto-inject it without a copy-paste from the API logs.
+  // Hard-gated by NODE_ENV !== "prod" AND a loopback Origin check, so even a
+  // misconfigured production proxy can't expose the token to the public.
+  // -------------------------------------------------------------------------
+  auth.get("/auth/setup/dev-token", async (c) => {
+    if (env.NODE_ENV === "prod") {
+      return c.json({ error: { code: "NOT_FOUND" } }, 404)
+    }
+    const origin = c.req.header("origin") ?? c.req.header("referer") ?? ""
+    const isLoopback =
+      origin.startsWith("http://localhost:") ||
+      origin.startsWith("http://127.0.0.1:") ||
+      origin === ""
+    if (!isLoopback) {
+      return c.json({ error: { code: "NOT_FOUND" } }, 404)
+    }
+    const token = peekSetupTokenUnsafe()
+    if (!token) {
+      return c.json({ error: { code: "NOT_READY" } }, 404)
+    }
+    return c.json({ token })
+  })
+
+  // -------------------------------------------------------------------------
+  // POST /auth/setup/options
+  // First-boot wizard step 1: validates the setup token, creates the admin
+  // user + default org, returns WebAuthn registration options so the browser
+  // can mint the first passkey.
+  // -------------------------------------------------------------------------
+  auth.post("/auth/setup/options", async (c) => {
+    const body = await c.req
+      .json<{ token?: string; email?: string; display_name?: string }>()
+      .catch(
+        () => ({}) as { token?: string; email?: string; display_name?: string }
+      )
+
+    if (!consumeSetupToken(body.token)) {
+      return c.json(
+        {
+          error: {
+            code: "SETUP_TOKEN_INVALID",
+            message: "Setup token missing, expired, or already consumed",
+          },
+        },
+        403
+      )
+    }
+
+    const existingUser = await db.select({ id: users.id }).from(users).limit(1)
+    if (existingUser.length > 0) {
+      clearSetupToken()
+      return c.json(
+        {
+          error: {
+            code: "ALREADY_BOOTSTRAPPED",
+            message: "Instance already bootstrapped",
+          },
+        },
+        409
+      )
+    }
+
+    const email = body.email?.trim().toLowerCase()
+    const displayName = body.display_name?.trim()
+    if (!email || !displayName) {
+      return c.json(
+        {
+          error: {
+            code: "BAD_REQUEST",
+            message: "email and display_name required",
+          },
+        },
+        400
+      )
+    }
+
+    const now = new Date()
+    const userId = nanoid()
+    await db.insert(users).values({
+      id: userId,
+      email,
+      display_name: displayName,
+      created_at: now,
+      updated_at: now,
+      recovery_token_hash: null,
+      recovery_expires_at: null,
+    })
+
+    const options = await generateRegOptions({
+      userName: email,
+      userDisplayName: displayName,
+      userID: new TextEncoder().encode(userId),
+      excludeCredentials: [],
+      authenticatorSelection: {
+        residentKey: "preferred",
+        userVerification: "preferred",
+      },
+    })
+
+    setChallenge(`setup:${userId}`, options.challenge)
+
+    return c.json({ options, userId })
+  })
+
+  // -------------------------------------------------------------------------
+  // POST /auth/setup/verify
+  // First-boot wizard step 2: completes the WebAuthn ceremony, mints backup
+  // codes (returned plaintext one-shot), opens an authenticated session and
+  // wipes the setup token.
+  // -------------------------------------------------------------------------
+  auth.post("/auth/setup/verify", async (c) => {
+    const body = (await c.req.json()) as {
+      userId?: string
+      credential?: unknown
+      device_name?: string
+    }
+
+    if (!body.userId) {
+      return c.json(
+        { error: { code: "BAD_REQUEST", message: "userId required" } },
+        400
+      )
+    }
+
+    const userRows = await db
+      .select()
+      .from(users)
+      .where(eq(users.id, body.userId))
+      .limit(1)
+    const user = userRows[0]
+    if (!user) {
+      return c.json(
+        { error: { code: "NOT_FOUND", message: "User not found" } },
+        404
+      )
+    }
+
+    const expectedChallenge = consumeChallenge(`setup:${body.userId}`)
+    if (!expectedChallenge) {
+      return c.json(
+        {
+          error: {
+            code: "CHALLENGE_EXPIRED",
+            message: "Challenge expired or not found",
+          },
+        },
+        400
+      )
+    }
+
+    let verification
+    try {
+      verification = await verifyRegResponse({
+        response: body.credential as Parameters<
+          typeof verifyRegResponse
+        >[0]["response"],
+        expectedChallenge,
+      })
+    } catch (err) {
+      return c.json(
+        { error: { code: "VERIFICATION_FAILED", message: String(err) } },
+        400
+      )
+    }
+
+    if (!verification.verified || !verification.registrationInfo) {
+      return c.json(
+        {
+          error: {
+            code: "VERIFICATION_FAILED",
+            message: "Attestation not verified",
+          },
+        },
+        400
+      )
+    }
+
+    const { credential } = verification.registrationInfo
+    const now = new Date()
+    await db.insert(passkeys).values({
+      id: nanoid(),
+      user_id: body.userId,
+      credential_id: credential.id,
+      public_key: Buffer.from(credential.publicKey),
+      counter: credential.counter,
+      transports: JSON.stringify(credential.transports ?? []),
+      device_name: body.device_name?.trim() || null,
+      created_at: now,
+      last_used_at: now,
+    })
+
+    await ensureDefaultOrganizationForUser(db, body.userId, user.display_name)
+    const backupCodes = await BackupCodes.generate(db, body.userId)
+
+    const { userAgent, ip } = getClientInfo(c.req.raw)
+    const { sessionId, refreshToken } = await Sessions.createSession(db, {
+      userId: body.userId,
+      userAgent,
+      ip,
+    })
+    const accessToken = await signAccessToken({
+      userId: body.userId,
+      email: user.email,
+      sessionId,
+    })
+
+    clearSetupToken()
+
+    const mail = renderWelcomeEmail(user.display_name)
+    void sendMail({ to: user.email, ...mail })
+
+    const response = c.newResponse(
+      JSON.stringify({
+        user: {
+          id: user.id,
+          email: user.email,
+          display_name: user.display_name,
+        },
+        backup_codes: backupCodes,
+      }),
+      200,
+      { "Content-Type": "application/json" }
+    )
+    setCookies(response.headers, accessToken, refreshToken, sessionId)
+    return response
+  })
 
   // -------------------------------------------------------------------------
   // POST /auth/register/options
-  // First boot: create user from JSON body. Otherwise: requireAuth.
+  // Adds a passkey to the currently authenticated user (e.g. invitation
+  // accept flow, second-device enrollment). First-boot bootstrap goes through
+  // /auth/setup/* instead.
   // -------------------------------------------------------------------------
   auth.post("/auth/register/options", async (c) => {
-    const userCount = await db.select({ id: users.id }).from(users).limit(1);
-    const isFirstBoot = userCount.length === 0;
-
-    let userId: string;
-    let userEmail: string;
-    let userDisplayName: string;
-
-    const body = await c.req
-      .json<{ email?: string; display_name?: string }>()
-      .catch(() => ({}) as { email?: string; display_name?: string });
-
-    if (isFirstBoot) {
-      const email = body.email;
-      const display_name = body.display_name;
-      if (!email || !display_name) {
-        return c.json(
-          {
-            error: {
-              code: "BAD_REQUEST",
-              message: "email and display_name required for first boot",
-            },
+    const cookieHeader = c.req.raw.headers.get("cookie") ?? ""
+    const cookies = parseCookies(cookieHeader)
+    const token = cookies[ACCESS_COOKIE]
+    if (!token) {
+      return c.json(
+        {
+          error: {
+            code: "UNAUTHENTICATED",
+            message: "Authentication required",
           },
-          400,
-        );
-      }
-      const existing = await db
-        .select()
-        .from(users)
-        .where(eq(users.email, email))
-        .limit(1);
-      if (existing[0]) {
-        userId = existing[0].id;
-        userEmail = existing[0].email;
-        userDisplayName = existing[0].display_name;
-      } else {
-        const now = new Date();
-        userId = nanoid();
-        userEmail = email;
-        userDisplayName = display_name;
-        await db.insert(users).values({
-          id: userId,
-          email: userEmail,
-          display_name: userDisplayName,
-          created_at: now,
-          updated_at: now,
-          recovery_token_hash: null,
-          recovery_expires_at: null,
-        });
-      }
-    } else {
-      // Require auth
-      const cookieHeader = c.req.raw.headers.get("cookie") ?? "";
-      const cookies = parseCookies(cookieHeader);
-      const token = cookies[ACCESS_COOKIE];
-      if (!token) {
-        return c.json(
-          { error: { code: "UNAUTHENTICATED", message: "Authentication required" } },
-          401,
-        );
-      }
-      let payload;
-      try {
-        payload = await verifyAccessToken(token);
-      } catch {
-        return c.json(
-          { error: { code: "UNAUTHENTICATED", message: "Invalid or expired token" } },
-          401,
-        );
-      }
-      if (!payload.sub) {
-        return c.json({ error: { code: "UNAUTHENTICATED", message: "Invalid token" } }, 401);
-      }
-      const userRows = await db
-        .select()
-        .from(users)
-        .where(eq(users.id, payload.sub))
-        .limit(1);
-      const user = userRows[0];
-      if (!user) {
-        return c.json({ error: { code: "UNAUTHENTICATED", message: "User not found" } }, 401);
-      }
-      userId = user.id;
-      userEmail = user.email;
-      userDisplayName = user.display_name;
+        },
+        401
+      )
     }
+    let payload
+    try {
+      payload = await verifyAccessToken(token)
+    } catch {
+      return c.json(
+        {
+          error: {
+            code: "UNAUTHENTICATED",
+            message: "Invalid or expired token",
+          },
+        },
+        401
+      )
+    }
+    if (!payload.sub) {
+      return c.json(
+        { error: { code: "UNAUTHENTICATED", message: "Invalid token" } },
+        401
+      )
+    }
+    const userRows = await db
+      .select()
+      .from(users)
+      .where(eq(users.id, payload.sub))
+      .limit(1)
+    const user = userRows[0]
+    if (!user) {
+      return c.json(
+        { error: { code: "UNAUTHENTICATED", message: "User not found" } },
+        401
+      )
+    }
+    const userId = user.id
+    const userEmail = user.email
+    const userDisplayName = user.display_name
 
     // Get existing credentials to exclude them
     const existingPasskeys = await db
-      .select({ credential_id: passkeys.credential_id, transports: passkeys.transports })
+      .select({
+        credential_id: passkeys.credential_id,
+        transports: passkeys.transports,
+      })
       .from(passkeys)
-      .where(eq(passkeys.user_id, userId));
+      .where(eq(passkeys.user_id, userId))
 
     const excludeCredentials = existingPasskeys.map((pk) => ({
       id: pk.credential_id,
       type: "public-key" as const,
       transports: JSON.parse(pk.transports) as AuthenticatorTransportFuture[],
-    }));
+    }))
 
     const options = await generateRegOptions({
       userName: userEmail,
@@ -237,55 +481,73 @@ export function createAuthRouter(db: Db): Hono {
         residentKey: "preferred",
         userVerification: "preferred",
       },
-    });
+    })
 
-    setChallenge(`reg:${userId}`, options.challenge);
+    setChallenge(`reg:${userId}`, options.challenge)
 
-    return c.json({ options, userId });
-  });
+    return c.json({ options, userId })
+  })
 
   // -------------------------------------------------------------------------
   // POST /auth/register/verify
   // -------------------------------------------------------------------------
   auth.post("/auth/register/verify", async (c) => {
     const body = (await c.req.json()) as {
-      userId: string;
-      credential: unknown;
-      device_name?: string;
-    };
+      userId: string
+      credential: unknown
+      device_name?: string
+    }
 
     if (!body.userId) {
-      return c.json({ error: { code: "BAD_REQUEST", message: "userId required" } }, 400);
+      return c.json(
+        { error: { code: "BAD_REQUEST", message: "userId required" } },
+        400
+      )
     }
 
-    const expectedChallenge = consumeChallenge(`reg:${body.userId}`);
+    const expectedChallenge = consumeChallenge(`reg:${body.userId}`)
     if (!expectedChallenge) {
       return c.json(
-        { error: { code: "CHALLENGE_EXPIRED", message: "Challenge expired or not found" } },
-        400,
-      );
+        {
+          error: {
+            code: "CHALLENGE_EXPIRED",
+            message: "Challenge expired or not found",
+          },
+        },
+        400
+      )
     }
 
-    let verification;
+    let verification
     try {
       verification = await verifyRegResponse({
-        response: body.credential as Parameters<typeof verifyRegResponse>[0]["response"],
+        response: body.credential as Parameters<
+          typeof verifyRegResponse
+        >[0]["response"],
         expectedChallenge,
-      });
+      })
     } catch (err) {
-      return c.json({ error: { code: "VERIFICATION_FAILED", message: String(err) } }, 400);
+      return c.json(
+        { error: { code: "VERIFICATION_FAILED", message: String(err) } },
+        400
+      )
     }
 
     if (!verification.verified || !verification.registrationInfo) {
       return c.json(
-        { error: { code: "VERIFICATION_FAILED", message: "Attestation not verified" } },
-        400,
-      );
+        {
+          error: {
+            code: "VERIFICATION_FAILED",
+            message: "Attestation not verified",
+          },
+        },
+        400
+      )
     }
 
-    const { credential } = verification.registrationInfo;
+    const { credential } = verification.registrationInfo
 
-    const now = new Date();
+    const now = new Date()
     await db.insert(passkeys).values({
       id: nanoid(),
       user_id: body.userId,
@@ -296,162 +558,219 @@ export function createAuthRouter(db: Db): Hono {
       device_name: body.device_name ?? null,
       created_at: now,
       last_used_at: now,
-    });
+    })
 
     const userRows = await db
       .select()
       .from(users)
       .where(eq(users.id, body.userId))
-      .limit(1);
-    const user = userRows[0];
+      .limit(1)
+    const user = userRows[0]
     if (!user) {
-      return c.json({ error: { code: "NOT_FOUND", message: "User not found" } }, 404);
+      return c.json(
+        { error: { code: "NOT_FOUND", message: "User not found" } },
+        404
+      )
     }
 
-    const { userAgent, ip } = getClientInfo(c.req.raw);
+    const { userAgent, ip } = getClientInfo(c.req.raw)
     const { sessionId, refreshToken } = await Sessions.createSession(db, {
       userId: body.userId,
       userAgent,
       ip,
-    });
+    })
 
     const accessToken = await signAccessToken({
       userId: body.userId,
       email: user.email,
       sessionId,
-    });
+    })
 
-    const meta = await getUserMeta(db, body.userId);
+    const meta = await getUserMeta(db, body.userId)
 
     // Welcome email sur la première passkey (meta.has_passkey_plus === false + on vient d'insérer).
     const totalPasskeys = await db
       .select({ id: passkeys.id })
       .from(passkeys)
-      .where(eq(passkeys.user_id, body.userId));
+      .where(eq(passkeys.user_id, body.userId))
     if (totalPasskeys.length === 1) {
-      const mail = renderWelcomeEmail(user.display_name);
-      void sendMail({ to: user.email, ...mail });
+      const mail = renderWelcomeEmail(user.display_name)
+      void sendMail({ to: user.email, ...mail })
     }
 
     const response = c.newResponse(
       JSON.stringify({
-        user: { id: user.id, email: user.email, display_name: user.display_name },
+        user: {
+          id: user.id,
+          email: user.email,
+          display_name: user.display_name,
+        },
         ...meta,
       }),
       200,
-      { "Content-Type": "application/json" },
-    );
-    setCookies(response.headers, accessToken, refreshToken, sessionId);
-    return response;
-  });
+      { "Content-Type": "application/json" }
+    )
+    setCookies(response.headers, accessToken, refreshToken, sessionId)
+    return response
+  })
 
   // -------------------------------------------------------------------------
   // GET /auth/login/options
   // -------------------------------------------------------------------------
   auth.get("/auth/login/options", async (c) => {
-    const email = c.req.query("email");
+    const email = c.req.query("email")?.trim().toLowerCase()
 
-    let userId: string | undefined;
+    let userId: string | undefined
 
     if (email) {
       const userRows = await db
         .select()
         .from(users)
         .where(eq(users.email, email))
-        .limit(1);
-      const user = userRows[0];
-      if (user) {
-        userId = user.id;
+        .limit(1)
+      const user = userRows[0]
+      if (!user) {
+        return c.json(
+          {
+            error: {
+              code: "PASSKEY_NOT_FOUND",
+              message: "No passkey is registered for this email",
+            },
+          },
+          404
+        )
       }
+      userId = user.id
     }
 
-    let options;
+    let options
     if (userId) {
       const userPasskeys = await db
-        .select({ credential_id: passkeys.credential_id, transports: passkeys.transports })
+        .select({
+          credential_id: passkeys.credential_id,
+          transports: passkeys.transports,
+        })
         .from(passkeys)
-        .where(eq(passkeys.user_id, userId));
+        .where(eq(passkeys.user_id, userId))
 
       const allowCredentials = userPasskeys.map((pk) => ({
         id: pk.credential_id,
         type: "public-key" as const,
         transports: JSON.parse(pk.transports) as AuthenticatorTransportFuture[],
-      }));
+      }))
+
+      if (allowCredentials.length === 0) {
+        return c.json(
+          {
+            error: {
+              code: "PASSKEY_NOT_FOUND",
+              message: "No passkey is registered for this email",
+            },
+          },
+          404
+        )
+      }
 
       options = await generateAuthOptions({
         allowCredentials,
         userVerification: "preferred",
-      });
+      })
     } else {
       // Usernameless or user not found — don't reveal non-existence
-      options = await generateAuthOptions({ userVerification: "preferred" });
+      options = await generateAuthOptions({ userVerification: "preferred" })
     }
 
     const challengeKey = userId
       ? `auth:${userId}`
-      : `auth:anon:${options.challenge.slice(0, 16)}`;
-    setChallenge(challengeKey, options.challenge);
+      : `auth:anon:${options.challenge.slice(0, 16)}`
+    setChallenge(challengeKey, options.challenge)
 
-    return c.json({ options, _challengeKey: challengeKey });
-  });
+    return c.json({ options, _challengeKey: challengeKey })
+  })
 
   // -------------------------------------------------------------------------
   // POST /auth/login/verify
   // -------------------------------------------------------------------------
   auth.post("/auth/login/verify", async (c) => {
     const body = (await c.req.json()) as {
-      credential: { id: string };
-      _challengeKey: string;
-    };
+      credential: { id: string }
+      _challengeKey: string
+    }
 
     if (!body._challengeKey) {
       return c.json(
         { error: { code: "BAD_REQUEST", message: "_challengeKey required" } },
-        400,
-      );
+        400
+      )
     }
 
-    const expectedChallenge = consumeChallenge(body._challengeKey);
+    const expectedChallenge = consumeChallenge(body._challengeKey)
     if (!expectedChallenge) {
       return c.json(
-        { error: { code: "CHALLENGE_EXPIRED", message: "Challenge expired or not found" } },
-        400,
-      );
+        {
+          error: {
+            code: "CHALLENGE_EXPIRED",
+            message: "Challenge expired or not found",
+          },
+        },
+        400
+      )
     }
 
     const passkeyRows = await db
       .select()
       .from(passkeys)
       .where(eq(passkeys.credential_id, body.credential.id))
-      .limit(1);
+      .limit(1)
 
-    const passkey = passkeyRows[0];
+    const passkey = passkeyRows[0]
     if (!passkey) {
-      return c.json({ error: { code: "NOT_FOUND", message: "Passkey not found" } }, 404);
+      return c.json(
+        {
+          error: {
+            code: "PASSKEY_NOT_REGISTERED",
+            message:
+              "This browser passkey is not registered in the current Ploydok database",
+          },
+        },
+        401
+      )
     }
 
-    let verification;
+    let verification
     try {
       verification = await verifyAuthResponse({
-        response: body.credential as Parameters<typeof verifyAuthResponse>[0]["response"],
+        response: body.credential as Parameters<
+          typeof verifyAuthResponse
+        >[0]["response"],
         expectedChallenge,
         credential: {
           id: passkey.credential_id,
           publicKey: new Uint8Array(passkey.public_key),
           counter: passkey.counter,
-          transports: JSON.parse(passkey.transports) as AuthenticatorTransportFuture[],
+          transports: JSON.parse(
+            passkey.transports
+          ) as AuthenticatorTransportFuture[],
         },
         requireUserVerification: false,
-      });
+      })
     } catch (err) {
-      return c.json({ error: { code: "VERIFICATION_FAILED", message: String(err) } }, 400);
+      return c.json(
+        { error: { code: "VERIFICATION_FAILED", message: String(err) } },
+        400
+      )
     }
 
     if (!verification.verified) {
       return c.json(
-        { error: { code: "VERIFICATION_FAILED", message: "Assertion not verified" } },
-        400,
-      );
+        {
+          error: {
+            code: "VERIFICATION_FAILED",
+            message: "Assertion not verified",
+          },
+        },
+        400
+      )
     }
 
     await db
@@ -460,185 +779,218 @@ export function createAuthRouter(db: Db): Hono {
         counter: verification.authenticationInfo.newCounter,
         last_used_at: new Date(),
       })
-      .where(eq(passkeys.id, passkey.id));
+      .where(eq(passkeys.id, passkey.id))
 
     const userRows = await db
       .select()
       .from(users)
       .where(eq(users.id, passkey.user_id))
-      .limit(1);
-    const user = userRows[0];
+      .limit(1)
+    const user = userRows[0]
     if (!user) {
-      return c.json({ error: { code: "NOT_FOUND", message: "User not found" } }, 404);
+      return c.json(
+        { error: { code: "NOT_FOUND", message: "User not found" } },
+        404
+      )
     }
 
-    const { userAgent, ip } = getClientInfo(c.req.raw);
+    const { userAgent, ip } = getClientInfo(c.req.raw)
     const { sessionId, refreshToken } = await Sessions.createSession(db, {
       userId: user.id,
       userAgent,
       ip,
-    });
+    })
 
     const accessToken = await signAccessToken({
       userId: user.id,
       email: user.email,
       sessionId,
-    });
-    const accessExpiresAt = getAccessExpiresAt();
+    })
+    const accessExpiresAt = getAccessExpiresAt()
 
-    const meta = await getUserMeta(db, user.id);
+    const meta = await getUserMeta(db, user.id)
 
     const response = c.newResponse(
       JSON.stringify({
-        user: { id: user.id, email: user.email, display_name: user.display_name },
+        user: {
+          id: user.id,
+          email: user.email,
+          display_name: user.display_name,
+        },
         accessExpiresAt,
         ...meta,
       }),
       200,
-      { "Content-Type": "application/json" },
-    );
-    setCookies(response.headers, accessToken, refreshToken, sessionId);
-    return response;
-  });
+      { "Content-Type": "application/json" }
+    )
+    setCookies(response.headers, accessToken, refreshToken, sessionId)
+    return response
+  })
 
   // -------------------------------------------------------------------------
   // POST /auth/logout
   // -------------------------------------------------------------------------
   auth.post("/auth/logout", requireAuth(db), async (c) => {
-    const user = getUser(c);
-    await Sessions.revokeSession(db, user.session_id);
-    const response = c.newResponse(null, 204);
-    clearCookies(response.headers);
-    return response;
-  });
+    const user = getUser(c)
+    await Sessions.revokeSession(db, user.session_id)
+    const response = c.newResponse(null, 204)
+    clearCookies(response.headers)
+    return response
+  })
 
   // -------------------------------------------------------------------------
   // POST /auth/refresh
   // -------------------------------------------------------------------------
   auth.post("/auth/refresh", async (c) => {
-    const cookieHeader = c.req.raw.headers.get("cookie") ?? "";
-    const cookies = parseCookies(cookieHeader);
-    const refreshCookie = cookies[REFRESH_COOKIE];
+    const cookieHeader = c.req.raw.headers.get("cookie") ?? ""
+    const cookies = parseCookies(cookieHeader)
+    const refreshCookie = cookies[REFRESH_COOKIE]
 
     if (!refreshCookie) {
       return c.json(
         { error: { code: "UNAUTHENTICATED", message: "No refresh token" } },
-        401,
-      );
+        401
+      )
     }
 
-    const colonIdx = refreshCookie.indexOf(":");
+    const colonIdx = refreshCookie.indexOf(":")
     if (colonIdx === -1) {
       return c.json(
-        { error: { code: "UNAUTHENTICATED", message: "Invalid refresh token format" } },
-        401,
-      );
+        {
+          error: {
+            code: "UNAUTHENTICATED",
+            message: "Invalid refresh token format",
+          },
+        },
+        401
+      )
     }
-    const sessionId = refreshCookie.slice(0, colonIdx);
-    const rawToken = refreshCookie.slice(colonIdx + 1);
+    const sessionId = refreshCookie.slice(0, colonIdx)
+    const rawToken = refreshCookie.slice(colonIdx + 1)
 
-    const session = await Sessions.verifyRefreshToken(db, sessionId, rawToken);
+    const session = await Sessions.verifyRefreshToken(db, sessionId, rawToken)
     if (!session) {
       return c.json(
-        { error: { code: "UNAUTHENTICATED", message: "Invalid or expired refresh token" } },
-        401,
-      );
+        {
+          error: {
+            code: "UNAUTHENTICATED",
+            message: "Invalid or expired refresh token",
+          },
+        },
+        401
+      )
     }
 
-    const newRefreshToken = await Sessions.rotateRefreshToken(db, sessionId);
+    const newRefreshToken = await Sessions.rotateRefreshToken(db, sessionId)
 
     const userRows = await db
       .select()
       .from(users)
       .where(eq(users.id, session.user_id))
-      .limit(1);
-    const user = userRows[0];
+      .limit(1)
+    const user = userRows[0]
     if (!user) {
-      return c.json({ error: { code: "NOT_FOUND", message: "User not found" } }, 404);
+      return c.json(
+        { error: { code: "NOT_FOUND", message: "User not found" } },
+        404
+      )
     }
 
     const accessToken = await signAccessToken({
       userId: user.id,
       email: user.email,
       sessionId,
-    });
-    const accessExpiresAt = getAccessExpiresAt();
+    })
+    const accessExpiresAt = getAccessExpiresAt()
 
     const response = c.newResponse(
       JSON.stringify({ ok: true, accessExpiresAt }),
       200,
-      { "Content-Type": "application/json" },
-    );
-    setCookies(response.headers, accessToken, newRefreshToken, sessionId);
-    return response;
-  });
+      { "Content-Type": "application/json" }
+    )
+    setCookies(response.headers, accessToken, newRefreshToken, sessionId)
+    return response
+  })
 
   // -------------------------------------------------------------------------
   // POST /auth/backup-codes/consume
   // -------------------------------------------------------------------------
   auth.post("/auth/backup-codes/consume", async (c) => {
-    const body = (await c.req.json()) as { email: string; code: string };
+    const body = (await c.req.json()) as { email: string; code: string }
     if (!body.email || !body.code) {
       return c.json(
         { error: { code: "BAD_REQUEST", message: "email and code required" } },
-        400,
-      );
+        400
+      )
     }
 
     const userRows = await db
       .select()
       .from(users)
       .where(eq(users.email, body.email))
-      .limit(1);
-    const user = userRows[0];
+      .limit(1)
+    const user = userRows[0]
     if (!user) {
       return c.json(
         { error: { code: "INVALID_CODE", message: "Invalid backup code" } },
-        401,
-      );
+        401
+      )
     }
 
-    const ok = await BackupCodes.consume(db, user.id, body.code.trim().toUpperCase());
+    const ok = await BackupCodes.consume(
+      db,
+      user.id,
+      body.code.trim().toUpperCase()
+    )
     if (!ok) {
       return c.json(
-        { error: { code: "INVALID_CODE", message: "Invalid or already used backup code" } },
-        401,
-      );
+        {
+          error: {
+            code: "INVALID_CODE",
+            message: "Invalid or already used backup code",
+          },
+        },
+        401
+      )
     }
 
-    const { userAgent, ip } = getClientInfo(c.req.raw);
+    const { userAgent, ip } = getClientInfo(c.req.raw)
     const { sessionId, refreshToken } = await Sessions.createSession(db, {
       userId: user.id,
       userAgent,
       ip,
-    });
+    })
 
     const accessToken = await signAccessToken({
       userId: user.id,
       email: user.email,
       sessionId,
-    });
-    const accessExpiresAt = getAccessExpiresAt();
-    const meta = await getUserMeta(db, user.id);
+    })
+    const accessExpiresAt = getAccessExpiresAt()
+    const meta = await getUserMeta(db, user.id)
 
     const response = c.newResponse(
       JSON.stringify({
-        user: { id: user.id, email: user.email, display_name: user.display_name },
+        user: {
+          id: user.id,
+          email: user.email,
+          display_name: user.display_name,
+        },
         accessExpiresAt,
         ...meta,
       }),
       200,
-      { "Content-Type": "application/json" },
-    );
-    setCookies(response.headers, accessToken, refreshToken, sessionId);
-    return response;
-  });
+      { "Content-Type": "application/json" }
+    )
+    setCookies(response.headers, accessToken, refreshToken, sessionId)
+    return response
+  })
 
   // -------------------------------------------------------------------------
   // GET /auth/passkeys
   // -------------------------------------------------------------------------
   auth.get("/auth/passkeys", requireAuth(db), async (c) => {
-    const user = getUser(c);
+    const user = getUser(c)
     const rows = await db
       .select({
         id: passkeys.id,
@@ -648,7 +1000,7 @@ export function createAuthRouter(db: Db): Hono {
         last_used_at: passkeys.last_used_at,
       })
       .from(passkeys)
-      .where(eq(passkeys.user_id, user.id));
+      .where(eq(passkeys.user_id, user.id))
 
     return c.json({
       passkeys: rows.map((pk) => ({
@@ -658,60 +1010,67 @@ export function createAuthRouter(db: Db): Hono {
         created_at: pk.created_at?.toISOString(),
         last_used_at: pk.last_used_at?.toISOString(),
       })),
-    });
-  });
+    })
+  })
 
   // -------------------------------------------------------------------------
   // DELETE /auth/passkeys/:id
   // -------------------------------------------------------------------------
   auth.delete("/auth/passkeys/:id", requireAuth(db), async (c) => {
-    const user = getUser(c);
-    const passkeyId = c.req.param("id") ?? "";
+    const user = getUser(c)
+    const passkeyId = c.req.param("id") ?? ""
 
     if (!passkeyId) {
-      return c.json({ error: { code: "BAD_REQUEST", message: "id required" } }, 400);
+      return c.json(
+        { error: { code: "BAD_REQUEST", message: "id required" } },
+        400
+      )
     }
 
     const target = await db
       .select()
       .from(passkeys)
       .where(and(eq(passkeys.id, passkeyId), eq(passkeys.user_id, user.id)))
-      .limit(1);
+      .limit(1)
 
     if (!target[0]) {
-      return c.json({ error: { code: "NOT_FOUND", message: "Passkey not found" } }, 404);
+      return c.json(
+        { error: { code: "NOT_FOUND", message: "Passkey not found" } },
+        404
+      )
     }
 
     const allPasskeys = await db
       .select({ id: passkeys.id })
       .from(passkeys)
-      .where(eq(passkeys.user_id, user.id));
+      .where(eq(passkeys.user_id, user.id))
 
     if (allPasskeys.length <= 1) {
-      const backupCount = await BackupCodes.countActive(db, user.id);
+      const backupCount = await BackupCodes.countActive(db, user.id)
       if (backupCount < 1) {
         return c.json(
           {
             error: {
               code: "CANNOT_DELETE_LAST_PASSKEY",
-              message: "Cannot delete the last passkey without active backup codes",
+              message:
+                "Cannot delete the last passkey without active backup codes",
             },
           },
-          409,
-        );
+          409
+        )
       }
     }
 
-    await db.delete(passkeys).where(eq(passkeys.id, passkeyId));
-    return c.newResponse(null, 204);
-  });
+    await db.delete(passkeys).where(eq(passkeys.id, passkeyId))
+    return c.newResponse(null, 204)
+  })
 
   // -------------------------------------------------------------------------
   // GET /auth/sessions
   // -------------------------------------------------------------------------
   auth.get("/auth/sessions", requireAuth(db), async (c) => {
-    const user = getUser(c);
-    const sessionList = await Sessions.listSessions(db, user.id);
+    const user = getUser(c)
+    const sessionList = await Sessions.listSessions(db, user.id)
 
     return c.json({
       sessions: sessionList.map((s) => ({
@@ -723,18 +1082,21 @@ export function createAuthRouter(db: Db): Hono {
         expires_at: s.expires_at?.toISOString(),
         is_current: s.id === user.session_id,
       })),
-    });
-  });
+    })
+  })
 
   // -------------------------------------------------------------------------
   // DELETE /auth/sessions/:id
   // -------------------------------------------------------------------------
   auth.delete("/auth/sessions/:id", requireAuth(db), async (c) => {
-    const user = getUser(c);
-    const targetId = c.req.param("id") ?? "";
+    const user = getUser(c)
+    const targetId = c.req.param("id") ?? ""
 
     if (!targetId) {
-      return c.json({ error: { code: "BAD_REQUEST", message: "id required" } }, 400);
+      return c.json(
+        { error: { code: "BAD_REQUEST", message: "id required" } },
+        400
+      )
     }
 
     if (targetId === user.session_id) {
@@ -745,101 +1107,155 @@ export function createAuthRouter(db: Db): Hono {
             message: "Use /auth/logout to end current session",
           },
         },
-        409,
-      );
+        409
+      )
     }
 
     const rows = await db
       .select({ id: sessionsTable.id, user_id: sessionsTable.user_id })
       .from(sessionsTable)
       .where(eq(sessionsTable.id, targetId))
-      .limit(1);
+      .limit(1)
 
-    const sessionRow = rows[0];
+    const sessionRow = rows[0]
     if (!sessionRow || sessionRow.user_id !== user.id) {
-      return c.json({ error: { code: "NOT_FOUND", message: "Session not found" } }, 404);
+      return c.json(
+        { error: { code: "NOT_FOUND", message: "Session not found" } },
+        404
+      )
     }
 
-    await Sessions.revokeSession(db, targetId);
-    return c.newResponse(null, 204);
-  });
+    await Sessions.revokeSession(db, targetId)
+    return c.newResponse(null, 204)
+  })
 
   // -------------------------------------------------------------------------
   // POST /auth/sessions/revoke-others
   // -------------------------------------------------------------------------
   auth.post("/auth/sessions/revoke-others", requireAuth(db), async (c) => {
-    const user = getUser(c);
-    await Sessions.revokeOtherSessions(db, user.id, user.session_id);
-    return c.json({ ok: true });
-  });
+    const user = getUser(c)
+    await Sessions.revokeOtherSessions(db, user.id, user.session_id)
+    return c.json({ ok: true })
+  })
 
   // -------------------------------------------------------------------------
   // POST /auth/totp/enroll
   // -------------------------------------------------------------------------
   auth.post("/auth/totp/enroll", requireAuth(db), async (c) => {
-    const user = getUser(c);
+    const user = getUser(c)
 
-    const existing = await getTotpSecret(db, user.id);
+    const existing = await getTotpSecret(db, user.id)
     if (existing?.verifiedAt) {
       return c.json(
-        { error: { code: "TOTP_ALREADY_ENROLLED", message: "TOTP is already enrolled and verified" } },
-        409,
-      );
+        {
+          error: {
+            code: "TOTP_ALREADY_ENROLLED",
+            message: "TOTP is already enrolled and verified",
+          },
+        },
+        409
+      )
     }
 
-    const secret = generateSecret();
-    await saveTotpSecret(db, user.id, secret);
+    const secret = generateSecret()
+    await saveTotpSecret(db, user.id, secret)
 
     const otpauthUrl = buildOtpauthUrl({
       secret,
       issuer: "Ploydok",
       accountName: user.email,
-    });
+    })
 
-    return c.json({ secret, otpauthUrl });
-  });
+    return c.json({ secret, otpauthUrl })
+  })
 
   // -------------------------------------------------------------------------
   // POST /auth/totp/verify
   // -------------------------------------------------------------------------
   auth.post("/auth/totp/verify", requireAuth(db), async (c) => {
-    const user = getUser(c);
-    const body = await c.req.json<{ code?: string }>().catch(() => ({}) as { code?: string });
+    const user = getUser(c)
+    const body = await c.req
+      .json<{ code?: string }>()
+      .catch(() => ({}) as { code?: string })
 
-    const totpRow = await getTotpSecret(db, user.id);
+    const totpRow = await getTotpSecret(db, user.id)
     if (!totpRow) {
       return c.json(
         { error: { code: "TOTP_NOT_ENROLLED", message: "TOTP not enrolled" } },
-        404,
-      );
+        404
+      )
     }
     if (totpRow.verifiedAt) {
       return c.json(
-        { error: { code: "TOTP_ALREADY_ENROLLED", message: "TOTP is already verified" } },
-        409,
-      );
+        {
+          error: {
+            code: "TOTP_ALREADY_ENROLLED",
+            message: "TOTP is already verified",
+          },
+        },
+        409
+      )
     }
 
-    const code = String(body.code ?? "");
+    const code = String(body.code ?? "")
     if (!verifyCode(totpRow.secret, code, { window: 1 })) {
       return c.json(
         { error: { code: "INVALID_CODE", message: "Invalid TOTP code" } },
-        400,
-      );
+        400
+      )
     }
 
-    await markTotpVerified(db, user.id);
-    return c.json({ ok: true });
-  });
+    await markTotpVerified(db, user.id)
+    return c.json({ ok: true })
+  })
+
+  // -------------------------------------------------------------------------
+  // PATCH /auth/totp/preferences
+  // -------------------------------------------------------------------------
+  auth.patch("/auth/totp/preferences", requireAuth(db), async (c) => {
+    const user = getUser(c)
+    const body = await c.req
+      .json<{ requireTotpForSecretReveal?: unknown }>()
+      .catch(() => ({}) as { requireTotpForSecretReveal?: unknown })
+
+    if (typeof body.requireTotpForSecretReveal !== "boolean") {
+      return c.json(
+        {
+          error: {
+            code: "VALIDATION_ERROR",
+            message: "requireTotpForSecretReveal must be a boolean",
+          },
+        },
+        400
+      )
+    }
+
+    await db
+      .update(users)
+      .set({
+        require_totp_for_secret_reveal: body.requireTotpForSecretReveal,
+        updated_at: new Date(),
+      })
+      .where(eq(users.id, user.id))
+
+    return c.json({
+      require_totp_for_secret_reveal: body.requireTotpForSecretReveal,
+    })
+  })
 
   // -------------------------------------------------------------------------
   // DELETE /auth/totp
   // -------------------------------------------------------------------------
-  auth.delete("/auth/totp", requireAuth(db), requireSecondFactor(db), async (c) => {
-    const user = getUser(c);
-    await deleteTotpSecret(db, user.id);
-    return c.newResponse(null, 204);
-  });
+  auth.delete(
+    "/auth/totp",
+    requireAuth(db),
+    requireSecondFactor(db),
+    async (c) => {
+      const user = getUser(c)
+      await deleteTotpSecret(db, user.id)
+      return c.newResponse(null, 204)
+    }
+  )
 
   // -------------------------------------------------------------------------
   // POST /auth/dev-login — bypass WebAuthn for Playwright / local e2e.
@@ -849,61 +1265,75 @@ export function createAuthRouter(db: Db): Hono {
   // -------------------------------------------------------------------------
   auth.post("/auth/dev-login", async (c) => {
     if (env.NODE_ENV === "prod") {
-      return c.json(
-        { error: { code: "NOT_FOUND", message: "Not found" } },
-        404,
-      );
+      return c.json({ error: { code: "NOT_FOUND", message: "Not found" } }, 404)
     }
-    const origin = c.req.header("origin") ?? "";
-    const host = c.req.header("host") ?? "";
-    const loopbackRe = /^(https?:\/\/)?(localhost|127\.0\.0\.1)(:\d+)?$/;
-    if (origin && !loopbackRe.test(origin) && !loopbackRe.test(`http://${host}`)) {
+    const origin = c.req.header("origin") ?? ""
+    const host = c.req.header("host") ?? ""
+    const loopbackRe = /^(https?:\/\/)?(localhost|127\.0\.0\.1)(:\d+)?$/
+    if (
+      origin &&
+      !loopbackRe.test(origin) &&
+      !loopbackRe.test(`http://${host}`)
+    ) {
       return c.json(
         { error: { code: "FORBIDDEN", message: "dev-login is loopback-only" } },
-        403,
-      );
+        403
+      )
     }
 
-    let body: { email?: string } = {};
+    let body: { email?: string } = {}
     try {
-      body = await c.req.json();
+      body = await c.req.json()
     } catch {
       // empty body is fine — we'll pick the first user
     }
 
     const rows = body.email
-      ? await db.select().from(users).where(eq(users.email, body.email)).limit(1)
-      : await db.select().from(users).limit(1);
-    const user = rows[0];
+      ? await db
+          .select()
+          .from(users)
+          .where(eq(users.email, body.email))
+          .limit(1)
+      : await db.select().from(users).limit(1)
+    const user = rows[0]
     if (!user) {
       return c.json(
-        { error: { code: "NOT_FOUND", message: "No user found — seed one first" } },
-        404,
-      );
+        {
+          error: {
+            code: "NOT_FOUND",
+            message: "No user found — seed one first",
+          },
+        },
+        404
+      )
     }
 
-    const { userAgent, ip } = getClientInfo(c.req.raw);
+    const { userAgent, ip } = getClientInfo(c.req.raw)
     const { sessionId, refreshToken } = await Sessions.createSession(db, {
       userId: user.id,
       userAgent,
       ip,
-    });
+    })
     const accessToken = await signAccessToken({
       userId: user.id,
       email: user.email,
       sessionId,
-    });
+    })
 
     const response = c.newResponse(
       JSON.stringify({
-        user: { id: user.id, email: user.email, display_name: user.display_name },
+        user: {
+          id: user.id,
+          email: user.email,
+          display_name: user.display_name,
+        },
       }),
       200,
-      { "Content-Type": "application/json" },
-    );
-    setCookies(response.headers, accessToken, refreshToken, sessionId);
-    return response;
-  });
+      { "Content-Type": "application/json" }
+    )
+    setCookies(response.headers, accessToken, refreshToken, sessionId)
+    return response
+  })
 
-  return auth;
+  return auth
 }

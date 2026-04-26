@@ -1,52 +1,60 @@
 // SPDX-License-Identifier: AGPL-3.0-only
-import { app } from "./app";
-import { env } from "./env";
-import { wsHandler } from "./routes/ws";
-import { getSharedCaddy, getSharedAgent } from "./debug/singletons.js";
-import { isAlreadyExists } from "./agent/index.js";
-import { childLogger } from "./logger";
-import { startWorker } from "./worker";
-import { createDb, type Db } from "@ploydok/db";
-import { fetchRunningAppsForCaddy, reconcileCaddyRoutes } from "./caddy/reconciler.js";
-import { reconcileCaddyAttachments } from "./caddy/attachment.js";
+import { app } from "./app"
+import { env } from "./env"
+import { wsHandler } from "./routes/ws"
+import { getSharedCaddy, getSharedAgent } from "./debug/singletons.js"
+import { isAlreadyExists } from "./agent/index.js"
+import { childLogger } from "./logger"
+import { startWorker } from "./worker"
+import { createDb, type Db } from "@ploydok/db"
+import {
+  fetchRunningAppsForCaddy,
+  reconcileCaddyRoutes,
+} from "./caddy/reconciler.js"
+import { reconcileCaddyAttachments } from "./caddy/attachment.js"
+import { bootstrapSetupToken } from "./auth/setup-token"
 
-const log = childLogger("boot");
+const log = childLogger("boot")
 
 export function createApp() {
-  return app;
+  return app
 }
 
 async function bootInfra(db: Db): Promise<void> {
-  const caddy = getSharedCaddy();
-  const agent = getSharedAgent();
+  const caddy = getSharedCaddy()
+  const agent = getSharedAgent()
 
   try {
-    const apps = await fetchRunningAppsForCaddy(db);
-    const result = await reconcileCaddyRoutes({ caddy, logger: log, apps });
-    log.info(result, "caddy reconcile complete");
+    const apps = await fetchRunningAppsForCaddy(db)
+    const result = await reconcileCaddyRoutes({ caddy, logger: log, apps })
+    log.info(result, "caddy reconcile complete")
   } catch (err) {
-    log.warn({ err }, "caddy reconcile failed (non-fatal)");
+    log.warn({ err }, "caddy reconcile failed (non-fatal)")
   }
 
   // Reconcile Caddy ↔ project-network attachments so live apps remain
   // reachable after a Caddy or API restart without waiting for the next deploy.
   try {
-    const result = await reconcileCaddyAttachments(agent, db);
-    log.info(result, "caddy attachments reconcile complete");
+    const result = await reconcileCaddyAttachments(agent, db)
+    log.info(result, "caddy attachments reconcile complete")
   } catch (err) {
-    log.warn({ err }, "caddy attachments reconcile failed (non-fatal)");
+    log.warn({ err }, "caddy attachments reconcile failed (non-fatal)")
   }
 
   // Legacy flat network (pre-Phase-1.C). Kept so existing apps still resolve
   // until they are redeployed under per-project networks.
   try {
-    await agent.networkCreate({ name: "ploydok-public", driver: "bridge", labels: {} });
-    log.info("réseau ploydok-public créé");
+    await agent.networkCreate({
+      name: "ploydok-public",
+      driver: "bridge",
+      labels: {},
+    })
+    log.info("réseau ploydok-public créé")
   } catch (err) {
     if (isAlreadyExists(err)) {
-      log.info("réseau ploydok-public déjà existant");
+      log.info("réseau ploydok-public déjà existant")
     } else {
-      log.warn({ err }, "networkCreate ploydok-public failed (non-fatal)");
+      log.warn({ err }, "networkCreate ploydok-public failed (non-fatal)")
     }
   }
 
@@ -58,13 +66,13 @@ async function bootInfra(db: Db): Promise<void> {
       name: "ploydok-ingress",
       driver: "bridge",
       labels: { "ploydok.kind": "ingress" },
-    });
-    log.info("réseau ploydok-ingress créé");
+    })
+    log.info("réseau ploydok-ingress créé")
   } catch (err) {
     if (isAlreadyExists(err)) {
-      log.info("réseau ploydok-ingress déjà existant");
+      log.info("réseau ploydok-ingress déjà existant")
     } else {
-      log.warn({ err }, "networkCreate ploydok-ingress failed (non-fatal)");
+      log.warn({ err }, "networkCreate ploydok-ingress failed (non-fatal)")
     }
   }
 }
@@ -79,8 +87,8 @@ if (import.meta.main) {
     fetch: app.fetch,
     websocket: wsHandler,
     idleTimeout: 0,
-  });
-  log.info({ port: env.PORT }, `api listening on :${env.PORT}`);
+  })
+  log.info({ port: env.PORT }, `api listening on :${env.PORT}`)
 
   const workerDb = createDb(env.DATABASE_URL)
   const worker = startWorker(workerDb)
@@ -97,7 +105,10 @@ if (import.meta.main) {
   // networkCreate sont idempotents et gèrent Caddy/agent absents en warn.
   if (env.NODE_ENV !== "test") {
     bootInfra(workerDb).catch((err) => {
-      log.error({ err }, "erreur inattendue au boot");
-    });
+      log.error({ err }, "erreur inattendue au boot")
+    })
+    bootstrapSetupToken(workerDb).catch((err) => {
+      log.error({ err }, "setup-token bootstrap failed")
+    })
   }
 }

@@ -3,7 +3,7 @@ import { describe, it, expect, beforeEach, mock, spyOn } from "bun:test"
 import { Hono } from "hono"
 import { nanoid } from "nanoid"
 import { eq } from "drizzle-orm"
-import { users, projects, apps, builds } from "@ploydok/db"
+import { users, projects, apps, builds, secrets } from "@ploydok/db"
 import type { Db } from "@ploydok/db"
 import { makeTestDb as makePgTestDb, TEST_PG_URL } from "../test/db-helpers"
 import { createAppsRouter } from "./apps"
@@ -231,6 +231,47 @@ describe.skipIf(skip)("POST /apps", () => {
     expect(body.app.runtimePort).toBe(4321)
     expect(body.app.nixpacksConfigPath).toBe("nixpacks.toml")
     expect(body.app.nodeVersion).toBe("22")
+  })
+
+  it("creates controlled initial secrets before first deploy enqueue", async () => {
+    const app = buildTestApp(db, fakeUser(userId, `u@t.com`))
+    const res = await app.request("/apps", {
+      method: "POST",
+      headers: { "content-type": "application/json" },
+      body: JSON.stringify({
+        name: "Seeded Laravel",
+        projectId,
+        gitProvider: "github",
+        repoFullName: "owner/laravel-repo",
+        branch: "main",
+        buildMethod: "nixpacks",
+        initialSecrets: [
+          {
+            key: "PLOYDOK_LARAVEL_SEED",
+            value: "true",
+            scope: "shared",
+            phase: "runtime",
+          },
+        ],
+      }),
+    })
+
+    expect(res.status).toBe(201)
+    const body = (await res.json()) as { app: { id: string } }
+    const rows = await db
+      .select({
+        key: secrets.key,
+        scope: secrets.scope,
+        phase: secrets.phase,
+      })
+      .from(secrets)
+      .where(eq(secrets.app_id, body.app.id))
+
+    expect(rows).toContainEqual({
+      key: "PLOYDOK_LARAVEL_SEED",
+      scope: "shared",
+      phase: "runtime",
+    })
   })
 
   it("generates slug from name — special chars collapsed", async () => {
@@ -1103,7 +1144,7 @@ describe.skipIf(skip)("POST /apps — auto-inject suggestedEnvVars", () => {
     expect(appEnv?.value).toBe("prod")
   })
 
-  it("Laravel repo: no env vars injected (Nixpacks handles it natively)", async () => {
+  it("Laravel repo: injects runtime-safe defaults including APP_KEY", async () => {
     using _spy = spyOn(
       githubModule.ghProvider,
       "fileExists"
@@ -1131,7 +1172,10 @@ describe.skipIf(skip)("POST /apps — auto-inject suggestedEnvVars", () => {
     expect(res.status).toBe(201)
     const { app: created } = (await res.json()) as { app: { id: string } }
     const envVars = await listEnvForApp(db, created.id)
-    expect(envVars).toHaveLength(0)
+    const byKey = new Map(envVars.map((v) => [v.key, v.value]))
+    expect(byKey.get("SESSION_DRIVER")).toBe("file")
+    expect(byKey.get("CACHE_STORE")).toBe("file")
+    expect(byKey.get("APP_KEY")).toMatch(/^base64:[A-Za-z0-9+/]+=*$/)
   })
 
   it("no installationId: auto-inject skipped, 201 still returned", async () => {

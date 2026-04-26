@@ -35,7 +35,9 @@ export function LinkDatabaseDialog({ open, appId, projectId, onClose }: LinkData
   const [envPrefix, setEnvPrefix] = React.useState("DATABASE")
   const [prefixError, setPrefixError] = React.useState("")
 
-  const { data: databases, isLoading } = useDatabases(projectId)
+  const { data: databases, isLoading } = useDatabases(projectId, {
+    enabled: open,
+  })
   const { mutate: linkDb, isPending } = useLinkDatabase()
 
   const runningDbs = (databases ?? []).filter((db: Database) => db.status === "running")

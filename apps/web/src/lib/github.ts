@@ -1,42 +1,57 @@
 // SPDX-License-Identifier: AGPL-3.0-only
-import { useInfiniteQuery, useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
-import { apiFetch, criticalRetryDelay, shouldRetryCriticalQuery } from "./api";
-import type { ApiError } from "./api";
-import type { GitBranch, GitRepo } from "@ploydok/shared";
-import { toast } from "sonner";
+import {
+  useInfiniteQuery,
+  useMutation,
+  useQuery,
+  useQueryClient,
+} from "@tanstack/react-query"
+import { apiFetch, criticalRetryDelay, shouldRetryCriticalQuery } from "./api"
+import type { ApiError } from "./api"
+import type { GitBranch, GitRepo } from "@ploydok/shared"
+import { toast } from "sonner"
 
 // ---------------------------------------------------------------------------
 // Types
 // ---------------------------------------------------------------------------
 
 export interface GitHubAppConfig {
-  configured: boolean;
-  name?: string;
-  slug?: string;
-  app_id?: string;
-  install_url?: string;
+  configured: boolean
+  name?: string
+  slug?: string
+  app_id?: string
+  install_url?: string
 }
 
 export interface CreateGitHubAppResponse {
-  manifest: Record<string, unknown>;
-  state: string;
-  post_url: string;
+  manifest: Record<string, unknown>
+  state: string
+  post_url: string
+}
+
+export interface ImportGitHubAppPayload {
+  appId: string
+  clientId: string
+  clientSecret: string
+  privateKey: string
+  webhookSecret?: string
+  slug: string
+  name: string
 }
 
 export interface AppInstallation {
-  id: number;
-  accountLogin: string;
-  accountType: string;
-  repositorySelection: "all" | "selected";
-  suspendedAt: string | null;
-  htmlUrl: string;
-  avatarUrl: string;
-  repositoryCount: number | null;
+  id: number
+  accountLogin: string
+  accountType: string
+  repositorySelection: "all" | "selected"
+  suspendedAt: string | null
+  htmlUrl: string
+  avatarUrl: string
+  repositoryCount: number | null
 }
 
 export interface InstallationsResponse {
-  installations: Array<AppInstallation>;
-  installUrl: string;
+  installations: Array<AppInstallation>
+  installUrl: string
 }
 
 // ---------------------------------------------------------------------------
@@ -44,13 +59,13 @@ export interface InstallationsResponse {
 // ---------------------------------------------------------------------------
 
 interface ReposPage {
-  repos: Array<GitRepo>;
-  hasMore: boolean;
+  repos: Array<GitRepo>
+  hasMore: boolean
 }
 
 interface ReposParams {
-  search?: string;
-  perPage?: number;
+  search?: string
+  perPage?: number
 }
 
 // ---------------------------------------------------------------------------
@@ -58,23 +73,24 @@ interface ReposParams {
 // ---------------------------------------------------------------------------
 
 export function useGitHubRepos(params: ReposParams = {}) {
-  const { search, perPage = 30 } = params;
+  const { search, perPage = 30 } = params
 
   return useInfiniteQuery<ReposPage, ApiError>({
     queryKey: ["github", "repos", search ?? ""],
     queryFn: ({ pageParam }) => {
-      const page = (pageParam as number | undefined) ?? 1;
-      const searchParam = search ? `&search=${encodeURIComponent(search)}` : "";
+      const page = (pageParam as number | undefined) ?? 1
+      const searchParam = search ? `&search=${encodeURIComponent(search)}` : ""
       return apiFetch<ReposPage>(
-        `/github/repos?page=${page}&per_page=${perPage}${searchParam}`,
-      );
+        `/github/repos?page=${page}&per_page=${perPage}${searchParam}`
+      )
     },
-    getNextPageParam: (last, pages) => (last.hasMore ? pages.length + 1 : undefined),
+    getNextPageParam: (last, pages) =>
+      last.hasMore ? pages.length + 1 : undefined,
     initialPageParam: 1,
     staleTime: 60_000,
     refetchOnWindowFocus: true,
     refetchOnMount: false,
-  });
+  })
 }
 
 // ---------------------------------------------------------------------------
@@ -85,16 +101,16 @@ export function useGitHubBranches(fullName?: string) {
   return useQuery<Array<GitBranch>, ApiError>({
     queryKey: ["github", "branches", fullName ?? ""],
     queryFn: async () => {
-      if (!fullName) return [];
-      const [owner, repo] = fullName.split("/");
+      if (!fullName) return []
+      const [owner, repo] = fullName.split("/")
       const res = await apiFetch<{ branches: Array<GitBranch> }>(
-        `/github/repos/${owner}/${repo}/branches`,
-      );
-      return res.branches;
+        `/github/repos/${owner}/${repo}/branches`
+      )
+      return res.branches
     },
     enabled: Boolean(fullName),
     staleTime: 60_000,
-  });
+  })
 }
 
 // ---------------------------------------------------------------------------
@@ -104,7 +120,7 @@ export function useGitHubBranches(fullName?: string) {
 export function useGitHubFileExists(
   fullName: string | undefined,
   filePath: string,
-  ref: string | undefined,
+  ref: string | undefined
 ) {
   return useQuery<boolean, ApiError>({
     queryKey: ["github", "file-exists", fullName ?? "", filePath, ref ?? ""],
@@ -112,7 +128,7 @@ export function useGitHubFileExists(
       if (!fullName || !ref) return false
       const [owner, repo] = fullName.split("/")
       const res = await apiFetch<{ exists: boolean }>(
-        `/github/repos/${owner}/${repo}/file-exists?path=${encodeURIComponent(filePath)}&ref=${encodeURIComponent(ref)}`,
+        `/github/repos/${owner}/${repo}/file-exists?path=${encodeURIComponent(filePath)}&ref=${encodeURIComponent(ref)}`
       )
       return res.exists
     },
@@ -125,15 +141,16 @@ export function useGitHubFileExists(
 // useGitHubAppConfig — fetch singleton GitHub App config
 // ---------------------------------------------------------------------------
 
-export function useGitHubAppConfig() {
+export function useGitHubAppConfig(options: { enabled?: boolean } = {}) {
   return useQuery<GitHubAppConfig, ApiError>({
     queryKey: ["github", "app", "config"],
     queryFn: () => apiFetch<GitHubAppConfig>("/github/app/config"),
+    enabled: options.enabled ?? true,
     staleTime: 60_000,
     retry: shouldRetryCriticalQuery,
     retryDelay: criticalRetryDelay,
     meta: { critical: true },
-  });
+  })
 }
 
 // ---------------------------------------------------------------------------
@@ -143,28 +160,63 @@ export function useGitHubAppConfig() {
 export function useCreateGitHubApp() {
   return useMutation<CreateGitHubAppResponse, ApiError, void>({
     mutationFn: () =>
-      apiFetch<CreateGitHubAppResponse>("/github/app/manifest", { method: "POST" }),
+      apiFetch<CreateGitHubAppResponse>("/github/app/manifest", {
+        method: "POST",
+      }),
     onError: (error) => {
-      toast.error(error.message);
+      toast.error(error.message)
     },
-  });
+  })
+}
+
+export function useImportGitHubApp() {
+  const qc = useQueryClient()
+  return useMutation<GitHubAppConfig, ApiError, ImportGitHubAppPayload>({
+    mutationFn: (payload) =>
+      apiFetch<GitHubAppConfig>("/github/app/import", {
+        method: "POST",
+        body: JSON.stringify(payload),
+        headers: { "content-type": "application/json" },
+      }),
+    onSuccess: (config) => {
+      qc.setQueryData(["github", "app", "config"], config)
+      qc.invalidateQueries({ queryKey: ["github", "app"] })
+      qc.invalidateQueries({ queryKey: ["github", "installations"] })
+      qc.invalidateQueries({ queryKey: ["github", "cache-status"] })
+    },
+    onError: (error) => {
+      toast.error(error.message)
+    },
+  })
 }
 
 // ---------------------------------------------------------------------------
-// useResetGitHubApp — DELETE /github/app/config
+// useResetGitHubApp — uninstall GitHub installations, then delete local config
 // ---------------------------------------------------------------------------
 
+export interface ResetGitHubAppResponse {
+  ok: true
+  uninstalled: number
+}
+
 export function useResetGitHubApp() {
-  const qc = useQueryClient();
-  return useMutation<void, ApiError, void>({
-    mutationFn: () => apiFetch<void>("/github/app/config", { method: "DELETE" }),
+  const qc = useQueryClient()
+  return useMutation<ResetGitHubAppResponse, ApiError, void>({
+    mutationFn: () =>
+      apiFetch<ResetGitHubAppResponse>(
+        "/github/app/config?confirm=uninstall-github-installations",
+        { method: "DELETE" }
+      ),
     onSuccess: () => {
       qc.setQueryData(["github", "app", "config"], {
         configured: false,
-      } satisfies GitHubAppConfig);
-      qc.invalidateQueries({ queryKey: ["github", "app"] });
+      } satisfies GitHubAppConfig)
+      qc.invalidateQueries({ queryKey: ["github", "app"] })
+      qc.invalidateQueries({ queryKey: ["github", "installations"] })
+      qc.invalidateQueries({ queryKey: ["github", "cache-status"] })
+      qc.invalidateQueries({ queryKey: ["github", "repos"] })
     },
-  });
+  })
 }
 
 // ---------------------------------------------------------------------------
@@ -180,10 +232,10 @@ export function useInstallations() {
     refetchOnWindowFocus: true,
     refetchOnMount: "always",
     retry: (failureCount, error) => {
-      if (error.status === 401 || error.status === 503) return false;
-      return failureCount < 2;
+      if (error.status === 401 || error.status === 503) return false
+      return failureCount < 2
     },
-  });
+  })
 }
 
 // ---------------------------------------------------------------------------
@@ -191,17 +243,20 @@ export function useInstallations() {
 // ---------------------------------------------------------------------------
 
 export function useRevokeInstallation() {
-  const qc = useQueryClient();
+  const qc = useQueryClient()
   return useMutation<{ ok: true; revoked: number }, ApiError, number>({
     mutationFn: (installationId) =>
-      apiFetch<{ ok: true; revoked: number }>(`/github/installations/${installationId}`, {
-        method: "DELETE",
-      }),
+      apiFetch<{ ok: true; revoked: number }>(
+        `/github/installations/${installationId}`,
+        {
+          method: "DELETE",
+        }
+      ),
     onSuccess: () => {
-      qc.invalidateQueries({ queryKey: ["github", "installations"] });
-      qc.invalidateQueries({ queryKey: ["github", "repos"] });
+      qc.invalidateQueries({ queryKey: ["github", "installations"] })
+      qc.invalidateQueries({ queryKey: ["github", "repos"] })
     },
-  });
+  })
 }
 
 // ---------------------------------------------------------------------------
@@ -209,43 +264,51 @@ export function useRevokeInstallation() {
 // ---------------------------------------------------------------------------
 
 export interface CacheStatusEntry {
-  id: string;
-  externalId: string;
-  accountLogin: string;
-  avatarUrl: string | null;
-  htmlUrl: string | null;
-  lastSyncedAt: string;
-  repoCount: number;
-  ageMs: number;
-  status: "fresh" | "stale";
+  id: string
+  externalId: string
+  accountLogin: string
+  avatarUrl: string | null
+  htmlUrl: string | null
+  lastSyncedAt: string
+  repoCount: number
+  ageMs: number
+  status: "fresh" | "stale"
 }
 
 export interface CacheStatusResponse {
-  installations: Array<CacheStatusEntry>;
-  staleThresholdMs: number;
+  installations: Array<CacheStatusEntry>
+  staleThresholdMs: number
 }
 
 export function useGitHubCacheStatus(opts: { autoRefresh?: boolean } = {}) {
   return useQuery<CacheStatusResponse, ApiError>({
     queryKey: ["github", "cache-status"],
-    queryFn: () => apiFetch<CacheStatusResponse>("/github/installations/cache-status"),
+    queryFn: () =>
+      apiFetch<CacheStatusResponse>("/github/installations/cache-status"),
     staleTime: 5_000,
     refetchInterval: opts.autoRefresh ? 3_000 : false,
-  });
+  })
 }
 
 export function useSyncGitHubInstallations() {
-  const qc = useQueryClient();
-  return useMutation<{ enqueued: true; syncId: string }, ApiError, { installationId?: string } | void>({
+  const qc = useQueryClient()
+  return useMutation<
+    { enqueued: true; syncId: string },
+    ApiError,
+    { installationId?: string } | void
+  >({
     mutationFn: (vars) =>
-      apiFetch<{ enqueued: true; syncId: string }>("/github/installations/sync", {
-        method: "POST",
-        body: JSON.stringify(vars ?? {}),
-        headers: { "content-type": "application/json" },
-      }),
+      apiFetch<{ enqueued: true; syncId: string }>(
+        "/github/installations/sync",
+        {
+          method: "POST",
+          body: JSON.stringify(vars ?? {}),
+          headers: { "content-type": "application/json" },
+        }
+      ),
     onSuccess: () => {
-      qc.invalidateQueries({ queryKey: ["github", "cache-status"] });
-      qc.invalidateQueries({ queryKey: ["github", "repos"] });
+      qc.invalidateQueries({ queryKey: ["github", "cache-status"] })
+      qc.invalidateQueries({ queryKey: ["github", "repos"] })
     },
-  });
+  })
 }

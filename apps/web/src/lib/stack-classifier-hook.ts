@@ -3,7 +3,6 @@ import { useQuery } from "@tanstack/react-query";
 import {
   ALL_PROBE_KEYS,
   classifyStack,
-  type ProbeKey,
   type ProbeResults,
   type StackClassification,
 } from "@ploydok/shared";
@@ -12,29 +11,28 @@ import type { ApiError } from "./api";
 
 type Source = "github" | "gitlab";
 
-async function probeOne(
+interface FileExistsBatchResponse {
+  files: Record<string, boolean>;
+}
+
+function buildFilesExistUrl(
   source: Source,
   fullName: string,
-  path: string,
+  paths: ReadonlyArray<string>,
   ref: string,
-): Promise<boolean> {
-  const pathEnc = encodeURIComponent(path);
-  const refEnc = encodeURIComponent(ref);
-  let url: string;
+): string {
+  const params = new URLSearchParams();
+  for (const path of paths) params.append("path", path);
+  params.set("ref", ref);
+
   if (source === "github") {
     const [owner, repo] = fullName.split("/");
-    url = `/github/repos/${owner}/${repo}/file-exists?path=${pathEnc}&ref=${refEnc}`;
-  } else {
-    url = `/gitlab/repos/${encodeURIComponent(fullName)}/file-exists?path=${pathEnc}&ref=${refEnc}`;
+    return `/github/repos/${encodeURIComponent(owner ?? "")}/${encodeURIComponent(
+      repo ?? "",
+    )}/files-exist?${params.toString()}`;
   }
-  try {
-    const res = await apiFetch<{ exists: boolean }>(url);
-    return res.exists === true;
-  } catch {
-    // Probe failures (404, network) treated as "not present" — classifier will
-    // handle missing signals gracefully.
-    return false;
-  }
+
+  return `/gitlab/repos/${encodeURIComponent(fullName)}/files-exist?${params.toString()}`;
 }
 
 async function runProbes(
@@ -42,14 +40,30 @@ async function runProbes(
   fullName: string,
   ref: string,
 ): Promise<ProbeResults> {
-  const entries = await Promise.all(
-    ALL_PROBE_KEYS.map(async (key) => [key, await probeOne(source, fullName, key, ref)] as const),
-  );
-  const out: ProbeResults = {};
-  for (const [key, exists] of entries) {
-    if (exists) out[key as ProbeKey] = true;
+  try {
+    const res = await apiFetch<FileExistsBatchResponse>(
+      buildFilesExistUrl(source, fullName, ALL_PROBE_KEYS, ref),
+    );
+    const out: ProbeResults = {};
+    for (const key of ALL_PROBE_KEYS) {
+      if (res.files[key] === true) out[key] = true;
+    }
+    return out;
+  } catch {
+    // Probe failures (404, network) are treated as "not present" — classifier will
+    // handle missing signals gracefully.
+    return {};
   }
-  return out;
+}
+
+export async function runStackClassificationProbes(
+  source: Source,
+  fullName: string,
+  ref: string,
+): Promise<{ probes: ProbeResults; classification: StackClassification }> {
+  const probes = await runProbes(source, fullName, ref);
+  const classification = classifyStack(probes);
+  return { probes, classification };
 }
 
 export interface UseStackClassificationResult {
@@ -77,9 +91,11 @@ export function useStackClassification(
   >({
     queryKey: ["stack-classifier", source ?? "", fullName ?? "", ref ?? ""],
     queryFn: async () => {
-      const probes = await runProbes(source as Source, fullName as string, ref as string);
-      const classification = classifyStack(probes);
-      return { probes, classification };
+      return runStackClassificationProbes(
+        source as Source,
+        fullName as string,
+        ref as string,
+      );
     },
     enabled,
     staleTime: 5 * 60_000,

@@ -130,6 +130,96 @@
   }
 }
 
+@layer components {
+  [data-sonner-toaster] {
+    --normal-bg: oklch(1 0 0);
+    --normal-border: oklch(0.922 0 0);
+    --normal-text: oklch(0.145 0 0);
+    --sonner-muted-text: oklch(0.44 0 0);
+    --sonner-accent: oklch(0.56 0 0);
+    --sonner-success: oklch(64.58% 0.1746 147.27);
+    --sonner-info: oklch(57.41% 0.2508 258.23);
+    --sonner-warning: oklch(77.21% 0.1991 64.28);
+    --sonner-error: oklch(57.22% 0.2107 25.7);
+    --sonner-shadow:
+      0 16px 32px oklch(0 0 0 / 12%), 0 0 0 1px oklch(0 0 0 / 4%);
+    font-family: var(--font-heading);
+  }
+
+  .dark [data-sonner-toaster] {
+    --normal-bg: oklch(0 0 0);
+    --normal-border: oklch(1 0 0 / 14%);
+    --normal-text: oklch(0.985 0 0);
+    --sonner-muted-text: oklch(0.72 0 0);
+    --sonner-shadow:
+      0 18px 40px oklch(0 0 0 / 42%), 0 0 0 1px oklch(1 0 0 / 4%);
+  }
+
+  [data-sonner-toast][data-styled="true"] {
+    min-height: 48px;
+    padding: 14px 16px;
+    gap: 10px;
+    background: var(--normal-bg);
+    border-color: var(--normal-border);
+    border-radius: 8px;
+    color: var(--normal-text);
+    box-shadow:
+      inset 3px 0 0 var(--sonner-accent),
+      var(--sonner-shadow);
+    font-family: var(--font-heading);
+    font-size: 13px;
+    line-height: 1.45;
+  }
+
+  [data-sonner-toast][data-type="success"] {
+    --sonner-accent: var(--sonner-success);
+  }
+
+  [data-sonner-toast][data-type="info"] {
+    --sonner-accent: var(--sonner-info);
+  }
+
+  [data-sonner-toast][data-type="warning"] {
+    --sonner-accent: var(--sonner-warning);
+  }
+
+  [data-sonner-toast][data-type="error"] {
+    --sonner-accent: var(--sonner-error);
+  }
+
+  [data-sonner-toast][data-styled="true"] [data-title] {
+    font-weight: 500;
+    letter-spacing: 0;
+  }
+
+  [data-sonner-toast][data-styled="true"] [data-description] {
+    color: var(--sonner-muted-text);
+  }
+
+  [data-sonner-toast][data-styled="true"] [data-icon] {
+    color: var(--sonner-accent);
+  }
+
+  [data-sonner-toast][data-styled="true"] [data-button] {
+    border: 1px solid var(--normal-border);
+    background: var(--normal-text);
+    color: var(--normal-bg);
+    border-radius: 6px;
+    font-weight: 500;
+  }
+
+  [data-sonner-toast][data-styled="true"] [data-cancel] {
+    background: transparent;
+    color: var(--normal-text);
+  }
+
+  [data-sonner-toast][data-styled="true"] [data-close-button] {
+    background: var(--normal-bg);
+    border-color: var(--normal-border);
+    color: var(--sonner-muted-text);
+  }
+}
+
 @utility scrollbar-thin {
   scrollbar-width: thin;
   scrollbar-color: color-mix(in oklab, var(--border) 85%, transparent)

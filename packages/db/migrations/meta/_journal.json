@@ -218,6 +218,13 @@
       "when": 1777218430735,
       "tag": "0031_superb_professor_monster",
       "breakpoints": true
+    },
+    {
+      "idx": 32,
+      "version": "7",
+      "when": 1777245189968,
+      "tag": "0032_outstanding_earthquake",
+      "breakpoints": true
     }
   ]
 }

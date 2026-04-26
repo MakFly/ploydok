@@ -34,6 +34,7 @@ const KINDS: Array<{ value: DbKind; label: string; icon: string }> = [
   { value: "mariadb", label: "MariaDB 11.4", icon: "🦭" },
   { value: "redis", label: "Redis 7", icon: "⚡" },
   { value: "mongo", label: "MongoDB 7", icon: "🍃" },
+  { value: "libsql", label: "SQLite / libSQL", icon: "▦" },
 ]
 
 const PLANS: Array<{ value: DbPlan; label: string; desc: string }> = [
@@ -55,9 +56,13 @@ const MAX_PENDING_PROGRESS = 94
 
 function getCreateProgress(elapsedMs: number): number {
   if (elapsedMs <= 0) return 7
-  const totalMs = CREATE_PROGRESS_STAGES[CREATE_PROGRESS_STAGES.length - 1]?.untilMs ?? 1
+  const totalMs =
+    CREATE_PROGRESS_STAGES[CREATE_PROGRESS_STAGES.length - 1]?.untilMs ?? 1
   const ratio = Math.min(elapsedMs / totalMs, 1)
-  return Math.min(MAX_PENDING_PROGRESS, Math.round(7 + ratio * (MAX_PENDING_PROGRESS - 7)))
+  return Math.min(
+    MAX_PENDING_PROGRESS,
+    Math.round(7 + ratio * (MAX_PENDING_PROGRESS - 7))
+  )
 }
 
 function getCreateStageLabel(elapsedMs: number): string {
@@ -68,22 +73,35 @@ function getCreateStageLabel(elapsedMs: number): string {
   )
 }
 
-export function CreateDatabaseDialog({ open, organizationId, onClose }: CreateDatabaseDialogProps): React.JSX.Element {
+export function CreateDatabaseDialog({
+  open,
+  organizationId,
+  onClose,
+}: CreateDatabaseDialogProps): React.JSX.Element {
   const [kind, setKind] = React.useState<DbKind>("postgres")
   const [plan, setPlan] = React.useState<DbPlan>("small")
   const [publicEnabled, setPublicEnabled] = React.useState(false)
-  const [exposureMode, setExposureMode] = React.useState<DbExposureMode>("internal")
+  const [exposureMode, setExposureMode] =
+    React.useState<DbExposureMode>("internal")
   const [name, setName] = React.useState("")
   const [phase, setPhase] = React.useState<"form" | "progress" | "done">("form")
   const [elapsedMs, setElapsedMs] = React.useState(0)
   const [actionError, setActionError] = React.useState<string | null>(null)
   const createDatabase = useCreateDatabase()
-  const progressTimerRef = React.useRef<ReturnType<typeof setInterval> | null>(null)
+  const resetMutationRef = React.useRef(createDatabase.reset)
+  const progressTimerRef = React.useRef<ReturnType<typeof setInterval> | null>(
+    null
+  )
   const closeTimerRef = React.useRef<ReturnType<typeof setTimeout> | null>(null)
 
   const isPending = createDatabase.isPending
   const progressValue = phase === "done" ? 100 : getCreateProgress(elapsedMs)
-  const stageLabel = phase === "done" ? "Database ready" : getCreateStageLabel(elapsedMs)
+  const stageLabel =
+    phase === "done" ? "Database ready" : getCreateStageLabel(elapsedMs)
+
+  React.useEffect(() => {
+    resetMutationRef.current = createDatabase.reset
+  }, [createDatabase.reset])
 
   const clearTimers = React.useCallback(() => {
     if (progressTimerRef.current) {
@@ -109,8 +127,8 @@ export function CreateDatabaseDialog({ open, organizationId, onClose }: CreateDa
     setPhase("form")
     setElapsedMs(0)
     setActionError(null)
-    createDatabase.reset()
-  }, [clearTimers, createDatabase])
+    resetMutationRef.current()
+  }, [clearTimers])
 
   React.useEffect(() => {
     if (!open) {
@@ -157,7 +175,9 @@ export function CreateDatabaseDialog({ open, organizationId, onClose }: CreateDa
       clearTimers()
       resetForm()
       setPhase("done")
-      setElapsedMs(CREATE_PROGRESS_STAGES[CREATE_PROGRESS_STAGES.length - 1]?.untilMs ?? 0)
+      setElapsedMs(
+        CREATE_PROGRESS_STAGES[CREATE_PROGRESS_STAGES.length - 1]?.untilMs ?? 0
+      )
 
       closeTimerRef.current = setTimeout(() => {
         resetState()
@@ -166,7 +186,9 @@ export function CreateDatabaseDialog({ open, organizationId, onClose }: CreateDa
     } catch (err) {
       clearTimers()
       setPhase("form")
-      setActionError(err instanceof Error ? err.message : "Database creation failed")
+      setActionError(
+        err instanceof Error ? err.message : "Database creation failed"
+      )
     }
   }
 
@@ -190,7 +212,9 @@ export function CreateDatabaseDialog({ open, organizationId, onClose }: CreateDa
           <>
             <div className="flex flex-col gap-4">
               <div className="rounded-md border bg-muted/30 px-3 py-2 text-sm">
-                <span className="text-muted-foreground">{kind} {plan}</span>
+                <span className="text-muted-foreground">
+                  {kind} {plan}
+                </span>
                 <span className="mx-2 text-muted-foreground">·</span>
                 <span>{name || "database"}</span>
               </div>
@@ -198,7 +222,9 @@ export function CreateDatabaseDialog({ open, organizationId, onClose }: CreateDa
               <div className="flex flex-col gap-3">
                 <div className="flex items-center justify-between text-sm">
                   <span>{stageLabel}</span>
-                  <span className="font-mono tabular-nums">{progressValue}%</span>
+                  <span className="font-mono tabular-nums">
+                    {progressValue}%
+                  </span>
                 </div>
                 <div className="h-2 overflow-hidden rounded-full bg-muted">
                   <div
@@ -208,11 +234,19 @@ export function CreateDatabaseDialog({ open, organizationId, onClose }: CreateDa
                 </div>
                 <div className="grid gap-2 text-xs text-muted-foreground">
                   {CREATE_PROGRESS_STAGES.map((stage, index) => {
-                    const previousUntilMs = index === 0 ? 0 : CREATE_PROGRESS_STAGES[index - 1]?.untilMs ?? 0
-                    const isComplete = phase === "done" || elapsedMs > stage.untilMs
-                    const isCurrent = !isComplete && elapsedMs >= previousUntilMs
+                    const previousUntilMs =
+                      index === 0
+                        ? 0
+                        : (CREATE_PROGRESS_STAGES[index - 1]?.untilMs ?? 0)
+                    const isComplete =
+                      phase === "done" || elapsedMs > stage.untilMs
+                    const isCurrent =
+                      !isComplete && elapsedMs >= previousUntilMs
                     return (
-                      <div key={stage.label} className="flex items-center gap-2">
+                      <div
+                        key={stage.label}
+                        className="flex items-center gap-2"
+                      >
                         <span
                           className={[
                             "inline-flex size-2 rounded-full",
@@ -232,7 +266,12 @@ export function CreateDatabaseDialog({ open, organizationId, onClose }: CreateDa
             </div>
 
             <DialogFooter>
-              <Button type="button" variant="outline" onClick={() => handleOpenChange(false)} disabled={isPending}>
+              <Button
+                type="button"
+                variant="outline"
+                onClick={() => handleOpenChange(false)}
+                disabled={isPending}
+              >
                 {phase === "done" ? "Closing..." : "Cancel"}
               </Button>
             </DialogFooter>
@@ -270,7 +309,9 @@ export function CreateDatabaseDialog({ open, organizationId, onClose }: CreateDa
                 pattern="[a-z0-9-]+"
                 required
               />
-              <span className="text-xs text-muted-foreground">Lowercase letters, numbers, and dashes only.</span>
+              <span className="text-xs text-muted-foreground">
+                Lowercase letters, numbers, and dashes only.
+              </span>
             </div>
 
             <div className="flex flex-col gap-2">
@@ -283,7 +324,9 @@ export function CreateDatabaseDialog({ open, organizationId, onClose }: CreateDa
                   {PLANS.map((p) => (
                     <SelectItem key={p.value} value={p.value}>
                       <span className="font-medium">{p.label}</span>
-                      <span className="ml-2 text-xs text-muted-foreground">{p.desc}</span>
+                      <span className="ml-2 text-xs text-muted-foreground">
+                        {p.desc}
+                      </span>
                     </SelectItem>
                   ))}
                 </SelectContent>
@@ -295,7 +338,8 @@ export function CreateDatabaseDialog({ open, organizationId, onClose }: CreateDa
                 <div className="flex flex-col gap-1">
                   <Label htmlFor="db-public">Public access</Label>
                   <span className="text-xs text-muted-foreground">
-                    Exposes the database on a direct TCP port for external tools.
+                    Exposes the database on a direct TCP port for external
+                    tools.
                   </span>
                 </div>
                 <Switch
@@ -310,7 +354,10 @@ export function CreateDatabaseDialog({ open, organizationId, onClose }: CreateDa
               {publicEnabled ? (
                 <div className="mt-3 flex flex-col gap-2">
                   <Label htmlFor="db-exposure-mode">Exposure mode</Label>
-                  <Select value={exposureMode} onValueChange={(v) => setExposureMode(v as DbExposureMode)}>
+                  <Select
+                    value={exposureMode}
+                    onValueChange={(v) => setExposureMode(v as DbExposureMode)}
+                  >
                     <SelectTrigger id="db-exposure-mode">
                       <SelectValue />
                     </SelectTrigger>
@@ -330,7 +377,12 @@ export function CreateDatabaseDialog({ open, organizationId, onClose }: CreateDa
             ) : null}
 
             <DialogFooter>
-              <Button type="button" variant="outline" onClick={onClose} disabled={isPending}>
+              <Button
+                type="button"
+                variant="outline"
+                onClick={onClose}
+                disabled={isPending}
+              >
                 Cancel
               </Button>
               <Button type="submit" disabled={!name || isPending}>
