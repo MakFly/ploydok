@@ -27,13 +27,6 @@ function AppSettingsLayout(): React.JSX.Element {
 
   const tabs = [
     { value: "general", to: buildPath(""), label: "General", exact: true },
-    { value: "cdn", to: buildPath("/cdn"), label: "CDN", exact: false },
-    {
-      value: "protection",
-      to: buildPath("/protection"),
-      label: "Protection",
-      exact: false,
-    },
   ]
 
   const activeTab =
