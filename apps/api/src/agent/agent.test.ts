@@ -158,6 +158,17 @@ function startMockServer(
           },
           null
         ),
+      inspectContainerHealth: (_call, cb) =>
+        cb(
+          {
+            code: grpc.status.UNIMPLEMENTED,
+            details: "non implémenté",
+            name: "Error",
+            message: "non implémenté",
+            metadata: new grpc.Metadata(),
+          },
+          null
+        ),
       containerExec: (call) => {
         call.end()
       },

@@ -2,6 +2,15 @@
 //
 // Validator trait — called by AgentService before each Docker operation.
 //
+// SECURITY SCOPE
+// --------------
+// The validator enforces **shape** (registries allowlist, prefix `ploydok-`,
+// path prefix, resource ceilings, exec cmd[0] whitelist, age recipient
+// format). It does **NOT** enforce ownership or per-tenant authorisation —
+// the API is responsible for ensuring that the caller owns the resource
+// before forwarding the RPC. See `service.rs` module-level comment for the
+// full security model.
+//
 // Implementations:
 //   - `PermissiveValidator` : no-op, development only.
 //   - `StrictValidator`     : production allowlist enforcement (task 2.3).
@@ -10,8 +19,9 @@ use std::path::Path;
 
 use ploydok_proto::agent::{
     ContainerCreateRequest, ContainerRemoveRequest, ContainerStartRequest, ContainerStopRequest,
-    ExecStart, ImageBuildRequest, ImagePullRequest, NetworkConnectRequest, NetworkCreateRequest,
-    NetworkDisconnectRequest, NetworkRemoveRequest,
+    ExecStart, ImageBuildRequest, ImagePullRequest, InspectContainerHealthRequest,
+    ListContainerFilesRequest, NetworkConnectRequest, NetworkCreateRequest,
+    NetworkDisconnectRequest, NetworkRemoveRequest, ReadContainerFileRequest,
 };
 use serde::{Deserialize, Serialize};
 use tonic::Status;
@@ -37,6 +47,12 @@ pub trait Validator: Send + Sync + 'static {
     fn validate_network_connect(&self, req: &NetworkConnectRequest) -> ValidatorResult;
     fn validate_network_disconnect(&self, req: &NetworkDisconnectRequest) -> ValidatorResult;
     fn validate_container_exec(&self, req: &ExecStart) -> ValidatorResult;
+    fn validate_list_container_files(&self, req: &ListContainerFilesRequest) -> ValidatorResult;
+    fn validate_read_container_file(&self, req: &ReadContainerFileRequest) -> ValidatorResult;
+    fn validate_inspect_container_health(
+        &self,
+        req: &InspectContainerHealthRequest,
+    ) -> ValidatorResult;
 }
 
 // ─────────────────────────────────────────────────────────────────────────────
@@ -82,6 +98,18 @@ impl Validator for PermissiveValidator {
         Ok(())
     }
     fn validate_container_exec(&self, _req: &ExecStart) -> ValidatorResult {
+        Ok(())
+    }
+    fn validate_list_container_files(&self, _req: &ListContainerFilesRequest) -> ValidatorResult {
+        Ok(())
+    }
+    fn validate_read_container_file(&self, _req: &ReadContainerFileRequest) -> ValidatorResult {
+        Ok(())
+    }
+    fn validate_inspect_container_health(
+        &self,
+        _req: &InspectContainerHealthRequest,
+    ) -> ValidatorResult {
         Ok(())
     }
 }
@@ -164,6 +192,13 @@ pub struct StrictValidator {
 impl StrictValidator {
     pub fn new(cfg: ValidatorConfig) -> Self {
         Self { cfg }
+    }
+
+    /// Borrow the active configuration. Used by the boot logger so the operator
+    /// sees the *loaded* config (e.g. with `127.0.0.1:5000` from
+    /// `dev-validator.toml`) rather than `ValidatorConfig::default()`.
+    pub fn config(&self) -> &ValidatorConfig {
+        &self.cfg
     }
 
     /// Build from environment variable `PLOYDOK_VALIDATOR_CONFIG` (path to TOML/JSON file),
@@ -656,6 +691,127 @@ impl Validator for StrictValidator {
 
         Ok(())
     }
+
+    fn validate_list_container_files(&self, req: &ListContainerFilesRequest) -> ValidatorResult {
+        validate_container_id(&req.container_id)?;
+        validate_browse_path(&req.path)?;
+        Ok(())
+    }
+
+    fn validate_read_container_file(&self, req: &ReadContainerFileRequest) -> ValidatorResult {
+        validate_container_id(&req.container_id)?;
+        validate_browse_path(&req.path)?;
+        Ok(())
+    }
+
+    fn validate_inspect_container_health(
+        &self,
+        req: &InspectContainerHealthRequest,
+    ) -> ValidatorResult {
+        validate_container_id(&req.container_id)?;
+        Ok(())
+    }
+}
+
+fn validate_container_id(container_id: &str) -> ValidatorResult {
+    if container_id.is_empty() {
+        return Err(deny(
+            tonic::Code::InvalidArgument,
+            "container_id_empty",
+            serde_json::json!({ "container_id": "" }),
+        ));
+    }
+    if !container_id.starts_with("sha256:")
+        && !looks_like_short_id(container_id)
+        && !container_id.starts_with("ploydok-")
+    {
+        return Err(deny(
+            tonic::Code::PermissionDenied,
+            "container_name_prefix",
+            serde_json::json!({ "container_id": container_id }),
+        ));
+    }
+    Ok(())
+}
+
+fn validate_browse_path(path: &str) -> ValidatorResult {
+    if !path.starts_with('/') {
+        return Err(deny(
+            tonic::Code::InvalidArgument,
+            "path_not_absolute",
+            serde_json::json!({ "path": path }),
+        ));
+    }
+    if path.contains('\0') {
+        return Err(deny(
+            tonic::Code::InvalidArgument,
+            "path_contains_nul",
+            serde_json::json!({}),
+        ));
+    }
+    for segment in path.split('/') {
+        if segment == ".." {
+            return Err(deny(
+                tonic::Code::InvalidArgument,
+                "path_contains_dotdot",
+                serde_json::json!({ "path": path }),
+            ));
+        }
+    }
+    if path.len() > 4096 {
+        return Err(deny(
+            tonic::Code::InvalidArgument,
+            "path_too_long",
+            serde_json::json!({ "max_len": 4096 }),
+        ));
+    }
+    Ok(())
+}
+
+/// Validate an `age` recipient string — used by `dump_database` when encryption
+/// is requested. Restricts to the X25519 `age1<bech32>` format and rejects
+/// anything else.
+///
+/// **Why strict**: the recipient is interpolated into a `sh -c "... | age -r
+/// <recipient>"` command line inside the container. Any shell metacharacter
+/// (`$`, `` ` ``, `;`, ` `, `\\`, `&`, `|`, `<`, `>`, etc.) would let an
+/// attacker break out of the `age -r` argument and execute arbitrary commands.
+/// We therefore whitelist only `[a-z0-9]` after the `age1` prefix — this
+/// excludes `ssh-rsa`/`ssh-ed25519` recipients (which legally contain spaces
+/// and slashes) but keeps the pipeline injection-safe.
+pub fn validate_age_recipient(recipient: &str) -> ValidatorResult {
+    if !recipient.starts_with("age1") {
+        return Err(deny(
+            tonic::Code::InvalidArgument,
+            "age_recipient_format",
+            serde_json::json!({ "expected_prefix": "age1" }),
+        ));
+    }
+    // Bech32-encoded X25519 recipients are 62 chars total (`age1` + 58 chars).
+    // Allow a small margin on each side to absorb future format changes.
+    if recipient.len() < 60 || recipient.len() > 100 {
+        return Err(deny(
+            tonic::Code::InvalidArgument,
+            "age_recipient_length",
+            serde_json::json!({
+                "len": recipient.len(),
+                "min": 60,
+                "max": 100,
+            }),
+        ));
+    }
+    let body = &recipient[4..];
+    if !body
+        .chars()
+        .all(|c| c.is_ascii_lowercase() || c.is_ascii_digit())
+    {
+        return Err(deny(
+            tonic::Code::InvalidArgument,
+            "age_recipient_chars",
+            serde_json::json!({ "allowed": "a-z 0-9" }),
+        ));
+    }
+    Ok(())
 }
 
 // ─── ID heuristics ────────────────────────────────────────────────────────────

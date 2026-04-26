@@ -9,10 +9,37 @@ const STATUS_PRIORITY: Record<ContainerSnapshot["status"], number> = {
   unknown: 0,
 }
 
+/**
+ * Pick the snapshot that represents the canonical container for an app.
+ *
+ * `expectedRef` is the value of `apps.container_id` from the DB — usually the
+ * blue/green container *name* the runner wrote on the last successful deploy.
+ * When provided we **strictly** match against `snapshot.id` or `snapshot.name`:
+ * if the canonical container is gone the function returns `null`, and any
+ * orphan container left behind by a failed deploy or a previous slot does
+ * **not** masquerade as the live one. This is what stops a UI from showing
+ * "Failed | Healthy" because some unrelated `-green` is still up.
+ *
+ * `expectedRef` is intentionally optional: brand-new apps that were never
+ * deployed have `apps.container_id === null`, and dashboards that just want
+ * "any container for this app id" (e.g. monitoring overview) keep the legacy
+ * "highest-priority snapshot" behaviour.
+ */
 export function selectAppSnapshot(
   containers: Array<ContainerSnapshot>,
   appId: string,
+  expectedRef?: string | null
 ): ContainerSnapshot | null {
+  if (expectedRef) {
+    const match = containers.find(
+      (c) =>
+        c.app_id === appId &&
+        (!c.kind || c.kind === "app") &&
+        (c.id === expectedRef || c.name === expectedRef)
+    )
+    return match ?? null
+  }
+
   let selected: ContainerSnapshot | null = null
 
   for (const container of containers) {
@@ -39,9 +66,13 @@ export function selectAppSnapshot(
 
 export function resolveRuntimeAppStatus(
   appStatus: AppStatus,
-  snapshot: ContainerSnapshot | null,
+  snapshot: ContainerSnapshot | null
 ): AppStatus {
-  if (appStatus === "building" || appStatus === "pending" || appStatus === "created") {
+  if (
+    appStatus === "building" ||
+    appStatus === "pending" ||
+    appStatus === "created"
+  ) {
     return appStatus
   }
 
@@ -55,12 +86,32 @@ export function resolveRuntimeAppStatus(
   switch (snapshot.status) {
     case "running":
       return "running"
-    case "starting":
     case "unhealthy":
+      // Container TOURNE — l'état "unhealthy" est exposé séparément via
+      // `resolveAppHealth()`. Le lifecycle reste "running".
+      return "running"
+    case "starting":
+      // Container démarre — UI affiche "Restarting" (transition courte).
       return "restarting"
     case "stopped":
     case "unknown":
     default:
       return "stopped"
   }
+}
+
+export type AppHealth = "healthy" | "unhealthy"
+
+/**
+ * Health check status indépendant du lifecycle (Sprint 7 fix). Renvoie
+ * `null` si aucune info santé n'est dispo (snapshot absent, container
+ * stopped, ou pas de healthcheck configuré).
+ */
+export function resolveAppHealth(
+  snapshot: ContainerSnapshot | null
+): AppHealth | null {
+  if (!snapshot) return null
+  if (snapshot.status === "running") return "healthy"
+  if (snapshot.status === "unhealthy") return "unhealthy"
+  return null
 }

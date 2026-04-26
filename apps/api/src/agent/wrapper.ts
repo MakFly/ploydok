@@ -32,6 +32,12 @@ import type {
   ListContainersResponse,
   PingContainerRequest,
   PingContainerResponse,
+  InspectContainerHealthRequest,
+  InspectContainerHealthResponse,
+  ListContainerFilesRequest,
+  ListContainerFilesResponse,
+  ReadContainerFileRequest,
+  ReadContainerFileResponse,
   ExecFrame,
   DumpRequest,
   DumpChunk,
@@ -322,6 +328,52 @@ export class Agent {
     )
     return callUnary(
       (r, m, opts, cb) => this.client.pingContainer(r, m, opts, cb),
+      req,
+      timeoutMs
+    )
+  }
+
+  inspectContainerHealth(
+    req: InspectContainerHealthRequest,
+    timeoutMs?: number
+  ): Promise<InspectContainerHealthResponse> {
+    log.debug({ containerId: req.containerId }, "inspectContainerHealth")
+    return callUnary(
+      (r, m, opts, cb) => this.client.inspectContainerHealth(r, m, opts, cb),
+      req,
+      timeoutMs
+    )
+  }
+
+  listContainerFiles(
+    req: ListContainerFilesRequest,
+    timeoutMs?: number
+  ): Promise<ListContainerFilesResponse> {
+    log.debug(
+      { containerId: req.containerId, path: req.path },
+      "listContainerFiles"
+    )
+    return callUnary(
+      (r, m, opts, cb) => this.client.listContainerFiles(r, m, opts, cb),
+      req,
+      timeoutMs
+    )
+  }
+
+  readContainerFile(
+    req: ReadContainerFileRequest,
+    timeoutMs?: number
+  ): Promise<ReadContainerFileResponse> {
+    log.debug(
+      {
+        containerId: req.containerId,
+        path: req.path,
+        maxBytes: req.maxBytes,
+      },
+      "readContainerFile"
+    )
+    return callUnary(
+      (r, m, opts, cb) => this.client.readContainerFile(r, m, opts, cb),
       req,
       timeoutMs
     )

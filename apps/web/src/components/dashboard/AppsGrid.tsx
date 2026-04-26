@@ -44,7 +44,7 @@ export function AppsGrid({
   // Sort by updatedAt desc, take 6
   const recent = [...apps]
     .map((app) => {
-      const snapshot = selectAppSnapshot(containers, app.id)
+      const snapshot = selectAppSnapshot(containers, app.id, app.containerId)
       return {
         ...app,
         runtimeStatus: resolveRuntimeAppStatus(app.status, snapshot),

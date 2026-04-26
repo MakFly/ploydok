@@ -24,14 +24,16 @@ import type {
   ContainerStartResponse,
   ContainerStopResponse,
   ContainerRemoveResponse,
-  PingContainerResponse,
+  InspectContainerHealthResponse,
 } from "@ploydok/agent-proto"
+import { ContainerHealthStatus } from "@ploydok/agent-proto"
 import { apps, builds, projects } from "@ploydok/db"
 import type { Db } from "@ploydok/db"
 import { CaddyClient } from "../caddy/client.js"
 import { logBus } from "./log-bus.js"
 import { eventBus } from "./event-bus.js"
 import { workerLog } from "./logger.js"
+import { isNotFound, toAgentError } from "../agent/errors.js"
 import {
   inferContainerColor,
   runtimeContainerName,
@@ -118,7 +120,7 @@ function defaultAgentSocket(): string {
   if (fromEnv) return fromEnv
   return process.env["NODE_ENV"] === "prod"
     ? "/run/ploydok/agent.sock"
-    : "/tmp/ploydok-agent.sock"
+    : "/tmp/ploydok/agent.sock"
 }
 
 const DEFAULT_AGENT_SOCKET = defaultAgentSocket()
@@ -175,20 +177,35 @@ function sleep(ms: number): Promise<void> {
  *
  * @internal Exported for unit testing only — do not use outside this module.
  */
+/**
+ * Poll Docker's daemon-maintained `State.Health.Status` for a container.
+ *
+ * The runner injects a `HEALTHCHECK CMD-SHELL` on every container at create
+ * time (cf. `runBlueGreen` below), so Docker maintains the health state
+ * authoritatively — and the probe runs *inside* the container, sidestepping
+ * the per-project network isolation that prevents the agent (now a docker-
+ * compose service on `ploydok` + `ploydok-public`) from HTTP-pinging an app
+ * sitting on `ploydok-proj-<orgSlug>`.
+ *
+ * Mapping of Docker statuses:
+ *  - `HEALTHY`      → resolve true.
+ *  - `STARTING`     → keep polling.
+ *  - `UNHEALTHY`    → keep polling (Docker will keep retrying — we may yet
+ *                     transition to healthy).
+ *  - `NONE`         → resolve false: the container has no HEALTHCHECK at all,
+ *                     which is a runner bug we want to surface fast.
+ *  - `containerMissing` → resolve false immediately: no point retrying when
+ *                         the target has been removed under our feet.
+ */
 export async function pollHealthcheck(opts: {
   agent: InstanceType<typeof AgentClient>
   containerId: string
-  port: number
-  path: string
   intervalMs: number
-  timeoutMs: number
   retries: number
   startPeriodMs: number
   appId: string
   color: ContainerColor
 }): Promise<boolean> {
-  // Agent rejects empty path — normalise to "/" if not provided.
-  const safePath = opts.path || "/"
   const channel = `runtime:${opts.appId}`
 
   if (opts.startPeriodMs > 0) {
@@ -203,37 +220,50 @@ export async function pollHealthcheck(opts: {
     await sleep(opts.intervalMs)
     const label = `[healthcheck ${attempt}/${opts.retries}]`
     try {
-      const resp = await grpcUnary<PingContainerResponse>(
-        opts.agent.pingContainer.bind(opts.agent),
-        {
-          containerId: opts.containerId,
-          path: safePath,
-          port: opts.port,
-          timeoutMs: opts.timeoutMs,
-        }
+      const resp = await grpcUnary<InspectContainerHealthResponse>(
+        opts.agent.inspectContainerHealth.bind(opts.agent),
+        { containerId: opts.containerId }
       )
 
-      // Permissive liveness: any HTTP response (2xx/3xx/4xx) means the app
-      // is listening and the HTTP stack is wired up. Only 5xx and
-      // transport errors (status_code=0) count as unhealthy. This matches
-      // the Docker HEALTHCHECK we inject at spawn and makes API-style
-      // stacks (Hono, Express, Fastify) healthy without forcing the user
-      // to add a `/health` route — a 404 on `/` still proves the server
-      // is alive. 5xx = app itself is broken → keep failing.
-      const isLive = resp.statusCode > 0 && resp.statusCode < 500
-      if (isLive) {
+      if (resp.containerMissing) {
         logBus.publish(
           channel,
-          `${label} status_code=${resp.statusCode} latency=${resp.latencyMs}ms`
+          `${label} container is gone — aborting healthcheck`
         )
-        return true
+        return false
       }
-      logBus.publish(
-        channel,
-        `${label} status_code=${resp.statusCode} latency=${resp.latencyMs}ms (not OK)${
-          resp.error ? ` — ${resp.error}` : ""
-        }`
-      )
+
+      switch (resp.status) {
+        case ContainerHealthStatus.CONTAINER_HEALTH_STATUS_HEALTHY:
+          logBus.publish(
+            channel,
+            `${label} status=healthy failing_streak=${resp.failingStreak}`
+          )
+          return true
+        case ContainerHealthStatus.CONTAINER_HEALTH_STATUS_UNHEALTHY:
+          logBus.publish(
+            channel,
+            `${label} status=unhealthy failing_streak=${resp.failingStreak}${
+              resp.lastProbeOutput
+                ? ` — ${resp.lastProbeOutput.trim().slice(0, 200)}`
+                : ""
+            }`
+          )
+          break
+        case ContainerHealthStatus.CONTAINER_HEALTH_STATUS_STARTING:
+          logBus.publish(
+            channel,
+            `${label} status=starting failing_streak=${resp.failingStreak}`
+          )
+          break
+        case ContainerHealthStatus.CONTAINER_HEALTH_STATUS_NONE:
+        default:
+          logBus.publish(
+            channel,
+            `${label} status=none — container has no HEALTHCHECK declared, aborting`
+          )
+          return false
+      }
     } catch (err) {
       const msg = err instanceof Error ? err.message : String(err)
       logBus.publish(channel, `${label} error: ${msg}`)
@@ -342,8 +372,18 @@ async function loadRuntimeEnv(
   return buildEnvForDeploy(db, appId, "prod", "runtime")
 }
 
-/** Stop a container by name via the Agent (idempotent — errors ignored). */
-async function stopContainer(
+/**
+ * Stop a container by name via the Agent and remove it (idempotent).
+ *
+ * Real failures (agent unavailable, validator denied, etc.) are logged at
+ * `warn` level so a failed rollback no longer slips silently — without that
+ * log the runner used to leave orphan containers running after a failed
+ * deploy, which then surfaced as bogus "Healthy" badges in the UI.
+ *
+ * NotFound (404 — container already removed or never existed) stays at
+ * `debug`: that's the expected idempotent path.
+ */
+export async function stopContainer(
   agent: InstanceType<typeof AgentClient>,
   name: string
 ): Promise<void> {
@@ -353,17 +393,41 @@ async function stopContainer(
       containerId: name,
       timeoutSeconds: STOP_TIMEOUT_S,
     })
-  } catch {
-    // Best-effort: container may already be stopped.
+  } catch (err) {
+    if (isNotFound(toAgentError(err))) {
+      workerLog.debug(
+        { name, err: errMsg(err) },
+        "stopContainer: target already gone (stop)"
+      )
+    } else {
+      workerLog.warn(
+        { name, err: errMsg(err) },
+        "stopContainer: stop failed — container may be left running"
+      )
+    }
   }
   try {
     await grpcUnary<ContainerRemoveResponse>(
       agent.containerRemove.bind(agent),
       { containerId: name, force: true, removeVolumes: false }
     )
-  } catch {
-    // Best-effort: container may not exist.
+  } catch (err) {
+    if (isNotFound(toAgentError(err))) {
+      workerLog.debug(
+        { name, err: errMsg(err) },
+        "stopContainer: target already gone (remove)"
+      )
+    } else {
+      workerLog.warn(
+        { name, err: errMsg(err) },
+        "stopContainer: remove failed — orphan container will linger"
+      )
+    }
   }
+}
+
+function errMsg(err: unknown): string {
+  return err instanceof Error ? err.message : String(err)
 }
 
 async function stopContainerCandidates(
@@ -553,18 +617,15 @@ export async function runBlueGreen(
     })
     logBus.publish(channel, `[runner] container started`)
 
-    // 3. Poll healthcheck.
+    // 3. Poll Docker-maintained health (HEALTHCHECK we injected at create).
     logBus.publish(
       channel,
-      `[runner] polling healthcheck ${hcPath}:${hcPort} (${hcRetries} retries × ${hcIntervalS}s)`
+      `[runner] polling Docker health for ${hcPath}:${hcPort} (${hcRetries} retries × ${hcIntervalS}s)`
     )
     const healthy = await pollHealthcheck({
       agent,
       containerId: newContainerId,
-      port: hcPort,
-      path: hcPath,
       intervalMs: hcIntervalS * 1_000,
-      timeoutMs: hcTimeoutS * 1_000,
       retries: hcRetries,
       startPeriodMs: hcStartPeriodS * 1_000,
       appId,
@@ -576,7 +637,7 @@ export async function runBlueGreen(
       await stopContainer(agent, newContainerId)
       throw new DeployFailedError(
         appId,
-        `healthcheck on ${hcPath}:${hcPort} did not become healthy after ${hcRetries} retries`
+        `Docker health for ${hcPath}:${hcPort} did not become healthy after ${hcRetries} retries`
       )
     }
 

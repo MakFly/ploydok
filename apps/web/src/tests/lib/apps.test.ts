@@ -4,8 +4,15 @@
  * No React hooks; tests pure normalization logic.
  */
 import { describe, expect, it } from "bun:test"
-import { applyAppStatus, getEventAppStatus, normalizeAppDetail } from "../../lib/apps"
-import { resolveRuntimeAppStatus, selectAppSnapshot } from "../../lib/app-runtime"
+import {
+  applyAppStatus,
+  getEventAppStatus,
+  normalizeAppDetail,
+} from "../../lib/apps"
+import {
+  resolveRuntimeAppStatus,
+  selectAppSnapshot,
+} from "../../lib/app-runtime"
 import type { RawAppDetail } from "../../lib/apps"
 import type { ContainerSnapshot } from "@ploydok/shared"
 
@@ -173,7 +180,7 @@ describe("app status event helpers", () => {
 
 describe("app runtime status helpers", () => {
   function makeSnapshot(
-    overrides: Partial<ContainerSnapshot> = {},
+    overrides: Partial<ContainerSnapshot> = {}
   ): ContainerSnapshot {
     return {
       id: "ctr-1",
@@ -198,9 +205,92 @@ describe("app runtime status helpers", () => {
         makeSnapshot({ id: "stopped", status: "stopped", last_seen_ms: 2000 }),
         makeSnapshot({ id: "running", status: "running", last_seen_ms: 1000 }),
       ],
-      "app-1",
+      "app-1"
     )
     expect(selected?.id).toBe("running")
+  })
+
+  it("returns null when expectedRef does not match any container", () => {
+    // Repro of the failed-deploy orphan bug: apps.container_id points at the
+    // canonical blue (now stopped), but a separate green is up + running with
+    // the same app_id label. With expectedRef pinned to the canonical name,
+    // the orphan must NOT be picked — otherwise the dashboard shows
+    // "Failed | Healthy".
+    const selected = selectAppSnapshot(
+      [
+        makeSnapshot({
+          id: "ctr-orphan-green",
+          name: "ploydok-app-x-green",
+          status: "running",
+          last_seen_ms: 5000,
+        }),
+      ],
+      "app-1",
+      "ploydok-app-x-blue"
+    )
+    expect(selected).toBeNull()
+  })
+
+  it("matches by snapshot.name when expectedRef is the container name", () => {
+    const selected = selectAppSnapshot(
+      [
+        makeSnapshot({
+          id: "sha256:abc",
+          name: "ploydok-app-x-green",
+          status: "running",
+        }),
+        makeSnapshot({
+          id: "sha256:def",
+          name: "ploydok-app-x-blue",
+          status: "stopped",
+        }),
+      ],
+      "app-1",
+      "ploydok-app-x-green"
+    )
+    expect(selected?.id).toBe("sha256:abc")
+  })
+
+  it("matches by snapshot.id when expectedRef is the container id", () => {
+    const selected = selectAppSnapshot(
+      [
+        makeSnapshot({
+          id: "sha256:abc",
+          name: "ploydok-app-x-green",
+          status: "running",
+        }),
+      ],
+      "app-1",
+      "sha256:abc"
+    )
+    expect(selected?.id).toBe("sha256:abc")
+  })
+
+  it("ignores expectedRef belonging to another app_id (defense-in-depth)", () => {
+    const selected = selectAppSnapshot(
+      [
+        makeSnapshot({
+          id: "ctr-other",
+          name: "ploydok-app-x-green",
+          app_id: "app-2",
+          status: "running",
+        }),
+      ],
+      "app-1",
+      "ploydok-app-x-green"
+    )
+    expect(selected).toBeNull()
+  })
+
+  it("falls back to legacy picker when expectedRef is null/undefined", () => {
+    // Brand-new app with no container_id yet: still want to see whatever is
+    // running (e.g. monitoring overview during the very first deploy).
+    const selected = selectAppSnapshot(
+      [makeSnapshot({ id: "ctr-1", status: "running", last_seen_ms: 1000 })],
+      "app-1",
+      null
+    )
+    expect(selected?.id).toBe("ctr-1")
   })
 
   it("downgrades running to stopped when monitoring has no app container", () => {
@@ -208,18 +298,22 @@ describe("app runtime status helpers", () => {
   })
 
   it("downgrades running to stopped when the selected container is stopped", () => {
-    expect(resolveRuntimeAppStatus("running", makeSnapshot({ status: "stopped" }))).toBe("stopped")
+    expect(
+      resolveRuntimeAppStatus("running", makeSnapshot({ status: "stopped" }))
+    ).toBe("stopped")
   })
 
   it("maps a starting container to restarting for badge consistency", () => {
-    expect(resolveRuntimeAppStatus("running", makeSnapshot({ status: "starting" }))).toBe(
-      "restarting",
-    )
+    expect(
+      resolveRuntimeAppStatus("running", makeSnapshot({ status: "starting" }))
+    ).toBe("restarting")
   })
 
   it("keeps build-phase statuses untouched", () => {
     expect(resolveRuntimeAppStatus("building", null)).toBe("building")
-    expect(resolveRuntimeAppStatus("pending", makeSnapshot({ status: "running" }))).toBe("pending")
+    expect(
+      resolveRuntimeAppStatus("pending", makeSnapshot({ status: "running" }))
+    ).toBe("pending")
   })
 })
 
@@ -258,7 +352,9 @@ describe("useApp / useBuilds initialData option — contract", () => {
   it("UseAppOptions type accepts initialData: AppDetail", () => {
     // Compile-time contract: if this test file compiles, the type is correct.
     // We just import and verify the type structure without calling the hook.
-    type UseAppOptionsShape = { initialData?: ReturnType<typeof normalizeAppDetail> }
+    type UseAppOptionsShape = {
+      initialData?: ReturnType<typeof normalizeAppDetail>
+    }
     const opts: UseAppOptionsShape = {
       initialData: normalizeAppDetail(makeRaw()),
     }

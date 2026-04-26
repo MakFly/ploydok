@@ -50,6 +50,10 @@ import { encryptField, decryptField } from "../github/app-credentials"
 import { ghProvider } from "./github"
 import { getSharedAgent } from "../debug/singletons"
 import { resolveRuntimeContainer } from "../services/runtime-containers"
+import {
+  reconcileAppStatus,
+  reconcileAppStatusList,
+} from "../services/app-status-reconciler"
 import { dispatch as notifyDispatch } from "../notify/index"
 import { createRedis } from "@ploydok/db"
 import { ensureDefaultOrganizationForUser } from "../services/organizations"
@@ -260,6 +264,7 @@ type AppPartialRow = {
   branch: string | null
   build_method: string | null
   domain: string | null
+  container_id: string | null
   created_at: Date | null
   updated_at: Date | null
 }
@@ -278,6 +283,9 @@ function serializeAppPartial(row: AppPartialRow) {
     buildMethod: nullToUndefined(row.build_method),
     domain: nullToUndefined(row.domain),
     publicUrl: nullToUndefined(buildPublicUrl(row.domain)),
+    // Exposed so the dashboard can pin runtime/health to the canonical container
+    // and ignore orphan slots left behind by failed deploys (Sprint 7-bis fix).
+    containerId: row.container_id,
     createdAt:
       row.created_at instanceof Date
         ? row.created_at.toISOString()
@@ -587,7 +595,8 @@ export function createAppsRouter(db: Db): Hono {
     const organizationId =
       c.req.query("organizationId") ?? c.req.query("projectId") ?? undefined
     const rows = await listAppsForUser(db, user.id, organizationId)
-    return c.json({ apps: rows.map(serializeAppPartial) })
+    const reconciled = await reconcileAppStatusList(db, getSharedAgent(), rows)
+    return c.json({ apps: reconciled.map(serializeAppPartial) })
   })
 
   // -------------------------------------------------------------------------
@@ -598,14 +607,15 @@ export function createAppsRouter(db: Db): Hono {
     const user = getUser(c)
     const appId = c.req.param("id")
 
-    const app = await getAppForUser(db, appId, user.id)
-    if (!app) {
+    const found = await getAppForUser(db, appId, user.id)
+    if (!found) {
       return c.json(
         { error: { code: "NOT_FOUND", message: "App not found" } },
         404
       )
     }
 
+    const app = await reconcileAppStatus(db, getSharedAgent(), found)
     const appBuilds = await listBuildsForApp(db, appId, 10)
 
     return c.json({

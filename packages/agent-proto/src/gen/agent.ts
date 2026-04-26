@@ -27,6 +27,66 @@ import {
 
 export const protobufPackage = "ploydok.agent.v1";
 
+/**
+ * Mirror of Docker's `State.Health.Status`. Used by InspectContainerHealth so
+ * the API can poll the daemon-maintained health state without doing a
+ * cross-network HTTP probe (the agent runs in its own docker-compose service
+ * and is not joined to per-project bridges).
+ */
+export enum ContainerHealthStatus {
+  /** CONTAINER_HEALTH_STATUS_UNSPECIFIED - Reserved; never emitted. */
+  CONTAINER_HEALTH_STATUS_UNSPECIFIED = 0,
+  /** CONTAINER_HEALTH_STATUS_NONE - No HEALTHCHECK declared on container. */
+  CONTAINER_HEALTH_STATUS_NONE = 1,
+  /** CONTAINER_HEALTH_STATUS_STARTING - Within the start_period grace. */
+  CONTAINER_HEALTH_STATUS_STARTING = 2,
+  CONTAINER_HEALTH_STATUS_HEALTHY = 3,
+  CONTAINER_HEALTH_STATUS_UNHEALTHY = 4,
+  UNRECOGNIZED = -1,
+}
+
+export function containerHealthStatusFromJSON(object: any): ContainerHealthStatus {
+  switch (object) {
+    case 0:
+    case "CONTAINER_HEALTH_STATUS_UNSPECIFIED":
+      return ContainerHealthStatus.CONTAINER_HEALTH_STATUS_UNSPECIFIED;
+    case 1:
+    case "CONTAINER_HEALTH_STATUS_NONE":
+      return ContainerHealthStatus.CONTAINER_HEALTH_STATUS_NONE;
+    case 2:
+    case "CONTAINER_HEALTH_STATUS_STARTING":
+      return ContainerHealthStatus.CONTAINER_HEALTH_STATUS_STARTING;
+    case 3:
+    case "CONTAINER_HEALTH_STATUS_HEALTHY":
+      return ContainerHealthStatus.CONTAINER_HEALTH_STATUS_HEALTHY;
+    case 4:
+    case "CONTAINER_HEALTH_STATUS_UNHEALTHY":
+      return ContainerHealthStatus.CONTAINER_HEALTH_STATUS_UNHEALTHY;
+    case -1:
+    case "UNRECOGNIZED":
+    default:
+      return ContainerHealthStatus.UNRECOGNIZED;
+  }
+}
+
+export function containerHealthStatusToJSON(object: ContainerHealthStatus): string {
+  switch (object) {
+    case ContainerHealthStatus.CONTAINER_HEALTH_STATUS_UNSPECIFIED:
+      return "CONTAINER_HEALTH_STATUS_UNSPECIFIED";
+    case ContainerHealthStatus.CONTAINER_HEALTH_STATUS_NONE:
+      return "CONTAINER_HEALTH_STATUS_NONE";
+    case ContainerHealthStatus.CONTAINER_HEALTH_STATUS_STARTING:
+      return "CONTAINER_HEALTH_STATUS_STARTING";
+    case ContainerHealthStatus.CONTAINER_HEALTH_STATUS_HEALTHY:
+      return "CONTAINER_HEALTH_STATUS_HEALTHY";
+    case ContainerHealthStatus.CONTAINER_HEALTH_STATUS_UNHEALTHY:
+      return "CONTAINER_HEALTH_STATUS_UNHEALTHY";
+    case ContainerHealthStatus.UNRECOGNIZED:
+    default:
+      return "UNRECOGNIZED";
+  }
+}
+
 /** Volume mount binding. */
 export interface VolumeMount {
   hostPath: string;
@@ -342,6 +402,20 @@ export interface PingContainerResponse {
   error: string;
 }
 
+export interface InspectContainerHealthRequest {
+  containerId: string;
+}
+
+export interface InspectContainerHealthResponse {
+  status: ContainerHealthStatus;
+  /** Docker's failing_streak counter. */
+  failingStreak: number;
+  /** last health log entry, truncated server-side */
+  lastProbeOutput: string;
+  /** true when inspect returns 404. */
+  containerMissing: boolean;
+}
+
 /**
  * Multiplexed frame for the ContainerExec bidi stream.
  * Client sends: ExecStart (first), then stdin / resize frames.
@@ -388,6 +462,64 @@ export interface ExecExit {
 export interface ExecReady {
   /** Docker exec id — useful for debugging / correlation. */
   execId: string;
+}
+
+export interface ListContainerFilesRequest {
+  /** Container name or id — must match the ploydok-* allowlist. */
+  containerId: string;
+  /** Absolute path to list (must start with "/" — no ".."). */
+  path: string;
+  /** Include dotfiles in the listing. */
+  showHidden: boolean;
+}
+
+export interface FileEntry {
+  /** Basename only (e.g. "foo.txt"). */
+  name: string;
+  /** Absolute path inside the container. */
+  path: string;
+  /** True if entry is a directory. */
+  isDir: boolean;
+  /** True if entry is a symlink. */
+  isSymlink: boolean;
+  /** Size in bytes (0 for directories). */
+  size: number;
+  /** Permission bits as 4-digit octal string ("0755"). */
+  mode: string;
+  /** Modification time, unix seconds. */
+  mtime: number;
+  /** Owner as "uid:gid" or "user:group". */
+  owner: string;
+}
+
+export interface ListContainerFilesResponse {
+  /** Resolved absolute path that was listed. */
+  path: string;
+  entries: FileEntry[];
+  /** Empty if ok ; otherwise short reason ("not_a_directory", "not_found"). */
+  error: string;
+}
+
+export interface ReadContainerFileRequest {
+  /** Container name or id — must match the ploydok-* allowlist. */
+  containerId: string;
+  /** Absolute path to read. */
+  path: string;
+  /** Maximum bytes to return. 0 = server default (256 KiB). Capped at 1 MiB. */
+  maxBytes: number;
+}
+
+export interface ReadContainerFileResponse {
+  /** Raw bytes (truncated to max_bytes). */
+  content: Uint8Array;
+  /** Total file size on disk (regardless of truncation). */
+  totalSize: number;
+  /** True if `content` was truncated. */
+  truncated: boolean;
+  /** Heuristic: true if file looks like binary (contains NULs, etc.). */
+  isBinary: boolean;
+  /** Empty if ok ; otherwise short reason. */
+  error: string;
 }
 
 export interface DumpRequest {
@@ -4303,6 +4435,190 @@ export const PingContainerResponse: MessageFns<PingContainerResponse> = {
   },
 };
 
+function createBaseInspectContainerHealthRequest(): InspectContainerHealthRequest {
+  return { containerId: "" };
+}
+
+export const InspectContainerHealthRequest: MessageFns<InspectContainerHealthRequest> = {
+  encode(message: InspectContainerHealthRequest, writer: BinaryWriter = new BinaryWriter()): BinaryWriter {
+    if (message.containerId !== "") {
+      writer.uint32(10).string(message.containerId);
+    }
+    return writer;
+  },
+
+  decode(input: BinaryReader | Uint8Array, length?: number): InspectContainerHealthRequest {
+    const reader = input instanceof BinaryReader ? input : new BinaryReader(input);
+    const end = length === undefined ? reader.len : reader.pos + length;
+    const message = createBaseInspectContainerHealthRequest();
+    while (reader.pos < end) {
+      const tag = reader.uint32();
+      switch (tag >>> 3) {
+        case 1: {
+          if (tag !== 10) {
+            break;
+          }
+
+          message.containerId = reader.string();
+          continue;
+        }
+      }
+      if ((tag & 7) === 4 || tag === 0) {
+        break;
+      }
+      reader.skip(tag & 7);
+    }
+    return message;
+  },
+
+  fromJSON(object: any): InspectContainerHealthRequest {
+    return {
+      containerId: isSet(object.containerId)
+        ? globalThis.String(object.containerId)
+        : isSet(object.container_id)
+        ? globalThis.String(object.container_id)
+        : "",
+    };
+  },
+
+  toJSON(message: InspectContainerHealthRequest): unknown {
+    const obj: any = {};
+    if (message.containerId !== "") {
+      obj.containerId = message.containerId;
+    }
+    return obj;
+  },
+
+  create(base?: DeepPartial<InspectContainerHealthRequest>): InspectContainerHealthRequest {
+    return InspectContainerHealthRequest.fromPartial(base ?? {});
+  },
+  fromPartial(object: DeepPartial<InspectContainerHealthRequest>): InspectContainerHealthRequest {
+    const message = createBaseInspectContainerHealthRequest();
+    message.containerId = object.containerId ?? "";
+    return message;
+  },
+};
+
+function createBaseInspectContainerHealthResponse(): InspectContainerHealthResponse {
+  return { status: 0, failingStreak: 0, lastProbeOutput: "", containerMissing: false };
+}
+
+export const InspectContainerHealthResponse: MessageFns<InspectContainerHealthResponse> = {
+  encode(message: InspectContainerHealthResponse, writer: BinaryWriter = new BinaryWriter()): BinaryWriter {
+    if (message.status !== 0) {
+      writer.uint32(8).int32(message.status);
+    }
+    if (message.failingStreak !== 0) {
+      writer.uint32(16).uint32(message.failingStreak);
+    }
+    if (message.lastProbeOutput !== "") {
+      writer.uint32(26).string(message.lastProbeOutput);
+    }
+    if (message.containerMissing !== false) {
+      writer.uint32(32).bool(message.containerMissing);
+    }
+    return writer;
+  },
+
+  decode(input: BinaryReader | Uint8Array, length?: number): InspectContainerHealthResponse {
+    const reader = input instanceof BinaryReader ? input : new BinaryReader(input);
+    const end = length === undefined ? reader.len : reader.pos + length;
+    const message = createBaseInspectContainerHealthResponse();
+    while (reader.pos < end) {
+      const tag = reader.uint32();
+      switch (tag >>> 3) {
+        case 1: {
+          if (tag !== 8) {
+            break;
+          }
+
+          message.status = reader.int32() as any;
+          continue;
+        }
+        case 2: {
+          if (tag !== 16) {
+            break;
+          }
+
+          message.failingStreak = reader.uint32();
+          continue;
+        }
+        case 3: {
+          if (tag !== 26) {
+            break;
+          }
+
+          message.lastProbeOutput = reader.string();
+          continue;
+        }
+        case 4: {
+          if (tag !== 32) {
+            break;
+          }
+
+          message.containerMissing = reader.bool();
+          continue;
+        }
+      }
+      if ((tag & 7) === 4 || tag === 0) {
+        break;
+      }
+      reader.skip(tag & 7);
+    }
+    return message;
+  },
+
+  fromJSON(object: any): InspectContainerHealthResponse {
+    return {
+      status: isSet(object.status) ? containerHealthStatusFromJSON(object.status) : 0,
+      failingStreak: isSet(object.failingStreak)
+        ? globalThis.Number(object.failingStreak)
+        : isSet(object.failing_streak)
+        ? globalThis.Number(object.failing_streak)
+        : 0,
+      lastProbeOutput: isSet(object.lastProbeOutput)
+        ? globalThis.String(object.lastProbeOutput)
+        : isSet(object.last_probe_output)
+        ? globalThis.String(object.last_probe_output)
+        : "",
+      containerMissing: isSet(object.containerMissing)
+        ? globalThis.Boolean(object.containerMissing)
+        : isSet(object.container_missing)
+        ? globalThis.Boolean(object.container_missing)
+        : false,
+    };
+  },
+
+  toJSON(message: InspectContainerHealthResponse): unknown {
+    const obj: any = {};
+    if (message.status !== 0) {
+      obj.status = containerHealthStatusToJSON(message.status);
+    }
+    if (message.failingStreak !== 0) {
+      obj.failingStreak = Math.round(message.failingStreak);
+    }
+    if (message.lastProbeOutput !== "") {
+      obj.lastProbeOutput = message.lastProbeOutput;
+    }
+    if (message.containerMissing !== false) {
+      obj.containerMissing = message.containerMissing;
+    }
+    return obj;
+  },
+
+  create(base?: DeepPartial<InspectContainerHealthResponse>): InspectContainerHealthResponse {
+    return InspectContainerHealthResponse.fromPartial(base ?? {});
+  },
+  fromPartial(object: DeepPartial<InspectContainerHealthResponse>): InspectContainerHealthResponse {
+    const message = createBaseInspectContainerHealthResponse();
+    message.status = object.status ?? 0;
+    message.failingStreak = object.failingStreak ?? 0;
+    message.lastProbeOutput = object.lastProbeOutput ?? "";
+    message.containerMissing = object.containerMissing ?? false;
+    return message;
+  },
+};
+
 function createBaseExecFrame(): ExecFrame {
   return {
     start: undefined,
@@ -4811,6 +5127,610 @@ export const ExecReady: MessageFns<ExecReady> = {
   fromPartial(object: DeepPartial<ExecReady>): ExecReady {
     const message = createBaseExecReady();
     message.execId = object.execId ?? "";
+    return message;
+  },
+};
+
+function createBaseListContainerFilesRequest(): ListContainerFilesRequest {
+  return { containerId: "", path: "", showHidden: false };
+}
+
+export const ListContainerFilesRequest: MessageFns<ListContainerFilesRequest> = {
+  encode(message: ListContainerFilesRequest, writer: BinaryWriter = new BinaryWriter()): BinaryWriter {
+    if (message.containerId !== "") {
+      writer.uint32(10).string(message.containerId);
+    }
+    if (message.path !== "") {
+      writer.uint32(18).string(message.path);
+    }
+    if (message.showHidden !== false) {
+      writer.uint32(24).bool(message.showHidden);
+    }
+    return writer;
+  },
+
+  decode(input: BinaryReader | Uint8Array, length?: number): ListContainerFilesRequest {
+    const reader = input instanceof BinaryReader ? input : new BinaryReader(input);
+    const end = length === undefined ? reader.len : reader.pos + length;
+    const message = createBaseListContainerFilesRequest();
+    while (reader.pos < end) {
+      const tag = reader.uint32();
+      switch (tag >>> 3) {
+        case 1: {
+          if (tag !== 10) {
+            break;
+          }
+
+          message.containerId = reader.string();
+          continue;
+        }
+        case 2: {
+          if (tag !== 18) {
+            break;
+          }
+
+          message.path = reader.string();
+          continue;
+        }
+        case 3: {
+          if (tag !== 24) {
+            break;
+          }
+
+          message.showHidden = reader.bool();
+          continue;
+        }
+      }
+      if ((tag & 7) === 4 || tag === 0) {
+        break;
+      }
+      reader.skip(tag & 7);
+    }
+    return message;
+  },
+
+  fromJSON(object: any): ListContainerFilesRequest {
+    return {
+      containerId: isSet(object.containerId)
+        ? globalThis.String(object.containerId)
+        : isSet(object.container_id)
+        ? globalThis.String(object.container_id)
+        : "",
+      path: isSet(object.path) ? globalThis.String(object.path) : "",
+      showHidden: isSet(object.showHidden)
+        ? globalThis.Boolean(object.showHidden)
+        : isSet(object.show_hidden)
+        ? globalThis.Boolean(object.show_hidden)
+        : false,
+    };
+  },
+
+  toJSON(message: ListContainerFilesRequest): unknown {
+    const obj: any = {};
+    if (message.containerId !== "") {
+      obj.containerId = message.containerId;
+    }
+    if (message.path !== "") {
+      obj.path = message.path;
+    }
+    if (message.showHidden !== false) {
+      obj.showHidden = message.showHidden;
+    }
+    return obj;
+  },
+
+  create(base?: DeepPartial<ListContainerFilesRequest>): ListContainerFilesRequest {
+    return ListContainerFilesRequest.fromPartial(base ?? {});
+  },
+  fromPartial(object: DeepPartial<ListContainerFilesRequest>): ListContainerFilesRequest {
+    const message = createBaseListContainerFilesRequest();
+    message.containerId = object.containerId ?? "";
+    message.path = object.path ?? "";
+    message.showHidden = object.showHidden ?? false;
+    return message;
+  },
+};
+
+function createBaseFileEntry(): FileEntry {
+  return { name: "", path: "", isDir: false, isSymlink: false, size: 0, mode: "", mtime: 0, owner: "" };
+}
+
+export const FileEntry: MessageFns<FileEntry> = {
+  encode(message: FileEntry, writer: BinaryWriter = new BinaryWriter()): BinaryWriter {
+    if (message.name !== "") {
+      writer.uint32(10).string(message.name);
+    }
+    if (message.path !== "") {
+      writer.uint32(18).string(message.path);
+    }
+    if (message.isDir !== false) {
+      writer.uint32(24).bool(message.isDir);
+    }
+    if (message.isSymlink !== false) {
+      writer.uint32(32).bool(message.isSymlink);
+    }
+    if (message.size !== 0) {
+      writer.uint32(40).uint64(message.size);
+    }
+    if (message.mode !== "") {
+      writer.uint32(50).string(message.mode);
+    }
+    if (message.mtime !== 0) {
+      writer.uint32(56).int64(message.mtime);
+    }
+    if (message.owner !== "") {
+      writer.uint32(66).string(message.owner);
+    }
+    return writer;
+  },
+
+  decode(input: BinaryReader | Uint8Array, length?: number): FileEntry {
+    const reader = input instanceof BinaryReader ? input : new BinaryReader(input);
+    const end = length === undefined ? reader.len : reader.pos + length;
+    const message = createBaseFileEntry();
+    while (reader.pos < end) {
+      const tag = reader.uint32();
+      switch (tag >>> 3) {
+        case 1: {
+          if (tag !== 10) {
+            break;
+          }
+
+          message.name = reader.string();
+          continue;
+        }
+        case 2: {
+          if (tag !== 18) {
+            break;
+          }
+
+          message.path = reader.string();
+          continue;
+        }
+        case 3: {
+          if (tag !== 24) {
+            break;
+          }
+
+          message.isDir = reader.bool();
+          continue;
+        }
+        case 4: {
+          if (tag !== 32) {
+            break;
+          }
+
+          message.isSymlink = reader.bool();
+          continue;
+        }
+        case 5: {
+          if (tag !== 40) {
+            break;
+          }
+
+          message.size = longToNumber(reader.uint64());
+          continue;
+        }
+        case 6: {
+          if (tag !== 50) {
+            break;
+          }
+
+          message.mode = reader.string();
+          continue;
+        }
+        case 7: {
+          if (tag !== 56) {
+            break;
+          }
+
+          message.mtime = longToNumber(reader.int64());
+          continue;
+        }
+        case 8: {
+          if (tag !== 66) {
+            break;
+          }
+
+          message.owner = reader.string();
+          continue;
+        }
+      }
+      if ((tag & 7) === 4 || tag === 0) {
+        break;
+      }
+      reader.skip(tag & 7);
+    }
+    return message;
+  },
+
+  fromJSON(object: any): FileEntry {
+    return {
+      name: isSet(object.name) ? globalThis.String(object.name) : "",
+      path: isSet(object.path) ? globalThis.String(object.path) : "",
+      isDir: isSet(object.isDir)
+        ? globalThis.Boolean(object.isDir)
+        : isSet(object.is_dir)
+        ? globalThis.Boolean(object.is_dir)
+        : false,
+      isSymlink: isSet(object.isSymlink)
+        ? globalThis.Boolean(object.isSymlink)
+        : isSet(object.is_symlink)
+        ? globalThis.Boolean(object.is_symlink)
+        : false,
+      size: isSet(object.size) ? globalThis.Number(object.size) : 0,
+      mode: isSet(object.mode) ? globalThis.String(object.mode) : "",
+      mtime: isSet(object.mtime) ? globalThis.Number(object.mtime) : 0,
+      owner: isSet(object.owner) ? globalThis.String(object.owner) : "",
+    };
+  },
+
+  toJSON(message: FileEntry): unknown {
+    const obj: any = {};
+    if (message.name !== "") {
+      obj.name = message.name;
+    }
+    if (message.path !== "") {
+      obj.path = message.path;
+    }
+    if (message.isDir !== false) {
+      obj.isDir = message.isDir;
+    }
+    if (message.isSymlink !== false) {
+      obj.isSymlink = message.isSymlink;
+    }
+    if (message.size !== 0) {
+      obj.size = Math.round(message.size);
+    }
+    if (message.mode !== "") {
+      obj.mode = message.mode;
+    }
+    if (message.mtime !== 0) {
+      obj.mtime = Math.round(message.mtime);
+    }
+    if (message.owner !== "") {
+      obj.owner = message.owner;
+    }
+    return obj;
+  },
+
+  create(base?: DeepPartial<FileEntry>): FileEntry {
+    return FileEntry.fromPartial(base ?? {});
+  },
+  fromPartial(object: DeepPartial<FileEntry>): FileEntry {
+    const message = createBaseFileEntry();
+    message.name = object.name ?? "";
+    message.path = object.path ?? "";
+    message.isDir = object.isDir ?? false;
+    message.isSymlink = object.isSymlink ?? false;
+    message.size = object.size ?? 0;
+    message.mode = object.mode ?? "";
+    message.mtime = object.mtime ?? 0;
+    message.owner = object.owner ?? "";
+    return message;
+  },
+};
+
+function createBaseListContainerFilesResponse(): ListContainerFilesResponse {
+  return { path: "", entries: [], error: "" };
+}
+
+export const ListContainerFilesResponse: MessageFns<ListContainerFilesResponse> = {
+  encode(message: ListContainerFilesResponse, writer: BinaryWriter = new BinaryWriter()): BinaryWriter {
+    if (message.path !== "") {
+      writer.uint32(10).string(message.path);
+    }
+    for (const v of message.entries) {
+      FileEntry.encode(v!, writer.uint32(18).fork()).join();
+    }
+    if (message.error !== "") {
+      writer.uint32(26).string(message.error);
+    }
+    return writer;
+  },
+
+  decode(input: BinaryReader | Uint8Array, length?: number): ListContainerFilesResponse {
+    const reader = input instanceof BinaryReader ? input : new BinaryReader(input);
+    const end = length === undefined ? reader.len : reader.pos + length;
+    const message = createBaseListContainerFilesResponse();
+    while (reader.pos < end) {
+      const tag = reader.uint32();
+      switch (tag >>> 3) {
+        case 1: {
+          if (tag !== 10) {
+            break;
+          }
+
+          message.path = reader.string();
+          continue;
+        }
+        case 2: {
+          if (tag !== 18) {
+            break;
+          }
+
+          message.entries.push(FileEntry.decode(reader, reader.uint32()));
+          continue;
+        }
+        case 3: {
+          if (tag !== 26) {
+            break;
+          }
+
+          message.error = reader.string();
+          continue;
+        }
+      }
+      if ((tag & 7) === 4 || tag === 0) {
+        break;
+      }
+      reader.skip(tag & 7);
+    }
+    return message;
+  },
+
+  fromJSON(object: any): ListContainerFilesResponse {
+    return {
+      path: isSet(object.path) ? globalThis.String(object.path) : "",
+      entries: globalThis.Array.isArray(object?.entries) ? object.entries.map((e: any) => FileEntry.fromJSON(e)) : [],
+      error: isSet(object.error) ? globalThis.String(object.error) : "",
+    };
+  },
+
+  toJSON(message: ListContainerFilesResponse): unknown {
+    const obj: any = {};
+    if (message.path !== "") {
+      obj.path = message.path;
+    }
+    if (message.entries?.length) {
+      obj.entries = message.entries.map((e) => FileEntry.toJSON(e));
+    }
+    if (message.error !== "") {
+      obj.error = message.error;
+    }
+    return obj;
+  },
+
+  create(base?: DeepPartial<ListContainerFilesResponse>): ListContainerFilesResponse {
+    return ListContainerFilesResponse.fromPartial(base ?? {});
+  },
+  fromPartial(object: DeepPartial<ListContainerFilesResponse>): ListContainerFilesResponse {
+    const message = createBaseListContainerFilesResponse();
+    message.path = object.path ?? "";
+    message.entries = object.entries?.map((e) => FileEntry.fromPartial(e)) || [];
+    message.error = object.error ?? "";
+    return message;
+  },
+};
+
+function createBaseReadContainerFileRequest(): ReadContainerFileRequest {
+  return { containerId: "", path: "", maxBytes: 0 };
+}
+
+export const ReadContainerFileRequest: MessageFns<ReadContainerFileRequest> = {
+  encode(message: ReadContainerFileRequest, writer: BinaryWriter = new BinaryWriter()): BinaryWriter {
+    if (message.containerId !== "") {
+      writer.uint32(10).string(message.containerId);
+    }
+    if (message.path !== "") {
+      writer.uint32(18).string(message.path);
+    }
+    if (message.maxBytes !== 0) {
+      writer.uint32(24).uint64(message.maxBytes);
+    }
+    return writer;
+  },
+
+  decode(input: BinaryReader | Uint8Array, length?: number): ReadContainerFileRequest {
+    const reader = input instanceof BinaryReader ? input : new BinaryReader(input);
+    const end = length === undefined ? reader.len : reader.pos + length;
+    const message = createBaseReadContainerFileRequest();
+    while (reader.pos < end) {
+      const tag = reader.uint32();
+      switch (tag >>> 3) {
+        case 1: {
+          if (tag !== 10) {
+            break;
+          }
+
+          message.containerId = reader.string();
+          continue;
+        }
+        case 2: {
+          if (tag !== 18) {
+            break;
+          }
+
+          message.path = reader.string();
+          continue;
+        }
+        case 3: {
+          if (tag !== 24) {
+            break;
+          }
+
+          message.maxBytes = longToNumber(reader.uint64());
+          continue;
+        }
+      }
+      if ((tag & 7) === 4 || tag === 0) {
+        break;
+      }
+      reader.skip(tag & 7);
+    }
+    return message;
+  },
+
+  fromJSON(object: any): ReadContainerFileRequest {
+    return {
+      containerId: isSet(object.containerId)
+        ? globalThis.String(object.containerId)
+        : isSet(object.container_id)
+        ? globalThis.String(object.container_id)
+        : "",
+      path: isSet(object.path) ? globalThis.String(object.path) : "",
+      maxBytes: isSet(object.maxBytes)
+        ? globalThis.Number(object.maxBytes)
+        : isSet(object.max_bytes)
+        ? globalThis.Number(object.max_bytes)
+        : 0,
+    };
+  },
+
+  toJSON(message: ReadContainerFileRequest): unknown {
+    const obj: any = {};
+    if (message.containerId !== "") {
+      obj.containerId = message.containerId;
+    }
+    if (message.path !== "") {
+      obj.path = message.path;
+    }
+    if (message.maxBytes !== 0) {
+      obj.maxBytes = Math.round(message.maxBytes);
+    }
+    return obj;
+  },
+
+  create(base?: DeepPartial<ReadContainerFileRequest>): ReadContainerFileRequest {
+    return ReadContainerFileRequest.fromPartial(base ?? {});
+  },
+  fromPartial(object: DeepPartial<ReadContainerFileRequest>): ReadContainerFileRequest {
+    const message = createBaseReadContainerFileRequest();
+    message.containerId = object.containerId ?? "";
+    message.path = object.path ?? "";
+    message.maxBytes = object.maxBytes ?? 0;
+    return message;
+  },
+};
+
+function createBaseReadContainerFileResponse(): ReadContainerFileResponse {
+  return { content: new Uint8Array(0), totalSize: 0, truncated: false, isBinary: false, error: "" };
+}
+
+export const ReadContainerFileResponse: MessageFns<ReadContainerFileResponse> = {
+  encode(message: ReadContainerFileResponse, writer: BinaryWriter = new BinaryWriter()): BinaryWriter {
+    if (message.content.length !== 0) {
+      writer.uint32(10).bytes(message.content);
+    }
+    if (message.totalSize !== 0) {
+      writer.uint32(16).uint64(message.totalSize);
+    }
+    if (message.truncated !== false) {
+      writer.uint32(24).bool(message.truncated);
+    }
+    if (message.isBinary !== false) {
+      writer.uint32(32).bool(message.isBinary);
+    }
+    if (message.error !== "") {
+      writer.uint32(42).string(message.error);
+    }
+    return writer;
+  },
+
+  decode(input: BinaryReader | Uint8Array, length?: number): ReadContainerFileResponse {
+    const reader = input instanceof BinaryReader ? input : new BinaryReader(input);
+    const end = length === undefined ? reader.len : reader.pos + length;
+    const message = createBaseReadContainerFileResponse();
+    while (reader.pos < end) {
+      const tag = reader.uint32();
+      switch (tag >>> 3) {
+        case 1: {
+          if (tag !== 10) {
+            break;
+          }
+
+          message.content = reader.bytes();
+          continue;
+        }
+        case 2: {
+          if (tag !== 16) {
+            break;
+          }
+
+          message.totalSize = longToNumber(reader.uint64());
+          continue;
+        }
+        case 3: {
+          if (tag !== 24) {
+            break;
+          }
+
+          message.truncated = reader.bool();
+          continue;
+        }
+        case 4: {
+          if (tag !== 32) {
+            break;
+          }
+
+          message.isBinary = reader.bool();
+          continue;
+        }
+        case 5: {
+          if (tag !== 42) {
+            break;
+          }
+
+          message.error = reader.string();
+          continue;
+        }
+      }
+      if ((tag & 7) === 4 || tag === 0) {
+        break;
+      }
+      reader.skip(tag & 7);
+    }
+    return message;
+  },
+
+  fromJSON(object: any): ReadContainerFileResponse {
+    return {
+      content: isSet(object.content) ? bytesFromBase64(object.content) : new Uint8Array(0),
+      totalSize: isSet(object.totalSize)
+        ? globalThis.Number(object.totalSize)
+        : isSet(object.total_size)
+        ? globalThis.Number(object.total_size)
+        : 0,
+      truncated: isSet(object.truncated) ? globalThis.Boolean(object.truncated) : false,
+      isBinary: isSet(object.isBinary)
+        ? globalThis.Boolean(object.isBinary)
+        : isSet(object.is_binary)
+        ? globalThis.Boolean(object.is_binary)
+        : false,
+      error: isSet(object.error) ? globalThis.String(object.error) : "",
+    };
+  },
+
+  toJSON(message: ReadContainerFileResponse): unknown {
+    const obj: any = {};
+    if (message.content.length !== 0) {
+      obj.content = base64FromBytes(message.content);
+    }
+    if (message.totalSize !== 0) {
+      obj.totalSize = Math.round(message.totalSize);
+    }
+    if (message.truncated !== false) {
+      obj.truncated = message.truncated;
+    }
+    if (message.isBinary !== false) {
+      obj.isBinary = message.isBinary;
+    }
+    if (message.error !== "") {
+      obj.error = message.error;
+    }
+    return obj;
+  },
+
+  create(base?: DeepPartial<ReadContainerFileResponse>): ReadContainerFileResponse {
+    return ReadContainerFileResponse.fromPartial(base ?? {});
+  },
+  fromPartial(object: DeepPartial<ReadContainerFileResponse>): ReadContainerFileResponse {
+    const message = createBaseReadContainerFileResponse();
+    message.content = object.content ?? new Uint8Array(0);
+    message.totalSize = object.totalSize ?? 0;
+    message.truncated = object.truncated ?? false;
+    message.isBinary = object.isBinary ?? false;
+    message.error = object.error ?? "";
     return message;
   },
 };
@@ -5818,6 +6738,18 @@ export const AgentService = {
       Buffer.from(PingContainerResponse.encode(value).finish()),
     responseDeserialize: (value: Buffer): PingContainerResponse => PingContainerResponse.decode(value),
   },
+  inspectContainerHealth: {
+    path: "/ploydok.agent.v1.Agent/InspectContainerHealth" as const,
+    requestStream: false as const,
+    responseStream: false as const,
+    requestSerialize: (value: InspectContainerHealthRequest): Buffer =>
+      Buffer.from(InspectContainerHealthRequest.encode(value).finish()),
+    requestDeserialize: (value: Buffer): InspectContainerHealthRequest => InspectContainerHealthRequest.decode(value),
+    responseSerialize: (value: InspectContainerHealthResponse): Buffer =>
+      Buffer.from(InspectContainerHealthResponse.encode(value).finish()),
+    responseDeserialize: (value: Buffer): InspectContainerHealthResponse =>
+      InspectContainerHealthResponse.decode(value),
+  },
   /** Interactive shell (bidi streaming) */
   containerExec: {
     path: "/ploydok.agent.v1.Agent/ContainerExec" as const,
@@ -5827,6 +6759,29 @@ export const AgentService = {
     requestDeserialize: (value: Buffer): ExecFrame => ExecFrame.decode(value),
     responseSerialize: (value: ExecFrame): Buffer => Buffer.from(ExecFrame.encode(value).finish()),
     responseDeserialize: (value: Buffer): ExecFrame => ExecFrame.decode(value),
+  },
+  /** File browser (read-only, used by the shell sidebar) */
+  listContainerFiles: {
+    path: "/ploydok.agent.v1.Agent/ListContainerFiles" as const,
+    requestStream: false as const,
+    responseStream: false as const,
+    requestSerialize: (value: ListContainerFilesRequest): Buffer =>
+      Buffer.from(ListContainerFilesRequest.encode(value).finish()),
+    requestDeserialize: (value: Buffer): ListContainerFilesRequest => ListContainerFilesRequest.decode(value),
+    responseSerialize: (value: ListContainerFilesResponse): Buffer =>
+      Buffer.from(ListContainerFilesResponse.encode(value).finish()),
+    responseDeserialize: (value: Buffer): ListContainerFilesResponse => ListContainerFilesResponse.decode(value),
+  },
+  readContainerFile: {
+    path: "/ploydok.agent.v1.Agent/ReadContainerFile" as const,
+    requestStream: false as const,
+    responseStream: false as const,
+    requestSerialize: (value: ReadContainerFileRequest): Buffer =>
+      Buffer.from(ReadContainerFileRequest.encode(value).finish()),
+    requestDeserialize: (value: Buffer): ReadContainerFileRequest => ReadContainerFileRequest.decode(value),
+    responseSerialize: (value: ReadContainerFileResponse): Buffer =>
+      Buffer.from(ReadContainerFileResponse.encode(value).finish()),
+    responseDeserialize: (value: Buffer): ReadContainerFileResponse => ReadContainerFileResponse.decode(value),
   },
   /** Database backup / restore (streaming) */
   dumpDatabase: {
@@ -5879,8 +6834,12 @@ export interface AgentServer extends UntypedServiceImplementation {
   /** Monitoring (snapshot + ad-hoc ping) */
   listContainers: handleUnaryCall<ListContainersRequest, ListContainersResponse>;
   pingContainer: handleUnaryCall<PingContainerRequest, PingContainerResponse>;
+  inspectContainerHealth: handleUnaryCall<InspectContainerHealthRequest, InspectContainerHealthResponse>;
   /** Interactive shell (bidi streaming) */
   containerExec: handleBidiStreamingCall<ExecFrame, ExecFrame>;
+  /** File browser (read-only, used by the shell sidebar) */
+  listContainerFiles: handleUnaryCall<ListContainerFilesRequest, ListContainerFilesResponse>;
+  readContainerFile: handleUnaryCall<ReadContainerFileRequest, ReadContainerFileResponse>;
   /** Database backup / restore (streaming) */
   dumpDatabase: handleServerStreamingCall<DumpRequest, DumpChunk>;
   restoreDatabase: handleClientStreamingCall<RestoreChunk, RestoreResult>;
@@ -6068,10 +7027,56 @@ export interface AgentClient extends Client {
     options: Partial<CallOptions>,
     callback: (error: ServiceError | null, response: PingContainerResponse) => void,
   ): ClientUnaryCall;
+  inspectContainerHealth(
+    request: InspectContainerHealthRequest,
+    callback: (error: ServiceError | null, response: InspectContainerHealthResponse) => void,
+  ): ClientUnaryCall;
+  inspectContainerHealth(
+    request: InspectContainerHealthRequest,
+    metadata: Metadata,
+    callback: (error: ServiceError | null, response: InspectContainerHealthResponse) => void,
+  ): ClientUnaryCall;
+  inspectContainerHealth(
+    request: InspectContainerHealthRequest,
+    metadata: Metadata,
+    options: Partial<CallOptions>,
+    callback: (error: ServiceError | null, response: InspectContainerHealthResponse) => void,
+  ): ClientUnaryCall;
   /** Interactive shell (bidi streaming) */
   containerExec(): ClientDuplexStream<ExecFrame, ExecFrame>;
   containerExec(options: Partial<CallOptions>): ClientDuplexStream<ExecFrame, ExecFrame>;
   containerExec(metadata: Metadata, options?: Partial<CallOptions>): ClientDuplexStream<ExecFrame, ExecFrame>;
+  /** File browser (read-only, used by the shell sidebar) */
+  listContainerFiles(
+    request: ListContainerFilesRequest,
+    callback: (error: ServiceError | null, response: ListContainerFilesResponse) => void,
+  ): ClientUnaryCall;
+  listContainerFiles(
+    request: ListContainerFilesRequest,
+    metadata: Metadata,
+    callback: (error: ServiceError | null, response: ListContainerFilesResponse) => void,
+  ): ClientUnaryCall;
+  listContainerFiles(
+    request: ListContainerFilesRequest,
+    metadata: Metadata,
+    options: Partial<CallOptions>,
+    callback: (error: ServiceError | null, response: ListContainerFilesResponse) => void,
+  ): ClientUnaryCall;
+  readContainerFile(
+    request: ReadContainerFileRequest,
+    callback: (error: ServiceError | null, response: ReadContainerFileResponse) => void,
+  ): ClientUnaryCall;
+  readContainerFile(
+    request: ReadContainerFileRequest,
+    metadata: Metadata,
+    callback: (error: ServiceError | null, response: ReadContainerFileResponse) => void,
+  ): ClientUnaryCall;
+  readContainerFile(
+    request: ReadContainerFileRequest,
+    metadata: Metadata,
+    options: Partial<CallOptions>,
+    callback: (error: ServiceError | null, response: ReadContainerFileResponse) => void,
+  ): ClientUnaryCall;
   /** Database backup / restore (streaming) */
   dumpDatabase(request: DumpRequest, options?: Partial<CallOptions>): ClientReadableStream<DumpChunk>;
   dumpDatabase(
