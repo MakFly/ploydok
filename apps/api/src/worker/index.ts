@@ -2,7 +2,7 @@
 import { rm } from "node:fs/promises"
 import path from "node:path"
 import { Worker, UnrecoverableError } from "bullmq"
-import { createRedis, apps, app_delete_jobs } from "@ploydok/db"
+import { createRedis, apps, app_delete_jobs, system_jobs } from "@ploydok/db"
 import type { Db } from "@ploydok/db"
 import { eq } from "drizzle-orm"
 import { resolveAppOwner } from "@ploydok/db/queries"
@@ -18,7 +18,11 @@ import {
   runRegistryGc,
   startRegistryGcCron,
   stopRegistryGcCron,
+  GcRegistryOptionsSchema,
 } from "./handlers/gc-registry"
+import { claimQueuedRow } from "./queue-claim"
+import { auditClaimed, auditUnauthorized } from "./queue-audit"
+import { gcQueue } from "./queues"
 import {
   startAuditRetentionCron,
   stopAuditRetentionCron,
@@ -118,12 +122,62 @@ export function startWorker(
     new Worker(
       "gc.registry",
       async (job) => {
-        logger.info({ jobId: job.id }, "gc.registry job started")
-        const data = (job.data ?? {}) as { appId?: string }
-        const result = await runRegistryGc(
-          data.appId ? { db, appFilter: data.appId } : { db }
-        )
-        logger.info({ jobId: job.id, ...result }, "gc.registry done")
+        const { jobId } = job.data as { jobId?: string }
+        if (!jobId) {
+          auditUnauthorized({
+            jobName: "gc.registry.requested",
+            jobId: job.id ?? "",
+            payload: job.data,
+            reason: "legacy payload (no jobId) — drop after queue drain",
+          })
+          return
+        }
+        const claimed = await claimQueuedRow<typeof system_jobs.$inferSelect>({
+          db,
+          table: system_jobs,
+          id: jobId,
+        })
+        if (!claimed) {
+          auditUnauthorized({
+            jobName: "gc.registry.requested",
+            jobId: job.id ?? "",
+            payload: job.data,
+            reason: "no matching pending system_jobs row",
+          })
+          return
+        }
+        const opts = GcRegistryOptionsSchema.parse(claimed.options)
+        auditClaimed({
+          jobName: "gc.registry.requested",
+          jobId: job.id ?? "",
+          rowId: jobId,
+          actor: claimed.requested_by_user_id,
+          source: claimed.source,
+        })
+
+        try {
+          const result = await runRegistryGc(
+            opts.appId
+              ? { db, appFilter: opts.appId, keepPerRepo: opts.keepPerRepo }
+              : { db, keepPerRepo: opts.keepPerRepo }
+          )
+          await db
+            .update(system_jobs)
+            .set({ status: "succeeded", finished_at: new Date() })
+            .where(eq(system_jobs.id, jobId))
+          logger.info({ jobId, ...result }, "gc.registry done")
+        } catch (err) {
+          await db
+            .update(system_jobs)
+            .set({
+              status: "failed",
+              finished_at: new Date(),
+              error_message:
+                err instanceof Error ? err.message.slice(0, 1000) : String(err),
+            })
+            .where(eq(system_jobs.id, jobId))
+          throw err
+        }
       },
       { connection, concurrency: 1 }
     ),
@@ -271,7 +325,7 @@ export function startWorker(
     })
   }
 
-  startRegistryGcCron({ gcOptions: { db } })
+  startRegistryGcCron({ db, queue: gcQueue })
   startPurgeWebhookSecretsCron(db)
   startCertExpiryCheckCron(db)
   startRotateDatabasesCron(db)

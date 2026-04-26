@@ -12,6 +12,7 @@ import {
   memberships,
   builds,
   app_delete_jobs,
+  system_jobs,
 } from "@ploydok/db"
 import { encryptSecret } from "../secrets/crypto"
 import {
@@ -46,7 +47,7 @@ import {
   ReplayPayloadMissingError,
 } from "../webhooks/deliveries"
 import { env } from "../env"
-import { deployQueue, appDeleteQueue } from "../worker/queues"
+import { deployQueue, appDeleteQueue, gcQueue } from "../worker/queues"
 import { enqueueWithDbRow } from "../worker/queue-enqueue"
 import { childLogger } from "../logger"
 import type { Db } from "@ploydok/db"
@@ -1305,10 +1306,28 @@ export function createAppsRouter(db: Db): Hono {
     }
 
     try {
-      const { runRegistryGc } =
-        await import("../worker/handlers/gc-registry.js")
-      const result = await runRegistryGc({ db, appFilter: appId })
-      return c.json(result)
+      const { jobId } = await enqueueWithDbRow({
+        db,
+        queue: gcQueue,
+        jobName: "gc.registry.requested",
+        insertRow: (tx) =>
+          tx
+            .insert(system_jobs)
+            .values({
+              id: nanoid(),
+              kind: "gc.registry",
+              requested_by_user_id: user.id,
+              source: "api",
+              options: {
+                appId: app.id,
+                keepPerRepo: app.keep_per_repo ?? 3,
+              },
+            })
+            .returning()
+            .then((r: (typeof system_jobs.$inferSelect)[]) => r[0]!),
+        buildPayload: (row) => ({ jobId: row.id }),
+      })
+      return c.json({ ok: true, jobId })
     } catch (err) {
       const message = err instanceof Error ? err.message : String(err)
       return c.json({ error: { code: "GC_FAILED", message } }, 500)

@@ -149,6 +149,12 @@ export async function handleDeleteApp(
   // 2. Registry: wipe all manifests for this app + reclaim blobs.
   if (deleteImages) {
     try {
+      // gc.registry exception: keep this as a direct call rather than enqueueing
+      // through `system_jobs`. The auth gate is already enforced upstream by the
+      // claim of `app_delete_jobs` (sprint 6bis), and `keepPerRepo: 0` is the only
+      // caller that uses the wipe-everything mode. Async-via-queue would create
+      // transient states ("app deleted but GC pending"). See
+      // docs/sprints/sprint-secops-system-jobs.md § "Producer D".
       const gc = await runRegistryGc({ db, appFilter: appId, keepPerRepo: 0 })
       result.steps.registry = { ok: true, tagsDeleted: gc.tagsDeleted }
     } catch (err) {
