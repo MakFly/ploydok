@@ -16,7 +16,11 @@ import { ProtectionSection } from "../../../../../../components/apps/ProtectionS
 import { useMe } from "../../../../../../lib/auth"
 import { Skeleton } from "@workspace/ui/components/skeleton"
 import { Separator } from "@workspace/ui/components/separator"
+import { Button } from "@workspace/ui/components/button"
+import { RiBookOpenLine } from "@remixicon/react"
 import type { Domain } from "../../../../../../lib/domains"
+
+const DOCS_BASE_URL = import.meta.env.VITE_DOCS_URL ?? "http://localhost:4321"
 
 function AppDomainsTab(): React.JSX.Element {
   const { id: appId } = useParams({ strict: false }) as { id: string }
@@ -59,11 +63,29 @@ function AppDomainsTab(): React.JSX.Element {
           </p>
         </div>
 
-        <AddDomainDialog
-          onAdd={(params) => createDomain(params)}
-          isAdding={isAdding}
-          lockReason={lockReason}
-        />
+        <div className="flex items-center gap-2">
+          <Button
+            asChild
+            size="sm"
+            variant="outline"
+            className="gap-1.5"
+            title="Open the Domains documentation in a new tab"
+          >
+            <a
+              href={`${DOCS_BASE_URL}/docs/domains-tls`}
+              target="_blank"
+              rel="noopener noreferrer"
+            >
+              <RiBookOpenLine className="size-4" aria-hidden="true" />
+              Documentation
+            </a>
+          </Button>
+          <AddDomainDialog
+            onAdd={(params) => createDomain(params)}
+            isAdding={isAdding}
+            lockReason={lockReason}
+          />
+        </div>
       </div>
 
       {isLoading ? (
