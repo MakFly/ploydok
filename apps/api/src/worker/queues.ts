@@ -12,7 +12,10 @@ const deployDefaults = {
   backoff: { type: "exponential" as const, delay: 5000 },
 }
 
-export const deployQueue = new Queue("deploy", { connection, defaultJobOptions: deployDefaults })
+export const deployQueue = new Queue("deploy", {
+  connection,
+  defaultJobOptions: deployDefaults,
+})
 export const gcQueue = new Queue("gc.registry", { connection })
 export const cleanupQueue = new Queue("cleanup.build", { connection })
 export const appDeleteQueue = new Queue("app.delete", { connection })
@@ -24,7 +27,10 @@ const domainVerifyDefaults = {
   attempts: 20,
   backoff: { type: "fixed" as const, delay: 30_000 },
 }
-export const domainVerifyQueue = new Queue("domain.verify", { connection, defaultJobOptions: domainVerifyDefaults })
+export const domainVerifyQueue = new Queue("domain.verify", {
+  connection,
+  defaultJobOptions: domainVerifyDefaults,
+})
 
 const providerReposSyncDefaults = {
   removeOnComplete: 100,
@@ -32,6 +38,36 @@ const providerReposSyncDefaults = {
   attempts: 3,
   backoff: { type: "exponential" as const, delay: 5000 },
 }
-export const providerReposSyncQueue = new Queue("provider.repos.sync", { connection, defaultJobOptions: providerReposSyncDefaults })
+export const providerReposSyncQueue = new Queue("provider.repos.sync", {
+  connection,
+  defaultJobOptions: providerReposSyncDefaults,
+})
 
-export type QueueName = "deploy" | "gc.registry" | "cleanup.build" | "app.delete" | "domain.verify" | "provider.repos.sync"
+const previewDefaults = {
+  removeOnComplete: 100,
+  removeOnFail: 200,
+  attempts: 3,
+  backoff: { type: "exponential" as const, delay: 5000 },
+}
+// Named exports kept identical to existing importers
+// (apps-previews.ts, webhook-handlers/pull-request.ts, jobs/cleanup-previews.ts)
+// which already wrote `previewDeploy.add(...)` / `previewTeardown.add(...)`
+// before the queue declarations existed.
+export const previewDeploy = new Queue("preview.deploy", {
+  connection,
+  defaultJobOptions: previewDefaults,
+})
+export const previewTeardown = new Queue("preview.teardown", {
+  connection,
+  defaultJobOptions: previewDefaults,
+})
+
+export type QueueName =
+  | "deploy"
+  | "gc.registry"
+  | "cleanup.build"
+  | "app.delete"
+  | "domain.verify"
+  | "provider.repos.sync"
+  | "preview.deploy"
+  | "preview.teardown"
