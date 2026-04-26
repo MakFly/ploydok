@@ -41,7 +41,7 @@ function AppsPage(): React.JSX.Element {
   const appsWithRuntimeStatus = React.useMemo(
     () =>
       apps.map((app) => {
-        const snapshot = selectAppSnapshot(containers, app.id)
+        const snapshot = selectAppSnapshot(containers, app.id, app.containerId)
         return {
           ...app,
           runtimeStatus: resolveRuntimeAppStatus(app.status, snapshot),

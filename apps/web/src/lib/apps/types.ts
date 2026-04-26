@@ -12,6 +12,9 @@ export interface AppListItem {
   domain?: string
   publicUrl?: string
   repoFullName?: string
+  /** apps.container_id — the canonical container the runner wrote at last
+   * successful deploy. Null when the app has never been deployed. */
+  containerId?: string | null
   createdAt: number
   updatedAt: number
 }
@@ -63,16 +66,15 @@ export interface BuildsResponse {
 // Backend serializes healthcheck as a nested object. Normalize to the flat
 // shape used by the UI (forms, caches, components read `app.healthcheckPath`
 // and `app.healthcheckPort` directly).
-export interface RawAppDetail
-  extends Omit<
-    AppDetail,
-    | "healthcheckPath"
-    | "healthcheckPort"
-    | "healthcheckIntervalS"
-    | "healthcheckTimeoutS"
-    | "healthcheckRetries"
-    | "healthcheckStartPeriodS"
-  > {
+export interface RawAppDetail extends Omit<
+  AppDetail,
+  | "healthcheckPath"
+  | "healthcheckPort"
+  | "healthcheckIntervalS"
+  | "healthcheckTimeoutS"
+  | "healthcheckRetries"
+  | "healthcheckStartPeriodS"
+> {
   healthcheck?: {
     path?: string | null
     port?: number | null

@@ -2,6 +2,29 @@
 //
 // AgentService — tonic gRPC service backed by bollard.
 //
+// SECURITY MODEL
+// --------------
+// The agent enforces three things at this layer:
+//   1. **Shape validation** via `validator::Validator` (image registries,
+//      volume prefixes, container/network name patterns, exec cmd[0] whitelist).
+//   2. **mTLS authentication** of the calling process when
+//      `PLOYDOK_AGENT_INSECURE != "1"` (see `main.rs` and `pki.rs`).
+//   3. **Audit logging** of each RPC entry/exit with the mTLS CN
+//      (`audit_with_client(...)` from request-driven sites).
+//
+// What the agent does **NOT** do — and why this matters at every call site:
+//   - **No ownership check.** The agent does not verify that the calling user
+//     is authorised to act on the target container/network/image. It trusts
+//     that the API has performed that check before forwarding the RPC.
+//     Callers exposing the agent socket to less-trusted clients must layer
+//     their own authorisation in front.
+//   - **No certificate revocation.** A compromised client cert remains valid
+//     until the PKI is rotated (`pki::ensure_pki` regenerates everything when
+//     the dir is wiped — see runbook).
+//   - **`exec cmd[1..]` is not sanitised.** The validator only whitelists
+//     `cmd[0]` (shell); arbitrary shell scripts can be passed via `cmd[1..]`.
+//     The API must not let untrusted input flow into exec arguments.
+//
 // Extension points for task 2.3:
 //   - Replace `PermissiveValidator` with `StrictValidator` when constructing `AgentService`.
 //   - `audit()` calls are already in place; redirect them to DB in 2.4.
@@ -32,15 +55,17 @@ use ploydok_proto::agent::{
     agent_server::Agent, exec_frame, restore_chunk, BuildProgress, ContainerCreateRequest,
     ContainerCreateResponse, ContainerLogsRequest, ContainerRemoveRequest, ContainerRemoveResponse,
     ContainerStartRequest, ContainerStartResponse, ContainerStatsRequest, ContainerStopRequest,
-    ContainerStopResponse, DumpChunk, DumpRequest, ExecFrame, HostStatsRequest, HostStatsResponse,
-    ImageBuildRequest, ImagePullRequest, ListContainersRequest, ListContainersResponse, LogLine,
-    NetworkConnectRequest, NetworkConnectResponse, NetworkCreateRequest, NetworkCreateResponse,
-    NetworkDisconnectRequest, NetworkDisconnectResponse, NetworkRemoveRequest,
-    NetworkRemoveResponse, PingContainerRequest, PingContainerResponse, PullProgress,
+    ContainerStopResponse, DumpChunk, DumpRequest, ExecFrame, FileEntry, HostStatsRequest,
+    HostStatsResponse, ImageBuildRequest, ImagePullRequest, InspectContainerHealthRequest,
+    InspectContainerHealthResponse, ListContainerFilesRequest, ListContainerFilesResponse,
+    ListContainersRequest, ListContainersResponse, LogLine, NetworkConnectRequest,
+    NetworkConnectResponse, NetworkCreateRequest, NetworkCreateResponse, NetworkDisconnectRequest,
+    NetworkDisconnectResponse, NetworkRemoveRequest, NetworkRemoveResponse, PingContainerRequest,
+    PingContainerResponse, PullProgress, ReadContainerFileRequest, ReadContainerFileResponse,
     RestoreChunk, RestoreResult, StatsFrame,
 };
 
-use crate::audit::audit;
+use crate::audit::{audit, audit_with_client, client_identity_from_request};
 use crate::validator::Validator;
 
 // Include monitor.rs as a submodule. This is the single canonical declaration
@@ -62,7 +87,21 @@ use monitor::Monitor;
 ///   - 409 → `AlreadyExists` (create_network when it already exists, etc.)
 ///
 /// Everything else falls back to `Internal`.
-fn bollard_err(context: &str, err: bollard::errors::Error) -> Status {
+/// Validate that the first frame received on the `ContainerExec` bidi stream
+/// carries an `ExecStart` payload — anything else is a protocol violation
+/// from the client. Extracted so the state-machine entry can be unit-tested
+/// without a live Docker connection.
+#[allow(clippy::result_large_err)] // Status is the canonical error type at this boundary; boxing would force unboxing at every call site.
+pub fn validate_first_exec_frame(
+    frame: ExecFrame,
+) -> Result<ploydok_proto::agent::ExecStart, Status> {
+    match frame.payload {
+        Some(exec_frame::Payload::Start(s)) => Ok(s),
+        _ => Err(Status::invalid_argument("first frame must be ExecStart")),
+    }
+}
+
+pub fn bollard_err(context: &str, err: bollard::errors::Error) -> Status {
     if let bollard::errors::Error::DockerResponseServerError {
         status_code,
         ref message,
@@ -151,13 +190,17 @@ impl Agent for AgentService {
         &self,
         request: Request<ContainerCreateRequest>,
     ) -> Result<Response<ContainerCreateResponse>, Status> {
+        // SECURITY: API must enforce ownership before calling agent. The
+        // agent only checks the request shape and the mTLS CN (logged below);
+        // it does not verify that the caller owns the container being created.
+        let client = client_identity_from_request(&request);
         let req = request.into_inner();
-        audit("container_create", &req.name, Ok(()));
+        audit_with_client("container_create", &req.name, Ok(()), &client);
 
         self.validator
             .validate_container_create(&req)
             .inspect_err(|s| {
-                audit("container_create", &req.name, Err(s.message()));
+                audit_with_client("container_create", &req.name, Err(s.message()), &client);
             })
             .map_err(|s| *s)?;
 
@@ -325,7 +368,7 @@ impl Agent for AgentService {
             }
         }
 
-        audit("container_create", &req.name, Ok(()));
+        audit_with_client("container_create", &req.name, Ok(()), &client);
         Ok(Response::new(ContainerCreateResponse {
             container_id: result.id,
         }))
@@ -839,6 +882,27 @@ impl Agent for AgentService {
         Ok(Response::new(resp))
     }
 
+    // ── InspectContainerHealth (read Docker State.Health.Status) ──────────────
+    //
+    // Used by the API runner to poll health without crossing per-project
+    // bridges. The agent runs in its own compose service (network: ploydok +
+    // ploydok-public) and is not joined to the per-project networks; doing
+    // an HTTP probe against the container IP would always time out. Reading
+    // the daemon-maintained health state via inspect_container() goes through
+    // the Docker socket, no Docker network traversal involved.
+    async fn inspect_container_health(
+        &self,
+        request: Request<InspectContainerHealthRequest>,
+    ) -> Result<Response<InspectContainerHealthResponse>, Status> {
+        let req = request.into_inner();
+        self.validator
+            .validate_inspect_container_health(&req)
+            .map_err(|e| *e)?;
+        audit("inspect_container_health", &req.container_id, Ok(()));
+        let resp = self.monitor.inspect_health(&req.container_id).await;
+        Ok(Response::new(resp))
+    }
+
     // ── ContainerExec (bidi streaming) ───────────────────────────────────────
 
     type ContainerExecStream = ReceiverStream<Result<ExecFrame, Status>>;
@@ -847,6 +911,9 @@ impl Agent for AgentService {
         &self,
         request: Request<tonic::Streaming<ExecFrame>>,
     ) -> Result<Response<Self::ContainerExecStream>, Status> {
+        // SECURITY: API must enforce ownership. Cmd[1..] is intentionally NOT
+        // sanitized — the API is responsible for vetting the shell payload.
+        let client = client_identity_from_request(&request);
         let mut in_stream = request.into_inner();
 
         // ── Step 1: expect first frame to be ExecStart ───────────────────────
@@ -856,12 +923,7 @@ impl Agent for AgentService {
             .map_err(|e| Status::internal(format!("stream recv error: {e}")))?
             .ok_or_else(|| Status::invalid_argument("stream closed before ExecStart"))?;
 
-        let start = match first.payload {
-            Some(exec_frame::Payload::Start(s)) => s,
-            _ => {
-                return Err(Status::invalid_argument("first frame must be ExecStart"));
-            }
-        };
+        let start = validate_first_exec_frame(first)?;
 
         // ── Step 2: validate ─────────────────────────────────────────────────
         self.validator
@@ -869,7 +931,7 @@ impl Agent for AgentService {
             .map_err(|e| *e)?;
 
         tracing::info!(container_id = %start.container_id, "exec start");
-        audit("container_exec", &start.container_id, Ok(()));
+        audit_with_client("container_exec", &start.container_id, Ok(()), &client);
 
         let container_id = start.container_id.clone();
         let tty = start.tty;
@@ -1073,6 +1135,223 @@ impl Agent for AgentService {
         Ok(Response::new(ReceiverStream::new(rx)))
     }
 
+    // ── ListContainerFiles ──────────────────────────────────────────────────
+    //
+    // Lists the immediate children of `path` inside the container by exec'ing
+    // GNU `find` with a tab-separated `-printf` template. No shell is invoked,
+    // so the path cannot be interpreted as a script.
+
+    async fn list_container_files(
+        &self,
+        request: Request<ListContainerFilesRequest>,
+    ) -> Result<Response<ListContainerFilesResponse>, Status> {
+        let req = request.into_inner();
+        self.validator
+            .validate_list_container_files(&req)
+            .map_err(|e| *e)?;
+        audit("list_container_files", &req.container_id, Ok(()));
+
+        let path = if req.path.is_empty() {
+            "/".to_string()
+        } else {
+            req.path.clone()
+        };
+
+        // Refuse to list a symlink at the top level — prevents an attacker
+        // who controls the container from luring the API into traversing a
+        // symlink that points outside the expected directory tree.
+        // `test -L` returns 0 when the path is a symlink.
+        let symlink_check = vec!["test", "-L", path.as_str()];
+        let (_, link_exit) =
+            exec_capture(&self.docker, &req.container_id, symlink_check, None).await?;
+        if link_exit == 0 {
+            return Ok(Response::new(ListContainerFilesResponse {
+                path,
+                entries: Vec::new(),
+                error: "path_is_symlink".to_string(),
+            }));
+        }
+
+        // `-P` is explicit even though it's `find`'s default — pinning the
+        // behaviour against future changes. With `-P`, symlinks encountered
+        // during traversal are reported but not followed.
+        let cmd = vec![
+            "find",
+            "-P",
+            path.as_str(),
+            "-mindepth",
+            "1",
+            "-maxdepth",
+            "1",
+            "-printf",
+            "%y\t%m\t%s\t%T@\t%U:%G\t%f\n",
+        ];
+
+        let (stdout, exit_code) =
+            exec_capture(&self.docker, &req.container_id, cmd, None).await?;
+
+        if exit_code != 0 {
+            // find returns 1 on missing path / not a dir; surface a soft error
+            // instead of a gRPC error so the client can render an empty list.
+            return Ok(Response::new(ListContainerFilesResponse {
+                path,
+                entries: Vec::new(),
+                error: format!("find exited {exit_code}"),
+            }));
+        }
+
+        let text = String::from_utf8_lossy(&stdout);
+        let mut entries = Vec::new();
+        for line in text.lines() {
+            if line.is_empty() {
+                continue;
+            }
+            let mut parts = line.splitn(6, '\t');
+            let kind = parts.next().unwrap_or("");
+            let mode = parts.next().unwrap_or("");
+            let size_s = parts.next().unwrap_or("0");
+            let mtime_s = parts.next().unwrap_or("0");
+            let owner = parts.next().unwrap_or("");
+            let name = parts.next().unwrap_or("");
+
+            if name.is_empty() {
+                continue;
+            }
+            if !req.show_hidden && name.starts_with('.') {
+                continue;
+            }
+
+            let size: u64 = size_s.parse().unwrap_or(0);
+            // %T@ is a float "1234567890.0000000000" — truncate to seconds.
+            let mtime: i64 = mtime_s
+                .split('.')
+                .next()
+                .and_then(|s| s.parse().ok())
+                .unwrap_or(0);
+
+            let entry_path = if path == "/" {
+                format!("/{name}")
+            } else {
+                format!("{}/{name}", path.trim_end_matches('/'))
+            };
+
+            entries.push(FileEntry {
+                name: name.to_string(),
+                path: entry_path,
+                is_dir: kind == "d",
+                is_symlink: kind == "l",
+                size,
+                mode: mode.to_string(),
+                mtime,
+                owner: owner.to_string(),
+            });
+        }
+
+        // Sort: directories first, then alphabetic.
+        entries.sort_by(|a, b| match (a.is_dir, b.is_dir) {
+            (true, false) => std::cmp::Ordering::Less,
+            (false, true) => std::cmp::Ordering::Greater,
+            _ => a.name.cmp(&b.name),
+        });
+
+        // Cap to 5000 entries to avoid pathological dirs flooding the wire.
+        if entries.len() > 5000 {
+            entries.truncate(5000);
+        }
+
+        Ok(Response::new(ListContainerFilesResponse {
+            path,
+            entries,
+            error: String::new(),
+        }))
+    }
+
+    // ── ReadContainerFile ───────────────────────────────────────────────────
+    //
+    // Reads up to `max_bytes` from `path` inside the container. We do two
+    // separate execs (stat + head) so we can report the true file size even
+    // when the response is truncated.
+
+    async fn read_container_file(
+        &self,
+        request: Request<ReadContainerFileRequest>,
+    ) -> Result<Response<ReadContainerFileResponse>, Status> {
+        let req = request.into_inner();
+        self.validator
+            .validate_read_container_file(&req)
+            .map_err(|e| *e)?;
+        audit("read_container_file", &req.container_id, Ok(()));
+
+        const DEFAULT_MAX_BYTES: u64 = 256 * 1024;
+        const HARD_CAP_BYTES: u64 = 1024 * 1024;
+        let max_bytes = if req.max_bytes == 0 {
+            DEFAULT_MAX_BYTES
+        } else {
+            req.max_bytes.min(HARD_CAP_BYTES)
+        };
+
+        // 1. stat -c %F\t%s — get file type AND total size on disk. We refuse
+        // to read symlinks: their target may live outside the expected tree
+        // (e.g. /etc/shadow), and `head` would happily follow it.
+        let stat_cmd = vec!["stat", "-c", "%F\t%s", req.path.as_str()];
+        let (stat_stdout, stat_exit) =
+            exec_capture(&self.docker, &req.container_id, stat_cmd, None).await?;
+        if stat_exit != 0 {
+            return Ok(Response::new(ReadContainerFileResponse {
+                content: Vec::new(),
+                total_size: 0,
+                truncated: false,
+                is_binary: false,
+                error: "not_found_or_unreadable".to_string(),
+            }));
+        }
+        let stat_text = String::from_utf8_lossy(&stat_stdout);
+        let mut stat_parts = stat_text.trim().splitn(2, '\t');
+        let file_type = stat_parts.next().unwrap_or("");
+        let size_str = stat_parts.next().unwrap_or("0");
+        if file_type.contains("symbolic link") {
+            return Ok(Response::new(ReadContainerFileResponse {
+                content: Vec::new(),
+                total_size: 0,
+                truncated: false,
+                is_binary: false,
+                error: "path_is_symlink".to_string(),
+            }));
+        }
+        let total_size: u64 = size_str.parse().unwrap_or(0);
+
+        // 2. head -c $max_bytes — read up to max_bytes bytes.
+        let max_bytes_str = max_bytes.to_string();
+        let head_cmd = vec![
+            "head",
+            "-c",
+            max_bytes_str.as_str(),
+            req.path.as_str(),
+        ];
+        let (content, head_exit) =
+            exec_capture(&self.docker, &req.container_id, head_cmd, None).await?;
+        if head_exit != 0 {
+            return Ok(Response::new(ReadContainerFileResponse {
+                content: Vec::new(),
+                total_size,
+                truncated: false,
+                is_binary: false,
+                error: format!("head exited {head_exit}"),
+            }));
+        }
+
+        let truncated = total_size > content.len() as u64;
+        let is_binary = looks_like_binary(&content);
+
+        Ok(Response::new(ReadContainerFileResponse {
+            content,
+            total_size,
+            truncated,
+            is_binary,
+            error: String::new(),
+        }))
+    }
+
     // ── DumpDatabase (server-side streaming) ─────────────────────────────────
 
     type DumpDatabaseStream = ReceiverStream<Result<DumpChunk, Status>>;
@@ -1081,6 +1360,8 @@ impl Agent for AgentService {
         &self,
         request: Request<DumpRequest>,
     ) -> Result<Response<Self::DumpDatabaseStream>, Status> {
+        // SECURITY: API must enforce ownership before invoking dump.
+        let client = client_identity_from_request(&request);
         let req = request.into_inner();
         let container_id = req.container_id.clone();
         let kind = req.kind.clone();
@@ -1095,10 +1376,32 @@ impl Agent for AgentService {
 
         // Validate kind
         if !["postgres", "redis", "mongo"].contains(&kind.as_str()) {
+            audit_with_client(
+                "dump_database",
+                &container_id,
+                Err("unsupported_kind"),
+                &client,
+            );
             return Err(Status::invalid_argument(format!(
                 "unsupported db kind: {kind}"
             )));
         }
+
+        // Validate age_recipient before it gets interpolated into a shell
+        // command — see validate_age_recipient for the threat model.
+        if !age_recipient.is_empty() {
+            if let Err(e) = crate::validator::validate_age_recipient(&age_recipient) {
+                audit_with_client(
+                    "dump_database",
+                    &container_id,
+                    Err(e.message()),
+                    &client,
+                );
+                return Err(*e);
+            }
+        }
+
+        audit_with_client("dump_database", &container_id, Ok(()), &client);
 
         let docker = self.docker.clone();
         let (tx, rx) = mpsc::channel::<Result<DumpChunk, Status>>(32);
@@ -1221,6 +1524,95 @@ fn restore_cmd(kind: &str) -> Vec<&'static str> {
 
 /// Run the dump via `docker exec`, optionally pipe through `age -r <recipient>`.
 /// Streams chunks through `tx`.
+// Caps the amount of stdout an `exec_capture` invocation will buffer in memory.
+// 2 MiB is enough for our use cases (file listings, file reads up to 1 MiB)
+// and prevents pathological captures from blowing the agent's heap.
+const EXEC_CAPTURE_OUTPUT_CAP: usize = 2 * 1024 * 1024;
+
+/// Run a command inside a container and collect its full stdout.
+///
+/// `cmd` is passed directly to Docker exec — no shell is spawned, so callers
+/// don't need to worry about shell-quoting their arguments.
+async fn exec_capture(
+    docker: &bollard::Docker,
+    container_id: &str,
+    cmd: Vec<&str>,
+    timeout_secs: Option<u64>,
+) -> Result<(Vec<u8>, i64), Status> {
+    let exec_id = docker
+        .create_exec(
+            container_id,
+            CreateExecOptions {
+                attach_stdout: Some(true),
+                attach_stderr: Some(true),
+                tty: Some(false),
+                cmd: Some(cmd),
+                ..Default::default()
+            },
+        )
+        .await
+        .map_err(|e| bollard_err("create_exec", e))?
+        .id;
+
+    let attached = docker
+        .start_exec(
+            &exec_id,
+            Some(StartExecOptions {
+                detach: false,
+                tty: false,
+                ..Default::default()
+            }),
+        )
+        .await
+        .map_err(|e| bollard_err("start_exec", e))?;
+
+    let mut output = match attached {
+        StartExecResults::Attached { output, .. } => output,
+        StartExecResults::Detached => {
+            return Err(Status::internal("exec returned detached — unexpected"));
+        }
+    };
+
+    let mut stdout: Vec<u8> = Vec::new();
+    let drain = async {
+        while let Some(msg) = output.next().await {
+            match msg {
+                Ok(bollard::container::LogOutput::StdOut { message }) => {
+                    if stdout.len() + message.len() > EXEC_CAPTURE_OUTPUT_CAP {
+                        let remaining = EXEC_CAPTURE_OUTPUT_CAP.saturating_sub(stdout.len());
+                        stdout.extend_from_slice(&message[..remaining]);
+                        break;
+                    }
+                    stdout.extend_from_slice(&message);
+                }
+                // stderr / stdin / console frames are dropped — we only want stdout.
+                Ok(_) => {}
+                Err(e) => return Err(bollard_err("exec_capture_drain", e)),
+            }
+        }
+        Ok::<(), Status>(())
+    };
+    let timeout = Duration::from_secs(timeout_secs.unwrap_or(30));
+    tokio::time::timeout(timeout, drain)
+        .await
+        .map_err(|_| Status::deadline_exceeded("exec_capture timeout"))??;
+
+    let inspected = docker
+        .inspect_exec(&exec_id)
+        .await
+        .map_err(|e| bollard_err("inspect_exec", e))?;
+    let exit_code = inspected.exit_code.unwrap_or(-1);
+
+    Ok((stdout, exit_code))
+}
+
+/// Heuristic: classify a byte slice as binary if it contains a NUL byte in the
+/// first 8 KiB. Cheap, predictable, and consistent with what `grep -I` does.
+fn looks_like_binary(bytes: &[u8]) -> bool {
+    let head = &bytes[..bytes.len().min(8 * 1024)];
+    head.contains(&0u8)
+}
+
 async fn dump_database_task(
     docker: bollard::Docker,
     container_id: &str,

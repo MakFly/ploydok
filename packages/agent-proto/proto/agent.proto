@@ -323,6 +323,29 @@ message PingContainerResponse {
   string error = 4;                     // empty if ok
 }
 
+// Mirror of Docker's `State.Health.Status`. Used by InspectContainerHealth so
+// the API can poll the daemon-maintained health state without doing a
+// cross-network HTTP probe (the agent runs in its own docker-compose service
+// and is not joined to per-project bridges).
+enum ContainerHealthStatus {
+  CONTAINER_HEALTH_STATUS_UNSPECIFIED = 0; // Reserved; never emitted.
+  CONTAINER_HEALTH_STATUS_NONE        = 1; // No HEALTHCHECK declared on container.
+  CONTAINER_HEALTH_STATUS_STARTING    = 2; // Within the start_period grace.
+  CONTAINER_HEALTH_STATUS_HEALTHY     = 3;
+  CONTAINER_HEALTH_STATUS_UNHEALTHY   = 4;
+}
+
+message InspectContainerHealthRequest {
+  string container_id = 1;
+}
+
+message InspectContainerHealthResponse {
+  ContainerHealthStatus status = 1;
+  uint32 failing_streak = 2;            // Docker's failing_streak counter.
+  string last_probe_output = 3;         // last health log entry, truncated server-side
+  bool   container_missing = 4;         // true when inspect returns 404.
+}
+
 // ─────────────────────────────────────────────────────────────────────────────
 // ContainerExec (bidirectional streaming)
 // ─────────────────────────────────────────────────────────────────────────────
@@ -373,6 +396,68 @@ message ExecExit {
 message ExecReady {
   // Docker exec id — useful for debugging / correlation.
   string exec_id = 1;
+}
+
+// ─────────────────────────────────────────────────────────────────────────────
+// ListContainerFiles / ReadContainerFile (file browser sidebar)
+// ─────────────────────────────────────────────────────────────────────────────
+
+message ListContainerFilesRequest {
+  // Container name or id — must match the ploydok-* allowlist.
+  string container_id = 1;
+  // Absolute path to list (must start with "/" — no "..").
+  string path = 2;
+  // Include dotfiles in the listing.
+  bool show_hidden = 3;
+}
+
+message FileEntry {
+  // Basename only (e.g. "foo.txt").
+  string name = 1;
+  // Absolute path inside the container.
+  string path = 2;
+  // True if entry is a directory.
+  bool is_dir = 3;
+  // True if entry is a symlink.
+  bool is_symlink = 4;
+  // Size in bytes (0 for directories).
+  uint64 size = 5;
+  // Permission bits as 4-digit octal string ("0755").
+  string mode = 6;
+  // Modification time, unix seconds.
+  int64 mtime = 7;
+  // Owner as "uid:gid" or "user:group".
+  string owner = 8;
+}
+
+message ListContainerFilesResponse {
+  // Resolved absolute path that was listed.
+  string path = 1;
+  repeated FileEntry entries = 2;
+  // Empty if ok ; otherwise short reason ("not_a_directory", "not_found").
+  string error = 3;
+}
+
+message ReadContainerFileRequest {
+  // Container name or id — must match the ploydok-* allowlist.
+  string container_id = 1;
+  // Absolute path to read.
+  string path = 2;
+  // Maximum bytes to return. 0 = server default (256 KiB). Capped at 1 MiB.
+  uint64 max_bytes = 3;
+}
+
+message ReadContainerFileResponse {
+  // Raw bytes (truncated to max_bytes).
+  bytes content = 1;
+  // Total file size on disk (regardless of truncation).
+  uint64 total_size = 2;
+  // True if `content` was truncated.
+  bool truncated = 3;
+  // Heuristic: true if file looks like binary (contains NULs, etc.).
+  bool is_binary = 4;
+  // Empty if ok ; otherwise short reason.
+  string error = 5;
 }
 
 // ─────────────────────────────────────────────────────────────────────────────
@@ -470,11 +555,16 @@ service Agent {
   rpc NetworkDisconnect (NetworkDisconnectRequest)  returns (NetworkDisconnectResponse);
 
   // Monitoring (snapshot + ad-hoc ping)
-  rpc ListContainers  (ListContainersRequest)   returns (ListContainersResponse);
-  rpc PingContainer   (PingContainerRequest)    returns (PingContainerResponse);
+  rpc ListContainers         (ListContainersRequest)         returns (ListContainersResponse);
+  rpc PingContainer          (PingContainerRequest)          returns (PingContainerResponse);
+  rpc InspectContainerHealth (InspectContainerHealthRequest) returns (InspectContainerHealthResponse);
 
   // Interactive shell (bidi streaming)
   rpc ContainerExec   (stream ExecFrame)        returns (stream ExecFrame);
+
+  // File browser (read-only, used by the shell sidebar)
+  rpc ListContainerFiles (ListContainerFilesRequest) returns (ListContainerFilesResponse);
+  rpc ReadContainerFile  (ReadContainerFileRequest)  returns (ReadContainerFileResponse);
 
   // Database backup / restore (streaming)
   rpc DumpDatabase    (DumpRequest)             returns (stream DumpChunk);

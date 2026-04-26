@@ -54,7 +54,7 @@ function DashboardPage(): React.JSX.Element {
         ...app,
         runtimeStatus: resolveRuntimeAppStatus(
           app.status,
-          selectAppSnapshot(containers, app.id)
+          selectAppSnapshot(containers, app.id, app.containerId)
         ),
       })),
     [apps, containers]

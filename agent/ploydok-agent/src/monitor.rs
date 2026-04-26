@@ -19,8 +19,8 @@ use futures::StreamExt;
 use tokio::sync::RwLock;
 
 use ploydok_proto::agent::{
-    ContainerSnapshot, ListContainersRequest, ListContainersResponse, PingContainerRequest,
-    PingContainerResponse,
+    ContainerHealthStatus, ContainerSnapshot, InspectContainerHealthResponse,
+    ListContainersRequest, ListContainersResponse, PingContainerRequest, PingContainerResponse,
 };
 
 // ─────────────────────────────────────────────────────────────────────────────
@@ -303,6 +303,80 @@ impl Monitor {
         }
 
         resp
+    }
+
+    /// Inspect a container's Docker-maintained health state.
+    ///
+    /// The Docker daemon runs the `HEALTHCHECK` declared on the container (the
+    /// API runner injects one at create time on every app container) and
+    /// exposes the rolling state via `inspect_container().State.Health`. This
+    /// is the source of truth: probing happens *inside* the container, so the
+    /// agent does not need to be on the same Docker network as the target.
+    ///
+    /// Errors are folded into the response rather than propagated, so the API
+    /// poll loop can keep going without unwrapping a Status:
+    /// - Docker 404 → `container_missing = true`, status = NONE.
+    /// - Other Docker errors → status = NONE, error message in
+    ///   `last_probe_output` (truncated to 4 KiB).
+    /// - Container without a HEALTHCHECK declared → status = NONE.
+    pub async fn inspect_health(&self, container_id: &str) -> InspectContainerHealthResponse {
+        let info = match self.docker.inspect_container(container_id, None).await {
+            Ok(info) => info,
+            Err(bollard::errors::Error::DockerResponseServerError {
+                status_code: 404, ..
+            }) => {
+                return InspectContainerHealthResponse {
+                    status: ContainerHealthStatus::None as i32,
+                    failing_streak: 0,
+                    last_probe_output: String::new(),
+                    container_missing: true,
+                };
+            }
+            Err(e) => {
+                let msg: String = format!("inspect error: {e}").chars().take(4096).collect();
+                return InspectContainerHealthResponse {
+                    status: ContainerHealthStatus::None as i32,
+                    failing_streak: 0,
+                    last_probe_output: msg,
+                    container_missing: false,
+                };
+            }
+        };
+
+        let health = info.state.as_ref().and_then(|s| s.health.as_ref());
+        let (status, failing_streak, last_output) = match health {
+            None => (ContainerHealthStatus::None, 0u32, String::new()),
+            Some(h) => {
+                let status = match h.status {
+                    Some(bollard::models::HealthStatusEnum::STARTING) => {
+                        ContainerHealthStatus::Starting
+                    }
+                    Some(bollard::models::HealthStatusEnum::HEALTHY) => {
+                        ContainerHealthStatus::Healthy
+                    }
+                    Some(bollard::models::HealthStatusEnum::UNHEALTHY) => {
+                        ContainerHealthStatus::Unhealthy
+                    }
+                    _ => ContainerHealthStatus::None,
+                };
+                let last_output = h
+                    .log
+                    .as_ref()
+                    .and_then(|logs| logs.last())
+                    .and_then(|entry| entry.output.clone())
+                    .unwrap_or_default();
+                let last_output: String = last_output.chars().take(4096).collect();
+                let failing_streak = h.failing_streak.unwrap_or(0).max(0) as u32;
+                (status, failing_streak, last_output)
+            }
+        };
+
+        InspectContainerHealthResponse {
+            status: status as i32,
+            failing_streak,
+            last_probe_output: last_output,
+            container_missing: false,
+        }
     }
 
     /// Resolve the first available network IP for a container via Docker inspect.
