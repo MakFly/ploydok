@@ -19,6 +19,7 @@ import { childLogger } from "./logger"
 import { appsRouter } from "./routes/apps"
 import { appsEnvRouter } from "./routes/apps-env"
 import { appsDomainsRouter } from "./routes/apps-domains"
+import { createCdnRouter } from "./routes/apps-cdn"
 import { githubRouter } from "./routes/github"
 import { gitlabRouter } from "./routes/gitlab"
 import { registryCredentialsRouter } from "./routes/registry-credentials"
@@ -360,6 +361,7 @@ app.use("/apps/*", requireAuth(db))
 app.route("/apps", appsEnvRouter)
 app.route("/apps", appsDomainsRouter)
 app.route("/apps", appsProtectionRouter)
+app.route("/apps", createCdnRouter(db))
 app.route("/apps", appsRouter)
 
 // GitHub App routes — auth enforced per-endpoint inside the router.

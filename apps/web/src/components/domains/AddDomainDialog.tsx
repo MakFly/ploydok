@@ -12,7 +12,12 @@ import { Input } from "@workspace/ui/components/input"
 import { Label } from "@workspace/ui/components/label"
 import type { CreateDomainParams, Dns01Provider, TlsMode } from "../../lib/domains"
 
-const HOSTNAME_REGEX = /^[a-z0-9][a-z0-9.-]{1,253}\.[a-z]{2,}$/i
+const DNS_LABEL = "[a-z0-9](?:[a-z0-9-]{0,61}[a-z0-9])?"
+const HOSTNAME_REGEX = new RegExp(`^(?:${DNS_LABEL}\\.)+[a-z]{2,63}$`, "i")
+const WILDCARD_HOSTNAME_REGEX = new RegExp(
+  `^\\*\\.(?:${DNS_LABEL}\\.)+[a-z]{2,63}$`,
+  "i"
+)
 
 const DNS01_PROVIDERS: Array<{ value: Dns01Provider; label: string }> = [
   { value: "cloudflare", label: "Cloudflare" },
@@ -27,6 +32,26 @@ export interface AddDomainDialogProps {
   lockReason?: string
 }
 
+function normalizeHostname(rawHostname: string, wildcard: boolean) {
+  const lower = rawHostname.trim().toLowerCase()
+  return wildcard && !lower.startsWith("*.") ? `*.${lower}` : lower
+}
+
+function validateHostname(hostname: string, tlsMode: TlsMode): string | null {
+  if (hostname.length > 253) return "Hostname is too long"
+  if (hostname.startsWith("*.")) {
+    if (tlsMode !== "dns01") {
+      return "Wildcard domains require DNS-01 mode"
+    }
+    return WILDCARD_HOSTNAME_REGEX.test(hostname)
+      ? null
+      : "Invalid wildcard hostname format (e.g. *.example.com)"
+  }
+  return HOSTNAME_REGEX.test(hostname)
+    ? null
+    : "Invalid hostname format (e.g. app.example.com)"
+}
+
 export function AddDomainDialog({ onAdd, isAdding, lockReason }: AddDomainDialogProps): React.JSX.Element {
   const [open, setOpen] = React.useState(false)
   const [hostname, setHostname] = React.useState("")
@@ -37,9 +62,10 @@ export function AddDomainDialog({ onAdd, isAdding, lockReason }: AddDomainDialog
 
   function handleSubmit(e: React.FormEvent) {
     e.preventDefault()
-    const trimmed = hostname.trim().toLowerCase()
-    if (!HOSTNAME_REGEX.test(trimmed)) {
-      setError("Invalid hostname format (e.g. app.example.com)")
+    const normalized = normalizeHostname(hostname, wildcard)
+    const validationError = validateHostname(normalized, tlsMode)
+    if (validationError) {
+      setError(validationError)
       return
     }
     if (tlsMode === "dns01" && !dns01Provider) {
@@ -48,7 +74,7 @@ export function AddDomainDialog({ onAdd, isAdding, lockReason }: AddDomainDialog
     }
     setError(null)
     onAdd({
-      hostname: trimmed,
+      hostname: normalized,
       tls_mode: tlsMode,
       dns01_provider: tlsMode === "dns01" ? dns01Provider : undefined,
       wildcard,
@@ -99,6 +125,7 @@ export function AddDomainDialog({ onAdd, isAdding, lockReason }: AddDomainDialog
                   onClick={() => {
                     setTlsMode(mode)
                     if (mode === "http01") setWildcard(false)
+                    if (error) setError(null)
                   }}
                 >
                   {mode === "http01" ? "HTTP-01 (standard)" : "DNS-01 (wildcard)"}

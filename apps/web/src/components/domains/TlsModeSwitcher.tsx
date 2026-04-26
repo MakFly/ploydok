@@ -20,6 +20,7 @@ const DNS01_PROVIDERS: Array<{ value: Dns01Provider; label: string }> = [
 export interface TlsModeSwitcherProps {
   domainId: string
   currentMode: TlsMode
+  currentProvider?: Dns01Provider | null
   open: boolean
   onOpenChange: (open: boolean) => void
   onSwitch: (params: { domainId: string; tls_mode: TlsMode; dns01_provider?: Dns01Provider }) => void
@@ -29,13 +30,22 @@ export interface TlsModeSwitcherProps {
 export function TlsModeSwitcher({
   domainId,
   currentMode,
+  currentProvider,
   open,
   onOpenChange,
   onSwitch,
   isSwitching,
 }: TlsModeSwitcherProps): React.JSX.Element {
   const [tlsMode, setTlsMode] = React.useState<TlsMode>(currentMode)
-  const [dns01Provider, setDns01Provider] = React.useState<Dns01Provider>("cloudflare")
+  const [dns01Provider, setDns01Provider] = React.useState<Dns01Provider>(
+    currentProvider ?? "cloudflare"
+  )
+
+  React.useEffect(() => {
+    if (!open) return
+    setTlsMode(currentMode)
+    setDns01Provider(currentProvider ?? "cloudflare")
+  }, [currentMode, currentProvider, open])
 
   function handleSubmit(e: React.FormEvent) {
     e.preventDefault()

@@ -12,13 +12,13 @@
  * Env vars:
  *   PLOYDOK_FULL_INFRA=1           – all infra must be up (make infra-up + dev)
  *   E2E_SPRINT4=1                  – explicit opt-in for this long suite
- *   E2E_DNS_PROVIDER=mock          – use the mock DNS solver built into the API
+ *   E2E_DNS_PROVIDER=cloudflare    – accepted DNS-01 provider for this local smoke
  *   E2E_TEST_EMAIL                 – see helpers/auth.ts (defaults to dev seed)
  *   E2E_TEST_BACKUP_CODE           – see helpers/auth.ts (defaults to DEVD-EVDE-VDEV)
  *   E2E_TEST_PROJECT_ID            – existing project id for app creation
  *
  * To run locally (infra + dev up):
- *   PLOYDOK_FULL_INFRA=1 E2E_SPRINT4=1 E2E_DNS_PROVIDER=mock \
+ *   PLOYDOK_FULL_INFRA=1 E2E_SPRINT4=1 E2E_DNS_PROVIDER=cloudflare \
  *   E2E_TEST_EMAIL=dev@ploydok.local E2E_TEST_BACKUP_CODE=DEVD-EVDE-VDEV \
  *   E2E_TEST_PROJECT_ID=dev-project-0001 \
  *   bun --cwd apps/web exec playwright test sprint4/full-flow
@@ -35,7 +35,7 @@ import { API_URL, loginWithBackupCode, apiLoginWithCsrf } from "../helpers/auth"
 
 const FULL_INFRA = process.env.PLOYDOK_FULL_INFRA === "1"
 const SPRINT4_GATE = process.env.E2E_SPRINT4 === "1"
-const DNS_PROVIDER = process.env.E2E_DNS_PROVIDER ?? "mock"
+const DNS_PROVIDER = process.env.E2E_DNS_PROVIDER ?? "cloudflare"
 const PROJECT_ID = process.env.E2E_TEST_PROJECT_ID ?? "dev-project-0001"
 
 const POLL_MS = 2_000
@@ -353,9 +353,9 @@ test.describe("Sprint 4 — full integration flow", () => {
   })
 
   // -------------------------------------------------------------------------
-  // Step 4: Add wildcard domain via DNS-01 (mock provider)
+  // Step 4: Add wildcard domain via DNS-01
   // -------------------------------------------------------------------------
-  test("4 – add wildcard domain with DNS-01 (mock provider)", async () => {
+  test("4 – add wildcard domain with DNS-01", async () => {
     expect(appId, "appId must be set from step 2").toBeTruthy()
 
     const wildcardDomain = `e2e-s4-${Date.now()}.example.test`
@@ -370,11 +370,11 @@ test.describe("Sprint 4 — full integration flow", () => {
       body: JSON.stringify({
         hostname: `*.${wildcardDomain}`,
         tls_mode: "dns01",
-        dns_provider: DNS_PROVIDER,
+        dns01_provider: DNS_PROVIDER,
       }),
     })
     // 200 = domain accepted and validation started, 422 = validation params missing.
-    // With mock provider the API should accept the domain immediately.
+    // Local smoke only checks API acceptance; DNS propagation is covered separately.
     const acceptedStatuses = [200, 201, 202]
     expect(
       acceptedStatuses.includes(res.status),

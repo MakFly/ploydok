@@ -17,7 +17,7 @@ import {
   FieldDescription,
 } from "@workspace/ui/components/field"
 import { useImportEnv } from "../../lib/secrets"
-import type { SecretScope } from "../../lib/secrets"
+import type { SecretPhase, SecretScope } from "../../lib/secrets"
 
 interface ImportEnvDialogProps {
   appId: string
@@ -27,10 +27,17 @@ interface ImportEnvDialogProps {
 }
 
 const SCOPES: SecretScope[] = ["shared", "prod", "preview", "dev"]
+const PHASES: SecretPhase[] = ["runtime", "build", "both"]
 
-export function ImportEnvDialog({ appId, open, defaultScope = "shared", onOpenChange }: ImportEnvDialogProps): React.JSX.Element {
+export function ImportEnvDialog({
+  appId,
+  open,
+  defaultScope = "shared",
+  onOpenChange,
+}: ImportEnvDialogProps): React.JSX.Element {
   const [file, setFile] = React.useState<File | null>(null)
   const [scope, setScope] = React.useState<SecretScope>(defaultScope)
+  const [phase, setPhase] = React.useState<SecretPhase>("runtime")
   const fileInputRef = React.useRef<HTMLInputElement>(null)
 
   const { mutate: importEnv, isPending } = useImportEnv(appId)
@@ -40,10 +47,12 @@ export function ImportEnvDialog({ appId, open, defaultScope = "shared", onOpenCh
     if (!file) return
 
     importEnv(
-      { file, scope },
+      { file, scope, phase },
       {
         onSuccess: ({ imported }) => {
-          toast.success(`Imported ${imported} secret${imported !== 1 ? "s" : ""}`)
+          toast.success(
+            `Imported ${imported} secret${imported !== 1 ? "s" : ""}`
+          )
           setFile(null)
           if (fileInputRef.current) fileInputRef.current.value = ""
           onOpenChange(false)
@@ -51,7 +60,7 @@ export function ImportEnvDialog({ appId, open, defaultScope = "shared", onOpenCh
         onError: (err) => {
           toast.error(err.message)
         },
-      },
+      }
     )
   }
 
@@ -62,7 +71,8 @@ export function ImportEnvDialog({ appId, open, defaultScope = "shared", onOpenCh
           <DialogTitle>Import .env file</DialogTitle>
           <DialogDescription>
             Upload a .env file. Scope prefixes like{" "}
-            <code className="text-xs">@prod MY_KEY=value</code> override the default scope.
+            <code className="text-xs">@prod MY_KEY=value</code> override the
+            default scope.
           </DialogDescription>
         </DialogHeader>
         <form onSubmit={handleSubmit} className="space-y-4">
@@ -79,7 +89,9 @@ export function ImportEnvDialog({ appId, open, defaultScope = "shared", onOpenCh
                 required
               />
             </FieldContent>
-            <FieldDescription>Standard .env format with optional @scope prefixes</FieldDescription>
+            <FieldDescription>
+              Standard .env format with optional @scope prefixes
+            </FieldDescription>
           </Field>
 
           <Field>
@@ -100,8 +112,30 @@ export function ImportEnvDialog({ appId, open, defaultScope = "shared", onOpenCh
             </FieldContent>
           </Field>
 
+          <Field>
+            <FieldLabel htmlFor="import-phase">Default phase</FieldLabel>
+            <FieldContent>
+              <select
+                id="import-phase"
+                value={phase}
+                onChange={(e) => setPhase(e.target.value as SecretPhase)}
+                className="flex h-9 w-full rounded-md border border-input bg-transparent px-3 py-1 text-sm shadow-sm"
+              >
+                {PHASES.map((p) => (
+                  <option key={p} value={p}>
+                    {p}
+                  </option>
+                ))}
+              </select>
+            </FieldContent>
+          </Field>
+
           <DialogFooter>
-            <Button type="button" variant="ghost" onClick={() => onOpenChange(false)}>
+            <Button
+              type="button"
+              variant="ghost"
+              onClick={() => onOpenChange(false)}
+            >
               Cancel
             </Button>
             <Button type="submit" disabled={isPending || !file}>

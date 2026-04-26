@@ -124,6 +124,7 @@ function AppDomainsTab(): React.JSX.Element {
               }}
               isDeleting={isDeleting}
               isRetrying={isRetrying}
+              lockReason={lockReason}
             />
           ))}
         </div>
@@ -147,6 +148,7 @@ function AppDomainsTab(): React.JSX.Element {
         <TlsModeSwitcher
           domainId={switchTarget.id}
           currentMode={switchTarget.tlsMode}
+          currentProvider={switchTarget.dns01Provider}
           open={Boolean(switchTarget)}
           onOpenChange={(open) => {
             if (!open) setSwitchTarget(null)

@@ -36,7 +36,12 @@ export interface Database {
   password_rotated_at: string | null
   last_started_at: string | null
   created_at: string
-  linked_apps?: Array<{ app_id: string; env_prefix: string }>
+  linked_apps?: Array<{
+    app_id: string
+    app_name: string | null
+    app_slug: string | null
+    env_prefix: string
+  }>
   connections?: {
     internal: {
       host: string | null

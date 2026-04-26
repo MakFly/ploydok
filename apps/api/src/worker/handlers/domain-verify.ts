@@ -4,6 +4,7 @@ import { domains } from "@ploydok/db"
 import type { Db } from "@ploydok/db"
 import { getAppForUser } from "@ploydok/db/queries"
 import { verifyDomain } from "../../domains/verifier.js"
+import { getCaddyTlsOptionsForDomain } from "../../domains/caddy-tls.js"
 import { CaddyClient } from "../../caddy/client.js"
 import { claimQueuedRow } from "../queue-claim.js"
 import { auditClaimed, auditUnauthorized } from "../queue-audit.js"
@@ -109,10 +110,17 @@ export async function handleDomainVerify(
   try {
     const upstream = await caddyClient.getUpstream(claimed.app_id)
     if (upstream) {
+      const tls = await getCaddyTlsOptionsForDomain(
+        db,
+        claimed.app_id,
+        claimed.tls_mode,
+        claimed.dns01_provider
+      )
       await caddyClient.upsertRoute({
         host: claimed.hostname,
         upstream: `${upstream.host}:${upstream.port}`,
         appId: `domain-${domainId}`,
+        ...(tls ? { tls } : {}),
       })
       logger.info(
         { domainId, hostname: claimed.hostname },

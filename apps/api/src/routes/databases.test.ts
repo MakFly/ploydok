@@ -239,6 +239,105 @@ describe("GET /databases", () => {
   })
 })
 
+describe("GET /databases/:id", () => {
+  const mockDatabaseRow = {
+    id: "db-test-id",
+    project_id: "proj-1",
+    kind: "postgres",
+    version: "16",
+    name: "mydb",
+    plan: "small",
+    status: "running",
+    health_status: "healthy",
+    host: "ploydok-db-db-test-id",
+    port: 5432,
+    exposure_mode: "internal",
+    public_enabled: false,
+    public_port: null,
+    public_host: null,
+    public_url: null,
+    rotation_schedule: "manual",
+    rotation_in_progress: false,
+    password_rotated_at: null,
+    last_started_at: null,
+    created_at: new Date("2026-01-01T00:00:00.000Z"),
+  }
+
+  function buildDetailDb(linkRows: unknown[]) {
+    let selectCalls = 0
+    const db: Record<string, unknown> = {
+      select: mock(() => {
+        selectCalls += 1
+
+        if (selectCalls === 1) {
+          const chain = {
+            from: () => chain,
+            innerJoin: () => chain,
+            where: () => ({
+              limit: () => Promise.resolve([{ db: mockDatabaseRow }]),
+            }),
+          }
+          return chain
+        }
+
+        const chain = {
+          from: () => chain,
+          leftJoin: () => chain,
+          where: () => Promise.resolve(linkRows),
+        }
+        return chain
+      }),
+      insert: mock(() => ({ values: mock(async () => {}) })),
+      update: mock(() => ({
+        set: mock(() => ({ where: mock(async () => {}) })),
+      })),
+      delete: mock(() => ({ where: mock(async () => {}) })),
+    }
+    return db as unknown as Db
+  }
+
+  it("returns linked app names for linked databases", async () => {
+    const db = buildDetailDb([
+      {
+        app_id: "app-1",
+        app_name: "api",
+        app_slug: "api",
+        env_prefix: "DATABASE",
+      },
+    ])
+    const app = wrapRouter(db)
+    const res = await app.fetch(req("GET", "/db-test-id"))
+
+    expect(res.status).toBe(200)
+    const data = (await res.json()) as {
+      linked_apps: Array<{
+        app_id: string
+        app_name: string | null
+        app_slug: string | null
+        env_prefix: string
+      }>
+    }
+    expect(data.linked_apps).toEqual([
+      {
+        app_id: "app-1",
+        app_name: "api",
+        app_slug: "api",
+        env_prefix: "DATABASE",
+      },
+    ])
+  })
+
+  it("returns an empty linked app list for unlinked databases", async () => {
+    const db = buildDetailDb([])
+    const app = wrapRouter(db)
+    const res = await app.fetch(req("GET", "/db-test-id"))
+
+    expect(res.status).toBe(200)
+    const data = (await res.json()) as { linked_apps: unknown[] }
+    expect(data.linked_apps).toEqual([])
+  })
+})
+
 describe("POST /databases/:id lifecycle", () => {
   const mockDatabaseRow = {
     id: "db-test-id",

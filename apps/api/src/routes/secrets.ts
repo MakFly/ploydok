@@ -6,7 +6,7 @@ import { Hono } from "hono"
 import { z } from "zod"
 import { and, eq } from "drizzle-orm"
 import { nanoid } from "nanoid"
-import { secrets, audit_log } from "@ploydok/db"
+import { secrets, audit_log, databases } from "@ploydok/db"
 import { createDb } from "@ploydok/db"
 import type { Db } from "@ploydok/db"
 import { env } from "../env"
@@ -54,7 +54,7 @@ async function insertAuditLog(
   userId: string,
   action: string,
   appId: string,
-  keyHash: string,
+  keyHash: string
 ): Promise<void> {
   await db.insert(audit_log).values({
     user_id: userId,
@@ -76,25 +76,34 @@ export function createSecretsRouter(db: Db): Hono<any, any, any> {
     const user = getUser(c)
     const appId = c.req.param("id")
     const scopeParam = c.req.query("scope") as Scope | undefined
-    const phaseParam = (c.req.query("phase") ?? "runtime") as Phase
+    const phaseParam = c.req.query("phase") as Phase | undefined
 
     const app = await getAppForUser(db, appId!, user.id)
     if (!app) {
-      return c.json({ error: { code: "NOT_FOUND", message: "App not found" } }, 404)
+      return c.json(
+        { error: { code: "NOT_FOUND", message: "App not found" } },
+        404
+      )
     }
 
     const conditions = [eq(secrets.app_id, appId!)]
     if (scopeParam) {
       const parsed = ScopeEnum.safeParse(scopeParam)
       if (!parsed.success) {
-        return c.json({ error: { code: "VALIDATION_ERROR", message: "Invalid scope" } }, 400)
+        return c.json(
+          { error: { code: "VALIDATION_ERROR", message: "Invalid scope" } },
+          400
+        )
       }
       conditions.push(eq(secrets.scope, parsed.data))
     }
     if (phaseParam) {
       const parsed = PhaseEnum.safeParse(phaseParam)
       if (!parsed.success) {
-        return c.json({ error: { code: "VALIDATION_ERROR", message: "Invalid phase" } }, 400)
+        return c.json(
+          { error: { code: "VALIDATION_ERROR", message: "Invalid phase" } },
+          400
+        )
       }
       conditions.push(eq(secrets.phase, parsed.data))
     }
@@ -105,9 +114,13 @@ export function createSecretsRouter(db: Db): Hono<any, any, any> {
         key: secrets.key,
         scope: secrets.scope,
         phase: secrets.phase,
+        linked_database_id: secrets.linked_database_id,
+        linked_database_name: databases.name,
+        linked_database_kind: databases.kind,
         created_at: secrets.created_at,
       })
       .from(secrets)
+      .leftJoin(databases, eq(secrets.linked_database_id, databases.id))
       .where(and(...(conditions as [ReturnType<typeof eq>])))
 
     return c.json({
@@ -115,6 +128,10 @@ export function createSecretsRouter(db: Db): Hono<any, any, any> {
         key: r.key,
         scope: r.scope,
         phase: r.phase,
+        linked_database_id: r.linked_database_id,
+        linked_database_name: r.linked_database_name,
+        linked_database_kind: r.linked_database_kind,
+        managed_by: r.linked_database_id ? "database" : "manual",
         updated_at: r.created_at?.toISOString() ?? null,
       })),
     })
@@ -127,37 +144,51 @@ export function createSecretsRouter(db: Db): Hono<any, any, any> {
 
     const app = await getAppForUser(db, appId!, user.id)
     if (!app) {
-      return c.json({ error: { code: "NOT_FOUND", message: "App not found" } }, 404)
+      return c.json(
+        { error: { code: "NOT_FOUND", message: "App not found" } },
+        404
+      )
     }
 
     let body: z.infer<typeof CreateSecretBody>
     try {
       body = CreateSecretBody.parse(await c.req.json())
     } catch (err) {
-      return c.json({ error: { code: "VALIDATION_ERROR", message: String(err) } }, 400)
+      return c.json(
+        { error: { code: "VALIDATION_ERROR", message: String(err) } },
+        400
+      )
     }
 
     const { enc, nonce } = await encryptSecret(body.value)
 
     // Check if secret already exists for this key+scope+phase tuple.
     const matchingPhase = await db
-      .select({ id: secrets.id, linked_database_id: secrets.linked_database_id })
+      .select({
+        id: secrets.id,
+        linked_database_id: secrets.linked_database_id,
+      })
       .from(secrets)
       .where(
         and(
           eq(secrets.app_id, appId!),
           eq(secrets.key, body.key),
           eq(secrets.scope, body.scope),
-          eq(secrets.phase, body.phase),
-        ),
+          eq(secrets.phase, body.phase)
+        )
       )
       .limit(1)
 
     // Linked secrets must be managed via DB link, not edited manually
     if (matchingPhase[0]?.linked_database_id) {
       return c.json(
-        { error: { code: "LINKED_SECRET", message: "linked secret — use DB link management instead" } },
-        400,
+        {
+          error: {
+            code: "LINKED_SECRET",
+            message: "linked secret — use DB link management instead",
+          },
+        },
+        400
       )
     }
 
@@ -190,7 +221,10 @@ export function createSecretsRouter(db: Db): Hono<any, any, any> {
     const action = isUpdate ? "secret.updated" : "secret.created"
     await insertAuditLog(db, user.id, action, appId, keyHash(body.key))
 
-    return c.json({ key: body.key, scope: body.scope, phase: body.phase }, isUpdate ? 200 : 201)
+    return c.json(
+      { key: body.key, scope: body.scope, phase: body.phase },
+      isUpdate ? 200 : 201
+    )
   })
 
   // DELETE /:id/secrets/:key?scope=
@@ -203,31 +237,76 @@ export function createSecretsRouter(db: Db): Hono<any, any, any> {
 
     const app = await getAppForUser(db, appId!, user.id)
     if (!app) {
-      return c.json({ error: { code: "NOT_FOUND", message: "App not found" } }, 404)
+      return c.json(
+        { error: { code: "NOT_FOUND", message: "App not found" } },
+        404
+      )
     }
 
     if (!scopeParam) {
-      return c.json({ error: { code: "VALIDATION_ERROR", message: "scope query param required" } }, 400)
+      return c.json(
+        {
+          error: {
+            code: "VALIDATION_ERROR",
+            message: "scope query param required",
+          },
+        },
+        400
+      )
     }
     const parsedScope = ScopeEnum.safeParse(scopeParam)
     if (!parsedScope.success) {
-      return c.json({ error: { code: "VALIDATION_ERROR", message: "Invalid scope" } }, 400)
+      return c.json(
+        { error: { code: "VALIDATION_ERROR", message: "Invalid scope" } },
+        400
+      )
     }
 
     const parsedPhase = PhaseEnum.safeParse(phaseParam)
     if (!parsedPhase.success) {
-      return c.json({ error: { code: "VALIDATION_ERROR", message: "Invalid phase" } }, 400)
+      return c.json(
+        { error: { code: "VALIDATION_ERROR", message: "Invalid phase" } },
+        400
+      )
     }
 
-    const deleted = await db
+    const existing = await db
+      .select({
+        id: secrets.id,
+        linked_database_id: secrets.linked_database_id,
+      })
+      .from(secrets)
+      .where(
+        and(
+          eq(secrets.app_id, appId!),
+          eq(secrets.key, key!),
+          eq(secrets.scope, parsedScope.data),
+          eq(secrets.phase, parsedPhase.data)
+        )
+      )
+      .limit(1)
+
+    if (existing[0]?.linked_database_id) {
+      return c.json(
+        {
+          error: {
+            code: "LINKED_SECRET",
+            message: "linked secret — unlink the database instead",
+          },
+        },
+        400
+      )
+    }
+
+    await db
       .delete(secrets)
       .where(
         and(
           eq(secrets.app_id, appId!),
           eq(secrets.key, key!),
           eq(secrets.scope, parsedScope.data),
-          eq(secrets.phase, parsedPhase.data),
-        ),
+          eq(secrets.phase, parsedPhase.data)
+        )
       )
 
     await insertAuditLog(db, user.id, "secret.deleted", appId, keyHash(key))
@@ -245,20 +324,37 @@ export function createSecretsRouter(db: Db): Hono<any, any, any> {
 
     const app = await getAppForUser(db, appId!, user.id)
     if (!app) {
-      return c.json({ error: { code: "NOT_FOUND", message: "App not found" } }, 404)
+      return c.json(
+        { error: { code: "NOT_FOUND", message: "App not found" } },
+        404
+      )
     }
 
     if (!scopeParam) {
-      return c.json({ error: { code: "VALIDATION_ERROR", message: "scope query param required" } }, 400)
+      return c.json(
+        {
+          error: {
+            code: "VALIDATION_ERROR",
+            message: "scope query param required",
+          },
+        },
+        400
+      )
     }
     const parsedScope = ScopeEnum.safeParse(scopeParam)
     if (!parsedScope.success) {
-      return c.json({ error: { code: "VALIDATION_ERROR", message: "Invalid scope" } }, 400)
+      return c.json(
+        { error: { code: "VALIDATION_ERROR", message: "Invalid scope" } },
+        400
+      )
     }
 
     const parsedPhase = PhaseEnum.safeParse(phaseParam)
     if (!parsedPhase.success) {
-      return c.json({ error: { code: "VALIDATION_ERROR", message: "Invalid phase" } }, 400)
+      return c.json(
+        { error: { code: "VALIDATION_ERROR", message: "Invalid phase" } },
+        400
+      )
     }
 
     const rows = await db
@@ -269,17 +365,23 @@ export function createSecretsRouter(db: Db): Hono<any, any, any> {
           eq(secrets.app_id, appId!),
           eq(secrets.key, key!),
           eq(secrets.scope, parsedScope.data),
-          eq(secrets.phase, parsedPhase.data),
-        ),
+          eq(secrets.phase, parsedPhase.data)
+        )
       )
       .limit(1)
 
     const row = rows[0]
     if (!row) {
-      return c.json({ error: { code: "NOT_FOUND", message: "Secret not found" } }, 404)
+      return c.json(
+        { error: { code: "NOT_FOUND", message: "Secret not found" } },
+        404
+      )
     }
 
-    const value = await decryptSecret(row.value_ciphertext as Buffer, row.nonce as Buffer)
+    const value = await decryptSecret(
+      row.value_ciphertext as Buffer,
+      row.nonce as Buffer
+    )
 
     await insertAuditLog(db, user.id, "secret.revealed", appId!, keyHash(key!))
 
@@ -293,19 +395,32 @@ export function createSecretsRouter(db: Db): Hono<any, any, any> {
 
     const app = await getAppForUser(db, appId!, user.id)
     if (!app) {
-      return c.json({ error: { code: "NOT_FOUND", message: "App not found" } }, 404)
+      return c.json(
+        { error: { code: "NOT_FOUND", message: "App not found" } },
+        404
+      )
     }
 
     const defaultScopeParam = (c.req.query("scope") ?? "shared") as Scope
     const defaultPhaseParam = (c.req.query("phase") ?? "runtime") as Phase
     const parsedDefaultScope = ScopeEnum.safeParse(defaultScopeParam)
     if (!parsedDefaultScope.success) {
-      return c.json({ error: { code: "VALIDATION_ERROR", message: "Invalid default scope" } }, 400)
+      return c.json(
+        {
+          error: { code: "VALIDATION_ERROR", message: "Invalid default scope" },
+        },
+        400
+      )
     }
     const defaultScope = parsedDefaultScope.data
     const parsedDefaultPhase = PhaseEnum.safeParse(defaultPhaseParam)
     if (!parsedDefaultPhase.success) {
-      return c.json({ error: { code: "VALIDATION_ERROR", message: "Invalid default phase" } }, 400)
+      return c.json(
+        {
+          error: { code: "VALIDATION_ERROR", message: "Invalid default phase" },
+        },
+        400
+      )
     }
     const defaultPhase = parsedDefaultPhase.data
 
@@ -316,13 +431,26 @@ export function createSecretsRouter(db: Db): Hono<any, any, any> {
       const formData = await c.req.formData()
       const file = formData.get("file")
       if (!file || typeof file === "string") {
-        return c.json({ error: { code: "VALIDATION_ERROR", message: "Missing file field" } }, 400)
+        return c.json(
+          {
+            error: { code: "VALIDATION_ERROR", message: "Missing file field" },
+          },
+          400
+        )
       }
       rawContent = await (file as File).text()
     } else if (contentType.includes("application/json")) {
       const json = await c.req.json<{ content?: string }>()
       if (!json.content) {
-        return c.json({ error: { code: "VALIDATION_ERROR", message: "Missing content field" } }, 400)
+        return c.json(
+          {
+            error: {
+              code: "VALIDATION_ERROR",
+              message: "Missing content field",
+            },
+          },
+          400
+        )
       }
       rawContent = json.content
     } else {
@@ -333,6 +461,36 @@ export function createSecretsRouter(db: Db): Hono<any, any, any> {
     const parsed = parseDotenv(rawContent, defaultScope, defaultPhase)
     if (parsed.length === 0) {
       return c.json({ imported: 0 })
+    }
+
+    for (const { key, scope, phase } of parsed) {
+      const existing = await db
+        .select({
+          id: secrets.id,
+          linked_database_id: secrets.linked_database_id,
+        })
+        .from(secrets)
+        .where(
+          and(
+            eq(secrets.app_id, appId!),
+            eq(secrets.key, key!),
+            eq(secrets.scope, scope),
+            eq(secrets.phase, phase)
+          )
+        )
+        .limit(1)
+
+      if (existing[0]?.linked_database_id) {
+        return c.json(
+          {
+            error: {
+              code: "LINKED_SECRET",
+              message: `${key} is managed by a database link — unlink the database instead`,
+            },
+          },
+          400
+        )
+      }
     }
 
     let imported = 0
@@ -347,8 +505,8 @@ export function createSecretsRouter(db: Db): Hono<any, any, any> {
             eq(secrets.app_id, appId!),
             eq(secrets.key, key!),
             eq(secrets.scope, scope),
-            eq(secrets.phase, phase),
-          ),
+            eq(secrets.phase, phase)
+          )
         )
         .limit(1)
 
@@ -373,7 +531,13 @@ export function createSecretsRouter(db: Db): Hono<any, any, any> {
       imported++
     }
 
-    await insertAuditLog(db, user.id, "secret.imported", appId, `count:${imported}`)
+    await insertAuditLog(
+      db,
+      user.id,
+      "secret.imported",
+      appId,
+      `count:${imported}`
+    )
     log.info({ appId, imported }, "secrets imported")
 
     return c.json({ imported })
@@ -386,14 +550,25 @@ export function createSecretsRouter(db: Db): Hono<any, any, any> {
 
     const app = await getAppForUser(db, appId!, user.id)
     if (!app) {
-      return c.json({ error: { code: "NOT_FOUND", message: "App not found" } }, 404)
+      return c.json(
+        { error: { code: "NOT_FOUND", message: "App not found" } },
+        404
+      )
     }
 
     const scopeParam = c.req.query("scope") as Scope | undefined
     const ageRecipient = c.req.query("age_recipient")
 
     if (!ageRecipient) {
-      return c.json({ error: { code: "VALIDATION_ERROR", message: "age_recipient query param required" } }, 400)
+      return c.json(
+        {
+          error: {
+            code: "VALIDATION_ERROR",
+            message: "age_recipient query param required",
+          },
+        },
+        400
+      )
     }
 
     // Check age binary is available
@@ -401,8 +576,13 @@ export function createSecretsRouter(db: Db): Hono<any, any, any> {
       await execFileAsync("age", ["--version"])
     } catch {
       return c.json(
-        { error: { code: "NOT_IMPLEMENTED", message: "age binary not installed on this server" } },
-        501,
+        {
+          error: {
+            code: "NOT_IMPLEMENTED",
+            message: "age binary not installed on this server",
+          },
+        },
+        501
       )
     }
 
@@ -410,7 +590,10 @@ export function createSecretsRouter(db: Db): Hono<any, any, any> {
     if (scopeParam) {
       const parsed = ScopeEnum.safeParse(scopeParam)
       if (!parsed.success) {
-        return c.json({ error: { code: "VALIDATION_ERROR", message: "Invalid scope" } }, 400)
+        return c.json(
+          { error: { code: "VALIDATION_ERROR", message: "Invalid scope" } },
+          400
+        )
       }
       conditions.push(eq(secrets.scope, parsed.data))
     }
@@ -423,7 +606,10 @@ export function createSecretsRouter(db: Db): Hono<any, any, any> {
     // Decrypt all secrets to build .env content
     const lines: string[] = []
     for (const row of rows) {
-      const value = await decryptSecret(row.value_ciphertext as Buffer, row.nonce as Buffer)
+      const value = await decryptSecret(
+        row.value_ciphertext as Buffer,
+        row.nonce as Buffer
+      )
       const escaped = value.replace(/\n/g, "\\n")
       lines.push(`${row.key}=${escaped}`)
     }
@@ -432,19 +618,35 @@ export function createSecretsRouter(db: Db): Hono<any, any, any> {
     // Encrypt with age
     let encrypted: string
     try {
-      const { stdout } = await execFileAsync("age", ["-r", ageRecipient, "--armor"], {
-        input: dotenvContent,
-      } as Parameters<typeof execFileAsync>[2] & { input: string })
+      const { stdout } = await execFileAsync(
+        "age",
+        ["-r", ageRecipient, "--armor"],
+        {
+          input: dotenvContent,
+        } as Parameters<typeof execFileAsync>[2] & { input: string }
+      )
       encrypted = typeof stdout === "string" ? stdout : stdout.toString("utf8")
     } catch (err) {
       log.error({ err, appId }, "age encryption failed")
-      return c.json({ error: { code: "INTERNAL_ERROR", message: "Encryption failed" } }, 500)
+      return c.json(
+        { error: { code: "INTERNAL_ERROR", message: "Encryption failed" } },
+        500
+      )
     }
 
-    await insertAuditLog(db, user.id, "secret.exported", appId, `count:${rows.length}`)
+    await insertAuditLog(
+      db,
+      user.id,
+      "secret.exported",
+      appId,
+      `count:${rows.length}`
+    )
 
     c.header("Content-Type", "text/plain")
-    c.header("Content-Disposition", `attachment; filename="secrets-${appId}.env.age"`)
+    c.header(
+      "Content-Disposition",
+      `attachment; filename="secrets-${appId}.env.age"`
+    )
     return c.body(encrypted)
   })
 
@@ -458,9 +660,10 @@ export function createSecretsRouter(db: Db): Hono<any, any, any> {
 function parseDotenv(
   content: string,
   defaultScope: Scope,
-  defaultPhase: Phase,
+  defaultPhase: Phase
 ): { key: string; value: string; scope: Scope; phase: Phase }[] {
-  const results: { key: string; value: string; scope: Scope; phase: Phase }[] = []
+  const results: { key: string; value: string; scope: Scope; phase: Phase }[] =
+    []
   const lines = content.split(/\r?\n/)
   let currentScope: Scope = defaultScope
   let currentPhase: Phase = defaultPhase
@@ -504,7 +707,7 @@ function parseDotenv(
       }
       const value = unquote(prefixed[3] ?? "")
       results.push({ key: prefixed[2]!, value, scope: scoped, phase: phased })
-        continue
+      continue
     }
 
     // Standard KEY=VALUE
@@ -516,7 +719,12 @@ function parseDotenv(
 
     if (!/^[A-Z][A-Z0-9_]*$/.test(key)) continue
 
-    results.push({ key, value: unquote(rawValue), scope: currentScope, phase: currentPhase })
+    results.push({
+      key,
+      value: unquote(rawValue),
+      scope: currentScope,
+      phase: currentPhase,
+    })
   }
 
   return results
