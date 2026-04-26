@@ -19,6 +19,7 @@ import {
 } from "@workspace/ui/components/field"
 import { useRevealSecret } from "../../lib/secrets"
 import type { SecretPhase, SecretScope } from "../../lib/secrets"
+import { useMe } from "../../lib/auth"
 
 const AUTO_HIDE_MS = 30_000
 
@@ -30,13 +31,21 @@ interface RevealSecretDialogProps {
   onClose: () => void
 }
 
-export function RevealSecretDialog({ appId, secretKey, scope, phase, onClose }: RevealSecretDialogProps): React.JSX.Element {
+export function RevealSecretDialog({
+  appId,
+  secretKey,
+  scope,
+  phase,
+  onClose,
+}: RevealSecretDialogProps): React.JSX.Element {
   const [totpCode, setTotpCode] = React.useState("")
   const [revealedValue, setRevealedValue] = React.useState<string | null>(null)
   const [countdown, setCountdown] = React.useState(0)
   const timerRef = React.useRef<ReturnType<typeof setInterval> | null>(null)
 
   const { mutate: revealSecret, isPending } = useRevealSecret(appId)
+  const { data: me } = useMe()
+  const requiresTotp = me?.require_totp_for_secret_reveal ?? true
 
   // Auto-hide countdown
   React.useEffect(() => {
@@ -70,7 +79,12 @@ export function RevealSecretDialog({ appId, secretKey, scope, phase, onClose }: 
     if (!secretKey || !scope) return
 
     revealSecret(
-      { key: secretKey, scope, phase: phase ?? "runtime", totpCode },
+      {
+        key: secretKey,
+        scope,
+        phase: phase ?? "runtime",
+        totpCode: requiresTotp ? totpCode : undefined,
+      },
       {
         onSuccess: ({ value }) => {
           setRevealedValue(value)
@@ -83,52 +97,76 @@ export function RevealSecretDialog({ appId, secretKey, scope, phase, onClose }: 
             toast.error(err.message)
           }
         },
-      },
+      }
     )
   }
 
   function handleCopy() {
     if (revealedValue) {
-      navigator.clipboard.writeText(revealedValue).then(() => toast.success("Copied!"))
+      navigator.clipboard
+        .writeText(revealedValue)
+        .then(() => toast.success("Copied!"))
     }
   }
 
   return (
-    <Dialog open={Boolean(secretKey)} onOpenChange={(open) => !open && handleClose()}>
+    <Dialog
+      open={Boolean(secretKey)}
+      onOpenChange={(open) => !open && handleClose()}
+    >
       <DialogContent>
         <DialogHeader>
           <DialogTitle>Reveal secret</DialogTitle>
           <DialogDescription>
-            Enter your TOTP code to reveal <strong>{secretKey}</strong> ({scope}).
+            {requiresTotp ? "Enter your TOTP code to reveal" : "Reveal"}{" "}
+            <strong>{secretKey}</strong> ({scope}).
             {phase ? ` Phase: ${phase}.` : ""}
           </DialogDescription>
         </DialogHeader>
 
         {revealedValue === null ? (
           <form onSubmit={handleSubmit} className="space-y-4">
-            <Field>
-              <FieldLabel htmlFor="totp-code">TOTP code</FieldLabel>
-              <FieldContent>
-                <Input
-                  id="totp-code"
-                  value={totpCode}
-                  onChange={(e) => setTotpCode(e.target.value.replace(/\D/g, "").slice(0, 6))}
-                  placeholder="000000"
-                  autoComplete="one-time-code"
-                  inputMode="numeric"
-                  maxLength={6}
-                  required
-                />
-              </FieldContent>
-              <FieldDescription>6-digit code from your authenticator app</FieldDescription>
-            </Field>
+            {requiresTotp ? (
+              <Field>
+                <FieldLabel htmlFor="totp-code">TOTP code</FieldLabel>
+                <FieldContent>
+                  <Input
+                    id="totp-code"
+                    value={totpCode}
+                    onChange={(e) =>
+                      setTotpCode(e.target.value.replace(/\D/g, "").slice(0, 6))
+                    }
+                    placeholder="000000"
+                    autoComplete="one-time-code"
+                    inputMode="numeric"
+                    maxLength={6}
+                    required
+                  />
+                </FieldContent>
+                <FieldDescription>
+                  6-digit code from your authenticator app
+                </FieldDescription>
+              </Field>
+            ) : (
+              <p className="rounded-md border border-border bg-muted/40 px-3 py-2 text-xs text-muted-foreground">
+                TOTP confirmation for secret reveal is disabled in security
+                settings.
+              </p>
+            )}
 
             <DialogFooter>
               <Button type="button" variant="ghost" onClick={handleClose}>
                 Cancel
               </Button>
-              <Button type="submit" disabled={isPending || totpCode.length !== 6}>
-                {isPending ? "Verifying…" : "Reveal"}
+              <Button
+                type="submit"
+                disabled={isPending || (requiresTotp && totpCode.length !== 6)}
+              >
+                {isPending
+                  ? requiresTotp
+                    ? "Verifying…"
+                    : "Revealing…"
+                  : "Reveal"}
               </Button>
             </DialogFooter>
           </form>
@@ -147,7 +185,7 @@ export function RevealSecretDialog({ appId, secretKey, scope, phase, onClose }: 
                   <button
                     type="button"
                     onClick={handleCopy}
-                    className="absolute right-2 top-1/2 -translate-y-1/2 text-xs text-muted-foreground hover:text-foreground"
+                    className="absolute top-1/2 right-2 -translate-y-1/2 text-xs text-muted-foreground hover:text-foreground"
                   >
                     Copy
                   </button>

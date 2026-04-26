@@ -44,7 +44,7 @@ export function AppHeaderActions({
 }: {
   app: AppDetail
 }): React.JSX.Element {
-  const { data: builds } = useBuilds(app.id)
+  const { data: builds } = useBuilds(app.id, { initialData: app.builds })
 
   const deploy = useDeployApp(app.id)
   const restart = useRestartApp(app.id)

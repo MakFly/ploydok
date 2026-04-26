@@ -13,6 +13,7 @@ import {
 import type { Db } from "@ploydok/db"
 import { nanoid } from "nanoid"
 import { getConnectionString } from "../databases/spawner"
+import { normalizePostgresConnectionString } from "../databases/connection-strings"
 import { encryptSecret } from "../secrets/crypto"
 import { getAppForUser } from "@ploydok/db/queries"
 import { childLogger } from "../logger"
@@ -36,19 +37,23 @@ const LinkBody = z.object({
     .default("DATABASE"),
 })
 
-function parseConnectionString(
-  kind: "postgres" | "mysql" | "mariadb" | "redis" | "mongo",
+export function parseConnectionString(
+  kind: "postgres" | "mysql" | "mariadb" | "redis" | "mongo" | "libsql",
   connString: string,
   prefix: string
 ): Record<string, string> {
-  const url = new URL(connString)
+  const normalizedConnString =
+    kind === "postgres"
+      ? normalizePostgresConnectionString(connString)
+      : connString
+  const url = new URL(normalizedConnString)
   const vars: Record<string, string> = {}
 
   switch (kind) {
     case "postgres":
     case "mysql":
     case "mariadb":
-      vars[`${prefix}_URL`] = connString
+      vars[`${prefix}_URL`] = normalizedConnString
       vars[`${prefix}_HOST`] = url.hostname
       vars[`${prefix}_PORT`] =
         url.port || (kind === "postgres" ? "5432" : "3306")
@@ -70,6 +75,13 @@ function parseConnectionString(
       vars[`${prefix}_PASSWORD`] = decodeURIComponent(url.password)
       vars[`${prefix}_NAME`] =
         url.pathname.replace(/^\//, "").split("?")[0] ?? ""
+      break
+    case "libsql":
+      vars[`${prefix}_URL`] = connString
+      vars[`${prefix}_HOST`] = url.hostname
+      vars[`${prefix}_PORT`] = url.port || "8080"
+      vars[`${prefix}_USER`] = decodeURIComponent(url.username || "libsql")
+      vars[`${prefix}_PASSWORD`] = decodeURIComponent(url.password)
       break
   }
 
@@ -154,7 +166,13 @@ export function createAppsDatabasesLinkRouter(db: Db): Hono<any, any, any> {
     }
 
     const vars = parseConnectionString(
-      dbRow.kind as "postgres" | "mysql" | "mariadb" | "redis" | "mongo",
+      dbRow.kind as
+        | "postgres"
+        | "mysql"
+        | "mariadb"
+        | "redis"
+        | "mongo"
+        | "libsql",
       connString,
       env_prefix
     )

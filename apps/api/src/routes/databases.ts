@@ -39,7 +39,14 @@ function getUser(c: { get: (k: string) => unknown }): AuthUser {
   return c.get("user") as AuthUser
 }
 
-const KindEnum = z.enum(["postgres", "mysql", "mariadb", "redis", "mongo"])
+const KindEnum = z.enum([
+  "postgres",
+  "mysql",
+  "mariadb",
+  "redis",
+  "mongo",
+  "libsql",
+])
 const PlanEnum = z.enum(["small", "medium", "large"])
 const ExposureModeEnum = z.enum(["internal", "direct_port", "public_proxy"])
 
@@ -285,7 +292,6 @@ export function createDatabasesRouter(db: Db): Hono<any, any, any> {
         404
       )
     }
-
     try {
       const connectionString = await getConnectionString(row)
       return c.json({ connection_string: connectionString })
@@ -548,6 +554,17 @@ export function createDatabasesRouter(db: Db): Hono<any, any, any> {
       return c.json(
         { error: { code: "NOT_FOUND", message: "Database not found" } },
         404
+      )
+    }
+    if (row.kind === "libsql") {
+      return c.json(
+        {
+          error: {
+            code: "UNSUPPORTED_DATABASE_KIND",
+            message: "Password rotation is not supported for libSQL yet",
+          },
+        },
+        400
       )
     }
 

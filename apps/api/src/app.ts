@@ -213,6 +213,16 @@ app.use("*", async (c, next) => {
     return next()
   }
 
+  // /auth/setup/* est le first-boot wizard. Aucune session active, pas de
+  // cookie CSRF possible. La sécurité repose sur : token éphémère printé dans
+  // les logs API + Origin check + count(users)===0 anti-replay.
+  if (
+    c.req.path === "/auth/setup/options" ||
+    c.req.path === "/auth/setup/verify"
+  ) {
+    return next()
+  }
+
   const cookieCsrf = getCookieValue(
     c.req.raw.headers.get("cookie") ?? "",
     "csrf"
@@ -370,6 +380,7 @@ app.route("/apps", appsRouter)
 // Legacy OAuth routes are 410 Gone — stubs, no auth required.
 app.use("/github/repos/*", requireAuth(db))
 app.use("/github/app/manifest", requireAuth(db))
+app.use("/github/app/import", requireAuth(db))
 app.use("/github/app/config", requireAuth(db))
 app.use("/github/installations", requireAuth(db))
 app.use("/github/installations/*", requireAuth(db))
@@ -557,6 +568,7 @@ app.get("/me", requireAuth(db), async (c) => {
     has_passkey_plus: passkeyCount >= 2,
     has_backup_codes: backupCount >= 1,
     has_totp: hasTotp,
+    require_totp_for_secret_reveal: fullUser.require_totp_for_secret_reveal,
     needs_second_factor: passkeyCount < 2 && backupCount < 1 && !hasTotp,
   })
 })

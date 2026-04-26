@@ -174,6 +174,22 @@ describe("POST /databases validation", () => {
     const data = (await res.json()) as { error: { code: string } }
     expect(data.error.code).toBe("VALIDATION_ERROR")
   })
+
+  it("accepts libsql as a managed Dokploy-style SQLite database", async () => {
+    const db = buildDb({ dbRow: { id: "proj-1" } })
+    const app = wrapRouter(db)
+    const res = await app.fetch(
+      req("POST", "/", {
+        projectId: "proj-1",
+        kind: "libsql",
+        name: "local-sqlite",
+        plan: "small",
+      })
+    )
+    expect(res.status).toBe(201)
+    const data = (await res.json()) as { id: string }
+    expect(data.id).toBe("db-test-id")
+  })
 })
 
 describe("DELETE /databases/:id", () => {

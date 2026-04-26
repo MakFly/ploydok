@@ -6,7 +6,7 @@ import { Hono } from "hono"
 import { z } from "zod"
 import { and, eq } from "drizzle-orm"
 import { nanoid } from "nanoid"
-import { secrets, audit_log, databases } from "@ploydok/db"
+import { secrets, audit_log, databases, users } from "@ploydok/db"
 import { createDb } from "@ploydok/db"
 import type { Db } from "@ploydok/db"
 import { env } from "../env"
@@ -70,6 +70,26 @@ async function insertAuditLog(
 export function createSecretsRouter(db: Db): Hono<any, any, any> {
   const router = new Hono<AppEnv>()
   const totpMiddleware = requireTotpVerified(db)
+  const maybeTotpMiddleware = async (
+    c: Parameters<typeof totpMiddleware>[0],
+    next: Parameters<typeof totpMiddleware>[1]
+  ) => {
+    const user = getUser(c)
+    const rows = await db
+      .select({
+        require_totp_for_secret_reveal: users.require_totp_for_secret_reveal,
+      })
+      .from(users)
+      .where(eq(users.id, user.id))
+      .limit(1)
+
+    if (rows[0]?.require_totp_for_secret_reveal === false) {
+      await next()
+      return
+    }
+
+    await totpMiddleware(c, next)
+  }
 
   // GET /:id/secrets?scope=shared|prod|preview|dev
   router.get("/:id/secrets", async (c) => {
@@ -314,8 +334,8 @@ export function createSecretsRouter(db: Db): Hono<any, any, any> {
     return c.json({ deleted: true })
   })
 
-  // POST /:id/secrets/:key/reveal — TOTP required
-  router.post("/:id/secrets/:key/reveal", totpMiddleware, async (c) => {
+  // POST /:id/secrets/:key/reveal — TOTP required unless disabled by user preference.
+  router.post("/:id/secrets/:key/reveal", maybeTotpMiddleware, async (c) => {
     const user = getUser(c)
     const appId = c.req.param("id")
     const key = c.req.param("key")

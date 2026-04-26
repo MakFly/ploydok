@@ -2,9 +2,16 @@
 import * as React from "react"
 import { Link } from "@tanstack/react-router"
 import { Badge } from "@workspace/ui/components/badge"
-import { RiArrowRightUpLine, RiDatabase2Line, RiPlugLine } from "@remixicon/react"
+import {
+  RiArrowRightUpLine,
+  RiDatabase2Line,
+  RiPlugLine,
+} from "@remixicon/react"
 import type { Database } from "../../lib/databases"
-import { organizationPath, useCurrentOrganizationSlug } from "../../lib/organizations"
+import {
+  organizationPath,
+  useCurrentOrganizationSlug,
+} from "../../lib/organizations"
 
 const KIND_LABELS: Record<string, string> = {
   postgres: "PostgreSQL 16",
@@ -12,9 +19,13 @@ const KIND_LABELS: Record<string, string> = {
   mariadb: "MariaDB 11.4",
   redis: "Redis 7",
   mongo: "MongoDB 7",
+  libsql: "SQLite / libSQL",
 }
 
-const STATUS_VARIANTS: Record<string, "default" | "secondary" | "destructive" | "outline"> = {
+const STATUS_VARIANTS: Record<
+  string,
+  "default" | "secondary" | "destructive" | "outline"
+> = {
   running: "default",
   creating: "secondary",
   starting: "secondary",
@@ -27,14 +38,18 @@ interface DatabaseCardProps {
   database: Database
 }
 
-export function DatabaseCard({ database }: DatabaseCardProps): React.JSX.Element {
+export function DatabaseCard({
+  database,
+}: DatabaseCardProps): React.JSX.Element {
   const currentOrgSlug = useCurrentOrganizationSlug()
   const detailPath = currentOrgSlug
     ? organizationPath(currentOrgSlug, `databases/${database.id}`)
     : `/databases/${database.id}`
 
   const kindLabel = KIND_LABELS[database.kind] ?? database.kind
-  const endpoint = database.host ? `${database.host}:${database.port ?? "—"}` : "Endpoint pending"
+  const endpoint = database.host
+    ? `${database.host}:${database.port ?? "—"}`
+    : "Endpoint pending"
   const linked = database.linked_apps?.length ?? 0
 
   return (
@@ -64,7 +79,9 @@ export function DatabaseCard({ database }: DatabaseCardProps): React.JSX.Element
         <div className="flex items-center gap-2">
           <RiPlugLine className="size-4" />
           <span className="truncate">
-            {linked > 0 ? `${linked} linked app${linked > 1 ? "s" : ""}` : "No linked app"}
+            {linked > 0
+              ? `${linked} linked app${linked > 1 ? "s" : ""}`
+              : "No linked app"}
           </span>
         </div>
       </div>

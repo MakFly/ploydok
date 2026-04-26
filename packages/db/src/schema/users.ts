@@ -1,5 +1,5 @@
 // SPDX-License-Identifier: AGPL-3.0-only
-import { pgTable, text, timestamp } from "drizzle-orm/pg-core"
+import { boolean, pgTable, text, timestamp } from "drizzle-orm/pg-core"
 
 export const users = pgTable("users", {
   id: text("id").primaryKey(),
@@ -18,6 +18,9 @@ export const users = pgTable("users", {
     withTimezone: true,
     mode: "date",
   }),
+  require_totp_for_secret_reveal: boolean("require_totp_for_secret_reveal")
+    .notNull()
+    .default(true),
 })
 
 export type UserRow = typeof users.$inferSelect

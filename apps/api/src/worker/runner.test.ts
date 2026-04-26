@@ -4,9 +4,17 @@
 // All external dependencies (gRPC agent, Caddy, DB) are mocked.
 
 import { afterEach, beforeEach, describe, expect, mock, test } from "bun:test"
+import { EventEmitter } from "node:events"
 import { ContainerHealthStatus } from "@ploydok/agent-proto"
 import type { InspectContainerHealthResponse } from "@ploydok/agent-proto"
-import { DeployFailedError, pollHealthcheck, stopContainer } from "./runner.js"
+import {
+  DeployFailedError,
+  pollHealthcheck,
+  publishContainerLogTail,
+  publishKnownAppLogFiles,
+  stopContainer,
+} from "./runner.js"
+import { logBus } from "./log-bus.js"
 import { workerLog } from "./logger.js"
 
 // ---------------------------------------------------------------------------
@@ -242,6 +250,91 @@ describe("DeployFailedError", () => {
     expect(err.message).toContain("app123")
     expect(err.message).toContain("healthcheck timed out")
     expect(err instanceof Error).toBe(true)
+  })
+})
+
+describe("publishContainerLogTail", () => {
+  test("publishes stdout and stderr lines to the runtime channel", async () => {
+    const channel = `runtime:test-${Date.now()}`
+    logBus.evict(channel)
+
+    const stream = new EventEmitter() as EventEmitter & {
+      cancel: () => void
+    }
+    stream.cancel = () => {}
+    const agent = {
+      containerLogs: () => stream,
+    }
+
+    const promise = publishContainerLogTail(
+      // eslint-disable-next-line @typescript-eslint/no-explicit-any
+      agent as any,
+      "container-123",
+      channel,
+      { tail: 2, timeoutMs: 500 }
+    )
+    queueMicrotask(() => {
+      stream.emit("data", {
+        stream: "stdout",
+        line: "booting",
+        timestamp: new Date(0).toISOString(),
+      })
+      stream.emit("data", {
+        stream: "stderr",
+        line: "SQLSTATE database missing",
+        timestamp: new Date(1).toISOString(),
+      })
+      stream.emit("end")
+    })
+
+    await promise
+
+    const lines = logBus.replay(channel).map((entry) => entry.line)
+    expect(lines).toContain("[container stdout] booting")
+    expect(lines).toContain("[container stderr] SQLSTATE database missing")
+    expect(lines.at(-1)).toBe("[runner] collected 2 container log lines")
+
+    logBus.evict(channel)
+  })
+})
+
+describe("publishKnownAppLogFiles", () => {
+  test("publishes known framework log file lines to the runtime channel", async () => {
+    const channel = `runtime:test-app-log-${Date.now()}`
+    logBus.evict(channel)
+    const content = new TextEncoder().encode("line one\nSQLSTATE missing\n")
+    const agent = {
+      readContainerFile(_req: unknown, cb: (err: null, res: unknown) => void) {
+        cb(null, {
+          content,
+          totalSize: content.length,
+          truncated: false,
+          isBinary: false,
+          error: "",
+        })
+        return {} as ReturnType<
+          import("@grpc/grpc-js").Client["makeUnaryRequest"]
+        >
+      },
+    }
+
+    await publishKnownAppLogFiles(
+      // eslint-disable-next-line @typescript-eslint/no-explicit-any
+      agent as any,
+      "container-123",
+      channel,
+      ["/app/storage/logs/laravel.log"]
+    )
+
+    const lines = logBus.replay(channel).map((entry) => entry.line)
+    expect(lines).toContain(
+      "[runner] app log tail: /app/storage/logs/laravel.log"
+    )
+    expect(lines).toContain(
+      "[app log /app/storage/logs/laravel.log] SQLSTATE missing"
+    )
+
+    logBus.evict(channel)
   })
 })
 

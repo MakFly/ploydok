@@ -218,15 +218,16 @@ export function classifyStack(probes: ProbeResults): StackClassification {
         //   `database` which reads/writes a sqlite file the fixture does
         //   not ship. File-backed sessions sidestep that on zero-DB
         //   deploys.
-        // - NIXPACKS_NODE_VERSION=20: Vite ≥ 5 requires Node ≥ 20; Nixpacks
-        //   defaults to 18 which crashes on `vite build` (CustomEvent).
+        // - NIXPACKS_NODE_VERSION=22: Vite 8 requires Node ≥ 20.19 or
+        //   ≥ 22.12; Nixpacks can default to 18, which crashes on
+        //   `vite build` (CustomEvent).
         //   Only pinned when package.json is present.
         // APP_KEY is NOT auto-injected: every app must get its own (sprint-6
         // will add auto-generation on first deploy).
         suggestedEnvVars: {
           SESSION_DRIVER: "file",
           CACHE_STORE: "file",
-          ...(hasNodeFrontend ? { NIXPACKS_NODE_VERSION: "20" } : {}),
+          ...(hasNodeFrontend ? { NIXPACKS_NODE_VERSION: "22" } : {}),
         },
       }
     }

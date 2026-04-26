@@ -28,10 +28,9 @@ export async function getGitHubAppConfig(db: Db): Promise<(typeof github_app.$in
   return rows[0] ?? null;
 }
 
-/** Upserts (delete-then-insert) the singleton GitHub App config. */
+/** Upserts the singleton GitHub App config. */
 export async function saveGitHubAppConfig(db: Db, cfg: GitHubAppConfig): Promise<void> {
-  await db.delete(github_app).where(eq(github_app.id, SINGLETON_ID));
-  await db.insert(github_app).values({
+  const row = {
     id: SINGLETON_ID,
     app_id: cfg.app_id,
     client_id: cfg.client_id,
@@ -43,7 +42,26 @@ export async function saveGitHubAppConfig(db: Db, cfg: GitHubAppConfig): Promise
     pem_nonce: cfg.pem_nonce,
     webhook_secret_enc: cfg.webhook_secret_enc,
     webhook_secret_nonce: cfg.webhook_secret_nonce,
-  });
+  };
+
+  await db
+    .insert(github_app)
+    .values(row)
+    .onConflictDoUpdate({
+      target: github_app.id,
+      set: {
+        app_id: row.app_id,
+        client_id: row.client_id,
+        slug: row.slug,
+        name: row.name,
+        client_secret_enc: row.client_secret_enc,
+        client_secret_nonce: row.client_secret_nonce,
+        pem_enc: row.pem_enc,
+        pem_nonce: row.pem_nonce,
+        webhook_secret_enc: row.webhook_secret_enc,
+        webhook_secret_nonce: row.webhook_secret_nonce,
+      },
+    });
 }
 
 /** Deletes the singleton GitHub App config (used by the reset flow). */

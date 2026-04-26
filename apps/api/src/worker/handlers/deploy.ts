@@ -5,6 +5,8 @@ import { eq } from "drizzle-orm"
 import { nanoid } from "nanoid"
 import { z } from "zod"
 import { apps, builds, projects, system_jobs } from "@ploydok/db"
+import { ALL_PROBE_KEYS, classifyStack } from "@ploydok/shared"
+import type { StackClassification } from "@ploydok/shared"
 import {
   insertBuild,
   updateBuildStatus,
@@ -45,6 +47,7 @@ import {
 } from "../../secrets/resolver"
 import { runPreDeployHook, runPostDeployHook } from "../hooks"
 import { getSharedAgent } from "../../debug/singletons"
+import { ensureFrameworkEnvVars } from "../../services/framework-env"
 
 // Shared Redis client for commit status dedup (singleton per worker process).
 const redis = createRedis(env.REDIS_URL)
@@ -138,6 +141,40 @@ async function getAppForDeploy(db: Db, appId: string): Promise<AppForDeploy> {
   const row = rows[0]
   if (!row) throw new Error(`App not found: ${appId}`)
   return row
+}
+
+async function classifyWorkspaceStack(params: {
+  workspacePath: string
+  rootDir: string | null
+}): Promise<StackClassification> {
+  const root = path.join(params.workspacePath, params.rootDir ?? ".")
+  const probes: Partial<Record<(typeof ALL_PROBE_KEYS)[number], boolean>> = {}
+  await Promise.all(
+    ALL_PROBE_KEYS.map(async (key) => {
+      try {
+        await fs.promises.stat(path.join(root, key))
+        probes[key] = true
+      } catch {
+        probes[key] = false
+      }
+    })
+  )
+  return classifyStack(probes)
+}
+
+function defaultRuntimePortForStack(
+  method: "docker" | "nixpacks" | "railpack",
+  classification: StackClassification
+): number | null {
+  if (
+    (method === "nixpacks" || method === "railpack") &&
+    (classification.stack === "laravel" ||
+      classification.stack === "symfony" ||
+      classification.stack === "php")
+  ) {
+    return 80
+  }
+  return null
 }
 
 /**
@@ -671,6 +708,65 @@ export async function handleDeploy(
       }
     }
 
+    // Framework env guardrail: creation-time auto-injection is best effort and
+    // older apps may predate it. Re-check the cloned source on every deploy and
+    // persist missing framework-critical vars before build/runtime env is read.
+    const workspaceClassification = await classifyWorkspaceStack({
+      workspacePath,
+      rootDir: app.root_dir,
+    })
+    try {
+      const { injected } = await ensureFrameworkEnvVars({
+        db,
+        appId: app.id,
+        projectId: app.project_id,
+        classification: workspaceClassification,
+      })
+      if (injected.length > 0) {
+        onLog(
+          `[deploy] auto-injected framework env vars: ${injected.join(", ")}`
+        )
+        log.info(
+          {
+            buildId,
+            appId: app.id,
+            stack: workspaceClassification.stack,
+            injected,
+          },
+          "auto-injected framework env vars during deploy"
+        )
+      }
+    } catch (autoEnvErr) {
+      if (workspaceClassification.stack === "laravel") {
+        throw new FatalDeployError(
+          `Impossible de préparer les variables Laravel requises: ${
+            autoEnvErr instanceof Error ? autoEnvErr.message : "unknown error"
+          }`
+        )
+      }
+      log.warn(
+        { autoEnvErr, buildId, stack: workspaceClassification.stack },
+        "framework env auto-injection failed (non-fatal)"
+      )
+    }
+
+    if (app.runtime_port === null || app.runtime_port === undefined) {
+      const inferredRuntimePort = defaultRuntimePortForStack(
+        detected.method,
+        workspaceClassification
+      )
+      if (inferredRuntimePort !== null) {
+        onLog(
+          `[deploy] inferred runtime port ${inferredRuntimePort} for ${workspaceClassification.stack} via ${detected.method}`
+        )
+        await db
+          .update(apps)
+          .set({ runtime_port: inferredRuntimePort, updated_at: new Date() })
+          .where(eq(apps.id, app.id))
+        app.runtime_port = inferredRuntimePort
+      }
+    }
+
     // Guard: abort early if registry disk is too full (threshold = 80 %).
     // Under pressure, kick an aggressive sweep (keep 1 per repo) before
     // giving up — most builds will recover instead of failing the deploy.
@@ -856,6 +952,7 @@ export async function handleDeploy(
         const plan = await nixpacksPlan({
           workspacePath,
           ...(app.root_dir !== null && { rootDir: app.root_dir }),
+          ...(app.node_version !== null && { nodeVersion: app.node_version }),
           ...(Object.keys(buildEnv).length > 0 && { buildEnv }),
         })
         if (plan) {
@@ -918,6 +1015,9 @@ export async function handleDeploy(
           ...(app.build_command !== null && { buildCmd: app.build_command }),
           ...(app.start_command !== null && { startCmd: app.start_command }),
           ...(Object.keys(buildEnv).length > 0 && { buildEnv }),
+          ...(Object.keys(runtimeSecretEnv).length > 0 && {
+            runtimeEnv: runtimeSecretEnv,
+          }),
           onLog,
         })
       } catch (nixErr) {
@@ -1009,6 +1109,10 @@ export async function handleDeploy(
     }
 
     let containerId: string
+    const unsubscribeRuntimeLogs = logBus.subscribe(
+      `runtime:${app.id}`,
+      (entry) => onLog(entry.line)
+    )
     try {
       const runOpts: Parameters<typeof runBlueGreen>[0] = {
         appId: app.id,
@@ -1020,6 +1124,8 @@ export async function handleDeploy(
       ;({ containerId } = await runBlueGreen(runOpts))
     } catch (runErr) {
       throw classifyAgentError(runErr)
+    } finally {
+      unsubscribeRuntimeLogs()
     }
     onLog(`[deploy] container live: ${containerId}`)
 

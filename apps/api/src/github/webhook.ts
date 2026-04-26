@@ -166,6 +166,7 @@ async function handleInstallationEvent(
   }
 
   const { action, installation } = parsed.data;
+  const externalInstallationId = String(installation.id);
   const installationId = makeInstallationId(installation.id);
   const now = new Date();
 
@@ -187,7 +188,7 @@ async function handleInstallationEvent(
         last_synced_at: now,
         created_at: now,
       });
-      await enqueue({ provider: "github", installationId });
+      await enqueue({ provider: "github", installationId: externalInstallationId });
       break;
     }
 
@@ -254,6 +255,7 @@ async function handleInstallationRepositoriesEvent(
   }
 
   const { action, installation, repositories_added, repositories_removed } = parsed.data;
+  const externalInstallationId = String(installation.id);
   const installationId = makeInstallationId(installation.id);
   const now = new Date();
 
@@ -287,7 +289,7 @@ async function handleInstallationRepositoriesEvent(
       }));
       await queries.upsertRepos(db, repos);
       // Enqueue to fill missing fields (description, default_branch, etc.)
-      await enqueue({ provider: "github", installationId });
+      await enqueue({ provider: "github", installationId: externalInstallationId });
       break;
     }
 

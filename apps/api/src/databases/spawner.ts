@@ -20,7 +20,13 @@ const AGENT_CONTAINER_NAME_RE = /^ploydok-[a-z0-9][a-z0-9-]{0,62}$/
 const DATABASE_HEALTHCHECK_TIMEOUT_MS = 90_000
 const DATABASE_HEALTHCHECK_POLL_MS = 1_000
 
-export type DbKind = "postgres" | "mysql" | "mariadb" | "redis" | "mongo"
+export type DbKind =
+  | "postgres"
+  | "mysql"
+  | "mariadb"
+  | "redis"
+  | "mongo"
+  | "libsql"
 export type DbPlan = "small" | "medium" | "large"
 export type DbExposureMode = "internal" | "direct_port" | "public_proxy"
 export type DbHealthStatus =
@@ -158,11 +164,17 @@ async function waitForDatabaseHealthy(
 
 function resolveEnv(
   templateEnv: Record<string, string>,
-  password: string
+  password: string,
+  user = "ploydok"
 ): Record<string, string> {
   const out: Record<string, string> = {}
   for (const [k, v] of Object.entries(templateEnv)) {
-    out[k] = v === "@generated(32)" ? password : v
+    out[k] =
+      v === "@generated(32)"
+        ? password
+        : v === "@generated-basic-auth"
+          ? `basic:${Buffer.from(`${user}:${password}`, "utf8").toString("base64")}`
+          : v
   }
   return out
 }
@@ -228,6 +240,28 @@ function getCredentials(
         password: resolvedEnv["MONGO_INITDB_ROOT_PASSWORD"] ?? "",
         database: resolvedEnv["MONGO_INITDB_DATABASE"] ?? "app",
       }
+    case "libsql":
+      return {
+        user: "libsql",
+        password:
+          parseLibsqlBasicAuthPassword(resolvedEnv["SQLD_HTTP_AUTH"]) ?? "",
+        database: "main",
+      }
+  }
+}
+
+function parseLibsqlBasicAuthPassword(
+  value: string | undefined
+): string | null {
+  if (!value?.startsWith("basic:")) return null
+  try {
+    const decoded = Buffer.from(
+      value.slice("basic:".length),
+      "base64"
+    ).toString("utf8")
+    return decoded.split(":").slice(1).join(":") || null
+  } catch {
+    return null
   }
 }
 
@@ -256,6 +290,12 @@ function parseStoredConnectionString(
         user: "",
         password: decodeURIComponent(url.password),
         database: url.pathname.replace(/^\//, "") || "0",
+      }
+    case "libsql":
+      return {
+        user: decodeURIComponent(url.username || "libsql"),
+        password: decodeURIComponent(url.password),
+        database: "main",
       }
   }
 }
@@ -293,11 +333,17 @@ function runtimeEnvForDatabase(
       }
     case "redis":
       return {}
+    case "libsql":
+      return {
+        SQLD_NODE: "primary",
+        SQLD_HTTP_AUTH: `basic:${Buffer.from(`${creds.user}:${creds.password}`, "utf8").toString("base64")}`,
+      }
   }
 }
 
 function runtimeArgsForDatabase(kind: DbKind, password: string): string[] {
   if (kind === "redis") return ["--requirepass", password]
+  if (kind === "libsql") return templates.libsql.args ?? []
   return []
 }
 
@@ -312,6 +358,8 @@ function buildPublicUrl(kind: DbKind, host: string, port: number): string {
       return `mongodb://${host}:${port}`
     case "redis":
       return `redis://${host}:${port}`
+    case "libsql":
+      return `http://${host}:${port}`
   }
 }
 
@@ -443,7 +491,7 @@ export async function spawnDatabase(
 
   const id = nanoid()
   const password = generatePassword()
-  const resolvedEnv = resolveEnv(tmpl.env, password)
+  const resolvedEnv = resolveEnv(tmpl.env, password, "libsql")
   const resolvedArgs = resolveArgs(tmpl.args, password)
   const creds = getCredentials(kind, resolvedEnv, resolvedArgs)
   const host = containerName(id)

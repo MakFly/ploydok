@@ -1,49 +1,60 @@
 // SPDX-License-Identifier: AGPL-3.0-only
-import * as React from "react";
-import { startAuthentication } from "@simplewebauthn/browser";
-import { Button } from "@workspace/ui/components/button";
-import { apiFetch } from "../../lib/api";
-import { useLogin } from "../../lib/auth";
+import * as React from "react"
+import { startAuthentication } from "@simplewebauthn/browser"
+import { Button } from "@workspace/ui/components/button"
+import { apiFetch } from "../../lib/api"
+import { useLogin } from "../../lib/auth"
 
 interface LoginOptionsResponse {
-  options: Parameters<typeof startAuthentication>[0]["optionsJSON"];
-  _challengeKey: string;
+  options: Parameters<typeof startAuthentication>[0]["optionsJSON"]
+  _challengeKey: string
 }
 
 interface PasskeyButtonProps {
-  onSuccess?: () => void;
-  onError?: (err: Error) => void;
+  email?: string
+  onSuccess?: () => void
+  onError?: (err: Error) => void
 }
 
-export function PasskeyButton({ onSuccess, onError }: PasskeyButtonProps): React.JSX.Element {
-  const login = useLogin();
-  const [loading, setLoading] = React.useState(false);
-  const [error, setError] = React.useState<string | null>(null);
+export function PasskeyButton({
+  email = "",
+  onSuccess,
+  onError,
+}: PasskeyButtonProps): React.JSX.Element {
+  const login = useLogin()
+  const [loading, setLoading] = React.useState(false)
+  const [error, setError] = React.useState<string | null>(null)
 
   const handleClick = async (): Promise<void> => {
-    setLoading(true);
-    setError(null);
+    const normalizedEmail = email.trim().toLowerCase()
+    if (!normalizedEmail) {
+      setError("Enter your email first")
+      return
+    }
+
+    setLoading(true)
+    setError(null)
     try {
       // 1. Get challenge from server
       const { options, _challengeKey } = await apiFetch<LoginOptionsResponse>(
-        "/auth/login/options",
-      );
+        `/auth/login/options?email=${encodeURIComponent(normalizedEmail)}`
+      )
 
       // 2. Browser WebAuthn
-      const credential = await startAuthentication({ optionsJSON: options });
+      const credential = await startAuthentication({ optionsJSON: options })
 
       // 3. Verify with server
-      await login.mutateAsync({ credential, _challengeKey });
+      await login.mutateAsync({ credential, _challengeKey })
 
-      onSuccess?.();
+      onSuccess?.()
     } catch (err) {
-      const msg = err instanceof Error ? err.message : "Authentication failed";
-      setError(msg);
-      onError?.(err instanceof Error ? err : new Error(msg));
+      const msg = err instanceof Error ? err.message : "Authentication failed"
+      setError(msg)
+      onError?.(err instanceof Error ? err : new Error(msg))
     } finally {
-      setLoading(false);
+      setLoading(false)
     }
-  };
+  }
 
   return (
     <div className="flex flex-col items-center gap-2">
@@ -97,5 +108,5 @@ export function PasskeyButton({ onSuccess, onError }: PasskeyButtonProps): React
         </p>
       )}
     </div>
-  );
+  )
 }

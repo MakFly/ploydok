@@ -135,6 +135,7 @@ export const BuildSchema = z.object({
   containerId: z.string().optional(),
   commitSha: z.string().optional(),
   commitMessage: z.string().nullable().optional(),
+  errorMessage: z.string().nullable().optional(),
   // Set when post-deploy hook fails (status = succeeded_with_warning)
   postDeployError: z.string().nullable().optional(),
   startedAt: z.number().optional(), // unix ms

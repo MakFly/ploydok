@@ -1,16 +1,19 @@
 // SPDX-License-Identifier: AGPL-3.0-only
 import * as React from "react"
 import { Button } from "@workspace/ui/components/button"
+import { Input } from "@workspace/ui/components/input"
+import { Textarea } from "@workspace/ui/components/textarea"
 import {
   useCreateGitHubApp,
   useGitHubAppConfig,
   useGitHubCacheStatus,
+  useImportGitHubApp,
   useInstallations,
   useResetGitHubApp,
   useRevokeInstallation,
   useSyncGitHubInstallations,
 } from "../../../lib/github"
-import type { AppInstallation } from "../../../lib/github"
+import type { AppInstallation, ImportGitHubAppPayload } from "../../../lib/github"
 import { CachedReposPanel } from "./CachedReposPanel"
 import { SyncProgressDialog } from "./SyncProgressDialog"
 import { useSyncWithProgress } from "./useSyncWithProgress"
@@ -70,7 +73,7 @@ export function GitHubPanel(): React.JSX.Element {
       <div className="rounded-lg border border-border bg-card p-6 space-y-4">
         {appSuccess && (
           <p className="text-sm text-green-600 dark:text-green-400" role="status">
-            GitHub App created successfully.
+            GitHub App configured successfully.
           </p>
         )}
         {appLoading ? (
@@ -79,7 +82,6 @@ export function GitHubPanel(): React.JSX.Element {
           <GitHubAppConfiguredState
             name={appConfig.name!}
             slug={appConfig.slug!}
-            installUrl={appConfig.install_url!}
             isPending={resetApp.isPending}
             onReset={() => void handleResetApp()}
             error={resetError}
@@ -88,6 +90,7 @@ export function GitHubPanel(): React.JSX.Element {
           <GitHubAppUnconfiguredState
             isPending={createApp.isPending}
             onCreate={() => void handleCreateApp()}
+            onImported={() => setAppSuccess(true)}
             error={createApp.error?.message ?? null}
           />
         )}
@@ -103,7 +106,10 @@ function InstallationsCard(): React.JSX.Element {
   const revoke = useRevokeInstallation()
   const [pendingId, setPendingId] = React.useState<number | null>(null)
   const [revokeError, setRevokeError] = React.useState<string | null>(null)
-  const [justInstalledId, setJustInstalledId] = React.useState<string | null>(null)
+  const [justInstalled, setJustInstalled] = React.useState<{
+    id: string
+    action: string
+  } | null>(null)
   const [installError, setInstallError] = React.useState<string | null>(null)
 
   React.useEffect(() => {
@@ -115,24 +121,26 @@ function InstallationsCard(): React.JSX.Element {
     const installErrorParam = params.get("install_error")
 
     if (installErrorParam) {
+      const messages: Record<string, string> = {
+        state_mismatch:
+          "GitHub returned from installation with an invalid or expired state. Please retry.",
+        missing_installation_id:
+          "GitHub did not return an installation id. Please retry from the install button.",
+        sync_failed:
+          "GitHub installation completed, but Ploydok could not queue the repository sync. Please refresh or sync manually.",
+      }
       setInstallError(
-        installErrorParam === "state_mismatch"
-          ? "GitHub returned from installation with an invalid or expired state. Please retry."
-          : "GitHub installation did not complete correctly. Please retry.",
+        messages[installErrorParam] ??
+          "GitHub installation did not complete correctly. Please retry.",
       )
-    }
-
-    if (!installationId || !setupAction) {
-      if (!installErrorParam) return
-      params.delete("install_error")
-      const next = params.toString()
-      window.history.replaceState({}, "", `${window.location.pathname}${next ? `?${next}` : ""}`)
+      setJustInstalled(null)
+    } else if (installationId && setupAction && installed === "1") {
+      setJustInstalled({ id: installationId, action: setupAction })
+      setInstallError(null)
+      void refetch()
+    } else if (!installationId && !setupAction) {
       return
     }
-
-    setJustInstalledId(installationId)
-    setInstallError(null)
-    if (installed === "1") void refetch()
 
     params.delete("installation_id")
     params.delete("setup_action")
@@ -142,7 +150,7 @@ function InstallationsCard(): React.JSX.Element {
     const next = params.toString()
     window.history.replaceState({}, "", `${window.location.pathname}${next ? `?${next}` : ""}`)
 
-    const timer = setTimeout(() => setJustInstalledId(null), 6_000)
+    const timer = setTimeout(() => setJustInstalled(null), 6_000)
     return () => clearTimeout(timer)
   }, [refetch])
 
@@ -170,6 +178,8 @@ function InstallationsCard(): React.JSX.Element {
   }
 
   const installUrl = data?.installUrl ?? ""
+  const hasInstallation =
+    Boolean(justInstalled) || Boolean(data && data.installations.length > 0)
 
   return (
     <>
@@ -190,9 +200,11 @@ function InstallationsCard(): React.JSX.Element {
         </Button>
       </div>
 
-      {justInstalledId && (
+      {justInstalled && (
         <p className="text-sm text-green-600 dark:text-green-400" role="status">
-          GitHub App installation #{justInstalledId} received. Your repositories are now accessible below.
+          GitHub App installation #{justInstalled.id}{" "}
+          {justInstalled.action === "update" ? "updated" : "received"}. Your
+          repositories are syncing below.
         </p>
       )}
       {installError && (
@@ -235,13 +247,13 @@ function InstallationsCard(): React.JSX.Element {
               onClick={() => handleStartInstall(installUrl)}
               className="text-sm text-primary underline-offset-2 hover:underline"
             >
-              Install on another account →
+              Add another account →
             </button>
           </div>
         )}
       </div>
 
-      <GitHubCacheSection />
+      {hasInstallation && <GitHubCacheSection />}
     </>
   )
 }
@@ -368,7 +380,7 @@ function InstallationsEmptyState({
   return (
     <div className="flex flex-col items-start gap-3">
       <p className="text-sm text-muted-foreground">
-        The GitHub App isn't installed on any account yet. Install it to grant Ploydok access to your repositories.
+        The GitHub App is configured but has no repository access yet. Install it on a GitHub account or organization to enable repository import.
       </p>
       {installUrl && (
         <Button size="sm" onClick={onInstall}>
@@ -394,14 +406,58 @@ function GitHubStatusSkeleton(): React.JSX.Element {
 interface GitHubAppUnconfiguredStateProps {
   isPending: boolean
   onCreate: () => void
+  onImported: () => void
   error: string | null
 }
 
 function GitHubAppUnconfiguredState({
   isPending,
   onCreate,
+  onImported,
   error,
 }: GitHubAppUnconfiguredStateProps): React.JSX.Element {
+  const importApp = useImportGitHubApp()
+  const [showImport, setShowImport] = React.useState(false)
+  const [form, setForm] = React.useState<ImportGitHubAppPayload>({
+    appId: "",
+    clientId: "",
+    clientSecret: "",
+    privateKey: "",
+    webhookSecret: "",
+    slug: "",
+    name: "",
+  })
+  const importError = importApp.error?.message ?? null
+  const canImport = Boolean(
+    form.appId.trim() &&
+      form.clientId.trim() &&
+      form.clientSecret.trim() &&
+      form.privateKey.trim() &&
+      form.slug.trim() &&
+      form.name.trim(),
+  )
+
+  const updateField =
+    (key: keyof ImportGitHubAppPayload) =>
+    (event: React.ChangeEvent<HTMLInputElement | HTMLTextAreaElement>) => {
+      setForm((current) => ({ ...current, [key]: event.target.value }))
+    }
+
+  async function handleImport(event: React.FormEvent<HTMLFormElement>): Promise<void> {
+    event.preventDefault()
+    await importApp.mutateAsync({
+      ...form,
+      appId: form.appId.trim(),
+      clientId: form.clientId.trim(),
+      slug: form.slug.trim(),
+      name: form.name.trim(),
+      clientSecret: form.clientSecret.trim(),
+      privateKey: form.privateKey.trim(),
+      webhookSecret: form.webhookSecret?.trim() ?? "",
+    })
+    onImported()
+  }
+
   return (
     <div className="flex flex-col items-start gap-4">
       <div className="flex items-center gap-3">
@@ -411,16 +467,89 @@ function GitHubAppUnconfiguredState({
         <div>
           <p className="text-sm font-medium">No GitHub App configured</p>
           <p className="text-xs text-muted-foreground">
-            Create a GitHub App in one click. Ploydok will register it automatically.
+            Create a new GitHub App, or reconnect the existing one after a local DB reset.
           </p>
         </div>
       </div>
       {error && (
         <p className="text-sm text-destructive" role="alert">{error}</p>
       )}
-      <Button onClick={onCreate} size="sm" disabled={isPending}>
-        {isPending ? "Redirecting to GitHub..." : "Create GitHub App"}
-      </Button>
+      <div className="flex flex-wrap gap-2">
+        <Button onClick={onCreate} size="sm" disabled={isPending || importApp.isPending}>
+          {isPending ? "Redirecting to GitHub..." : "Create GitHub App"}
+        </Button>
+        <Button
+          type="button"
+          onClick={() => setShowImport((value) => !value)}
+          size="sm"
+          variant="outline"
+          disabled={isPending || importApp.isPending}
+        >
+          Reconnect existing App
+        </Button>
+      </div>
+      {showImport && (
+        <form
+          className="grid w-full gap-3 border-t border-border pt-4 md:grid-cols-2"
+          onSubmit={(event) => void handleImport(event)}
+        >
+          <label className="space-y-1 text-xs font-medium">
+            App ID
+            <Input value={form.appId} onChange={updateField("appId")} inputMode="numeric" />
+          </label>
+          <label className="space-y-1 text-xs font-medium">
+            Client ID
+            <Input value={form.clientId} onChange={updateField("clientId")} />
+          </label>
+          <label className="space-y-1 text-xs font-medium">
+            App slug
+            <Input value={form.slug} onChange={updateField("slug")} placeholder="ploydok-local" />
+          </label>
+          <label className="space-y-1 text-xs font-medium">
+            App name
+            <Input value={form.name} onChange={updateField("name")} placeholder="Ploydok Local" />
+          </label>
+          <label className="space-y-1 text-xs font-medium md:col-span-2">
+            Client secret
+            <Input
+              value={form.clientSecret}
+              onChange={updateField("clientSecret")}
+              type="password"
+              autoComplete="off"
+            />
+          </label>
+          <label className="space-y-1 text-xs font-medium md:col-span-2">
+            Private key
+            <Textarea
+              value={form.privateKey}
+              onChange={updateField("privateKey")}
+              rows={7}
+              autoComplete="off"
+              placeholder="-----BEGIN RSA PRIVATE KEY-----"
+            />
+          </label>
+          <label className="space-y-1 text-xs font-medium md:col-span-2">
+            Webhook secret
+            <Input
+              value={form.webhookSecret}
+              onChange={updateField("webhookSecret")}
+              type="password"
+              autoComplete="off"
+              placeholder="Optional for local recovery"
+            />
+          </label>
+          {importError && (
+            <p className="text-sm text-destructive md:col-span-2" role="alert">
+              {importError}
+            </p>
+          )}
+          <div className="flex justify-end md:col-span-2">
+            <Button size="sm" type="submit" disabled={!canImport || importApp.isPending}>
+              {importApp.isPending ? "Reconnecting..." : "Save existing App"}
+            </Button>
+          </div>
+        </form>
+      )}
     </div>
   )
 }
@@ -428,7 +557,6 @@ function GitHubAppUnconfiguredState({
 interface GitHubAppConfiguredStateProps {
   name: string
   slug: string
-  installUrl: string
   isPending: boolean
   onReset: () => void
   error: string | null
@@ -437,11 +565,20 @@ interface GitHubAppConfiguredStateProps {
 function GitHubAppConfiguredState({
   name,
   slug,
-  installUrl,
   isPending,
   onReset,
   error,
 }: GitHubAppConfiguredStateProps): React.JSX.Element {
+  const handleResetClick = (): void => {
+    if (typeof window !== "undefined") {
+      const confirmed = window.confirm(
+        `Uninstall ${name} from every GitHub account and remove the local Ploydok configuration? This cannot be undone from Ploydok.`,
+      )
+      if (!confirmed) return
+    }
+    onReset()
+  }
+
   return (
     <div className="space-y-4">
       <div className="flex items-center gap-4">
@@ -454,7 +591,7 @@ function GitHubAppConfiguredState({
             <span className="text-muted-foreground text-xs">({slug})</span>
           </p>
           <p className="text-xs text-muted-foreground">
-            GitHub App registered. Install it on your account or organization.
+            GitHub App registered. Repository access is managed from the active installations below.
           </p>
         </div>
         <div className="ml-auto">
@@ -470,18 +607,13 @@ function GitHubAppConfiguredState({
       )}
 
       <div className="flex items-center gap-2 pt-2 border-t border-border">
-        <Button asChild size="sm" variant="outline">
-          <a href={installUrl} target="_blank" rel="noopener noreferrer">
-            Install on GitHub
-          </a>
-        </Button>
         <Button
           variant="destructive"
           size="sm"
-          onClick={onReset}
+          onClick={handleResetClick}
           disabled={isPending}
         >
-          {isPending ? "Resetting..." : "Reset App"}
+          {isPending ? "Uninstalling..." : "Reset App"}
         </Button>
       </div>
     </div>

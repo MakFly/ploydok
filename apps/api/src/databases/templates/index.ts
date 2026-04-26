@@ -6,7 +6,7 @@ export interface DbPlan {
 }
 
 export interface DbTemplate {
-  kind: "postgres" | "mysql" | "mariadb" | "redis" | "mongo"
+  kind: "postgres" | "mysql" | "mariadb" | "redis" | "mongo" | "libsql"
   version: string
   image: string
   plans: Record<"small" | "medium" | "large", DbPlan>
@@ -18,7 +18,10 @@ export interface DbTemplate {
   connection_string: string
 }
 
-export const templates: Record<"postgres" | "mysql" | "mariadb" | "redis" | "mongo", DbTemplate> = {
+export const templates: Record<
+  "postgres" | "mysql" | "mariadb" | "redis" | "mongo" | "libsql",
+  DbTemplate
+> = {
   postgres: {
     kind: "postgres",
     version: "16",
@@ -36,7 +39,8 @@ export const templates: Record<"postgres" | "mysql" | "mariadb" | "redis" | "mon
       POSTGRES_DB: "app",
       POSTGRES_PASSWORD: "@generated(32)",
     },
-    connection_string: "postgres://{user}:{password}@{host}:{port}/{database}",
+    connection_string:
+      "postgres://{user}:{password}@{host}:{port}/{database}?serverVersion=16&charset=utf8",
   },
   mysql: {
     kind: "mysql",
@@ -69,7 +73,8 @@ export const templates: Record<"postgres" | "mysql" | "mariadb" | "redis" | "mon
     },
     volume_path: "/var/lib/mysql",
     port: 3306,
-    healthcheck: "mariadb-admin ping -h 127.0.0.1 -uroot -p$MARIADB_ROOT_PASSWORD",
+    healthcheck:
+      "mariadb-admin ping -h 127.0.0.1 -uroot -p$MARIADB_ROOT_PASSWORD",
     env: {
       MARIADB_DATABASE: "app",
       MARIADB_USER: "ploydok",
@@ -111,6 +116,31 @@ export const templates: Record<"postgres" | "mysql" | "mariadb" | "redis" | "mon
       MONGO_INITDB_ROOT_PASSWORD: "@generated(32)",
       MONGO_INITDB_DATABASE: "app",
     },
-    connection_string: "mongodb://{user}:{password}@{host}:{port}/{database}?authSource=admin",
+    connection_string:
+      "mongodb://{user}:{password}@{host}:{port}/{database}?authSource=admin",
+  },
+  libsql: {
+    kind: "libsql",
+    version: "0.24.32",
+    image: "ghcr.io/tursodatabase/libsql-server:v0.24.32",
+    plans: {
+      small: { cpu: 0.25, mem_mb: 256 },
+      medium: { cpu: 0.5, mem_mb: 1024 },
+      large: { cpu: 1.0, mem_mb: 4096 },
+    },
+    volume_path: "/var/lib/sqld",
+    port: 8080,
+    healthcheck:
+      "curl -fsS http://127.0.0.1:8080/health >/dev/null || wget -q -O /dev/null http://127.0.0.1:8080/health",
+    env: {
+      SQLD_NODE: "primary",
+      SQLD_HTTP_AUTH: "@generated-basic-auth",
+    },
+    args: [
+      "/bin/sh",
+      "-c",
+      "sqld --db-path /var/lib/sqld/iku.db --http-listen-addr 0.0.0.0:8080 --grpc-listen-addr 0.0.0.0:5001 --admin-listen-addr 0.0.0.0:5000",
+    ],
+    connection_string: "http://{user}:{password}@{host}:{port}",
   },
 }

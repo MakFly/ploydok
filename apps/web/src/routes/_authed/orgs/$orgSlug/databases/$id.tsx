@@ -99,6 +99,9 @@ function DatabaseDetailPage(): React.JSX.Element {
       actions={
         <div className="flex items-center gap-2">
           <DatabaseStatusBadge status={db.status} health={db.health_status} />
+          <Button variant="destructive" onClick={() => setDeleteOpen(true)}>
+            Delete
+          </Button>
         </div>
       }
     >
@@ -367,12 +370,6 @@ function DatabaseDetailPage(): React.JSX.Element {
             </div>
           </TabsContent>
         </Tabs>
-
-        <div className="flex gap-3">
-          <Button variant="destructive" onClick={() => setDeleteOpen(true)}>
-            Delete
-          </Button>
-        </div>
       </div>
 
       <RevealConnectionDialog

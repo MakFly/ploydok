@@ -64,6 +64,9 @@ function mockDb(opts: { gitlabTokenRows?: unknown[] } = {}) {
         onConflictDoUpdate: (_opts: unknown) => Promise.resolve(),
       }),
     }),
+    delete: (_table: unknown) => ({
+      where: (_condition: unknown) => Promise.resolve(),
+    }),
     transaction: async (fn: (tx: unknown) => Promise<void>) => fn(null),
   }
 }
@@ -145,6 +148,23 @@ describe("handleSyncProviderRepos — GitHub fan-out", () => {
     expect(payloads).toContainEqual({
       provider: "github",
       installationId: "222",
+    })
+  })
+
+  it("normalizes cached GitHub installation ids before enqueueing", async () => {
+    const { enqueueProviderReposSync } = await import("./sync-provider-repos")
+    mockEnqueue.mockClear()
+
+    await enqueueProviderReposSync({
+      provider: "github",
+      installationId: "github:999",
+    })
+
+    expect(mockEnqueue.mock.calls.length).toBe(1)
+    expect((mockEnqueue.mock.calls[0] as unknown[])[0]).toBe("github-999")
+    expect((mockEnqueue.mock.calls[0] as unknown[])[1]).toMatchObject({
+      provider: "github",
+      installationId: "999",
     })
   })
 })

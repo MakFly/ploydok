@@ -59,6 +59,7 @@ interface FormState {
   watchPaths: string
   healthcheckPath: string
   healthcheckPort: string
+  laravelSeedOnFirstDeploy: boolean
   plan: PlanSelectorValue
 }
 
@@ -80,6 +81,7 @@ const INITIAL_FORM: FormState = {
   watchPaths: "",
   healthcheckPath: "/",
   healthcheckPort: "",
+  laravelSeedOnFirstDeploy: false,
   plan: { plan: "small" },
 }
 
@@ -211,6 +213,7 @@ export function CreateAppModal({
       selectedRepo: repo,
       branch: "",
       name: prev.name || (repo.fullName.split("/").at(-1) ?? ""),
+      laravelSeedOnFirstDeploy: false,
     }))
   }
 
@@ -254,7 +257,7 @@ export function CreateAppModal({
           "fixed inset-x-2 top-1/2 z-50 -translate-y-1/2",
           "sm:inset-x-auto sm:left-1/2 sm:w-full sm:max-w-6xl sm:-translate-x-1/2",
           "rounded-2xl border border-border bg-background shadow-2xl",
-          "max-h-[92vh] overflow-hidden sm:max-h-[88vh]",
+          "flex h-[92vh] flex-col overflow-hidden sm:h-[88vh]",
           "data-[state=open]:animate-in data-[state=open]:fade-in-0 data-[state=open]:zoom-in-95"
         )}
       >
@@ -284,8 +287,8 @@ export function CreateAppModal({
           </button>
         </div>
 
-        <div className="grid md:grid-cols-[220px_1fr]">
-          <aside className="hidden border-r border-border bg-muted/30 p-4 md:block">
+        <div className="grid min-h-0 flex-1 md:grid-cols-[220px_1fr]">
+          <aside className="hidden min-h-0 overflow-y-auto border-r border-border bg-muted/30 p-4 md:block">
             <ol className="space-y-1">
               {steps.map((s, idx) => {
                 const state =
@@ -343,10 +346,10 @@ export function CreateAppModal({
             <SummaryCard form={form} />
           </aside>
 
-          <div className="flex max-h-[calc(92vh-120px)] flex-col sm:max-h-[calc(88vh-128px)]">
+          <div className="flex min-h-0 flex-col">
             <div
               key={currentStep}
-              className="flex-1 overflow-y-auto p-4 motion-safe:animate-in motion-safe:duration-200 motion-safe:fade-in-0 motion-safe:slide-in-from-right-2 sm:p-6"
+              className="min-h-0 flex-1 overflow-y-auto p-4 motion-safe:animate-in motion-safe:duration-200 motion-safe:fade-in-0 motion-safe:slide-in-from-right-2 sm:p-6"
             >
               {currentStep === "source" && (
                 <SourceStep
@@ -473,6 +476,9 @@ function SummaryCard({ form }: { form: FormState }): React.JSX.Element {
                   : "Nixpacks"
             }
           />
+          {form.laravelSeedOnFirstDeploy && (
+            <SummaryRow label="Laravel seed" value="first deploy" />
+          )}
         </>
       )}
       {form.source === "image" && (
@@ -918,6 +924,15 @@ function BuildStep({
         <DetectedPanel classification={classification} />
       )}
 
+      {classification?.stack === "laravel" && (
+        <LaravelRuntimePanel
+          seedOnFirstDeploy={form.laravelSeedOnFirstDeploy}
+          onSeedOnFirstDeployChange={(value) =>
+            setField("laravelSeedOnFirstDeploy", value)
+          }
+        />
+      )}
+
       <section className="space-y-2">
         <div className="flex items-center justify-between">
           <p className="text-sm font-medium">Méthode de build</p>
@@ -1132,6 +1147,50 @@ function DetectedPanel({
   )
 }
 
+function LaravelRuntimePanel({
+  seedOnFirstDeploy,
+  onSeedOnFirstDeployChange,
+}: {
+  seedOnFirstDeploy: boolean
+  onSeedOnFirstDeployChange: (value: boolean) => void
+}): React.JSX.Element {
+  return (
+    <section className="space-y-2 rounded-lg border border-border bg-muted/20 p-3">
+      <div className="flex items-start justify-between gap-3">
+        <div className="min-w-0">
+          <p className="text-sm font-medium">Laravel runtime</p>
+          <p className="mt-1 text-xs text-muted-foreground">
+            Pour les apps Laravel en SQLite, Ploydok prépare le fichier et lance
+            les migrations au démarrage.
+          </p>
+        </div>
+        <span className="rounded-full bg-primary/10 px-1.5 py-0.5 font-mono text-[9px] font-semibold tracking-wide text-primary uppercase">
+          SQLite
+        </span>
+      </div>
+
+      <label className="flex cursor-pointer items-start gap-3 rounded-md border border-border bg-background p-3 transition-colors hover:bg-muted/30">
+        <input
+          type="checkbox"
+          checked={seedOnFirstDeploy}
+          onChange={(e) => onSeedOnFirstDeployChange(e.target.checked)}
+          className="mt-0.5 size-4 rounded border-input text-primary focus:ring-2 focus:ring-ring"
+        />
+        <span className="min-w-0">
+          <span className="block text-sm font-medium">
+            Seeder la base SQLite au premier déploiement
+          </span>
+          <span className="mt-0.5 block text-xs text-muted-foreground">
+            Ajoute <code className="font-mono">PLOYDOK_LARAVEL_SEED=true</code>{" "}
+            et lance <code className="font-mono">php artisan db:seed</code>{" "}
+            seulement si le fichier SQLite vient d'être créé.
+          </span>
+        </span>
+      </label>
+    </section>
+  )
+}
+
 function BuildMethodCard({
   label,
   hint,
@@ -1314,6 +1373,17 @@ function buildCreateAppBody(
         retries: 6,
         startPeriodS: 0,
       }
+    }
+
+    if (form.laravelSeedOnFirstDeploy) {
+      body.initialSecrets = [
+        {
+          key: "PLOYDOK_LARAVEL_SEED",
+          value: "true",
+          scope: "shared",
+          phase: "runtime",
+        },
+      ]
     }
   }
 

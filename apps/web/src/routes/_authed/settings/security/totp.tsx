@@ -21,12 +21,14 @@ import {
   AlertDialogTrigger,
 } from "@workspace/ui/components/alert-dialog"
 import { Button } from "@workspace/ui/components/button"
+import { Switch } from "@workspace/ui/components/switch"
 import { QRCodeSVG } from "qrcode.react"
 import { toast } from "sonner"
 import {
   useDeleteTotp,
   useEnrollTotp,
   useTotpStatus,
+  useUpdateTotpPreferences,
   useVerifyTotp,
   type TotpEnrollResponse,
 } from "../../../../lib/totp"
@@ -47,8 +49,10 @@ function TotpPage(): React.JSX.Element {
   const enrollTotp = useEnrollTotp()
   const verifyTotp = useVerifyTotp()
   const deleteTotp = useDeleteTotp()
+  const updateTotpPreferences = useUpdateTotpPreferences()
 
   const isEnrolled = localVerified || (status?.verified ?? false)
+  const requireTotpForSecretReveal = status?.requireTotpForSecretReveal ?? true
 
   const handleEnroll = (): void => {
     enrollTotp.mutate(undefined, {
@@ -108,6 +112,26 @@ function TotpPage(): React.JSX.Element {
     })
   }
 
+  const handleSecretRevealProtectionChange = (checked: boolean): void => {
+    updateTotpPreferences.mutate(
+      { requireTotpForSecretReveal: checked },
+      {
+        onSuccess: () => {
+          toast.success(
+            checked
+              ? "TOTP required for secret reveal"
+              : "Secret reveal TOTP disabled"
+          )
+        },
+        onError: (err) => {
+          toast.error("Failed to update secret reveal protection", {
+            description: err.message,
+          })
+        },
+      }
+    )
+  }
+
   if (isLoading) {
     return (
       <CardFrame>
@@ -120,26 +144,54 @@ function TotpPage(): React.JSX.Element {
   }
 
   if (isEnrolled) {
-    return <TotpEnabledView onDelete={handleDelete} isPending={deleteTotp.isPending} />
+    return (
+      <div className="space-y-4">
+        <TotpEnabledView
+          onDelete={handleDelete}
+          isPending={deleteTotp.isPending}
+        />
+        <SecretRevealProtectionCard
+          checked={requireTotpForSecretReveal}
+          onCheckedChange={handleSecretRevealProtectionChange}
+          isPending={updateTotpPreferences.isPending}
+        />
+      </div>
+    )
   }
 
   if (enrollData !== null) {
     return (
-      <TotpScanView
-        enrollData={enrollData}
-        code={code}
-        onCodeChange={setCode}
-        onVerify={handleVerify}
-        onCancel={handleCancel}
-        onCopySecret={() => void handleCopySecret()}
-        copied={copied}
-        isPending={verifyTotp.isPending}
-        error={verifyTotp.error}
-      />
+      <div className="space-y-4">
+        <TotpScanView
+          enrollData={enrollData}
+          code={code}
+          onCodeChange={setCode}
+          onVerify={handleVerify}
+          onCancel={handleCancel}
+          onCopySecret={() => void handleCopySecret()}
+          copied={copied}
+          isPending={verifyTotp.isPending}
+          error={verifyTotp.error}
+        />
+        <SecretRevealProtectionCard
+          checked={requireTotpForSecretReveal}
+          onCheckedChange={handleSecretRevealProtectionChange}
+          isPending={updateTotpPreferences.isPending}
+        />
+      </div>
     )
   }
 
-  return <TotpIdleView onEnable={handleEnroll} isPending={enrollTotp.isPending} />
+  return (
+    <div className="space-y-4">
+      <TotpIdleView onEnable={handleEnroll} isPending={enrollTotp.isPending} />
+      <SecretRevealProtectionCard
+        checked={requireTotpForSecretReveal}
+        onCheckedChange={handleSecretRevealProtectionChange}
+        isPending={updateTotpPreferences.isPending}
+      />
+    </div>
+  )
 }
 
 function TotpIdleView({
@@ -240,11 +292,15 @@ function TotpScanView({
             value={code}
             onChange={(e) => onCodeChange(e.target.value.replace(/\D/g, ""))}
             placeholder="000000"
-            className="w-full rounded-md border border-border bg-background px-3 py-2 text-center font-mono text-lg tracking-[0.4em] text-foreground placeholder:text-muted-foreground/40 focus:outline-none focus:ring-2 focus:ring-primary"
+            className="w-full rounded-md border border-border bg-background px-3 py-2 text-center font-mono text-lg tracking-[0.4em] text-foreground placeholder:text-muted-foreground/40 focus:ring-2 focus:ring-primary focus:outline-none"
             aria-describedby={error ? "totp-error" : undefined}
           />
           {error ? (
-            <p id="totp-error" role="alert" className="text-xs text-destructive">
+            <p
+              id="totp-error"
+              role="alert"
+              className="text-xs text-destructive"
+            >
               {error.message}
             </p>
           ) : null}
@@ -327,6 +383,39 @@ function TotpEnabledView({
             </AlertDialogFooter>
           </AlertDialogContent>
         </AlertDialog>
+      </div>
+    </CardFrame>
+  )
+}
+
+function SecretRevealProtectionCard({
+  checked,
+  onCheckedChange,
+  isPending,
+}: {
+  checked: boolean
+  onCheckedChange: (checked: boolean) => void
+  isPending: boolean
+}): React.JSX.Element {
+  return (
+    <CardFrame
+      title="Secret reveal protection"
+      description="Require a TOTP code before revealing application secrets from the environment page."
+      icon={RiShieldKeyholeLine}
+    >
+      <div className="mt-3 flex items-center justify-between gap-4">
+        <div className="space-y-1">
+          <p className="text-sm font-medium">Require TOTP for Reveal secret</p>
+          <p className="text-xs leading-5 text-muted-foreground">
+            Disable this to reveal secrets with your active session only.
+          </p>
+        </div>
+        <Switch
+          checked={checked}
+          onCheckedChange={onCheckedChange}
+          disabled={isPending}
+          aria-label="Require TOTP for secret reveal"
+        />
       </div>
     </CardFrame>
   )

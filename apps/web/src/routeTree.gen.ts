@@ -12,7 +12,7 @@ import { Route as rootRouteImport } from './routes/__root'
 import { Route as PublicRouteImport } from './routes/_public'
 import { Route as AuthedRouteImport } from './routes/_authed'
 import { Route as PublicIndexRouteImport } from './routes/_public/index'
-import { Route as PublicRegisterRouteImport } from './routes/_public/register'
+import { Route as PublicSetupRouteImport } from './routes/_public/setup'
 import { Route as PublicLoginRouteImport } from './routes/_public/login'
 import { Route as AuthedMonitoringRouteImport } from './routes/_authed/monitoring'
 import { Route as AuthedGuideRouteImport } from './routes/_authed/guide'
@@ -82,9 +82,9 @@ const PublicIndexRoute = PublicIndexRouteImport.update({
   path: '/',
   getParentRoute: () => PublicRoute,
 } as any)
-const PublicRegisterRoute = PublicRegisterRouteImport.update({
-  id: '/register',
-  path: '/register',
+const PublicSetupRoute = PublicSetupRouteImport.update({
+  id: '/setup',
+  path: '/setup',
   getParentRoute: () => PublicRoute,
 } as any)
 const PublicLoginRoute = PublicLoginRouteImport.update({
@@ -407,7 +407,7 @@ export interface FileRoutesByFullPath {
   '/guide': typeof AuthedGuideRoute
   '/monitoring': typeof AuthedMonitoringRoute
   '/login': typeof PublicLoginRoute
-  '/register': typeof PublicRegisterRoute
+  '/setup': typeof PublicSetupRoute
   '/apps/$': typeof AuthedAppsSplatRoute
   '/databases/$': typeof AuthedDatabasesSplatRoute
   '/orgs/$orgSlug': typeof AuthedOrgsOrgSlugRouteWithChildren
@@ -466,7 +466,7 @@ export interface FileRoutesByTo {
   '/guide': typeof AuthedGuideRoute
   '/monitoring': typeof AuthedMonitoringRoute
   '/login': typeof PublicLoginRoute
-  '/register': typeof PublicRegisterRoute
+  '/setup': typeof PublicSetupRoute
   '/apps/$': typeof AuthedAppsSplatRoute
   '/databases/$': typeof AuthedDatabasesSplatRoute
   '/settings/api-tokens': typeof AuthedSettingsApiTokensRoute
@@ -523,7 +523,7 @@ export interface FileRoutesById {
   '/_authed/guide': typeof AuthedGuideRoute
   '/_authed/monitoring': typeof AuthedMonitoringRoute
   '/_public/login': typeof PublicLoginRoute
-  '/_public/register': typeof PublicRegisterRoute
+  '/_public/setup': typeof PublicSetupRoute
   '/_public/': typeof PublicIndexRoute
   '/_authed/apps/$': typeof AuthedAppsSplatRoute
   '/_authed/databases/$': typeof AuthedDatabasesSplatRoute
@@ -585,7 +585,7 @@ export interface FileRouteTypes {
     | '/guide'
     | '/monitoring'
     | '/login'
-    | '/register'
+    | '/setup'
     | '/apps/$'
     | '/databases/$'
     | '/orgs/$orgSlug'
@@ -644,7 +644,7 @@ export interface FileRouteTypes {
     | '/guide'
     | '/monitoring'
     | '/login'
-    | '/register'
+    | '/setup'
     | '/apps/$'
     | '/databases/$'
     | '/settings/api-tokens'
@@ -700,7 +700,7 @@ export interface FileRouteTypes {
     | '/_authed/guide'
     | '/_authed/monitoring'
     | '/_public/login'
-    | '/_public/register'
+    | '/_public/setup'
     | '/_public/'
     | '/_authed/apps/$'
     | '/_authed/databases/$'
@@ -783,11 +783,11 @@ declare module '@tanstack/react-router' {
       preLoaderRoute: typeof PublicIndexRouteImport
       parentRoute: typeof PublicRoute
     }
-    '/_public/register': {
-      id: '/_public/register'
-      path: '/register'
-      fullPath: '/register'
-      preLoaderRoute: typeof PublicRegisterRouteImport
+    '/_public/setup': {
+      id: '/_public/setup'
+      path: '/setup'
+      fullPath: '/setup'
+      preLoaderRoute: typeof PublicSetupRouteImport
       parentRoute: typeof PublicRoute
     }
     '/_public/login': {
@@ -1343,14 +1343,14 @@ const AuthedRouteWithChildren =
 
 interface PublicRouteChildren {
   PublicLoginRoute: typeof PublicLoginRoute
-  PublicRegisterRoute: typeof PublicRegisterRoute
+  PublicSetupRoute: typeof PublicSetupRoute
   PublicIndexRoute: typeof PublicIndexRoute
   PublicInvitationsAcceptRoute: typeof PublicInvitationsAcceptRoute
 }
 
 const PublicRouteChildren: PublicRouteChildren = {
   PublicLoginRoute: PublicLoginRoute,
-  PublicRegisterRoute: PublicRegisterRoute,
+  PublicSetupRoute: PublicSetupRoute,
   PublicIndexRoute: PublicIndexRoute,
   PublicInvitationsAcceptRoute: PublicInvitationsAcceptRoute,
 }

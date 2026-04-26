@@ -4,6 +4,7 @@ import { apps, env_vars, secrets } from "@ploydok/db"
 import { getProjectEnv } from "@ploydok/db/queries"
 import type { Db } from "@ploydok/db"
 import { decryptSecret } from "./crypto"
+import { normalizeLinkedDatabaseConnectionString } from "../databases/connection-strings"
 
 /**
  * Read user-provided env vars from the legacy `env_vars` table.
@@ -136,6 +137,7 @@ async function mergeScoped(
     key: string
     value_ciphertext: unknown
     nonce: unknown
+    linked_database_id?: unknown
   }>
 ): Promise<Record<string, string>> {
   const shared: Record<string, string> = {}
@@ -143,10 +145,14 @@ async function mergeScoped(
 
   await Promise.all(
     rows.map(async (row) => {
-      const value = await decryptSecret(
+      const decrypted = await decryptSecret(
         row.value_ciphertext as Buffer,
         row.nonce as Buffer
       )
+      const value =
+        row.linked_database_id !== null && row.linked_database_id !== undefined
+          ? normalizeLinkedDatabaseConnectionString(decrypted)
+          : decrypted
       if (row.scope === "shared") {
         shared[row.key] = value
       } else {

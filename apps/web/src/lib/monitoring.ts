@@ -26,23 +26,28 @@ import type {
 // stream silently drops between reconnects.
 // ---------------------------------------------------------------------------
 
-export function useMonitoring() {
+export function useMonitoring(options: { enabled?: boolean } = {}) {
+  const enabled = options.enabled ?? true
   const backendUnavailable = useBackendUnavailable()
   const qc = useQueryClient()
 
-  useEventsSubscription<MonitoringEvent>("container.health", (monEv) => {
-    const snap = monEv.container
-    qc.setQueryData<MonitoringOverview>(["monitoring", "overview"], (old) => {
-      if (!old) return old
-      const idx = old.containers.findIndex((c) => c.id === snap.id)
-      if (idx === -1) {
-        return { ...old, containers: [...old.containers, snap] }
-      }
-      const next = old.containers.slice()
-      next[idx] = snap
-      return { ...old, containers: next }
-    })
-  })
+  useEventsSubscription<MonitoringEvent>(
+    "container.health",
+    (monEv) => {
+      const snap = monEv.container
+      qc.setQueryData<MonitoringOverview>(["monitoring", "overview"], (old) => {
+        if (!old) return old
+        const idx = old.containers.findIndex((c) => c.id === snap.id)
+        if (idx === -1) {
+          return { ...old, containers: [...old.containers, snap] }
+        }
+        const next = old.containers.slice()
+        next[idx] = snap
+        return { ...old, containers: next }
+      })
+    },
+    enabled
+  )
 
   return useQuery<MonitoringOverview, ApiError>({
     queryKey: ["monitoring", "overview"],
@@ -67,7 +72,7 @@ export function useMonitoring() {
     staleTime: 5_000,
     retry: shouldRetryCriticalQuery,
     retryDelay: criticalRetryDelay,
-    enabled: !backendUnavailable.active,
+    enabled: enabled && !backendUnavailable.active,
     meta: { critical: true },
   })
 }

@@ -21,6 +21,8 @@ interface BuildLogViewerProps {
   appId: string
   /** Build ID — if undefined or "latest", streams runtime logs */
   buildId?: string
+  /** For completed builds, read the persisted log archive instead of live WS. */
+  archiveOnly?: boolean
   /** Optional app name for the download filename and title bar */
   appName?: string
   className?: string
@@ -169,6 +171,7 @@ function EmptyState({
 export function BuildLogViewer({
   appId,
   buildId,
+  archiveOnly,
   appName,
   className,
 }: BuildLogViewerProps): React.JSX.Element {
@@ -177,6 +180,7 @@ export function BuildLogViewer({
   const { lines, connected, error } = useLogStream({
     appId,
     buildId,
+    archiveOnly,
     maxLines: filters.volume,
   })
 

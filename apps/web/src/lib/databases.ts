@@ -6,10 +6,27 @@ import { notifyMutationError } from "./second-factor-toast"
 
 // ── Types ─────────────────────────────────────────────────────────────────────
 
-export type DbKind = "postgres" | "mysql" | "mariadb" | "redis" | "mongo"
+export type DbKind =
+  | "postgres"
+  | "mysql"
+  | "mariadb"
+  | "redis"
+  | "mongo"
+  | "libsql"
 export type DbPlan = "small" | "medium" | "large"
-export type DbStatus = "creating" | "starting" | "running" | "stopped" | "degraded" | "failed"
-export type DbHealthStatus = "unknown" | "starting" | "healthy" | "degraded" | "unhealthy"
+export type DbStatus =
+  | "creating"
+  | "starting"
+  | "running"
+  | "stopped"
+  | "degraded"
+  | "failed"
+export type DbHealthStatus =
+  | "unknown"
+  | "starting"
+  | "healthy"
+  | "degraded"
+  | "unhealthy"
 export type DbExposureMode = "internal" | "direct_port" | "public_proxy"
 
 export interface Database {
@@ -85,19 +102,26 @@ export interface DatabaseStats {
 
 export const databaseKeys = {
   all: ["databases"] as const,
-  list: (projectId?: string) => ["databases", "list", projectId ?? "all"] as const,
+  list: (projectId?: string) =>
+    ["databases", "list", projectId ?? "all"] as const,
   detail: (id: string) => ["databases", "detail", id] as const,
 }
 
 // ── Hooks ─────────────────────────────────────────────────────────────────────
 
-export function useDatabases(projectId?: string) {
+export function useDatabases(
+  projectId?: string,
+  options: { enabled?: boolean } = {}
+) {
+  const enabled = options.enabled ?? true
+
   return useQuery({
     queryKey: databaseKeys.list(projectId),
     queryFn: async () => {
       const url = projectId ? `/databases?projectId=${projectId}` : "/databases"
       return apiFetch<Database[]>(url)
     },
+    enabled,
   })
 }
 
@@ -152,9 +176,12 @@ export function useDeleteDatabase() {
 export function useRevealDatabase() {
   return useMutation({
     mutationFn: async ({ id }: { id: string }) => {
-      const data = await apiFetch<{ connection_string: string }>(`/databases/${id}/reveal`, {
-        method: "POST",
-      })
+      const data = await apiFetch<{ connection_string: string }>(
+        `/databases/${id}/reveal`,
+        {
+          method: "POST",
+        }
+      )
       return data.connection_string
     },
   })
@@ -172,11 +199,14 @@ export function useLinkDatabase() {
       databaseId: string
       env_prefix?: string
     }) => {
-      return apiFetch<{ ok: boolean; vars: string[] }>(`/apps/${appId}/databases/${databaseId}/link`, {
-        method: "POST",
-        body: { env_prefix: env_prefix ?? "DATABASE" },
-        headers: { "content-type": "application/json" },
-      })
+      return apiFetch<{ ok: boolean; vars: string[] }>(
+        `/apps/${appId}/databases/${databaseId}/link`,
+        {
+          method: "POST",
+          body: { env_prefix: env_prefix ?? "DATABASE" },
+          headers: { "content-type": "application/json" },
+        }
+      )
     },
     onSuccess: (_data, vars) => {
       qc.invalidateQueries({ queryKey: ["apps", vars.appId, "secrets"] })
@@ -193,13 +223,14 @@ export function useRotateDatabase() {
   const qc = useQueryClient()
   return useMutation({
     mutationFn: async ({ id, totpCode }: { id: string; totpCode: string }) => {
-      return apiFetch<{ ok: boolean; rotatedAt: string; appsRedeployed: string[] }>(
-        `/databases/${id}/rotate`,
-        {
-          method: "POST",
-          headers: { "X-TOTP-Code": totpCode },
-        },
-      )
+      return apiFetch<{
+        ok: boolean
+        rotatedAt: string
+        appsRedeployed: string[]
+      }>(`/databases/${id}/rotate`, {
+        method: "POST",
+        headers: { "X-TOTP-Code": totpCode },
+      })
     },
     onSuccess: (_, vars) => {
       const id = vars.id
@@ -215,10 +246,19 @@ export function useRotateDatabase() {
 export function useUnlinkDatabase() {
   const qc = useQueryClient()
   return useMutation({
-    mutationFn: async ({ appId, databaseId }: { appId: string; databaseId: string }) => {
-      return apiFetch<{ ok: boolean }>(`/apps/${appId}/databases/${databaseId}/link`, {
-        method: "DELETE",
-      })
+    mutationFn: async ({
+      appId,
+      databaseId,
+    }: {
+      appId: string
+      databaseId: string
+    }) => {
+      return apiFetch<{ ok: boolean }>(
+        `/apps/${appId}/databases/${databaseId}/link`,
+        {
+          method: "DELETE",
+        }
+      )
     },
     onSuccess: (_data, vars) => {
       qc.invalidateQueries({ queryKey: ["apps", vars.appId, "secrets"] })
@@ -233,12 +273,14 @@ export function useUnlinkDatabase() {
 
 function useDatabaseAction(
   action: "start" | "stop" | "restart",
-  successMessage: string,
+  successMessage: string
 ) {
   const qc = useQueryClient()
   return useMutation({
     mutationFn: async (id: string) => {
-      return apiFetch<{ ok: boolean }>(`/databases/${id}/${action}`, { method: "POST" })
+      return apiFetch<{ ok: boolean }>(`/databases/${id}/${action}`, {
+        method: "POST",
+      })
     },
     onSuccess: (_data, id) => {
       qc.invalidateQueries({ queryKey: databaseKeys.detail(id) })
@@ -275,11 +317,14 @@ export function useUpdateDatabaseNetwork() {
       exposureMode: DbExposureMode
       publicEnabled: boolean
     }) => {
-      return apiFetch<{ ok: boolean; database: Database }>(`/databases/${id}/network`, {
-        method: "PATCH",
-        body: { exposureMode, publicEnabled },
-        headers: { "content-type": "application/json" },
-      })
+      return apiFetch<{ ok: boolean; database: Database }>(
+        `/databases/${id}/network`,
+        {
+          method: "PATCH",
+          body: { exposureMode, publicEnabled },
+          headers: { "content-type": "application/json" },
+        }
+      )
     },
     onSuccess: (_data, vars) => {
       qc.invalidateQueries({ queryKey: databaseKeys.detail(vars.id) })
@@ -295,7 +340,10 @@ export function useUpdateDatabaseNetwork() {
 export function useDatabaseLogs(id: string, tail = 200) {
   return useQuery({
     queryKey: ["databases", "logs", id, tail],
-    queryFn: async () => apiFetch<{ lines: DatabaseLogLine[]; containerFound: boolean }>(`/databases/${id}/logs?tail=${tail}`),
+    queryFn: async () =>
+      apiFetch<{ lines: DatabaseLogLine[]; containerFound: boolean }>(
+        `/databases/${id}/logs?tail=${tail}`
+      ),
     enabled: Boolean(id),
   })
 }
@@ -303,7 +351,10 @@ export function useDatabaseLogs(id: string, tail = 200) {
 export function useDatabaseStats(id: string) {
   return useQuery({
     queryKey: ["databases", "stats", id],
-    queryFn: async () => apiFetch<{ containerFound: boolean; stats: DatabaseStats | null }>(`/databases/${id}/stats`),
+    queryFn: async () =>
+      apiFetch<{ containerFound: boolean; stats: DatabaseStats | null }>(
+        `/databases/${id}/stats`
+      ),
     enabled: Boolean(id),
     refetchInterval: 10_000,
   })

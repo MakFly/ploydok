@@ -1,0 +1,23 @@
+kind: libsql
+image: ghcr.io/tursodatabase/libsql-server:v0.24.32
+plans:
+  small:
+    cpu: 0.25
+    mem_mb: 256
+  medium:
+    cpu: 0.5
+    mem_mb: 1024
+  large:
+    cpu: 1.0
+    mem_mb: 4096
+volume_path: /var/lib/sqld
+port: 8080
+healthcheck: curl -fsS http://127.0.0.1:8080/health >/dev/null || wget -q -O /dev/null http://127.0.0.1:8080/health
+env:
+  SQLD_NODE: primary
+  SQLD_HTTP_AUTH: "@generated-basic-auth"
+args:
+  - /bin/sh
+  - -c
+  - sqld --db-path /var/lib/sqld/iku.db --http-listen-addr 0.0.0.0:8080 --grpc-listen-addr 0.0.0.0:5001 --admin-listen-addr 0.0.0.0:5000
+connection_string: "http://{user}:{password}@{host}:{port}"
