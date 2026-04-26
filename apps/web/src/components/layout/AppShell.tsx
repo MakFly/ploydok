@@ -161,18 +161,30 @@ const workspaceNav: Array<NavItem> = [
 const platformNav: Array<NavItem> = [
   { label: "Members", icon: RiTeamLine, orgPathSuffix: "members" },
   { label: "Audit", icon: RiFileListLine, orgPathSuffix: "audit" },
-  { label: "Shared env", icon: RiKeyLine, orgPathSuffix: "shared-env" },
+  {
+    label: "Shared env",
+    icon: RiKeyLine,
+    comingSoon: true,
+    tooltip: "Backend ready, UI not wired yet — coming soon.",
+  },
   {
     label: "Scheduled jobs",
     icon: RiTimerLine,
-    orgPathSuffix: "scheduled-jobs",
+    comingSoon: true,
+    tooltip: "Read-only API only — full UI coming soon.",
   },
   {
     label: "Event webhooks",
     icon: RiSendPlane2Line,
-    orgPathSuffix: "event-webhooks",
+    comingSoon: true,
+    tooltip: "Read-only API only — full UI coming soon.",
   },
-  { label: "Tags", icon: RiPriceTagLine, orgPathSuffix: "tags" },
+  {
+    label: "Tags",
+    icon: RiPriceTagLine,
+    comingSoon: true,
+    tooltip: "Cross-resource tagging — coming soon.",
+  },
 ]
 
 const integrationsNav: Array<NavItem> = [
@@ -767,6 +779,12 @@ export function AppShell({
                                 <Icon className="size-4 shrink-0" />
                                 <span className="truncate group-data-[sidebar-state=collapsed]/shell:hidden">
                                   {item.label}
+                                </span>
+                                <span
+                                  aria-hidden="true"
+                                  className="ml-auto rounded-full border border-sidebar-border/60 bg-sidebar-accent/30 px-1.5 py-0.5 text-[10px] font-medium tracking-wide text-sidebar-foreground/60 uppercase group-data-[sidebar-state=collapsed]/shell:hidden"
+                                >
+                                  Soon
                                 </span>
                               </span>
                             </li>
