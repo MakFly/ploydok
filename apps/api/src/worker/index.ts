@@ -2,7 +2,7 @@
 import { rm } from "node:fs/promises"
 import path from "node:path"
 import { Worker, UnrecoverableError } from "bullmq"
-import { createRedis, apps } from "@ploydok/db"
+import { createRedis, apps, app_delete_jobs } from "@ploydok/db"
 import type { Db } from "@ploydok/db"
 import { eq } from "drizzle-orm"
 import { resolveAppOwner } from "@ploydok/db/queries"
@@ -12,7 +12,6 @@ import { workerLog as logger } from "./logger"
 import { handleDeploy } from "./handlers/deploy"
 import { FatalDeployError } from "./errors"
 import { handleDeleteApp } from "./handlers/delete-app"
-import type { DeleteAppOptions } from "./handlers/delete-app"
 import { handleDomainVerify } from "./handlers/domain-verify"
 import type { DomainVerifyPayload } from "./handlers/domain-verify"
 import {
@@ -149,40 +148,58 @@ export function startWorker(
       "app.delete",
       async (job) => {
         logger.info({ jobId: job.id }, "app.delete job started")
-        const opts = job.data as DeleteAppOptions
-        // Resolve owner + name BEFORE the cascade deletes the apps row, so we
-        // can still publish a user-channel SSE notification once it's gone.
-        const ownerId = await resolveAppOwner(db, opts.appId)
-        const [appRow] = await db
-          .select({ name: apps.name })
-          .from(apps)
-          .where(eq(apps.id, opts.appId))
-          .limit(1)
-        const appName = appRow?.name ?? "App"
+
+        // Parse job payload to extract appId for notification purposes.
+        let appIdForNotification: string | null = null
         try {
-          const res = await handleDeleteApp(db, opts)
-          logger.info({ jobId: job.id, ...res }, "app.delete done")
-          if (ownerId) {
+          const payload = JSON.parse(job.data)
+          if (payload.jobId) {
+            const jobRow = await db
+              .select({ app_id: app_delete_jobs.app_id })
+              .from(app_delete_jobs)
+              .where(eq(app_delete_jobs.id, payload.jobId))
+              .limit(1)
+            appIdForNotification = jobRow[0]?.app_id ?? null
+          }
+        } catch {
+          // best-effort to extract appId for notification
+        }
+
+        const ownerId = appIdForNotification
+          ? await resolveAppOwner(db, appIdForNotification)
+          : null
+        const [appRow] = appIdForNotification
+          ? await db
+              .select({ name: apps.name })
+              .from(apps)
+              .where(eq(apps.id, appIdForNotification))
+              .limit(1)
+          : [null]
+        const appName = appRow?.name ?? "App"
+
+        try {
+          await handleDeleteApp(db, { id: job.id ?? "", payload: job.data })
+          logger.info({ jobId: job.id }, "app.delete done")
+          if (ownerId && appIdForNotification) {
             try {
               eventBus.publish(`user:${ownerId}`, {
                 type: "app.deleted",
-                appId: opts.appId,
+                appId: appIdForNotification,
                 message: `${appName} supprimée`,
-                data: { steps: res.steps },
               })
             } catch (pubErr) {
               logger.warn(
-                { pubErr, appId: opts.appId },
+                { pubErr, appId: appIdForNotification },
                 "eventBus publish app.deleted failed (non-fatal)"
               )
             }
           }
         } catch (err) {
-          if (ownerId) {
+          if (ownerId && appIdForNotification) {
             try {
               eventBus.publish(`user:${ownerId}`, {
                 type: "app.delete.failed",
-                appId: opts.appId,
+                appId: appIdForNotification,
                 message:
                   err instanceof Error ? err.message : "Suppression échouée",
               })

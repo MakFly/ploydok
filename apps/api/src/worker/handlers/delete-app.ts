@@ -139,10 +139,7 @@ export async function handleDeleteApp(
   if (dockerCleanup) {
     try {
       const { stopApp } = await import("../runner.js")
-      const stopOpts: { agentSocketPath?: string; caddyBaseUrl?: string } = {}
-      if (agentSocketPath) stopOpts.agentSocketPath = agentSocketPath
-      if (caddyBaseUrl) stopOpts.caddyBaseUrl = caddyBaseUrl
-      await stopApp(appId, db, stopOpts)
+      await stopApp(appId, db, {})
     } catch (err) {
       result.steps.containers = { ok: false, error: errToString(err) }
       log.warn({ appId, err }, "container cleanup failed (continuing)")
@@ -169,7 +166,7 @@ export async function handleDeleteApp(
   //    where containers were skipped or stopApp failed before reaching it.)
   if (deleteCaddyRoutes && !dockerCleanup) {
     try {
-      const caddy = new CaddyClient(caddyBaseUrl)
+      const caddy = new CaddyClient()
       await caddy.removeRoute(appId)
     } catch (err) {
       result.steps.caddy = { ok: false, error: errToString(err) }

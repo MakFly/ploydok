@@ -13,12 +13,22 @@ export type { DomainRow }
 export type TlsStatus = "pending" | "issued" | "failed"
 export type TlsMode = "http01" | "dns01"
 
+export type QueueSource =
+  | "api"
+  | "webhook:github"
+  | "webhook:gitlab"
+  | "cron:gc"
+  | "cron:cleanup"
+  | "auto:push"
+  | "auto:tag"
+  | "system"
+
 export interface DomainCreateOptions {
   tls_mode?: TlsMode
   dns01_provider?: string | null
   verify_token?: string | null
   requested_by_user_id?: string | null
-  verify_source?: string | null
+  verify_source?: QueueSource | null
 }
 
 // ---------------------------------------------------------------------------

@@ -598,7 +598,7 @@ export function createAppsRouter(db: Db): Hono {
             source: "api",
           })
           .returning()
-          .then((r) => r[0]),
+          .then((r: any[]) => r[0]),
       buildPayload: (row) => ({ buildId: row.id }),
       jobOptions: { attempts: 1 },
     })
@@ -834,7 +834,7 @@ export function createAppsRouter(db: Db): Hono {
             },
           })
           .returning()
-          .then((r) => r[0]),
+          .then((r: any[]) => r[0]),
       buildPayload: (row) => ({ jobId: row.id }),
     })
 
@@ -876,7 +876,7 @@ export function createAppsRouter(db: Db): Hono {
             source: "api",
           })
           .returning()
-          .then((r) => r[0]),
+          .then((r: any[]) => r[0]),
       buildPayload: (row) => ({ buildId: row.id }),
       jobOptions: { attempts: 1 },
     })

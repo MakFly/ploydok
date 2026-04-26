@@ -1,0 +1,1 @@
+ALTER TABLE "provider_credentials" ADD COLUMN "last_sync_status" text DEFAULT 'pending';
