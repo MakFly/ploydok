@@ -144,7 +144,8 @@ function attachListener(
 
 export function useEventsSubscription<T>(
   eventType: string,
-  callback: (data: T) => void
+  callback: (data: T) => void,
+  enabled = true
 ): void {
   const subscribe = React.useContext(SubscribeContext)
   const cbRef = React.useRef(callback)
@@ -153,12 +154,13 @@ export function useEventsSubscription<T>(
   })
 
   React.useEffect(() => {
+    if (!enabled) return
     if (!subscribe) return
     const unsub = subscribe(eventType, (data) => {
       cbRef.current(data as T)
     })
     return unsub
-  }, [subscribe, eventType])
+  }, [subscribe, eventType, enabled])
 }
 
 export function useEventsConnected(): boolean {

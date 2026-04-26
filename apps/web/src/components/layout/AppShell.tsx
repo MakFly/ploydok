@@ -77,12 +77,14 @@ import { CommandBar } from "./CommandBar"
 import { CommandPaletteRoot } from "./CommandPalette"
 import { NotificationBell } from "./NotificationBell"
 import {
+  extractAppId,
   extractAppName,
   extractAppStatus,
   resolveTopbarBreadcrumb,
 } from "./topbar-breadcrumb"
 import { AppStatusBadge } from "../apps/AppStatusBadge"
 import type { AppStatus } from "@ploydok/shared"
+import { useApp } from "../../lib/apps"
 import {
   organizationDashboardPath,
   organizationPath,
@@ -1086,8 +1088,10 @@ function TopbarBreadcrumb(): React.JSX.Element | null {
   const pathname = useRouterState({ select: (s) => s.location.pathname })
   const orgSlug = useCurrentOrganizationSlug()
 
-  const appName = extractAppName(matches)
-  const appStatus = extractAppStatus(matches)
+  const appId = extractAppId(matches)
+  const { data: liveApp } = useApp(appId ?? "", { subscribeToEvents: false })
+  const appName = liveApp?.name ?? extractAppName(matches)
+  const appStatus = liveApp?.status ?? extractAppStatus(matches)
   const items = resolveTopbarBreadcrumb(pathname, appName, orgSlug)
   if (items.length === 0) return null
 

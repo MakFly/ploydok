@@ -1,15 +1,16 @@
 // SPDX-License-Identifier: AGPL-3.0-only
 import * as React from "react"
+import { FileBrowser } from "./FileBrowser"
 
 // ---------------------------------------------------------------------------
 // Shell — xterm.js terminal wired to a WebSocket exec session.
 //
 // Protocol (locked with API):
-//   binary toi→server = stdin bytes
-//   binary server→toi = stdout bytes
-//   text JSON toi→server = {"type":"resize","cols":N,"rows":N}
-//   text JSON server→toi = {"type":"ready"} | {"type":"exit","code":N}
-//                         | {"type":"error","message":"..."}
+//   binary client→server = stdin bytes
+//   binary server→client = stdout bytes
+//   text JSON client→server = {"type":"resize","cols":N,"rows":N}
+//   text JSON server→client = {"type":"ready"} | {"type":"exit","code":N}
+//                          | {"type":"error","message":"..."}
 // Close codes: 4001=Unauthorized, 4004=AppNotFound, 1001=Idle, 1011=InternalError
 // ---------------------------------------------------------------------------
 
@@ -36,8 +37,6 @@ function closeReason(code: number): string {
 
 export function Shell({ appId }: ShellProps): React.JSX.Element {
   const containerRef = React.useRef<HTMLDivElement>(null)
-  // Store xterm Terminal instance — typed as unknown to avoid importing at
-  // module level (xterm must not run during SSR).
   const termRef = React.useRef<unknown>(null)
   const wsRef = React.useRef<WebSocket | null>(null)
   const fitRef = React.useRef<unknown>(null)
@@ -46,14 +45,7 @@ export function Shell({ appId }: ShellProps): React.JSX.Element {
     null
   )
 
-  // Read-only par défaut (Sprint 6.5-ter). Toggle « Enable write » ouvre une
-  // nouvelle session WS avec ?mode=rw — un second challenge passkey sera
-  // câblé après. Pour l'instant l'opt-in client-side suffit comme garde-fou
-  // visible : l'utilisateur sait qu'il passe en mode destructif.
-  const [mode, setMode] = React.useState<"ro" | "rw">("ro")
-
   React.useEffect(() => {
-    // Guard: this must only run in the browser (SSR safety).
     if (typeof window === "undefined") return
     if (!containerRef.current) return
 
@@ -106,57 +98,11 @@ export function Shell({ appId }: ShellProps): React.JSX.Element {
       termRef.current = term
       fitRef.current = fitAddon
 
-      // -----------------------------------------------------------------------
-      // WebSocket connection
-      // -----------------------------------------------------------------------
       const { cols, rows } = term
       const wsBase = API_BASE.replace(/^http/, "ws")
+      const url = `${wsBase}/ws/apps/${appId}/exec?cols=${cols}&rows=${rows}`
 
-      // Mode rw : r\u00e9cup\u00e8re un ticket sign\u00e9 fresh (gated par 2FA c\u00f4t\u00e9 serveur).
-      // Si la requ\u00eate \u00e9choue (403 totp_required, etc.) on retombe en read-only.
-      let ticket: string | null = null
-      if (mode === "rw") {
-        term.write("\x1b[2mRequesting write ticket\u2026\x1b[0m\r\n")
-        try {
-          const res = await fetch(
-            `${API_BASE}/apps/${appId}/exec/ticket?mode=rw`,
-            {
-              method: "POST",
-              credentials: "include",
-              headers: {
-                "x-csrf-token":
-                  document.cookie.match(/csrf=([^;]+)/)?.[1] ?? "",
-              },
-            }
-          )
-          if (!res.ok) {
-            const body = await res.json().catch(() => ({}))
-            const reason =
-              (body as { code?: string; error?: { code?: string } })?.code ??
-              (body as { error?: { code?: string } }).error?.code ??
-              `HTTP ${res.status}`
-            term.write(
-              `\x1b[31m[write ticket refused: ${reason}] \u2014 falling back to read-only\x1b[0m\r\n`
-            )
-            setMode("ro")
-            return
-          }
-          const data = (await res.json()) as { ticket: string }
-          ticket = data.ticket
-        } catch (e) {
-          const msg = e instanceof Error ? e.message : String(e)
-          term.write(
-            `\x1b[31m[ticket fetch failed: ${msg}] \u2014 falling back to read-only\x1b[0m\r\n`
-          )
-          setMode("ro")
-          return
-        }
-      }
-
-      const ticketParam = ticket ? `&ticket=${encodeURIComponent(ticket)}` : ""
-      const url = `${wsBase}/ws/apps/${appId}/exec?cols=${cols}&rows=${rows}&mode=${mode}${ticketParam}`
-
-      term.write("\x1b[2mConnecting to shell\u2026\x1b[0m\r\n")
+      term.write("\x1b[2mConnecting to shell…\x1b[0m\r\n")
 
       const ws = new WebSocket(url)
       ws.binaryType = "arraybuffer"
@@ -167,13 +113,11 @@ export function Shell({ appId }: ShellProps): React.JSX.Element {
           ws.close()
           return
         }
-        // Clear the "Connecting…" line once ready message arrives.
       })
 
       ws.addEventListener("message", (evt: MessageEvent) => {
         if (disposed) return
         if (typeof evt.data === "string") {
-          // JSON control messages
           try {
             const msg = JSON.parse(evt.data) as {
               type: string
@@ -181,7 +125,6 @@ export function Shell({ appId }: ShellProps): React.JSX.Element {
               message?: string
             }
             if (msg.type === "ready") {
-              // Clear connecting message and place cursor
               term.reset()
             } else if (msg.type === "exit") {
               term.write(
@@ -196,7 +139,6 @@ export function Shell({ appId }: ShellProps): React.JSX.Element {
             // Ignore malformed JSON
           }
         } else {
-          // Binary: stdout from the container
           term.write(new Uint8Array(evt.data as ArrayBuffer))
         }
       })
@@ -215,18 +157,12 @@ export function Shell({ appId }: ShellProps): React.JSX.Element {
         )
       })
 
-      // -----------------------------------------------------------------------
-      // stdin: forward keystrokes as binary
-      // -----------------------------------------------------------------------
       term.onData((data: string) => {
         if (ws.readyState === WebSocket.OPEN) {
           ws.send(new TextEncoder().encode(data))
         }
       })
 
-      // -----------------------------------------------------------------------
-      // Resize: debounce 100 ms, then send JSON + refit
-      // -----------------------------------------------------------------------
       term.onResize(({ cols: c, rows: r }: { cols: number; rows: number }) => {
         if (resizeTimerRef.current !== null) {
           clearTimeout(resizeTimerRef.current)
@@ -238,9 +174,6 @@ export function Shell({ appId }: ShellProps): React.JSX.Element {
         }, 100)
       })
 
-      // -----------------------------------------------------------------------
-      // Auto-fit on container resize
-      // -----------------------------------------------------------------------
       const ro = new ResizeObserver(() => {
         if (disposed) return
         fitAddon.fit()
@@ -274,51 +207,16 @@ export function Shell({ appId }: ShellProps): React.JSX.Element {
         termRef.current = null
       }
     }
-  }, [appId, mode])
-
-  function toggleWriteMode() {
-    if (mode === "ro") {
-      const ok = window.confirm(
-        "Activer le mode écriture ?\n\nUn second challenge passkey sera requis en prod (pas encore câblé). En attendant, tu prends la responsabilité d'exécuter des commandes destructives."
-      )
-      if (!ok) return
-      setMode("rw")
-    } else {
-      setMode("ro")
-    }
-  }
+  }, [appId])
 
   return (
-    <div className="flex h-full w-full flex-col bg-[#09090b]">
-      <div className="flex items-center justify-between border-b border-zinc-800 px-3 py-1.5">
-        <div className="flex items-center gap-2">
-          <span
-            className={`inline-flex h-1.5 w-1.5 rounded-full ${
-              mode === "rw" ? "bg-amber-500" : "bg-emerald-500"
-            }`}
-            aria-hidden
-          />
-          <span className="font-mono text-[10px] tracking-wide text-zinc-400 uppercase">
-            {mode === "rw" ? "Read-write" : "Read-only"}
-          </span>
-        </div>
-        <button
-          type="button"
-          onClick={toggleWriteMode}
-          className={`inline-flex h-6 items-center rounded-md border px-2 font-mono text-[10px] transition-colors ${
-            mode === "rw"
-              ? "border-amber-500/50 bg-amber-500/10 text-amber-300 hover:bg-amber-500/20"
-              : "border-zinc-700 bg-zinc-900 text-zinc-300 hover:bg-zinc-800"
-          }`}
-        >
-          {mode === "rw" ? "Switch to read-only" : "Enable write"}
-        </button>
-      </div>
+    <div className="flex h-full w-full">
       <div
         ref={containerRef}
-        className="min-h-0 min-w-0 flex-1 overflow-hidden p-1"
+        className="min-w-0 flex-1 overflow-hidden bg-[#09090b] p-1 [&_.xterm-viewport]:scrollbar-thin"
         aria-label="Interactive shell terminal"
       />
+      <FileBrowser appId={appId} />
     </div>
   )
 }

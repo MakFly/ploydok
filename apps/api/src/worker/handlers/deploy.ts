@@ -5,7 +5,13 @@ import { eq } from "drizzle-orm"
 import { nanoid } from "nanoid"
 import { z } from "zod"
 import { apps, builds, projects } from "@ploydok/db"
-import { insertBuild, updateBuildStatus } from "@ploydok/db/queries"
+import {
+  insertBuild,
+  updateBuildStatus,
+  getAppForUser,
+} from "@ploydok/db/queries"
+import { claimQueuedRow } from "../queue-claim"
+import { auditUnauthorized, auditClaimed } from "../queue-audit"
 import { cleanupQueue } from "../queues"
 import type { Db } from "@ploydok/db"
 import { getRegistryCredential } from "@ploydok/db/queries"
@@ -48,7 +54,8 @@ const redis = createRedis(env.REDIS_URL)
 
 /** Shape of the `deploy.requested` job payload. */
 const DeployPayloadSchema = z.object({
-  appId: z.string(),
+  buildId: z.string().optional(),
+  appId: z.string().optional(),
   commitSha: z.string().nullish(),
   commitMessage: z.string().nullish(),
   kind: z.enum(["tag"]).optional(),
@@ -219,10 +226,55 @@ export async function handleDeploy(
   job: { id: string; payload: string; attempts: number; max_attempts: number }
 ): Promise<void> {
   const payload = DeployPayloadSchema.parse(JSON.parse(job.payload))
-  const log = workerLog.child({ jobId: job.id, appId: payload.appId })
+
+  let appId: string
+  let buildId: string
+
+  // Claim the build row from the DB queue (new Wave 2 pattern).
+  // Backwards-compat: if buildId is missing but appId is present (legacy job), log + drop.
+  let claimed: typeof builds.$inferSelect | null = null
+  if (payload.buildId) {
+    buildId = payload.buildId
+    claimed = await claimQueuedRow<typeof builds.$inferSelect>({
+      db,
+      table: builds,
+      id: buildId,
+    })
+
+    if (!claimed) {
+      auditUnauthorized({
+        jobName: "deploy.requested",
+        jobId: job.id,
+        payload,
+        reason: "build row not found or not pending",
+      })
+      return
+    }
+
+    appId = claimed.app_id
+    auditClaimed({
+      jobName: "deploy.requested",
+      jobId: job.id,
+      rowId: buildId,
+      actor: claimed.requested_by_user_id,
+      source: claimed.source,
+    })
+  } else if (payload.appId) {
+    auditUnauthorized({
+      jobName: "deploy.requested",
+      jobId: job.id,
+      payload,
+      reason: "legacy payload format — drop after queue drain",
+    })
+    return
+  } else {
+    throw new FatalDeployError("Payload missing both buildId and appId")
+  }
+
+  const log = workerLog.child({ jobId: job.id, appId })
 
   // Fetch app + owner
-  const app = await getAppForDeploy(db, payload.appId)
+  const app = await getAppForDeploy(db, appId)
   // Resolve owner once — reused for all eventBus publishes below.
   const ownerId: string | null = app.owner_id ?? null
 
@@ -241,7 +293,22 @@ export async function handleDeploy(
     )
   }
 
-  // Create build record.
+  // Verify ownership: if requested_by_user_id is set, re-verify the user still has access.
+  if (claimed.requested_by_user_id !== null) {
+    const hasAccess = await getAppForUser(
+      db,
+      appId,
+      claimed.requested_by_user_id
+    )
+    if (!hasAccess) {
+      await updateBuildStatus(db, buildId, "failed", {
+        errorMessage: "user lost access during queue wait",
+        finishedAt: new Date(),
+      })
+      return
+    }
+  }
+
   // Normalize app.build_method:
   //   - legacy "docker" aliases to "dockerfile"
   //   - "compose" is not yet implemented — reject early (sprint 3.3).
@@ -266,21 +333,24 @@ export async function handleDeploy(
       : normalizedMethod === "railpack"
         ? "railpack"
         : "docker"
-  const buildId = nanoid()
-  await insertBuild(db, {
-    id: buildId,
-    appId: app.id,
-    buildMethod: resolvedBuildMethod,
-    ...(payload.commitSha != null && { commitSha: payload.commitSha }),
-    ...(payload.commitMessage != null && {
-      commitMessage: payload.commitMessage,
-    }),
-  })
+
+  // Hydrate build record with build_method, commitSha, commitMessage.
+  await db
+    .update(builds)
+    .set({
+      build_method: resolvedBuildMethod,
+      ...(payload.commitSha != null && { commit_sha: payload.commitSha }),
+      ...(payload.commitMessage != null && {
+        commit_message: payload.commitMessage,
+      }),
+    })
+    .where(eq(builds.id, buildId))
+
   await updateBuildStatus(db, buildId, "running", { startedAt: new Date() })
   await db
     .update(apps)
     .set({ status: "building", updated_at: new Date() })
-    .where(eq(apps.id, app.id))
+    .where(eq(apps.id, appId))
 
   // Notify: build started
   if (ownerId) {

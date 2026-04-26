@@ -2,28 +2,91 @@
 import { eq } from "drizzle-orm"
 import { domains } from "@ploydok/db"
 import type { Db } from "@ploydok/db"
+import { getAppForUser } from "@ploydok/db/queries"
 import { verifyDomain } from "../../domains/verifier.js"
 import { CaddyClient } from "../../caddy/client.js"
+import { claimQueuedRow } from "../queue-claim.js"
+import { auditClaimed, auditUnauthorized } from "../queue-audit.js"
 import { workerLog as logger } from "../logger.js"
 
 export interface DomainVerifyPayload {
   domainId: string
-  appId: string
 }
 
 const caddyClient = new CaddyClient(
-  Bun.env["CADDY_ADMIN_URL"] ?? "http://127.0.0.1:2020",
+  Bun.env["CADDY_ADMIN_URL"] ?? "http://127.0.0.1:2020"
 )
 
-export async function handleDomainVerify(db: Db, payload: DomainVerifyPayload): Promise<void> {
-  const { domainId, appId } = payload
+export async function handleDomainVerify(
+  db: Db,
+  payload: DomainVerifyPayload
+): Promise<void> {
+  const { domainId } = payload
 
   logger.info({ domainId }, "domain.verify job started")
+
+  // Claim the domain row with CAS — allow retry transitions from "running" → "running"
+  const claimed = await claimQueuedRow<typeof domains.$inferSelect>({
+    db,
+    table: domains,
+    id: domainId,
+    expectedStatuses: ["pending", "running"],
+    setClaimedAt: false,
+  })
+
+  if (!claimed) {
+    auditUnauthorized({
+      jobName: "domain.verify",
+      jobId: `verify-${domainId}`,
+      payload,
+      reason: "Domain not found or not in pending/running state",
+    })
+    throw new Error(
+      `Domain ${domainId} not found or not in pending/running state`
+    )
+  }
+
+  // Update verify_claimed_at manually
+  await db
+    .update(domains)
+    .set({ verify_claimed_at: new Date() })
+    .where(eq(domains.id, domainId))
+
+  auditClaimed({
+    jobName: "domain.verify",
+    jobId: `verify-${domainId}`,
+    rowId: domainId,
+    actor: claimed.requested_by_user_id ?? null,
+    source: claimed.verify_source ?? "system",
+  })
+
+  // Verify ownership: ensure requester still has access to parent app
+  if (claimed.requested_by_user_id) {
+    const hasAccess = await getAppForUser(
+      db,
+      claimed.app_id,
+      claimed.requested_by_user_id
+    )
+    if (!hasAccess) {
+      auditUnauthorized({
+        jobName: "domain.verify",
+        jobId: `verify-${domainId}`,
+        payload,
+        reason: "Requester no longer has access to parent app",
+      })
+      throw new Error(
+        `User ${claimed.requested_by_user_id} no longer has access to app ${claimed.app_id}`
+      )
+    }
+  }
 
   const result = await verifyDomain(db, domainId)
 
   if (!result.ok) {
-    logger.warn({ domainId, reason: result.reason }, "domain verification failed — will retry")
+    logger.warn(
+      { domainId, reason: result.reason },
+      "domain verification failed — will retry"
+    )
     await db
       .update(domains)
       .set({ verify_error: result.reason ?? null, updated_at: new Date() })
@@ -38,24 +101,29 @@ export async function handleDomainVerify(db: Db, payload: DomainVerifyPayload): 
     .set({ tls_status: "issued", verify_error: null, updated_at: new Date() })
     .where(eq(domains.id, domainId))
 
-  logger.info({ domainId, appId }, "domain verified — registering Caddy route")
+  logger.info(
+    { domainId, appId: claimed.app_id },
+    "domain verified — registering Caddy route"
+  )
 
   try {
-    const upstream = await caddyClient.getUpstream(appId)
+    const upstream = await caddyClient.getUpstream(claimed.app_id)
     if (upstream) {
-      const rows = await db.select().from(domains).where(eq(domains.id, domainId)).limit(1)
-      const domain = rows[0]
-      if (domain) {
-        await caddyClient.upsertRoute({
-          host: domain.hostname,
-          upstream: `${upstream.host}:${upstream.port}`,
-          appId: `domain-${domainId}`,
-        })
-        logger.info({ domainId, hostname: domain.hostname }, "Caddy domain route registered")
-      }
+      await caddyClient.upsertRoute({
+        host: claimed.hostname,
+        upstream: `${upstream.host}:${upstream.port}`,
+        appId: `domain-${domainId}`,
+      })
+      logger.info(
+        { domainId, hostname: claimed.hostname },
+        "Caddy domain route registered"
+      )
     }
   } catch (err) {
     // Non-fatal: domain is verified in DB, Caddy registration is best-effort
-    logger.warn({ domainId, err }, "Caddy registration failed after domain verify — continuing")
+    logger.warn(
+      { domainId, err },
+      "Caddy registration failed after domain verify — continuing"
+    )
   }
 }

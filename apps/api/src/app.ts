@@ -23,7 +23,8 @@ import { githubRouter } from "./routes/github"
 import { gitlabRouter } from "./routes/gitlab"
 import { registryCredentialsRouter } from "./routes/registry-credentials"
 import { wsRouter } from "./routes/ws"
-import { wsExecRouter, execTicketRouter } from "./routes/apps-exec"
+import { wsExecRouter } from "./routes/apps-exec"
+import { appsFilesRouter } from "./routes/apps-files"
 import { eventsRouter } from "./routes/events"
 import { monitoringRouter, startMonitoringLoop } from "./routes/monitoring"
 import { notificationsRouter } from "./routes/notifications"
@@ -389,8 +390,10 @@ app.route("/registry/credentials", registryCredentialsRouter)
 app.route("/ws", wsRouter)
 app.route("/ws", wsExecRouter)
 
-// Exec ticket endpoint (Sprint 6.5-ter) — gate passkey/2FA pour mode=rw.
-app.route("/", execTicketRouter)
+// Container file browser — read-only, owner-gated. Mounted alongside /apps so
+// /apps/:id/files{,/content} sit next to the shell endpoint.
+app.route("/", appsFilesRouter)
+
 app.use("/events", requireAuth(db))
 app.use("/events/*", requireAuth(db))
 app.route("/events", eventsRouter)

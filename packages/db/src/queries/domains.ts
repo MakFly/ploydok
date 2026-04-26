@@ -17,6 +17,8 @@ export interface DomainCreateOptions {
   tls_mode?: TlsMode
   dns01_provider?: string | null
   verify_token?: string | null
+  requested_by_user_id?: string | null
+  verify_source?: string | null
 }
 
 // ---------------------------------------------------------------------------
@@ -26,7 +28,10 @@ export interface DomainCreateOptions {
 /**
  * Returns all custom domains for a given app, ordered by creation date ascending.
  */
-export async function listDomainsForApp(db: Db, appId: string): Promise<DomainRow[]> {
+export async function listDomainsForApp(
+  db: Db,
+  appId: string
+): Promise<DomainRow[]> {
   return db
     .select()
     .from(domains)
@@ -41,8 +46,15 @@ export async function listDomainsForApp(db: Db, appId: string): Promise<DomainRo
 /**
  * Returns a domain by its id, or null if not found.
  */
-export async function getDomain(db: Db, domainId: string): Promise<DomainRow | null> {
-  const rows = await db.select().from(domains).where(eq(domains.id, domainId)).limit(1)
+export async function getDomain(
+  db: Db,
+  domainId: string
+): Promise<DomainRow | null> {
+  const rows = await db
+    .select()
+    .from(domains)
+    .where(eq(domains.id, domainId))
+    .limit(1)
   return rows[0] ?? null
 }
 
@@ -56,7 +68,7 @@ export async function getDomain(db: Db, domainId: string): Promise<DomainRow | n
  */
 export async function getDomainByHostname(
   db: Db,
-  hostname: string,
+  hostname: string
 ): Promise<DomainRow | null> {
   const rows = await db
     .select()
@@ -78,7 +90,7 @@ export async function addDomain(
   db: Db,
   appId: string,
   hostname: string,
-  opts: DomainCreateOptions = {},
+  opts: DomainCreateOptions = {}
 ): Promise<DomainRow> {
   const now = new Date()
   const id = nanoid()
@@ -91,11 +103,17 @@ export async function addDomain(
     tls_mode: opts.tls_mode ?? "http01",
     dns01_provider: opts.dns01_provider ?? null,
     verify_token: opts.verify_token ?? null,
+    requested_by_user_id: opts.requested_by_user_id ?? null,
+    verify_source: opts.verify_source ?? null,
     created_at: now,
     updated_at: now,
   })
 
-  const rows = await db.select().from(domains).where(eq(domains.id, id)).limit(1)
+  const rows = await db
+    .select()
+    .from(domains)
+    .where(eq(domains.id, id))
+    .limit(1)
   // Insert just succeeded — the row must be there.
   return rows[0] as DomainRow
 }
@@ -121,7 +139,7 @@ export async function deleteDomain(db: Db, domainId: string): Promise<void> {
 export async function updateDomainTlsStatus(
   db: Db,
   domainId: string,
-  status: TlsStatus,
+  status: TlsStatus
 ): Promise<DomainRow | null> {
   const now = new Date()
   await db
@@ -139,7 +157,7 @@ export async function updateDomainTlsStatus(
 export async function updateDomainDns01(
   db: Db,
   domainId: string,
-  opts: { tls_mode: TlsMode; dns01_provider: string | null },
+  opts: { tls_mode: TlsMode; dns01_provider: string | null }
 ): Promise<DomainRow | null> {
   const now = new Date()
   await db

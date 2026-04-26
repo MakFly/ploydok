@@ -13,68 +13,114 @@
  * Coolify API (`delete_volumes`, `docker_cleanup`, `delete_configurations`,
  * `delete_connected_networks`).
  */
-import path from "node:path";
-import { rm } from "node:fs/promises";
-import { and, eq, ne } from "drizzle-orm";
-import { apps, projects } from "@ploydok/db";
-import type { Db } from "@ploydok/db";
-import { env } from "../../env";
-import { workerLog as logger } from "../logger";
-import { CaddyClient } from "../../caddy/client.js";
-import { detachCaddyFromProjectNetwork } from "../../caddy/attachment.js";
-import { getSharedAgent } from "../../debug/singletons.js";
-import { runRegistryGc } from "./gc-registry.js";
+import path from "node:path"
+import { rm } from "node:fs/promises"
+import { and, eq, ne } from "drizzle-orm"
+import { z } from "zod"
+import { apps, projects, app_delete_jobs } from "@ploydok/db"
+import type { Db } from "@ploydok/db"
+import { claimQueuedRow } from "../queue-claim"
+import { auditUnauthorized, auditClaimed } from "../queue-audit"
+import { env } from "../../env"
+import { workerLog as logger } from "../logger"
+import { CaddyClient } from "../../caddy/client.js"
+import { detachCaddyFromProjectNetwork } from "../../caddy/attachment.js"
+import { getSharedAgent } from "../../debug/singletons.js"
+import { runRegistryGc } from "./gc-registry.js"
 
 export interface DeleteAppOptions {
-  appId: string;
+  appId: string
   /** Wipe registry images + blobs. Default true. */
-  deleteImages?: boolean;
+  deleteImages?: boolean
   /** Stop + force-remove the Docker containers. Default true. */
-  dockerCleanup?: boolean;
+  dockerCleanup?: boolean
   /** Remove the on-disk build workspace. Default true. */
-  deleteBuildArtifacts?: boolean;
+  deleteBuildArtifacts?: boolean
   /** Remove the Caddy upstream + route. Default true. */
-  deleteCaddyRoutes?: boolean;
+  deleteCaddyRoutes?: boolean
   /** Override Caddy admin URL (tests). */
-  caddyBaseUrl?: string;
+  caddyBaseUrl?: string
   /** Override agent socket path (tests). */
-  agentSocketPath?: string;
+  agentSocketPath?: string
 }
 
 export interface DeleteAppResult {
-  appId: string;
+  appId: string
   steps: {
-    containers: { ok: boolean; error?: string };
-    registry: { ok: boolean; tagsDeleted: number; error?: string };
-    caddy: { ok: boolean; error?: string };
-    buildArtifacts: { ok: boolean; error?: string };
-    dbCascade: { ok: boolean; error?: string };
-  };
+    containers: { ok: boolean; error?: string }
+    registry: { ok: boolean; tagsDeleted: number; error?: string }
+    caddy: { ok: boolean; error?: string }
+    buildArtifacts: { ok: boolean; error?: string }
+    dbCascade: { ok: boolean; error?: string }
+  }
 }
 
-const log = logger.child({ handler: "delete-app" });
+const DeleteAppPayloadSchema = z.object({
+  jobId: z.string().optional(),
+})
+
+const log = logger.child({ handler: "delete-app" })
 
 function errToString(err: unknown): string {
-  return err instanceof Error ? err.message : String(err);
+  return err instanceof Error ? err.message : String(err)
 }
 
 /**
- * Run the full delete cascade. Always attempts every step even if a previous
- * one fails — partial cleanup is better than none. Reports per-step status.
+ * Handler for the `app.delete.requested` job (Wave 2 DB-anchored).
+ * Payload: { jobId }.
  */
 export async function handleDeleteApp(
   db: Db,
-  opts: DeleteAppOptions,
-): Promise<DeleteAppResult> {
-  const {
-    appId,
-    deleteImages = true,
-    dockerCleanup = true,
-    deleteBuildArtifacts = true,
-    deleteCaddyRoutes = true,
-    caddyBaseUrl,
-    agentSocketPath,
-  } = opts;
+  job: { id: string; payload: string }
+): Promise<void> {
+  const payload = DeleteAppPayloadSchema.parse(JSON.parse(job.payload))
+
+  if (!payload.jobId) {
+    auditUnauthorized({
+      jobName: "app.delete.requested",
+      jobId: job.id,
+      payload,
+      reason: "jobId missing from payload",
+    })
+    return
+  }
+
+  const claimed = await claimQueuedRow<typeof app_delete_jobs.$inferSelect>({
+    db,
+    table: app_delete_jobs,
+    id: payload.jobId,
+  })
+
+  if (!claimed) {
+    auditUnauthorized({
+      jobName: "app.delete.requested",
+      jobId: job.id,
+      payload,
+      reason: "app_delete_job row not found or not pending",
+    })
+    return
+  }
+
+  auditClaimed({
+    jobName: "app.delete.requested",
+    jobId: job.id,
+    rowId: payload.jobId,
+    actor: claimed.requested_by_user_id,
+    source: claimed.source,
+  })
+
+  const appId = claimed.app_id
+  const opts = (claimed.options ?? {}) as {
+    deleteImages?: boolean
+    dockerCleanup?: boolean
+    deleteBuildArtifacts?: boolean
+    deleteCaddyRoutes?: boolean
+  }
+
+  const deleteImages = opts.deleteImages ?? true
+  const dockerCleanup = opts.dockerCleanup ?? true
+  const deleteBuildArtifacts = opts.deleteBuildArtifacts ?? true
+  const deleteCaddyRoutes = opts.deleteCaddyRoutes ?? true
 
   const result: DeleteAppResult = {
     appId,
@@ -85,36 +131,36 @@ export async function handleDeleteApp(
       buildArtifacts: { ok: true },
       dbCascade: { ok: true },
     },
-  };
+  }
 
-  log.info({ appId, opts }, "delete-app cascade started");
+  log.info({ appId, jobId: payload.jobId }, "delete-app cascade started")
 
   // 1. Stop + remove containers (blue/green).
   if (dockerCleanup) {
     try {
-      const { stopApp } = await import("../runner.js");
-      const stopOpts: { agentSocketPath?: string; caddyBaseUrl?: string } = {};
-      if (agentSocketPath) stopOpts.agentSocketPath = agentSocketPath;
-      if (caddyBaseUrl) stopOpts.caddyBaseUrl = caddyBaseUrl;
-      await stopApp(appId, db, stopOpts);
+      const { stopApp } = await import("../runner.js")
+      const stopOpts: { agentSocketPath?: string; caddyBaseUrl?: string } = {}
+      if (agentSocketPath) stopOpts.agentSocketPath = agentSocketPath
+      if (caddyBaseUrl) stopOpts.caddyBaseUrl = caddyBaseUrl
+      await stopApp(appId, db, stopOpts)
     } catch (err) {
-      result.steps.containers = { ok: false, error: errToString(err) };
-      log.warn({ appId, err }, "container cleanup failed (continuing)");
+      result.steps.containers = { ok: false, error: errToString(err) }
+      log.warn({ appId, err }, "container cleanup failed (continuing)")
     }
   }
 
   // 2. Registry: wipe all manifests for this app + reclaim blobs.
   if (deleteImages) {
     try {
-      const gc = await runRegistryGc({ db, appFilter: appId, keepPerRepo: 0 });
-      result.steps.registry = { ok: true, tagsDeleted: gc.tagsDeleted };
+      const gc = await runRegistryGc({ db, appFilter: appId, keepPerRepo: 0 })
+      result.steps.registry = { ok: true, tagsDeleted: gc.tagsDeleted }
     } catch (err) {
       result.steps.registry = {
         ok: false,
         tagsDeleted: 0,
         error: errToString(err),
-      };
-      log.warn({ appId, err }, "registry cleanup failed (continuing)");
+      }
+      log.warn({ appId, err }, "registry cleanup failed (continuing)")
     }
   }
 
@@ -123,22 +169,22 @@ export async function handleDeleteApp(
   //    where containers were skipped or stopApp failed before reaching it.)
   if (deleteCaddyRoutes && !dockerCleanup) {
     try {
-      const caddy = new CaddyClient(caddyBaseUrl);
-      await caddy.removeRoute(appId);
+      const caddy = new CaddyClient(caddyBaseUrl)
+      await caddy.removeRoute(appId)
     } catch (err) {
-      result.steps.caddy = { ok: false, error: errToString(err) };
-      log.warn({ appId, err }, "caddy cleanup failed (continuing)");
+      result.steps.caddy = { ok: false, error: errToString(err) }
+      log.warn({ appId, err }, "caddy cleanup failed (continuing)")
     }
   }
 
   // 4. Build artifacts on disk.
   if (deleteBuildArtifacts) {
     try {
-      const dir = path.join(env.PLOYDOK_BUILD_DIR, appId);
-      await rm(dir, { recursive: true, force: true });
+      const dir = path.join(env.PLOYDOK_BUILD_DIR, appId)
+      await rm(dir, { recursive: true, force: true })
     } catch (err) {
-      result.steps.buildArtifacts = { ok: false, error: errToString(err) };
-      log.warn({ appId, err }, "build-artifacts cleanup failed (continuing)");
+      result.steps.buildArtifacts = { ok: false, error: errToString(err) }
+      log.warn({ appId, err }, "build-artifacts cleanup failed (continuing)")
     }
   }
 
@@ -152,59 +198,80 @@ export async function handleDeleteApp(
       .select({ project_id: apps.project_id })
       .from(apps)
       .where(eq(apps.id, appId))
-      .limit(1);
+      .limit(1)
 
     if (appRow) {
       const siblings = await db
         .select({ id: apps.id })
         .from(apps)
         .where(and(eq(apps.project_id, appRow.project_id), ne(apps.id, appId)))
-        .limit(1);
+        .limit(1)
 
       if (siblings.length === 0) {
         const [projRow] = await db
           .select({ network_name: projects.network_name })
           .from(projects)
           .where(eq(projects.id, appRow.project_id))
-          .limit(1);
+          .limit(1)
 
         if (projRow?.network_name) {
           try {
-            const agent = getSharedAgent();
+            const agent = getSharedAgent()
             // Caddy must leave the project network before Docker accepts to
             // delete it (`network_remove` fails 403 while endpoints remain).
-            await detachCaddyFromProjectNetwork(agent, projRow.network_name);
-            await agent.networkRemove({ networkId: projRow.network_name });
+            await detachCaddyFromProjectNetwork(agent, projRow.network_name)
+            await agent.networkRemove({ networkId: projRow.network_name })
             await db
               .update(projects)
               .set({ network_name: null })
-              .where(eq(projects.id, appRow.project_id));
+              .where(eq(projects.id, appRow.project_id))
             log.info(
-              { appId, projectId: appRow.project_id, network: projRow.network_name },
-              "project network removed (last app deleted)",
-            );
+              {
+                appId,
+                projectId: appRow.project_id,
+                network: projRow.network_name,
+              },
+              "project network removed (last app deleted)"
+            )
           } catch (err) {
             log.warn(
               { appId, projectId: appRow.project_id, err },
-              "networkRemove failed (non-fatal)",
-            );
+              "networkRemove failed (non-fatal)"
+            )
           }
         }
       }
     }
   } catch (err) {
-    log.warn({ appId, err }, "project-network cleanup check failed (non-fatal)");
+    log.warn({ appId, err }, "project-network cleanup check failed (non-fatal)")
   }
 
   // 5. DB cascade: deleting the apps row removes builds/env_vars/domains
   //    via the existing FK constraints (onDelete: 'cascade').
   try {
-    await db.delete(apps).where(eq(apps.id, appId));
+    await db.delete(apps).where(eq(apps.id, appId))
   } catch (err) {
-    result.steps.dbCascade = { ok: false, error: errToString(err) };
-    log.error({ appId, err }, "db cascade delete failed");
+    result.steps.dbCascade = { ok: false, error: errToString(err) }
+    log.error({ appId, err }, "db cascade delete failed")
   }
 
-  log.info({ appId, result }, "delete-app cascade finished");
-  return result;
+  log.info({ appId, result }, "delete-app cascade finished")
+
+  // Update the app_delete_job row with the final status.
+  const finalStatus = Object.values(result.steps).every((step) => step.ok)
+    ? "succeeded"
+    : "failed"
+  const errorMsg = Object.values(result.steps)
+    .filter((step) => step.error)
+    .map((step) => step.error)
+    .join("; ")
+
+  await db
+    .update(app_delete_jobs)
+    .set({
+      status: finalStatus,
+      finished_at: new Date(),
+      ...(errorMsg && { error_message: errorMsg }),
+    })
+    .where(eq(app_delete_jobs.id, payload.jobId))
 }

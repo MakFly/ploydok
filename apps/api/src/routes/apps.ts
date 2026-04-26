@@ -6,7 +6,13 @@ import { z } from "zod"
 import { and, eq, isNotNull } from "drizzle-orm"
 import { nanoid } from "nanoid"
 import { createDb } from "@ploydok/db"
-import { projects, secrets, memberships } from "@ploydok/db"
+import {
+  projects,
+  secrets,
+  memberships,
+  builds,
+  app_delete_jobs,
+} from "@ploydok/db"
 import { encryptSecret } from "../secrets/crypto"
 import {
   BuildMethodSchema,
@@ -41,6 +47,7 @@ import {
 } from "../webhooks/deliveries"
 import { env } from "../env"
 import { deployQueue, appDeleteQueue } from "../worker/queues"
+import { enqueueWithDbRow } from "../worker/queue-enqueue"
 import { childLogger } from "../logger"
 import type { Db } from "@ploydok/db"
 import type { AuthUser } from "../auth/middleware"
@@ -577,11 +584,24 @@ export function createAppsRouter(db: Db): Hono {
       }
     }
 
-    await deployQueue.add(
-      "deploy.requested",
-      { appId: id, commitSha: null },
-      { attempts: 1 }
-    )
+    await enqueueWithDbRow({
+      db,
+      queue: deployQueue,
+      jobName: "deploy.requested",
+      insertRow: (tx) =>
+        tx
+          .insert(builds)
+          .values({
+            id: nanoid(),
+            app_id: id,
+            requested_by_user_id: user.id,
+            source: "api",
+          })
+          .returning()
+          .then((r) => r[0]),
+      buildPayload: (row) => ({ buildId: row.id }),
+      jobOptions: { attempts: 1 },
+    })
 
     return c.json({ app: serializeApp(newApp) }, 201)
   })
@@ -794,24 +814,36 @@ export function createAppsRouter(db: Db): Hono {
 
     await markAppDeleting(db, appId)
 
-    const deletePayload = {
-      appId,
-      deleteImages: flags.deleteImages ?? true,
-      dockerCleanup: flags.dockerCleanup ?? true,
-      deleteBuildArtifacts: flags.deleteBuildArtifacts ?? true,
-      deleteCaddyRoutes: flags.deleteCaddyRoutes ?? true,
-    }
-    const bullJob = await appDeleteQueue.add(
-      "app.delete.requested",
-      deletePayload
-    )
+    const { jobId } = await enqueueWithDbRow({
+      db,
+      queue: appDeleteQueue,
+      jobName: "app.delete.requested",
+      insertRow: (tx) =>
+        tx
+          .insert(app_delete_jobs)
+          .values({
+            id: nanoid(),
+            app_id: appId,
+            requested_by_user_id: user.id,
+            source: "api",
+            options: {
+              deleteImages: flags.deleteImages ?? true,
+              dockerCleanup: flags.dockerCleanup ?? true,
+              deleteBuildArtifacts: flags.deleteBuildArtifacts ?? true,
+              deleteCaddyRoutes: flags.deleteCaddyRoutes ?? true,
+            },
+          })
+          .returning()
+          .then((r) => r[0]),
+      buildPayload: (row) => ({ jobId: row.id }),
+    })
 
     childLogger("apps-delete").info(
-      { appId, jobId: bullJob.id, flags },
+      { appId, jobId, flags },
       "delete cascade enqueued"
     )
 
-    return c.json({ ok: true, jobId: bullJob.id, status: "deleting" }, 202)
+    return c.json({ ok: true, jobId, status: "deleting" }, 202)
   })
 
   // -------------------------------------------------------------------------
@@ -830,16 +862,26 @@ export function createAppsRouter(db: Db): Hono {
       )
     }
 
-    const bullJob = await deployQueue.add(
-      "deploy.requested",
-      { appId, commitSha: null },
-      { attempts: 1 }
-    )
+    const { jobId } = await enqueueWithDbRow({
+      db,
+      queue: deployQueue,
+      jobName: "deploy.requested",
+      insertRow: (tx) =>
+        tx
+          .insert(builds)
+          .values({
+            id: nanoid(),
+            app_id: appId,
+            requested_by_user_id: user.id,
+            source: "api",
+          })
+          .returning()
+          .then((r) => r[0]),
+      buildPayload: (row) => ({ buildId: row.id }),
+      jobOptions: { attempts: 1 },
+    })
 
-    // buildId is not available synchronously because the build record is created
-    // by the worker when it picks up the job. Returning null here is intentional —
-    // the client can poll GET /apps/:id/builds to get the new build once created.
-    return c.json({ ok: true, jobId: bullJob.id, buildId: null }, 202)
+    return c.json({ ok: true, jobId, buildId: null }, 202)
   })
   // stop / restart / rollback are implemented in the [M3.3 lifecycle] block below.
   router.get("/:id/builds", async (c) => {

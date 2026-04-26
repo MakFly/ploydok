@@ -72,3 +72,10 @@ export type {
   ScheduledJobRunRow,
   ScheduledJobRunInsert,
 } from "./scheduled-job-runs"
+export { app_delete_jobs } from "./app-delete-jobs"
+export type { AppDeleteJobRow, AppDeleteJobInsert } from "./app-delete-jobs"
+export { provider_credentials } from "./provider-credentials"
+export type {
+  ProviderCredentialRow,
+  ProviderCredentialInsert,
+} from "./provider-credentials"

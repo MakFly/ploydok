@@ -12,11 +12,14 @@
 // To force regeneration, delete the PKI directory and restart the agent.
 
 use std::path::{Path, PathBuf};
+use std::time::SystemTime;
 
 use anyhow::{Context, Result};
 use rcgen::{BasicConstraints, CertificateParams, DnType, IsCa, KeyPair, SanType};
 use sha2::{Digest, Sha256};
-use tracing::info;
+use tracing::{info, warn};
+use x509_parser::pem::parse_x509_pem;
+use x509_parser::prelude::FromDer;
 
 /// Loaded TLS material for a tonic `ServerTlsConfig`.
 pub struct PkiMaterial {
@@ -63,11 +66,52 @@ pub fn ensure_pki(pki_dir: &str) -> Result<PkiMaterial> {
     log_fingerprint("CA cert", &ca_cert_pem);
     log_fingerprint("Server cert", &server_cert_pem);
 
+    // Refuse to boot with an expired server cert; warn loudly when expiry
+    // is imminent so operators can rotate before clients start failing.
+    assert_cert_not_expired("Server cert", &server_cert_pem, SystemTime::now())?;
+    assert_cert_not_expired("CA cert", &ca_cert_pem, SystemTime::now())?;
+
     Ok(PkiMaterial {
         server_cert_pem,
         server_key_pem,
         ca_cert_pem,
     })
+}
+
+/// Number of seconds below which we still accept the certificate but log a
+/// loud warning so operators rotate before things break.
+const EXPIRY_WARN_SECONDS: i64 = 30 * 24 * 60 * 60; // 30 days
+
+/// Parse a PEM-encoded X.509 certificate and refuse to start if it has
+/// already expired according to `now`. Logs a warning when the certificate
+/// is within [`EXPIRY_WARN_SECONDS`] of expiry.
+///
+/// `now` is parameterised so tests can inject a deterministic clock.
+pub fn assert_cert_not_expired(label: &str, pem: &[u8], now: SystemTime) -> Result<()> {
+    let (_, pem) = parse_x509_pem(pem).with_context(|| format!("{label}: PEM parse failed"))?;
+    let (_, cert) = x509_parser::certificate::X509Certificate::from_der(&pem.contents)
+        .with_context(|| format!("{label}: DER parse failed"))?;
+
+    let not_after = cert.validity().not_after.timestamp();
+    let now_unix = now
+        .duration_since(SystemTime::UNIX_EPOCH)
+        .map(|d| d.as_secs() as i64)
+        .unwrap_or(0);
+
+    if not_after <= now_unix {
+        anyhow::bail!("{label}: certificate has expired (not_after={not_after}, now={now_unix})");
+    }
+
+    if not_after - now_unix < EXPIRY_WARN_SECONDS {
+        let days_left = (not_after - now_unix) / (24 * 60 * 60);
+        warn!(
+            label = label,
+            days_left = days_left,
+            not_after = not_after,
+            "Certificat proche de l'expiration — prévoir une rotation"
+        );
+    }
+    Ok(())
 }
 
 /// Generate CA, server and client certificates and write PEM files to `dir`.
