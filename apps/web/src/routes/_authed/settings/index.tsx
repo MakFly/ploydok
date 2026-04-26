@@ -8,6 +8,7 @@ import {
 } from "@remixicon/react"
 import { ShellPage } from "../../../components/layout/AppShell"
 import { SettingsTabs } from "../../../components/settings/SettingsTabs"
+import { WorkspacesSection } from "../../../components/settings/WorkspacesSection"
 import { AppearancePanel } from "../../../components/theme/AppearancePanel"
 import { useMe } from "../../../lib/auth"
 
@@ -90,6 +91,8 @@ function SettingsOverviewPage(): React.JSX.Element {
             </div>
           </dl>
         </section>
+
+        <WorkspacesSection />
 
         <AppearancePanel />
 
