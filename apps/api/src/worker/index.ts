@@ -49,6 +49,8 @@ import {
 } from "./jobs/reap-stuck-builds"
 import { handleSyncProviderRepos } from "./handlers/sync-provider-repos"
 import type { SyncProviderReposPayload } from "./handlers/sync-provider-repos"
+import { handlePreviewDeploy } from "./handlers/preview-deploy"
+import { handlePreviewTeardown } from "./handlers/preview-teardown"
 
 // ---------------------------------------------------------------------------
 // Types
@@ -239,6 +241,26 @@ export function startWorker(
         logger.info({ jobId: job.id }, "provider.repos.sync done")
       },
       { connection, concurrency: 2 }
+    ),
+
+    new Worker(
+      "preview.deploy",
+      async (job) => {
+        logger.info({ jobId: job.id }, "preview.deploy job started")
+        await handlePreviewDeploy(db, job.data)
+        logger.info({ jobId: job.id }, "preview.deploy done")
+      },
+      { connection, concurrency: 1 }
+    ),
+
+    new Worker(
+      "preview.teardown",
+      async (job) => {
+        logger.info({ jobId: job.id }, "preview.teardown job started")
+        await handlePreviewTeardown(db, job.data)
+        logger.info({ jobId: job.id }, "preview.teardown done")
+      },
+      { connection, concurrency: 1 }
     ),
   ]
 
