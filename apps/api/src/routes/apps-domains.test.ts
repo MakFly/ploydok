@@ -227,6 +227,43 @@ describe.skipIf(skip)("POST /apps/:id/domains", () => {
     expect(body.domain.id).toBeString()
   })
 
+  it("creates a wildcard DNS-01 domain → 201", async () => {
+    const honoApp = buildTestApp(db, fakeUser(userId))
+    const res = await honoApp.request(`/apps/${appId}/domains`, {
+      method: "POST",
+      headers: { "content-type": "application/json" },
+      body: JSON.stringify({
+        hostname: "wild.example.com",
+        tls_mode: "dns01",
+        dns01_provider: "cloudflare",
+        wildcard: true,
+      }),
+    })
+    expect(res.status).toBe(201)
+    const body = await res.json() as {
+      domain: { hostname: string; tlsMode: string; dns01Provider: string }
+    }
+    expect(body.domain.hostname).toBe("*.wild.example.com")
+    expect(body.domain.tlsMode).toBe("dns01")
+    expect(body.domain.dns01Provider).toBe("cloudflare")
+  })
+
+  it("rejects wildcard domains without DNS-01 → 400", async () => {
+    const honoApp = buildTestApp(db, fakeUser(userId))
+    const res = await honoApp.request(`/apps/${appId}/domains`, {
+      method: "POST",
+      headers: { "content-type": "application/json" },
+      body: JSON.stringify({
+        hostname: "*.wild-http.example.com",
+        tls_mode: "http01",
+      }),
+    })
+    expect(res.status).toBe(400)
+    const body = await res.json() as { error: { code: string; message: string } }
+    expect(body.error.code).toBe("VALIDATION_ERROR")
+    expect(body.error.message).toContain("Wildcard domains require")
+  })
+
   it("normalises hostname to lowercase", async () => {
     const honoApp = buildTestApp(db, fakeUser(userId))
     const res = await honoApp.request(`/apps/${appId}/domains`, {
@@ -418,8 +455,7 @@ describe.skipIf(skip)("POST /apps/:id/domains/:domainId/recheck", () => {
     expect(res.status).toBe(200)
     const body = await res.json() as { domain: { id: string; tlsStatus: string } }
     expect(body.domain.id).toBe(domain.id)
-    // In test env Caddy is not running → status will be "failed" (tryCaddyCheckTls caught error)
-    expect(["pending", "issued", "failed"]).toContain(body.domain.tlsStatus)
+    expect(body.domain.tlsStatus).toBe("pending")
   })
 
   it("returns 404 for unknown domainId", async () => {
@@ -476,6 +512,15 @@ describe.skipIf(skip)("domains mutations require second factor", () => {
     {
       method: "DELETE",
       path: (id) => `/apps/${id}/domains/fake-domain-id`,
+    },
+    {
+      method: "POST",
+      path: (id) => `/apps/${id}/domains/fake-domain-id/recheck`,
+    },
+    {
+      method: "POST",
+      path: (id) => `/apps/${id}/domains/fake-domain-id/tls/mode`,
+      body: { tls_mode: "http01" },
     },
   ]
 

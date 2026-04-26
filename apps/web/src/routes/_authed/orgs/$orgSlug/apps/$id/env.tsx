@@ -1,24 +1,44 @@
 // SPDX-License-Identifier: AGPL-3.0-only
 import * as React from "react"
 import { useParams, createFileRoute } from "@tanstack/react-router"
-import { RiUploadLine, RiAddLine, RiDatabase2Line } from "@remixicon/react"
+import {
+  RiAddLine,
+  RiDatabase2Line,
+  RiFileList3Line,
+  RiTableLine,
+  RiUploadLine,
+} from "@remixicon/react"
+import { toast } from "sonner"
 import { Button } from "@workspace/ui/components/button"
+import {
+  Select,
+  SelectContent,
+  SelectItem,
+  SelectTrigger,
+  SelectValue,
+} from "@workspace/ui/components/select"
 import {
   Tabs,
   TabsContent,
   TabsList,
   TabsTrigger,
 } from "@workspace/ui/components/tabs"
+import { Textarea } from "@workspace/ui/components/textarea"
 import { SecretsTable } from "../../../../../../components/secrets/SecretsTable"
 import { AddSecretDialog } from "../../../../../../components/secrets/AddSecretDialog"
 import { RevealSecretDialog } from "../../../../../../components/secrets/RevealSecretDialog"
 import { ImportEnvDialog } from "../../../../../../components/secrets/ImportEnvDialog"
 import { LinkDatabaseDialog } from "../../../../../../components/databases/LinkDatabaseDialog"
-import { useSecrets } from "../../../../../../lib/secrets"
+import { useImportEnvContent, useSecrets } from "../../../../../../lib/secrets"
 import { useApp } from "../../../../../../lib/apps"
-import type { SecretPhase, SecretScope } from "../../../../../../lib/secrets"
+import type {
+  SecretMeta,
+  SecretPhase,
+  SecretScope,
+} from "../../../../../../lib/secrets"
 
 const SCOPES: SecretScope[] = ["shared", "prod", "preview", "dev"]
+const PHASES: SecretPhase[] = ["runtime", "build", "both"]
 
 const SCOPE_LABELS: Record<SecretScope, { label: string; hint: string }> = {
   shared: {
@@ -45,6 +65,9 @@ function AppEnvTab(): React.JSX.Element {
   const [showAdd, setShowAdd] = React.useState(false)
   const [showImport, setShowImport] = React.useState(false)
   const [showLinkDb, setShowLinkDb] = React.useState(false)
+  const [viewMode, setViewMode] = React.useState<"normal" | "developer">(
+    "normal"
+  )
   const [revealTarget, setRevealTarget] = React.useState<{
     key: string
     scope: SecretScope
@@ -79,6 +102,26 @@ function AppEnvTab(): React.JSX.Element {
           Encrypted secrets — AES-256-GCM at rest
         </h2>
         <div className="flex flex-wrap items-center gap-2">
+          <div className="flex rounded-md border bg-background p-0.5">
+            <Button
+              variant={viewMode === "normal" ? "secondary" : "ghost"}
+              size="sm"
+              onClick={() => setViewMode("normal")}
+              className="h-7 gap-1.5"
+            >
+              <RiTableLine className="size-3.5" />
+              Normal
+            </Button>
+            <Button
+              variant={viewMode === "developer" ? "secondary" : "ghost"}
+              size="sm"
+              onClick={() => setViewMode("developer")}
+              className="h-7 gap-1.5"
+            >
+              <RiFileList3Line className="size-3.5" />
+              Developer
+            </Button>
+          </div>
           <Button
             variant="outline"
             size="sm"
@@ -129,6 +172,12 @@ function AppEnvTab(): React.JSX.Element {
           <TabsContent key={s} value={s}>
             {isLoading ? (
               <SecretsSkeleton />
+            ) : viewMode === "developer" ? (
+              <DeveloperEnvEditor
+                appId={appId}
+                scope={s}
+                secrets={secrets ?? []}
+              />
             ) : (
               <SecretsTable
                 appId={appId}
@@ -172,6 +221,146 @@ function AppEnvTab(): React.JSX.Element {
           onClose={() => setShowLinkDb(false)}
         />
       )}
+    </div>
+  )
+}
+
+function DeveloperEnvEditor({
+  appId,
+  scope,
+  secrets,
+}: {
+  appId: string
+  scope: SecretScope
+  secrets: SecretMeta[]
+}): React.JSX.Element {
+  const [content, setContent] = React.useState("")
+  const [phase, setPhase] = React.useState<SecretPhase>("runtime")
+  const { mutate: importContent, isPending } = useImportEnvContent(appId)
+  const manualCount = secrets.filter((s) => s.managed_by === "manual").length
+  const linkedCount = secrets.length - manualCount
+
+  function handleImport(e: React.FormEvent) {
+    e.preventDefault()
+    if (!content.trim()) return
+
+    importContent(
+      { content, scope, phase },
+      {
+        onSuccess: ({ imported }) => {
+          toast.success(
+            `Imported ${imported} variable${imported === 1 ? "" : "s"}`
+          )
+          setContent("")
+        },
+        onError: (err) => {
+          toast.error(err.message)
+        },
+      }
+    )
+  }
+
+  return (
+    <div className="grid gap-4 lg:grid-cols-[minmax(0,1fr)_280px]">
+      <form
+        onSubmit={handleImport}
+        className="flex min-w-0 flex-col gap-3 rounded-lg border bg-background p-4"
+      >
+        <div className="flex flex-col gap-3 sm:flex-row sm:items-center sm:justify-between">
+          <div>
+            <h3 className="text-sm font-medium">Bulk import</h3>
+            <p className="mt-1 text-xs text-muted-foreground">
+              Paste .env lines. Prefixes like @prod @build override these
+              defaults.
+            </p>
+          </div>
+          <div className="flex items-center gap-2">
+            <Select
+              value={phase}
+              onValueChange={(value) => setPhase(value as SecretPhase)}
+            >
+              <SelectTrigger className="h-8 w-[132px]">
+                <SelectValue />
+              </SelectTrigger>
+              <SelectContent>
+                {PHASES.map((p) => (
+                  <SelectItem key={p} value={p}>
+                    {p}
+                  </SelectItem>
+                ))}
+              </SelectContent>
+            </Select>
+            <Button
+              type="submit"
+              size="sm"
+              disabled={isPending || !content.trim()}
+            >
+              {isPending ? "Importing..." : "Import"}
+            </Button>
+          </div>
+        </div>
+        <Textarea
+          value={content}
+          onChange={(e) => setContent(e.target.value)}
+          spellCheck={false}
+          className="min-h-[260px] resize-y font-mono text-xs"
+          placeholder={[
+            "APP_ENV=production",
+            "APP_DEBUG=false",
+            "@prod @runtime DATABASE_POOL=10",
+            "# @phase build",
+            "NPM_TOKEN=...",
+          ].join("\n")}
+        />
+      </form>
+
+      <aside className="rounded-lg border bg-muted/20 p-4">
+        <h3 className="text-sm font-medium">Current scope</h3>
+        <dl className="mt-3 grid grid-cols-2 gap-2 text-xs">
+          <div className="rounded-md border bg-background p-2">
+            <dt className="text-muted-foreground">Scope</dt>
+            <dd className="mt-1 font-mono">{scope}</dd>
+          </div>
+          <div className="rounded-md border bg-background p-2">
+            <dt className="text-muted-foreground">Keys</dt>
+            <dd className="mt-1 font-mono">{secrets.length}</dd>
+          </div>
+          <div className="rounded-md border bg-background p-2">
+            <dt className="text-muted-foreground">Manual</dt>
+            <dd className="mt-1 font-mono">{manualCount}</dd>
+          </div>
+          <div className="rounded-md border bg-background p-2">
+            <dt className="text-muted-foreground">Linked</dt>
+            <dd className="mt-1 font-mono">{linkedCount}</dd>
+          </div>
+        </dl>
+        <div className="mt-4 space-y-2">
+          <h4 className="text-xs font-medium text-muted-foreground">
+            Existing keys
+          </h4>
+          <div className="max-h-48 overflow-auto rounded-md border bg-background">
+            {secrets.length === 0 ? (
+              <p className="p-3 text-xs text-muted-foreground">No keys yet.</p>
+            ) : (
+              <ul className="divide-y">
+                {secrets.map((secret) => (
+                  <li
+                    key={`${secret.key}-${secret.scope}-${secret.phase}`}
+                    className="flex items-center justify-between gap-2 px-3 py-2"
+                  >
+                    <span className="truncate font-mono text-xs">
+                      {secret.key}
+                    </span>
+                    <span className="shrink-0 text-[11px] text-muted-foreground">
+                      {secret.phase}
+                    </span>
+                  </li>
+                ))}
+              </ul>
+            )}
+          </div>
+        </div>
+      </aside>
     </div>
   )
 }

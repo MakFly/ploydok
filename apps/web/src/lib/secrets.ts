@@ -14,6 +14,10 @@ export interface SecretMeta {
   key: string
   scope: SecretScope
   phase: SecretPhase
+  linked_database_id: string | null
+  linked_database_name: string | null
+  linked_database_kind: string | null
+  managed_by: "manual" | "database"
   updated_at: string | null
 }
 
@@ -32,7 +36,11 @@ export interface CreateSecretPayload {
 // Query key factory
 // ---------------------------------------------------------------------------
 
-export function secretsQueryKey(appId: string, scope?: SecretScope, phase?: SecretPhase) {
+export function secretsQueryKey(
+  appId: string,
+  scope?: SecretScope,
+  phase?: SecretPhase
+) {
   return scope || phase
     ? (["apps", appId, "secrets", scope ?? "all", phase ?? "all"] as const)
     : (["apps", appId, "secrets"] as const)
@@ -42,7 +50,11 @@ export function secretsQueryKey(appId: string, scope?: SecretScope, phase?: Secr
 // useSecrets — GET /apps/:id/secrets?scope=
 // ---------------------------------------------------------------------------
 
-export function useSecrets(appId: string, scope?: SecretScope, phase?: SecretPhase) {
+export function useSecrets(
+  appId: string,
+  scope?: SecretScope,
+  phase?: SecretPhase
+) {
   return useQuery<SecretMeta[], ApiError>({
     queryKey: secretsQueryKey(appId, scope, phase),
     queryFn: async () => {
@@ -50,7 +62,9 @@ export function useSecrets(appId: string, scope?: SecretScope, phase?: SecretPha
       if (scope) params.set("scope", scope)
       if (phase) params.set("phase", phase)
       const qs = params.size > 0 ? `?${params.toString()}` : ""
-      const data = await apiFetch<SecretsResponse>(`/apps/${appId}/secrets${qs}`)
+      const data = await apiFetch<SecretsResponse>(
+        `/apps/${appId}/secrets${qs}`
+      )
       return data.secrets
     },
     enabled: Boolean(appId),
@@ -65,7 +79,11 @@ export function useSecrets(appId: string, scope?: SecretScope, phase?: SecretPha
 export function useCreateSecret(appId: string) {
   const qc = useQueryClient()
 
-  return useMutation<{ key: string; scope: SecretScope; phase: SecretPhase }, ApiError, CreateSecretPayload>({
+  return useMutation<
+    { key: string; scope: SecretScope; phase: SecretPhase },
+    ApiError,
+    CreateSecretPayload
+  >({
     mutationFn: async (payload) => {
       return apiFetch(`/apps/${appId}/secrets`, {
         method: "POST",
@@ -85,12 +103,19 @@ export function useCreateSecret(appId: string) {
 export function useDeleteSecret(appId: string) {
   const qc = useQueryClient()
 
-  return useMutation<unknown, ApiError, { key: string; scope: SecretScope; phase?: SecretPhase }>({
+  return useMutation<
+    unknown,
+    ApiError,
+    { key: string; scope: SecretScope; phase?: SecretPhase }
+  >({
     mutationFn: async ({ key, scope, phase }) => {
       const safePhase = phase ?? "runtime"
-      return apiFetch(`/apps/${appId}/secrets/${encodeURIComponent(key)}?scope=${scope}&phase=${safePhase}`, {
-        method: "DELETE",
-      })
+      return apiFetch(
+        `/apps/${appId}/secrets/${encodeURIComponent(key)}?scope=${scope}&phase=${safePhase}`,
+        {
+          method: "DELETE",
+        }
+      )
     },
     onSuccess: () => {
       qc.invalidateQueries({ queryKey: ["apps", appId, "secrets"] })
@@ -103,14 +128,21 @@ export function useDeleteSecret(appId: string) {
 // ---------------------------------------------------------------------------
 
 export function useRevealSecret(appId: string) {
-  return useMutation<{ value: string }, ApiError, { key: string; scope: SecretScope; phase?: SecretPhase; totpCode: string }>({
+  return useMutation<
+    { value: string },
+    ApiError,
+    { key: string; scope: SecretScope; phase?: SecretPhase; totpCode: string }
+  >({
     mutationFn: async ({ key, scope, phase, totpCode }) => {
       const safePhase = phase ?? "runtime"
-      return apiFetch(`/apps/${appId}/secrets/${encodeURIComponent(key)}/reveal?scope=${scope}&phase=${safePhase}`, {
-        method: "POST",
-        headers: { "X-TOTP-Code": totpCode },
-        body: JSON.stringify({}),
-      })
+      return apiFetch(
+        `/apps/${appId}/secrets/${encodeURIComponent(key)}/reveal?scope=${scope}&phase=${safePhase}`,
+        {
+          method: "POST",
+          headers: { "X-TOTP-Code": totpCode },
+          body: JSON.stringify({}),
+        }
+      )
     },
   })
 }
@@ -122,17 +154,51 @@ export function useRevealSecret(appId: string) {
 export function useImportEnv(appId: string) {
   const qc = useQueryClient()
 
-  return useMutation<{ imported: number }, ApiError, { file: File; scope?: SecretScope; phase?: SecretPhase }>({
+  return useMutation<
+    { imported: number },
+    ApiError,
+    { file: File; scope?: SecretScope; phase?: SecretPhase }
+  >({
     mutationFn: async ({ file, scope, phase }) => {
       const content = await file.text()
       const params = new URLSearchParams()
       if (scope) params.set("scope", scope)
       if (phase) params.set("phase", phase)
       const qs = params.size > 0 ? `?${params.toString()}` : ""
-      return apiFetch<{ imported: number }>(`/apps/${appId}/secrets/import${qs}`, {
-        method: "POST",
-        body: { content },
-      })
+      return apiFetch<{ imported: number }>(
+        `/apps/${appId}/secrets/import${qs}`,
+        {
+          method: "POST",
+          body: { content },
+        }
+      )
+    },
+    onSuccess: () => {
+      qc.invalidateQueries({ queryKey: ["apps", appId, "secrets"] })
+    },
+  })
+}
+
+export function useImportEnvContent(appId: string) {
+  const qc = useQueryClient()
+
+  return useMutation<
+    { imported: number },
+    ApiError,
+    { content: string; scope?: SecretScope; phase?: SecretPhase }
+  >({
+    mutationFn: async ({ content, scope, phase }) => {
+      const params = new URLSearchParams()
+      if (scope) params.set("scope", scope)
+      if (phase) params.set("phase", phase)
+      const qs = params.size > 0 ? `?${params.toString()}` : ""
+      return apiFetch<{ imported: number }>(
+        `/apps/${appId}/secrets/import${qs}`,
+        {
+          method: "POST",
+          body: { content },
+        }
+      )
     },
     onSuccess: () => {
       qc.invalidateQueries({ queryKey: ["apps", appId, "secrets"] })

@@ -29,7 +29,8 @@ export async function verifyDomain(
     return { ok: false, reason: "no verify_token set" }
   }
 
-  const lookupName = `_ploydok-verify.${domain.hostname}`
+  const verificationHost = domain.hostname.replace(/^\*\./, "")
+  const lookupName = `_ploydok-verify.${verificationHost}`
   log.debug({ domainId, lookupName }, "resolving TXT record")
 
   let records: string[][]

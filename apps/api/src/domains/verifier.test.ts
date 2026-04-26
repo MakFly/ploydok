@@ -114,4 +114,22 @@ describe("verifyDomain", () => {
     const result = await verifyDomain(db, "dom1", mockResolve)
     expect(result.ok).toBe(true)
   })
+
+  test("wildcard domains use the parent hostname for TXT lookup", async () => {
+    const db = makeMockDb({
+      ...baseDomain,
+      hostname: "*.wild.example.com",
+      tls_mode: "dns01",
+      dns01_provider: "cloudflare",
+    })
+    let lookupName = ""
+    const mockResolve = async (host: string) => {
+      lookupName = host
+      return [["abc123token"]]
+    }
+
+    const result = await verifyDomain(db, "dom1", mockResolve)
+    expect(result.ok).toBe(true)
+    expect(lookupName).toBe("_ploydok-verify.wild.example.com")
+  })
 })

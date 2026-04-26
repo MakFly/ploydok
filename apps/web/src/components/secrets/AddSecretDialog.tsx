@@ -29,7 +29,12 @@ interface AddSecretDialogProps {
 const SCOPES: SecretScope[] = ["shared", "prod", "preview", "dev"]
 const PHASES: SecretPhase[] = ["runtime", "build", "both"]
 
-export function AddSecretDialog({ appId, open, defaultScope = "shared", onOpenChange }: AddSecretDialogProps): React.JSX.Element {
+export function AddSecretDialog({
+  appId,
+  open,
+  defaultScope = "shared",
+  onOpenChange,
+}: AddSecretDialogProps): React.JSX.Element {
   const [key, setKey] = React.useState("")
   const [value, setValue] = React.useState("")
   const [scope, setScope] = React.useState<SecretScope>(defaultScope)
@@ -38,6 +43,10 @@ export function AddSecretDialog({ appId, open, defaultScope = "shared", onOpenCh
   const [keyError, setKeyError] = React.useState<string | null>(null)
 
   const { mutate: createSecret, isPending } = useCreateSecret(appId)
+
+  React.useEffect(() => {
+    if (open) setScope(defaultScope)
+  }, [defaultScope, open])
 
   function handleSubmit(e: React.FormEvent) {
     e.preventDefault()
@@ -62,7 +71,7 @@ export function AddSecretDialog({ appId, open, defaultScope = "shared", onOpenCh
         onError: (err) => {
           toast.error(err.message)
         },
-      },
+      }
     )
   }
 
@@ -141,7 +150,7 @@ export function AddSecretDialog({ appId, open, defaultScope = "shared", onOpenCh
                 <button
                   type="button"
                   onClick={() => setShowValue((v) => !v)}
-                  className="absolute right-2 top-1/2 -translate-y-1/2 text-xs text-muted-foreground hover:text-foreground"
+                  className="absolute top-1/2 right-2 -translate-y-1/2 text-xs text-muted-foreground hover:text-foreground"
                 >
                   {showValue ? "Hide" : "Show"}
                 </button>
@@ -150,7 +159,11 @@ export function AddSecretDialog({ appId, open, defaultScope = "shared", onOpenCh
           </Field>
 
           <DialogFooter>
-            <Button type="button" variant="ghost" onClick={() => onOpenChange(false)}>
+            <Button
+              type="button"
+              variant="ghost"
+              onClick={() => onOpenChange(false)}
+            >
               Cancel
             </Button>
             <Button type="submit" disabled={isPending}>

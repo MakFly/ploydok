@@ -2,7 +2,7 @@
 import { Hono } from "hono"
 import { z } from "zod"
 import { randomBytes } from "node:crypto"
-import { eq } from "drizzle-orm"
+import { and, eq } from "drizzle-orm"
 import { nanoid } from "nanoid"
 import { createDb, tls_certificates, domains } from "@ploydok/db"
 import type { Db } from "@ploydok/db"
@@ -40,7 +40,12 @@ import { parseAndValidateCert } from "../domains/cert-parser"
  * hostnames at the surface level — DNS constraints are enforced at the DNS
  * layer, not here. Pure IP addresses are rejected intentionally.
  */
-const HOSTNAME_REGEX = /^[a-z0-9][a-z0-9.-]{1,253}\.[a-z]{2,}$/i
+const DNS_LABEL = "[a-z0-9](?:[a-z0-9-]{0,61}[a-z0-9])?"
+const HOSTNAME_REGEX = new RegExp(`^(?:${DNS_LABEL}\\.)+[a-z]{2,63}$`, "i")
+const WILDCARD_HOSTNAME_REGEX = new RegExp(
+  `^\\*\\.(?:${DNS_LABEL}\\.)+[a-z]{2,63}$`,
+  "i"
+)
 
 const log = childLogger("domains")
 
@@ -59,8 +64,7 @@ const AddDomainBody = z.object({
   hostname: z
     .string()
     .min(4, "Hostname too short")
-    .max(255, "Hostname too long")
-    .regex(HOSTNAME_REGEX, "Invalid hostname format (e.g. app.example.com)"),
+    .max(255, "Hostname too long"),
   tls_mode: z.enum(["http01", "dns01"]).optional().default("http01"),
   dns01_provider: Dns01ProviderEnum.optional(),
   wildcard: z.boolean().optional().default(false),
@@ -102,60 +106,48 @@ function serializeDomain(row: {
   }
 }
 
+function normalizeDomainHostname(
+  rawHostname: string,
+  wildcard: boolean
+):
+  | { ok: true; hostname: string; isWildcard: boolean }
+  | { ok: false; message: string } {
+  const lower = rawHostname.trim().toLowerCase()
+  const hostname = wildcard && !lower.startsWith("*.") ? `*.${lower}` : lower
+  const isWildcard = hostname.startsWith("*.")
+
+  if (hostname.length > 253) {
+    return { ok: false, message: "Hostname too long" }
+  }
+
+  const valid = isWildcard
+    ? WILDCARD_HOSTNAME_REGEX.test(hostname)
+    : HOSTNAME_REGEX.test(hostname)
+
+  if (!valid) {
+    return {
+      ok: false,
+      message: isWildcard
+        ? "Invalid wildcard hostname format (e.g. *.example.com)"
+        : "Invalid hostname format (e.g. app.example.com)",
+    }
+  }
+
+  return { ok: true, hostname, isWildcard }
+}
+
 // ---------------------------------------------------------------------------
 // Caddy integration helpers
 //
 // Strategy: try-catch silencieux (MVP trade-off).
 // The DB is the source of truth for domain ownership. Caddy registration is
-// best-effort: if Caddy is down or mis-configured, the domain is still stored
-// in the DB with `tls_status = 'pending'`. The user can trigger a re-check
-// later via POST /:id/domains/:domainId/recheck.
+// performed only after DNS ownership verification. Cleanup remains best-effort:
+// if Caddy is down, deleting the DB row still succeeds.
 // ---------------------------------------------------------------------------
 
 const caddyClient = new CaddyClient(
   Bun.env["CADDY_ADMIN_URL"] ?? "http://127.0.0.1:2020"
 )
-
-/**
- * Attempt to register a custom hostname route in Caddy.
- * Silently logs a warning on failure — never throws.
- *
- * For a custom domain, we add it as an additional host matcher on the
- * app's existing route. For MVP simplicity we upsert a dedicated route
- * with the same upstream so we avoid having to parse + merge match arrays.
- * The route id is `ploydok-domain-{domainId}` to keep it separate from the
- * main app route (`ploydok-{appId}`).
- */
-async function tryCaddyAddDomain(
-  appId: string,
-  domainId: string,
-  hostname: string
-): Promise<void> {
-  try {
-    // Fetch the current upstream from the app's main route. If the app hasn't
-    // been deployed yet the route won't exist — that's fine, we register the
-    // hostname now and the deploy handler will set the upstream later.
-    const upstream = await caddyClient.getUpstream(appId)
-    if (!upstream) {
-      log.warn(
-        { appId, hostname },
-        "caddy: no upstream found for app — domain registered in DB only"
-      )
-      return
-    }
-    await caddyClient.upsertRoute({
-      host: hostname,
-      upstream: `${upstream.host}:${upstream.port}`,
-      appId: `domain-${domainId}`,
-    })
-    log.info({ appId, domainId, hostname }, "caddy: domain route registered")
-  } catch (err) {
-    log.warn(
-      { appId, domainId, hostname, err },
-      "caddy: failed to register domain route — continuing"
-    )
-  }
-}
 
 /**
  * Attempt to remove a custom hostname route from Caddy. Silently logs on failure.
@@ -172,31 +164,6 @@ async function tryCaddyRemoveDomain(
       { domainId, hostname, err },
       "caddy: failed to remove domain route — DB record deleted anyway"
     )
-  }
-}
-
-/**
- * Check whether Caddy currently has a valid TLS certificate for this hostname.
- * Returns the inferred TLS status.
- *
- * Heuristic: if Caddy has a route for the hostname → it has attempted cert
- * issuance. We check via GET /id/ploydok-domain-{domainId}. If it returns
- * a route, we mark as "issued"; if the route is missing we mark as "pending";
- * if the Caddy call errors we mark as "failed".
- *
- * Note: production Caddy with ACME would expose certificate metadata in the
- * PKI admin API (`/pki/ca/{id}/certificates`), which is more accurate. That
- * integration is deferred to Wave 4. This heuristic is good enough for MVP.
- */
-async function tryCaddyCheckTls(
-  domainId: string
-): Promise<"pending" | "issued" | "failed"> {
-  try {
-    await caddyClient.getUpstream(`domain-${domainId}`)
-    // If getUpstream returns without throwing, the route exists → consider issued.
-    return "issued"
-  } catch {
-    return "failed"
   }
 }
 
@@ -256,6 +223,31 @@ export function createAppsDomainsRouter(db: Db): Hono {
       )
     }
 
+    const normalized = normalizeDomainHostname(body.hostname, body.wildcard)
+    if (!normalized.ok) {
+      return c.json(
+        {
+          error: {
+            code: "VALIDATION_ERROR",
+            message: normalized.message,
+          },
+        },
+        400
+      )
+    }
+
+    if (normalized.isWildcard && body.tls_mode !== "dns01") {
+      return c.json(
+        {
+          error: {
+            code: "VALIDATION_ERROR",
+            message: "Wildcard domains require tls_mode=dns01",
+          },
+        },
+        400
+      )
+    }
+
     if (body.tls_mode === "dns01" && !body.dns01_provider) {
       return c.json(
         {
@@ -268,7 +260,7 @@ export function createAppsDomainsRouter(db: Db): Hono {
       )
     }
 
-    const hostname = body.hostname.toLowerCase()
+    const hostname = normalized.hostname
 
     // Global uniqueness check — one hostname can only belong to one app.
     const existing = await getDomainByHostname(db, hostname)
@@ -293,9 +285,6 @@ export function createAppsDomainsRouter(db: Db): Hono {
       requested_by_user_id: user.id,
       verify_source: "api",
     })
-
-    // Best-effort Caddy registration — must not block the response.
-    void tryCaddyAddDomain(appId, row.id, hostname)
 
     // Enqueue DNS verification job
     await domainVerifyQueue.add(
@@ -344,10 +333,10 @@ export function createAppsDomainsRouter(db: Db): Hono {
   // POST /:id/domains/:domainId/recheck — Re-check TLS certificate status
   // -------------------------------------------------------------------------
 
-  router.post("/:id/domains/:domainId/recheck", async (c) => {
+  router.post("/:id/domains/:domainId/recheck", sf, async (c) => {
     const user = getUser(c)
-    const appId = c.req.param("id")
-    const domainId = c.req.param("domainId")
+    const appId = c.req.param("id")!
+    const domainId = c.req.param("domainId")!
 
     const app = await getAppForUser(db, appId, user.id)
     if (!app) {
@@ -365,8 +354,24 @@ export function createAppsDomainsRouter(db: Db): Hono {
       )
     }
 
-    const newStatus = await tryCaddyCheckTls(domainId)
-    const updated = await updateDomainTlsStatus(db, domainId, newStatus)
+    await db
+      .update(domains)
+      .set({
+        tls_status: "pending",
+        requested_by_user_id: user.id,
+        verify_source: "api",
+        verify_claimed_at: null,
+        verify_error: null,
+        updated_at: new Date(),
+      })
+      .where(eq(domains.id, domainId))
+    const updated = await getDomain(db, domainId)
+
+    await domainVerifyQueue.add(
+      "domain.verify",
+      { domainId },
+      { jobId: `verify-${domainId}-recheck-${Date.now()}` }
+    )
 
     return c.json({ domain: serializeDomain(updated ?? domain) })
   })
@@ -375,7 +380,7 @@ export function createAppsDomainsRouter(db: Db): Hono {
   // POST /:id/domains/:domainId/tls/mode — Switch TLS provisioning mode
   // -------------------------------------------------------------------------
 
-  router.post("/:id/domains/:domainId/tls/mode", async (c) => {
+  router.post("/:id/domains/:domainId/tls/mode", sf, async (c) => {
     const user = getUser(c)
     const appId = c.req.param("id")!
     const domainId = c.req.param("domainId")!
@@ -406,6 +411,18 @@ export function createAppsDomainsRouter(db: Db): Hono {
       )
     }
 
+    if (domain.hostname.startsWith("*.") && body.tls_mode !== "dns01") {
+      return c.json(
+        {
+          error: {
+            code: "VALIDATION_ERROR",
+            message: "Wildcard domains require tls_mode=dns01",
+          },
+        },
+        400
+      )
+    }
+
     if (body.tls_mode === "dns01" && !body.dns01_provider) {
       return c.json(
         {
@@ -422,6 +439,7 @@ export function createAppsDomainsRouter(db: Db): Hono {
       tls_mode: body.tls_mode,
       dns01_provider: body.dns01_provider ?? null,
     })
+    let domainForResponse = updated ?? domain
 
     // Re-enqueue verification on mode switch
     if (updated) {
@@ -432,8 +450,10 @@ export function createAppsDomainsRouter(db: Db): Hono {
           requested_by_user_id: user.id,
           verify_source: "api",
           verify_claimed_at: null,
+          verify_error: null,
         })
         .where(eq(domains.id, domainId))
+      domainForResponse = (await getDomain(db, domainId)) ?? updated
 
       await domainVerifyQueue.add(
         "domain.verify",
@@ -442,7 +462,7 @@ export function createAppsDomainsRouter(db: Db): Hono {
       )
     }
 
-    return c.json({ domain: serializeDomain(updated ?? domain) })
+    return c.json({ domain: serializeDomain(domainForResponse) })
   })
 
   // -------------------------------------------------------------------------
@@ -572,7 +592,14 @@ export function createAppsDomainsRouter(db: Db): Hono {
       )
     }
 
-    await db.delete(tls_certificates).where(eq(tls_certificates.app_id, appId))
+    await db
+      .delete(tls_certificates)
+      .where(
+        and(
+          eq(tls_certificates.app_id, appId),
+          eq(tls_certificates.domain, domainHostname.toLowerCase())
+        )
+      )
 
     // Reset TLS status to pending so ACME can retry
     await updateDomainTlsStatus(db, domain.id, "pending")

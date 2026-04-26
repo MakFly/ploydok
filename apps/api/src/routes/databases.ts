@@ -2,7 +2,13 @@
 import { Hono } from "hono"
 import { z } from "zod"
 import { and, eq, isNotNull } from "drizzle-orm"
-import { databases, app_db_links, projects, memberships } from "@ploydok/db"
+import {
+  apps,
+  databases,
+  app_db_links,
+  projects,
+  memberships,
+} from "@ploydok/db"
 import { createDb } from "@ploydok/db"
 import type { DatabaseRow, Db } from "@ploydok/db"
 import { env } from "../env"
@@ -233,9 +239,18 @@ export function createDatabasesRouter(db: Db): Hono<any, any, any> {
     const links = await db
       .select({
         app_id: app_db_links.app_id,
+        app_name: apps.name,
+        app_slug: apps.slug,
         env_prefix: app_db_links.env_prefix,
       })
       .from(app_db_links)
+      .leftJoin(
+        apps,
+        and(
+          eq(app_db_links.app_id, apps.id),
+          eq(apps.project_id, row.project_id)
+        )
+      )
       .where(eq(app_db_links.database_id, dbId))
 
     return c.json({
