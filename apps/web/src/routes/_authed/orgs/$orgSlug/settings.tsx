@@ -19,6 +19,14 @@ function SettingsLayout(): React.JSX.Element {
         aria-label="Workspace settings"
       >
         <Link
+          to="/orgs/$orgSlug/settings/general"
+          params={{ orgSlug }}
+          className={tabClass}
+          activeProps={{ "data-status": "active" }}
+        >
+          General
+        </Link>
+        <Link
           to="/orgs/$orgSlug/settings/billing"
           params={{ orgSlug }}
           search={{ success: false, canceled: false }}

@@ -65,6 +65,23 @@ export function useCreateOrganization() {
   })
 }
 
+export function useDeleteOrganization() {
+  const qc = useQueryClient()
+
+  return useMutation<void, ApiError, { slug: string }>({
+    mutationFn: async ({ slug }) => {
+      await apiFetch<void>(`/organizations/${slug}`, { method: "DELETE" })
+    },
+    onSuccess: async () => {
+      toast.success("Workspace deleted")
+      await qc.invalidateQueries({ queryKey: ["organizations"] })
+    },
+    onError: (error) => {
+      toast.error(error.message)
+    },
+  })
+}
+
 export function useOrganizationBySlug(orgSlug: string) {
   return useQuery<OrganizationSummary, ApiError>({
     queryKey: ["organizations", orgSlug],
