@@ -9,7 +9,10 @@
  *  - getRegistryUsageForApp() : per-app registry stats (tags, bytes, diskPct)
  */
 import { and, desc, eq } from "drizzle-orm"
-import { apps, builds } from "@ploydok/db"
+import { z } from "zod"
+import type { Queue } from "bullmq"
+import { nanoid } from "nanoid"
+import { apps, builds, system_jobs } from "@ploydok/db"
 import {
   deleteDigest,
   diskUsagePct,
@@ -19,10 +22,17 @@ import {
 } from "../registry"
 import type { Db } from "@ploydok/db"
 import { imageRepoForApp } from "../../services/runtime-containers"
+import { enqueueWithDbRow } from "../queue-enqueue"
 
 // ---------------------------------------------------------------------------
-// Types
+// Types & Schemas
 // ---------------------------------------------------------------------------
+
+export const GcRegistryOptionsSchema = z.object({
+  appId: z.string().nullish(),
+  keepPerRepo: z.number().int().nonnegative().max(50).default(3),
+})
+export type GcRegistryOptions = z.infer<typeof GcRegistryOptionsSchema>
 
 export interface RegistryClient {
   listTags: (repo: string) => Promise<string[]>
@@ -410,8 +420,10 @@ export interface StartGcCronOptions {
   intervalMs?: number
   /** UTC hour to align the first run (default: 4). */
   hourUtc?: number
-  /** GC options forwarded to runRegistryGc. */
-  gcOptions: GcOptions
+  /** Database instance. */
+  db: Db
+  /** GC queue reference. */
+  queue: Queue
 }
 
 /**
@@ -421,7 +433,7 @@ export interface StartGcCronOptions {
  * aligned delay, repeats every `intervalMs` (default 24h).
  *
  * To bootstrap in worker/index.ts, add:
- *   startRegistryGcCron({ gcOptions: { db } });
+ *   startRegistryGcCron({ db, queue: gcQueue });
  */
 export function startRegistryGcCron(opts: StartGcCronOptions): void {
   // Prevent double-start.
@@ -430,14 +442,32 @@ export function startRegistryGcCron(opts: StartGcCronOptions): void {
   const {
     intervalMs = ONE_DAY_MS,
     hourUtc = DEFAULT_HOUR_UTC,
-    gcOptions,
+    db,
+    queue,
   } = opts
 
   async function tick(): Promise<void> {
     try {
-      const result = await runRegistryGc(gcOptions)
+      const { jobId } = await enqueueWithDbRow({
+        db,
+        queue,
+        jobName: "gc.registry.requested",
+        insertRow: (tx) =>
+          tx
+            .insert(system_jobs)
+            .values({
+              id: nanoid(),
+              kind: "gc.registry",
+              requested_by_user_id: null,
+              source: "cron:gc",
+              options: { appId: null, keepPerRepo: 3 },
+            })
+            .returning()
+            .then((r: (typeof system_jobs.$inferSelect)[]) => r[0]!),
+        buildPayload: (row) => ({ jobId: row.id }),
+      })
       // eslint-disable-next-line no-console
-      console.log("[gc-registry] cron tick result:", result)
+      console.log("[gc-registry] cron tick enqueued", { jobId })
     } catch (err) {
       // eslint-disable-next-line no-console
       console.error("[gc-registry] cron tick error:", err)

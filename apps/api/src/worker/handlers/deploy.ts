@@ -4,7 +4,7 @@ import path from "node:path"
 import { eq } from "drizzle-orm"
 import { nanoid } from "nanoid"
 import { z } from "zod"
-import { apps, builds, projects } from "@ploydok/db"
+import { apps, builds, projects, system_jobs } from "@ploydok/db"
 import {
   insertBuild,
   updateBuildStatus,
@@ -12,7 +12,8 @@ import {
 } from "@ploydok/db/queries"
 import { claimQueuedRow } from "../queue-claim"
 import { auditUnauthorized, auditClaimed } from "../queue-audit"
-import { cleanupQueue } from "../queues"
+import { enqueueWithDbRow } from "../queue-enqueue"
+import { cleanupQueue, gcQueue } from "../queues"
 import type { Db } from "@ploydok/db"
 import { getRegistryCredential } from "@ploydok/db/queries"
 import { env } from "../../env"
@@ -1094,12 +1095,32 @@ export async function handleDeploy(
     //    are never deleted). Failures are logged but never propagated — the
     //    deploy itself already succeeded.
     try {
-      const { runRegistryGc } = await import("./gc-registry")
-      await runRegistryGc({ db, appFilter: app.id })
+      const { jobId } = await enqueueWithDbRow({
+        db,
+        queue: gcQueue,
+        jobName: "gc.registry.requested",
+        insertRow: (tx) =>
+          tx
+            .insert(system_jobs)
+            .values({
+              id: nanoid(),
+              kind: "gc.registry",
+              requested_by_user_id: null,
+              source: "auto:deploy",
+              options: { appId: app.id, keepPerRepo: 3 },
+            })
+            .returning()
+            .then((r: (typeof system_jobs.$inferSelect)[]) => r[0]!),
+        buildPayload: (row) => ({ jobId: row.id }),
+      })
+      log.debug(
+        { jobId, appId: app.id, buildId },
+        "post-deploy registry-gc enqueued"
+      )
     } catch (gcErr) {
       log.warn(
         { gcErr, appId: app.id, buildId },
-        "post-deploy auto-prune failed (non-fatal)"
+        "post-deploy registry-gc enqueue failed (non-fatal)"
       )
     }
   } catch (err) {

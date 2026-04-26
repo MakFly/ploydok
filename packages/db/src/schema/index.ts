@@ -79,3 +79,5 @@ export type {
   ProviderCredentialRow,
   ProviderCredentialInsert,
 } from "./provider-credentials"
+export { system_jobs } from "./system-jobs"
+export type { SystemJobRow, SystemJobInsert } from "./system-jobs"

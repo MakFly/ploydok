@@ -20,7 +20,7 @@
 import { describe, expect, it } from "bun:test"
 import { eq } from "drizzle-orm"
 import { nanoid } from "nanoid"
-import { apps, builds, projects, users } from "@ploydok/db"
+import { apps, builds, projects, system_jobs, users } from "@ploydok/db"
 import { makeTestDb, TEST_PG_URL } from "../test/db-helpers"
 import { claimQueuedRow } from "./queue-claim"
 
@@ -98,6 +98,69 @@ describe.skipIf(skip)("queue-trust e2e — DB-anchored gate", () => {
       await db.delete(builds).where(eq(builds.id, buildId))
       await db.delete(apps).where(eq(apps.id, appId))
       await db.delete(projects).where(eq(projects.id, projectId))
+      await db.delete(users).where(eq(users.id, userId))
+    } finally {
+      await cleanup()
+    }
+  }, 30_000)
+})
+
+describe.skipIf(skip)("queue-trust e2e — system_jobs (gc.registry)", () => {
+  it("CAS once + drops replays + raw push", async () => {
+    const { db, cleanup } = await makeTestDb()
+    try {
+      const userId = `u_${nanoid(10)}`
+      const sysJobId = `sj_${nanoid(10)}`
+
+      // Seed a user (required FK target).
+      await db.insert(users).values({
+        id: userId,
+        email: `qt-sys-${nanoid(8).toLowerCase()}@test.local`,
+        display_name: "qt sys",
+        created_at: new Date(),
+        updated_at: new Date(),
+      })
+
+      // Insert a queued system_jobs row.
+      await db.insert(system_jobs).values({
+        id: sysJobId,
+        kind: "gc.registry",
+        requested_by_user_id: userId,
+        source: "api",
+        options: { appId: "test-app", keepPerRepo: 3 },
+      })
+
+      // First claim: pending → running.
+      const claimed = await claimQueuedRow<typeof system_jobs.$inferSelect>({
+        db,
+        table: system_jobs,
+        id: sysJobId,
+      })
+      expect(claimed).not.toBeNull()
+      expect(claimed!.status).toBe("running")
+      expect(claimed!.claimed_at).toBeInstanceOf(Date)
+      expect(claimed!.requested_by_user_id).toBe(userId)
+      expect(claimed!.source).toBe("api")
+      expect((claimed!.options as { appId: string }).appId).toBe("test-app")
+
+      // Replay: same id, no longer pending.
+      const replay = await claimQueuedRow({
+        db,
+        table: system_jobs,
+        id: sysJobId,
+      })
+      expect(replay).toBeNull()
+
+      // Raw push attack: rogue id never written by API.
+      const rogue = await claimQueuedRow({
+        db,
+        table: system_jobs,
+        id: `rogue_${nanoid(10)}`,
+      })
+      expect(rogue).toBeNull()
+
+      // Cleanup.
+      await db.delete(system_jobs).where(eq(system_jobs.id, sysJobId))
       await db.delete(users).where(eq(users.id, userId))
     } finally {
       await cleanup()
