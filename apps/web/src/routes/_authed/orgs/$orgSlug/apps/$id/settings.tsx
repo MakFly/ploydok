@@ -147,16 +147,24 @@ function AppSettingsGeneral(): React.JSX.Element {
     })
   }, [app])
 
-  if (isLoading) return <SettingsSkeleton />
+  if (isLoading) {
+    return (
+      <div className="w-full px-4 py-6 md:px-8 md:py-8">
+        <SettingsSkeleton />
+      </div>
+    )
+  }
 
   if (error || !app) {
     return (
-      <Alert variant="destructive">
-        <AlertTitle>Failed to load settings</AlertTitle>
-        <AlertDescription>
-          {error?.message ?? "The application was not found."}
-        </AlertDescription>
-      </Alert>
+      <div className="w-full px-4 py-6 md:px-8 md:py-8">
+        <Alert variant="destructive">
+          <AlertTitle>Failed to load settings</AlertTitle>
+          <AlertDescription>
+            {error?.message ?? "The application was not found."}
+          </AlertDescription>
+        </Alert>
+      </div>
     )
   }
 
@@ -194,97 +202,99 @@ function AppSettingsGeneral(): React.JSX.Element {
   }
 
   return (
-    <div className="grid w-full gap-6 sm:grid-cols-2 xl:grid-cols-3">
-      <Card className="sm:col-span-2 xl:col-span-2">
-        <CardHeader>
-          <CardTitle>Build & runtime</CardTitle>
-          <CardDescription>
-            Commands and paths used by the deployment pipeline.
-          </CardDescription>
-          <CardAction>
-            {!editing ? (
-              <Button
-                size="sm"
-                variant="outline"
-                onClick={() => setEditing(true)}
-              >
-                Edit
-              </Button>
-            ) : null}
-          </CardAction>
-        </CardHeader>
+    <div className="w-full px-4 py-6 md:px-8 md:py-8">
+      <div className="grid w-full gap-6 sm:grid-cols-2 xl:grid-cols-3">
+        <Card className="sm:col-span-2 xl:col-span-2">
+          <CardHeader>
+            <CardTitle>Build & runtime</CardTitle>
+            <CardDescription>
+              Commands and paths used by the deployment pipeline.
+            </CardDescription>
+            <CardAction>
+              {!editing ? (
+                <Button
+                  size="sm"
+                  variant="outline"
+                  onClick={() => setEditing(true)}
+                >
+                  Edit
+                </Button>
+              ) : null}
+            </CardAction>
+          </CardHeader>
 
-        <CardContent className="grid gap-4 md:grid-cols-2">
-          {FIELDS.map((field) => (
-            <SettingsField
-              key={field.key}
-              field={field}
-              value={String(formData[field.key] ?? "")}
+          <CardContent className="grid gap-4 md:grid-cols-2">
+            {FIELDS.map((field) => (
+              <SettingsField
+                key={field.key}
+                field={field}
+                value={String(formData[field.key] ?? "")}
+                editing={editing}
+                onChange={(value) =>
+                  setFormData((previous) => ({
+                    ...previous,
+                    [field.key]: value || undefined,
+                  }))
+                }
+              />
+            ))}
+
+            <PortField
+              inputId="setting-runtime-port"
+              label="Runtime port"
+              value={formData.runtimePort ?? null}
+              editing={editing}
+              onChange={(value) =>
+                setFormData((previous) => ({ ...previous, runtimePort: value }))
+              }
+            />
+
+            <PortField
+              inputId="setting-healthcheck-port"
+              label="Healthcheck port"
+              hint="Leave empty to reuse runtime port"
+              value={formData.healthcheckPort ?? null}
               editing={editing}
               onChange={(value) =>
                 setFormData((previous) => ({
                   ...previous,
-                  [field.key]: value || undefined,
+                  healthcheckPort: value,
                 }))
               }
             />
-          ))}
 
-          <PortField
-            inputId="setting-runtime-port"
-            label="Runtime port"
-            value={formData.runtimePort ?? null}
-            editing={editing}
-            onChange={(value) =>
-              setFormData((previous) => ({ ...previous, runtimePort: value }))
-            }
-          />
+            {formError ? (
+              <Alert variant="destructive" className="md:col-span-2">
+                <AlertTitle>Could not save</AlertTitle>
+                <AlertDescription>{formError}</AlertDescription>
+              </Alert>
+            ) : null}
+          </CardContent>
 
-          <PortField
-            inputId="setting-healthcheck-port"
-            label="Healthcheck port"
-            hint="Leave empty to reuse runtime port"
-            value={formData.healthcheckPort ?? null}
-            editing={editing}
-            onChange={(value) =>
-              setFormData((previous) => ({
-                ...previous,
-                healthcheckPort: value,
-              }))
-            }
-          />
-
-          {formError ? (
-            <Alert variant="destructive" className="md:col-span-2">
-              <AlertTitle>Could not save</AlertTitle>
-              <AlertDescription>{formError}</AlertDescription>
-            </Alert>
+          {editing ? (
+            <CardFooter className="justify-end gap-2">
+              <Button
+                size="sm"
+                variant="ghost"
+                onClick={handleCancel}
+                disabled={update.isPending}
+              >
+                Cancel
+              </Button>
+              <Button
+                size="sm"
+                onClick={() => void handleSave()}
+                disabled={update.isPending}
+              >
+                {update.isPending ? "Saving…" : "Save"}
+              </Button>
+            </CardFooter>
           ) : null}
-        </CardContent>
+        </Card>
 
-        {editing ? (
-          <CardFooter className="justify-end gap-2">
-            <Button
-              size="sm"
-              variant="ghost"
-              onClick={handleCancel}
-              disabled={update.isPending}
-            >
-              Cancel
-            </Button>
-            <Button
-              size="sm"
-              onClick={() => void handleSave()}
-              disabled={update.isPending}
-            >
-              {update.isPending ? "Saving…" : "Save"}
-            </Button>
-          </CardFooter>
-        ) : null}
-      </Card>
-
-      <div className="sm:col-span-2 xl:col-span-3">
-        <ChannelList appId={id} />
+        <div className="sm:col-span-2 xl:col-span-3">
+          <ChannelList appId={id} />
+        </div>
       </div>
     </div>
   )
@@ -441,7 +451,6 @@ function ReadOnlyValue({
     </div>
   )
 }
-
 
 function SettingsSkeleton(): React.JSX.Element {
   return (
