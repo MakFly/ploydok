@@ -11,8 +11,11 @@ import {
 import { DomainCard } from "../../../../../../components/domains/DomainCard"
 import { AddDomainDialog } from "../../../../../../components/domains/AddDomainDialog"
 import { TlsModeSwitcher } from "../../../../../../components/domains/TlsModeSwitcher"
+import { CdnSection } from "../../../../../../components/apps/CdnSection"
+import { ProtectionSection } from "../../../../../../components/apps/ProtectionSection"
 import { useMe } from "../../../../../../lib/auth"
 import { Skeleton } from "@workspace/ui/components/skeleton"
+import { Separator } from "@workspace/ui/components/separator"
 import type { Domain } from "../../../../../../lib/domains"
 
 function AppDomainsTab(): React.JSX.Element {
@@ -130,6 +133,31 @@ function AppDomainsTab(): React.JSX.Element {
           isSwitching={isSwitching}
         />
       )}
+
+      <Separator className="my-4" />
+
+      <section className="flex flex-col gap-3">
+        <header>
+          <h2 className="text-sm font-semibold">CDN &amp; caching</h2>
+          <p className="mt-0.5 text-xs text-muted-foreground">
+            Configure caching, compression, and delivery optimization at the
+            edge.
+          </p>
+        </header>
+        <CdnSection appId={appId} />
+      </section>
+
+      <Separator className="my-4" />
+
+      <section className="flex flex-col gap-3">
+        <header>
+          <h2 className="text-sm font-semibold">Access protection</h2>
+          <p className="mt-0.5 text-xs text-muted-foreground">
+            Caddy-level guards applied before traffic reaches your app.
+          </p>
+        </header>
+        <ProtectionSection appId={appId} />
+      </section>
     </div>
   )
 }
