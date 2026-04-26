@@ -1,6 +1,13 @@
 // SPDX-License-Identifier: AGPL-3.0-only
-import { index, pgTable, text, timestamp, uniqueIndex } from "drizzle-orm/pg-core"
+import {
+  index,
+  pgTable,
+  text,
+  timestamp,
+  uniqueIndex,
+} from "drizzle-orm/pg-core"
 import { apps } from "./apps"
+import { users } from "./users"
 
 export const domains = pgTable(
   "domains",
@@ -30,12 +37,31 @@ export const domains = pgTable(
     updated_at: timestamp("updated_at", { withTimezone: true, mode: "date" })
       .notNull()
       .$defaultFn(() => new Date()),
+    requested_by_user_id: text("requested_by_user_id").references(
+      () => users.id
+    ),
+    verify_source: text("verify_source", {
+      enum: [
+        "api",
+        "webhook:github",
+        "webhook:gitlab",
+        "cron:gc",
+        "cron:cleanup",
+        "auto:push",
+        "auto:tag",
+        "system",
+      ],
+    }),
+    verify_claimed_at: timestamp("verify_claimed_at", {
+      withTimezone: true,
+      mode: "date",
+    }),
   },
   (t) => [
     // A hostname must be globally unique — one hostname can only belong to one app.
     uniqueIndex("domains_hostname_unique").on(t.hostname),
     index("domains_app_id_idx").on(t.app_id),
-  ],
+  ]
 )
 
 export type DomainRow = typeof domains.$inferSelect

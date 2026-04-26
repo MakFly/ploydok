@@ -54,6 +54,7 @@ import { Route as AuthedOrgsOrgSlugServicesIndexRouteImport } from './routes/_au
 import { Route as AuthedOrgsOrgSlugDatabasesIndexRouteImport } from './routes/_authed/orgs/$orgSlug/databases/index'
 import { Route as AuthedOrgsOrgSlugAppsIndexRouteImport } from './routes/_authed/orgs/$orgSlug/apps/index'
 import { Route as AuthedOrgsOrgSlugSettingsSsoRouteImport } from './routes/_authed/orgs/$orgSlug/settings/sso'
+import { Route as AuthedOrgsOrgSlugSettingsGeneralRouteImport } from './routes/_authed/orgs/$orgSlug/settings/general'
 import { Route as AuthedOrgsOrgSlugSettingsBillingRouteImport } from './routes/_authed/orgs/$orgSlug/settings/billing'
 import { Route as AuthedOrgsOrgSlugServicesIdRouteImport } from './routes/_authed/orgs/$orgSlug/services/$id'
 import { Route as AuthedOrgsOrgSlugDatabasesIdRouteImport } from './routes/_authed/orgs/$orgSlug/databases/$id'
@@ -61,15 +62,12 @@ import { Route as AuthedOrgsOrgSlugAppsIdRouteImport } from './routes/_authed/or
 import { Route as AuthedOrgsOrgSlugAppsIdIndexRouteImport } from './routes/_authed/orgs/$orgSlug/apps/$id/index'
 import { Route as AuthedOrgsOrgSlugAppsIdShellRouteImport } from './routes/_authed/orgs/$orgSlug/apps/$id/shell'
 import { Route as AuthedOrgsOrgSlugAppsIdSettingsRouteImport } from './routes/_authed/orgs/$orgSlug/apps/$id/settings'
-import { Route as AuthedOrgsOrgSlugAppsIdOverviewRouteImport } from './routes/_authed/orgs/$orgSlug/apps/$id/overview'
+import { Route as AuthedOrgsOrgSlugAppsIdPreviewsRouteImport } from './routes/_authed/orgs/$orgSlug/apps/$id/previews'
 import { Route as AuthedOrgsOrgSlugAppsIdLogsRouteImport } from './routes/_authed/orgs/$orgSlug/apps/$id/logs'
 import { Route as AuthedOrgsOrgSlugAppsIdEnvRouteImport } from './routes/_authed/orgs/$orgSlug/apps/$id/env'
 import { Route as AuthedOrgsOrgSlugAppsIdDomainsRouteImport } from './routes/_authed/orgs/$orgSlug/apps/$id/domains'
 import { Route as AuthedOrgsOrgSlugAppsIdDeploymentsRouteImport } from './routes/_authed/orgs/$orgSlug/apps/$id/deployments'
-import { Route as AuthedOrgsOrgSlugAppsIdSettingsIndexRouteImport } from './routes/_authed/orgs/$orgSlug/apps/$id/settings/index'
-import { Route as AuthedOrgsOrgSlugAppsIdSettingsWebhooksRouteImport } from './routes/_authed/orgs/$orgSlug/apps/$id/settings/webhooks'
-import { Route as AuthedOrgsOrgSlugAppsIdSettingsProtectionRouteImport } from './routes/_authed/orgs/$orgSlug/apps/$id/settings/protection'
-import { Route as AuthedOrgsOrgSlugAppsIdSettingsAdvancedRouteImport } from './routes/_authed/orgs/$orgSlug/apps/$id/settings/advanced'
+import { Route as AuthedOrgsOrgSlugAppsIdAdvancedRouteImport } from './routes/_authed/orgs/$orgSlug/apps/$id/advanced'
 
 const PublicRoute = PublicRouteImport.update({
   id: '/_public',
@@ -319,6 +317,12 @@ const AuthedOrgsOrgSlugSettingsSsoRoute =
     path: '/sso',
     getParentRoute: () => AuthedOrgsOrgSlugSettingsRoute,
   } as any)
+const AuthedOrgsOrgSlugSettingsGeneralRoute =
+  AuthedOrgsOrgSlugSettingsGeneralRouteImport.update({
+    id: '/general',
+    path: '/general',
+    getParentRoute: () => AuthedOrgsOrgSlugSettingsRoute,
+  } as any)
 const AuthedOrgsOrgSlugSettingsBillingRoute =
   AuthedOrgsOrgSlugSettingsBillingRouteImport.update({
     id: '/billing',
@@ -360,10 +364,10 @@ const AuthedOrgsOrgSlugAppsIdSettingsRoute =
     path: '/settings',
     getParentRoute: () => AuthedOrgsOrgSlugAppsIdRoute,
   } as any)
-const AuthedOrgsOrgSlugAppsIdOverviewRoute =
-  AuthedOrgsOrgSlugAppsIdOverviewRouteImport.update({
-    id: '/overview',
-    path: '/overview',
+const AuthedOrgsOrgSlugAppsIdPreviewsRoute =
+  AuthedOrgsOrgSlugAppsIdPreviewsRouteImport.update({
+    id: '/previews',
+    path: '/previews',
     getParentRoute: () => AuthedOrgsOrgSlugAppsIdRoute,
   } as any)
 const AuthedOrgsOrgSlugAppsIdLogsRoute =
@@ -390,29 +394,11 @@ const AuthedOrgsOrgSlugAppsIdDeploymentsRoute =
     path: '/deployments',
     getParentRoute: () => AuthedOrgsOrgSlugAppsIdRoute,
   } as any)
-const AuthedOrgsOrgSlugAppsIdSettingsIndexRoute =
-  AuthedOrgsOrgSlugAppsIdSettingsIndexRouteImport.update({
-    id: '/',
-    path: '/',
-    getParentRoute: () => AuthedOrgsOrgSlugAppsIdSettingsRoute,
-  } as any)
-const AuthedOrgsOrgSlugAppsIdSettingsWebhooksRoute =
-  AuthedOrgsOrgSlugAppsIdSettingsWebhooksRouteImport.update({
-    id: '/webhooks',
-    path: '/webhooks',
-    getParentRoute: () => AuthedOrgsOrgSlugAppsIdSettingsRoute,
-  } as any)
-const AuthedOrgsOrgSlugAppsIdSettingsProtectionRoute =
-  AuthedOrgsOrgSlugAppsIdSettingsProtectionRouteImport.update({
-    id: '/protection',
-    path: '/protection',
-    getParentRoute: () => AuthedOrgsOrgSlugAppsIdSettingsRoute,
-  } as any)
-const AuthedOrgsOrgSlugAppsIdSettingsAdvancedRoute =
-  AuthedOrgsOrgSlugAppsIdSettingsAdvancedRouteImport.update({
+const AuthedOrgsOrgSlugAppsIdAdvancedRoute =
+  AuthedOrgsOrgSlugAppsIdAdvancedRouteImport.update({
     id: '/advanced',
     path: '/advanced',
-    getParentRoute: () => AuthedOrgsOrgSlugAppsIdSettingsRoute,
+    getParentRoute: () => AuthedOrgsOrgSlugAppsIdRoute,
   } as any)
 
 export interface FileRoutesByFullPath {
@@ -458,23 +444,21 @@ export interface FileRoutesByFullPath {
   '/orgs/$orgSlug/databases/$id': typeof AuthedOrgsOrgSlugDatabasesIdRoute
   '/orgs/$orgSlug/services/$id': typeof AuthedOrgsOrgSlugServicesIdRoute
   '/orgs/$orgSlug/settings/billing': typeof AuthedOrgsOrgSlugSettingsBillingRoute
+  '/orgs/$orgSlug/settings/general': typeof AuthedOrgsOrgSlugSettingsGeneralRoute
   '/orgs/$orgSlug/settings/sso': typeof AuthedOrgsOrgSlugSettingsSsoRoute
   '/orgs/$orgSlug/apps/': typeof AuthedOrgsOrgSlugAppsIndexRoute
   '/orgs/$orgSlug/databases/': typeof AuthedOrgsOrgSlugDatabasesIndexRoute
   '/orgs/$orgSlug/services/': typeof AuthedOrgsOrgSlugServicesIndexRoute
   '/orgs/$orgSlug/settings/': typeof AuthedOrgsOrgSlugSettingsIndexRoute
+  '/orgs/$orgSlug/apps/$id/advanced': typeof AuthedOrgsOrgSlugAppsIdAdvancedRoute
   '/orgs/$orgSlug/apps/$id/deployments': typeof AuthedOrgsOrgSlugAppsIdDeploymentsRoute
   '/orgs/$orgSlug/apps/$id/domains': typeof AuthedOrgsOrgSlugAppsIdDomainsRoute
   '/orgs/$orgSlug/apps/$id/env': typeof AuthedOrgsOrgSlugAppsIdEnvRoute
   '/orgs/$orgSlug/apps/$id/logs': typeof AuthedOrgsOrgSlugAppsIdLogsRoute
-  '/orgs/$orgSlug/apps/$id/overview': typeof AuthedOrgsOrgSlugAppsIdOverviewRoute
-  '/orgs/$orgSlug/apps/$id/settings': typeof AuthedOrgsOrgSlugAppsIdSettingsRouteWithChildren
+  '/orgs/$orgSlug/apps/$id/previews': typeof AuthedOrgsOrgSlugAppsIdPreviewsRoute
+  '/orgs/$orgSlug/apps/$id/settings': typeof AuthedOrgsOrgSlugAppsIdSettingsRoute
   '/orgs/$orgSlug/apps/$id/shell': typeof AuthedOrgsOrgSlugAppsIdShellRoute
   '/orgs/$orgSlug/apps/$id/': typeof AuthedOrgsOrgSlugAppsIdIndexRoute
-  '/orgs/$orgSlug/apps/$id/settings/advanced': typeof AuthedOrgsOrgSlugAppsIdSettingsAdvancedRoute
-  '/orgs/$orgSlug/apps/$id/settings/protection': typeof AuthedOrgsOrgSlugAppsIdSettingsProtectionRoute
-  '/orgs/$orgSlug/apps/$id/settings/webhooks': typeof AuthedOrgsOrgSlugAppsIdSettingsWebhooksRoute
-  '/orgs/$orgSlug/apps/$id/settings/': typeof AuthedOrgsOrgSlugAppsIdSettingsIndexRoute
 }
 export interface FileRoutesByTo {
   '/': typeof PublicIndexRoute
@@ -515,22 +499,21 @@ export interface FileRoutesByTo {
   '/orgs/$orgSlug/databases/$id': typeof AuthedOrgsOrgSlugDatabasesIdRoute
   '/orgs/$orgSlug/services/$id': typeof AuthedOrgsOrgSlugServicesIdRoute
   '/orgs/$orgSlug/settings/billing': typeof AuthedOrgsOrgSlugSettingsBillingRoute
+  '/orgs/$orgSlug/settings/general': typeof AuthedOrgsOrgSlugSettingsGeneralRoute
   '/orgs/$orgSlug/settings/sso': typeof AuthedOrgsOrgSlugSettingsSsoRoute
   '/orgs/$orgSlug/apps': typeof AuthedOrgsOrgSlugAppsIndexRoute
   '/orgs/$orgSlug/databases': typeof AuthedOrgsOrgSlugDatabasesIndexRoute
   '/orgs/$orgSlug/services': typeof AuthedOrgsOrgSlugServicesIndexRoute
   '/orgs/$orgSlug/settings': typeof AuthedOrgsOrgSlugSettingsIndexRoute
+  '/orgs/$orgSlug/apps/$id/advanced': typeof AuthedOrgsOrgSlugAppsIdAdvancedRoute
   '/orgs/$orgSlug/apps/$id/deployments': typeof AuthedOrgsOrgSlugAppsIdDeploymentsRoute
   '/orgs/$orgSlug/apps/$id/domains': typeof AuthedOrgsOrgSlugAppsIdDomainsRoute
   '/orgs/$orgSlug/apps/$id/env': typeof AuthedOrgsOrgSlugAppsIdEnvRoute
   '/orgs/$orgSlug/apps/$id/logs': typeof AuthedOrgsOrgSlugAppsIdLogsRoute
-  '/orgs/$orgSlug/apps/$id/overview': typeof AuthedOrgsOrgSlugAppsIdOverviewRoute
+  '/orgs/$orgSlug/apps/$id/previews': typeof AuthedOrgsOrgSlugAppsIdPreviewsRoute
+  '/orgs/$orgSlug/apps/$id/settings': typeof AuthedOrgsOrgSlugAppsIdSettingsRoute
   '/orgs/$orgSlug/apps/$id/shell': typeof AuthedOrgsOrgSlugAppsIdShellRoute
   '/orgs/$orgSlug/apps/$id': typeof AuthedOrgsOrgSlugAppsIdIndexRoute
-  '/orgs/$orgSlug/apps/$id/settings/advanced': typeof AuthedOrgsOrgSlugAppsIdSettingsAdvancedRoute
-  '/orgs/$orgSlug/apps/$id/settings/protection': typeof AuthedOrgsOrgSlugAppsIdSettingsProtectionRoute
-  '/orgs/$orgSlug/apps/$id/settings/webhooks': typeof AuthedOrgsOrgSlugAppsIdSettingsWebhooksRoute
-  '/orgs/$orgSlug/apps/$id/settings': typeof AuthedOrgsOrgSlugAppsIdSettingsIndexRoute
 }
 export interface FileRoutesById {
   __root__: typeof rootRouteImport
@@ -578,23 +561,21 @@ export interface FileRoutesById {
   '/_authed/orgs/$orgSlug/databases/$id': typeof AuthedOrgsOrgSlugDatabasesIdRoute
   '/_authed/orgs/$orgSlug/services/$id': typeof AuthedOrgsOrgSlugServicesIdRoute
   '/_authed/orgs/$orgSlug/settings/billing': typeof AuthedOrgsOrgSlugSettingsBillingRoute
+  '/_authed/orgs/$orgSlug/settings/general': typeof AuthedOrgsOrgSlugSettingsGeneralRoute
   '/_authed/orgs/$orgSlug/settings/sso': typeof AuthedOrgsOrgSlugSettingsSsoRoute
   '/_authed/orgs/$orgSlug/apps/': typeof AuthedOrgsOrgSlugAppsIndexRoute
   '/_authed/orgs/$orgSlug/databases/': typeof AuthedOrgsOrgSlugDatabasesIndexRoute
   '/_authed/orgs/$orgSlug/services/': typeof AuthedOrgsOrgSlugServicesIndexRoute
   '/_authed/orgs/$orgSlug/settings/': typeof AuthedOrgsOrgSlugSettingsIndexRoute
+  '/_authed/orgs/$orgSlug/apps/$id/advanced': typeof AuthedOrgsOrgSlugAppsIdAdvancedRoute
   '/_authed/orgs/$orgSlug/apps/$id/deployments': typeof AuthedOrgsOrgSlugAppsIdDeploymentsRoute
   '/_authed/orgs/$orgSlug/apps/$id/domains': typeof AuthedOrgsOrgSlugAppsIdDomainsRoute
   '/_authed/orgs/$orgSlug/apps/$id/env': typeof AuthedOrgsOrgSlugAppsIdEnvRoute
   '/_authed/orgs/$orgSlug/apps/$id/logs': typeof AuthedOrgsOrgSlugAppsIdLogsRoute
-  '/_authed/orgs/$orgSlug/apps/$id/overview': typeof AuthedOrgsOrgSlugAppsIdOverviewRoute
-  '/_authed/orgs/$orgSlug/apps/$id/settings': typeof AuthedOrgsOrgSlugAppsIdSettingsRouteWithChildren
+  '/_authed/orgs/$orgSlug/apps/$id/previews': typeof AuthedOrgsOrgSlugAppsIdPreviewsRoute
+  '/_authed/orgs/$orgSlug/apps/$id/settings': typeof AuthedOrgsOrgSlugAppsIdSettingsRoute
   '/_authed/orgs/$orgSlug/apps/$id/shell': typeof AuthedOrgsOrgSlugAppsIdShellRoute
   '/_authed/orgs/$orgSlug/apps/$id/': typeof AuthedOrgsOrgSlugAppsIdIndexRoute
-  '/_authed/orgs/$orgSlug/apps/$id/settings/advanced': typeof AuthedOrgsOrgSlugAppsIdSettingsAdvancedRoute
-  '/_authed/orgs/$orgSlug/apps/$id/settings/protection': typeof AuthedOrgsOrgSlugAppsIdSettingsProtectionRoute
-  '/_authed/orgs/$orgSlug/apps/$id/settings/webhooks': typeof AuthedOrgsOrgSlugAppsIdSettingsWebhooksRoute
-  '/_authed/orgs/$orgSlug/apps/$id/settings/': typeof AuthedOrgsOrgSlugAppsIdSettingsIndexRoute
 }
 export interface FileRouteTypes {
   fileRoutesByFullPath: FileRoutesByFullPath
@@ -641,23 +622,21 @@ export interface FileRouteTypes {
     | '/orgs/$orgSlug/databases/$id'
     | '/orgs/$orgSlug/services/$id'
     | '/orgs/$orgSlug/settings/billing'
+    | '/orgs/$orgSlug/settings/general'
     | '/orgs/$orgSlug/settings/sso'
     | '/orgs/$orgSlug/apps/'
     | '/orgs/$orgSlug/databases/'
     | '/orgs/$orgSlug/services/'
     | '/orgs/$orgSlug/settings/'
+    | '/orgs/$orgSlug/apps/$id/advanced'
     | '/orgs/$orgSlug/apps/$id/deployments'
     | '/orgs/$orgSlug/apps/$id/domains'
     | '/orgs/$orgSlug/apps/$id/env'
     | '/orgs/$orgSlug/apps/$id/logs'
-    | '/orgs/$orgSlug/apps/$id/overview'
+    | '/orgs/$orgSlug/apps/$id/previews'
     | '/orgs/$orgSlug/apps/$id/settings'
     | '/orgs/$orgSlug/apps/$id/shell'
     | '/orgs/$orgSlug/apps/$id/'
-    | '/orgs/$orgSlug/apps/$id/settings/advanced'
-    | '/orgs/$orgSlug/apps/$id/settings/protection'
-    | '/orgs/$orgSlug/apps/$id/settings/webhooks'
-    | '/orgs/$orgSlug/apps/$id/settings/'
   fileRoutesByTo: FileRoutesByTo
   to:
     | '/'
@@ -698,22 +677,21 @@ export interface FileRouteTypes {
     | '/orgs/$orgSlug/databases/$id'
     | '/orgs/$orgSlug/services/$id'
     | '/orgs/$orgSlug/settings/billing'
+    | '/orgs/$orgSlug/settings/general'
     | '/orgs/$orgSlug/settings/sso'
     | '/orgs/$orgSlug/apps'
     | '/orgs/$orgSlug/databases'
     | '/orgs/$orgSlug/services'
     | '/orgs/$orgSlug/settings'
+    | '/orgs/$orgSlug/apps/$id/advanced'
     | '/orgs/$orgSlug/apps/$id/deployments'
     | '/orgs/$orgSlug/apps/$id/domains'
     | '/orgs/$orgSlug/apps/$id/env'
     | '/orgs/$orgSlug/apps/$id/logs'
-    | '/orgs/$orgSlug/apps/$id/overview'
+    | '/orgs/$orgSlug/apps/$id/previews'
+    | '/orgs/$orgSlug/apps/$id/settings'
     | '/orgs/$orgSlug/apps/$id/shell'
     | '/orgs/$orgSlug/apps/$id'
-    | '/orgs/$orgSlug/apps/$id/settings/advanced'
-    | '/orgs/$orgSlug/apps/$id/settings/protection'
-    | '/orgs/$orgSlug/apps/$id/settings/webhooks'
-    | '/orgs/$orgSlug/apps/$id/settings'
   id:
     | '__root__'
     | '/_authed'
@@ -760,23 +738,21 @@ export interface FileRouteTypes {
     | '/_authed/orgs/$orgSlug/databases/$id'
     | '/_authed/orgs/$orgSlug/services/$id'
     | '/_authed/orgs/$orgSlug/settings/billing'
+    | '/_authed/orgs/$orgSlug/settings/general'
     | '/_authed/orgs/$orgSlug/settings/sso'
     | '/_authed/orgs/$orgSlug/apps/'
     | '/_authed/orgs/$orgSlug/databases/'
     | '/_authed/orgs/$orgSlug/services/'
     | '/_authed/orgs/$orgSlug/settings/'
+    | '/_authed/orgs/$orgSlug/apps/$id/advanced'
     | '/_authed/orgs/$orgSlug/apps/$id/deployments'
     | '/_authed/orgs/$orgSlug/apps/$id/domains'
     | '/_authed/orgs/$orgSlug/apps/$id/env'
     | '/_authed/orgs/$orgSlug/apps/$id/logs'
-    | '/_authed/orgs/$orgSlug/apps/$id/overview'
+    | '/_authed/orgs/$orgSlug/apps/$id/previews'
     | '/_authed/orgs/$orgSlug/apps/$id/settings'
     | '/_authed/orgs/$orgSlug/apps/$id/shell'
     | '/_authed/orgs/$orgSlug/apps/$id/'
-    | '/_authed/orgs/$orgSlug/apps/$id/settings/advanced'
-    | '/_authed/orgs/$orgSlug/apps/$id/settings/protection'
-    | '/_authed/orgs/$orgSlug/apps/$id/settings/webhooks'
-    | '/_authed/orgs/$orgSlug/apps/$id/settings/'
   fileRoutesById: FileRoutesById
 }
 export interface RootRouteChildren {
@@ -1101,6 +1077,13 @@ declare module '@tanstack/react-router' {
       preLoaderRoute: typeof AuthedOrgsOrgSlugSettingsSsoRouteImport
       parentRoute: typeof AuthedOrgsOrgSlugSettingsRoute
     }
+    '/_authed/orgs/$orgSlug/settings/general': {
+      id: '/_authed/orgs/$orgSlug/settings/general'
+      path: '/general'
+      fullPath: '/orgs/$orgSlug/settings/general'
+      preLoaderRoute: typeof AuthedOrgsOrgSlugSettingsGeneralRouteImport
+      parentRoute: typeof AuthedOrgsOrgSlugSettingsRoute
+    }
     '/_authed/orgs/$orgSlug/settings/billing': {
       id: '/_authed/orgs/$orgSlug/settings/billing'
       path: '/billing'
@@ -1150,11 +1133,11 @@ declare module '@tanstack/react-router' {
       preLoaderRoute: typeof AuthedOrgsOrgSlugAppsIdSettingsRouteImport
       parentRoute: typeof AuthedOrgsOrgSlugAppsIdRoute
     }
-    '/_authed/orgs/$orgSlug/apps/$id/overview': {
-      id: '/_authed/orgs/$orgSlug/apps/$id/overview'
-      path: '/overview'
-      fullPath: '/orgs/$orgSlug/apps/$id/overview'
-      preLoaderRoute: typeof AuthedOrgsOrgSlugAppsIdOverviewRouteImport
+    '/_authed/orgs/$orgSlug/apps/$id/previews': {
+      id: '/_authed/orgs/$orgSlug/apps/$id/previews'
+      path: '/previews'
+      fullPath: '/orgs/$orgSlug/apps/$id/previews'
+      preLoaderRoute: typeof AuthedOrgsOrgSlugAppsIdPreviewsRouteImport
       parentRoute: typeof AuthedOrgsOrgSlugAppsIdRoute
     }
     '/_authed/orgs/$orgSlug/apps/$id/logs': {
@@ -1185,39 +1168,19 @@ declare module '@tanstack/react-router' {
       preLoaderRoute: typeof AuthedOrgsOrgSlugAppsIdDeploymentsRouteImport
       parentRoute: typeof AuthedOrgsOrgSlugAppsIdRoute
     }
-    '/_authed/orgs/$orgSlug/apps/$id/settings/': {
-      id: '/_authed/orgs/$orgSlug/apps/$id/settings/'
-      path: '/'
-      fullPath: '/orgs/$orgSlug/apps/$id/settings/'
-      preLoaderRoute: typeof AuthedOrgsOrgSlugAppsIdSettingsIndexRouteImport
-      parentRoute: typeof AuthedOrgsOrgSlugAppsIdSettingsRoute
-    }
-    '/_authed/orgs/$orgSlug/apps/$id/settings/webhooks': {
-      id: '/_authed/orgs/$orgSlug/apps/$id/settings/webhooks'
-      path: '/webhooks'
-      fullPath: '/orgs/$orgSlug/apps/$id/settings/webhooks'
-      preLoaderRoute: typeof AuthedOrgsOrgSlugAppsIdSettingsWebhooksRouteImport
-      parentRoute: typeof AuthedOrgsOrgSlugAppsIdSettingsRoute
-    }
-    '/_authed/orgs/$orgSlug/apps/$id/settings/protection': {
-      id: '/_authed/orgs/$orgSlug/apps/$id/settings/protection'
-      path: '/protection'
-      fullPath: '/orgs/$orgSlug/apps/$id/settings/protection'
-      preLoaderRoute: typeof AuthedOrgsOrgSlugAppsIdSettingsProtectionRouteImport
-      parentRoute: typeof AuthedOrgsOrgSlugAppsIdSettingsRoute
-    }
-    '/_authed/orgs/$orgSlug/apps/$id/settings/advanced': {
-      id: '/_authed/orgs/$orgSlug/apps/$id/settings/advanced'
+    '/_authed/orgs/$orgSlug/apps/$id/advanced': {
+      id: '/_authed/orgs/$orgSlug/apps/$id/advanced'
       path: '/advanced'
-      fullPath: '/orgs/$orgSlug/apps/$id/settings/advanced'
-      preLoaderRoute: typeof AuthedOrgsOrgSlugAppsIdSettingsAdvancedRouteImport
-      parentRoute: typeof AuthedOrgsOrgSlugAppsIdSettingsRoute
+      fullPath: '/orgs/$orgSlug/apps/$id/advanced'
+      preLoaderRoute: typeof AuthedOrgsOrgSlugAppsIdAdvancedRouteImport
+      parentRoute: typeof AuthedOrgsOrgSlugAppsIdRoute
     }
   }
 }
 
 interface AuthedOrgsOrgSlugSettingsRouteChildren {
   AuthedOrgsOrgSlugSettingsBillingRoute: typeof AuthedOrgsOrgSlugSettingsBillingRoute
+  AuthedOrgsOrgSlugSettingsGeneralRoute: typeof AuthedOrgsOrgSlugSettingsGeneralRoute
   AuthedOrgsOrgSlugSettingsSsoRoute: typeof AuthedOrgsOrgSlugSettingsSsoRoute
   AuthedOrgsOrgSlugSettingsIndexRoute: typeof AuthedOrgsOrgSlugSettingsIndexRoute
 }
@@ -1226,6 +1189,8 @@ const AuthedOrgsOrgSlugSettingsRouteChildren: AuthedOrgsOrgSlugSettingsRouteChil
   {
     AuthedOrgsOrgSlugSettingsBillingRoute:
       AuthedOrgsOrgSlugSettingsBillingRoute,
+    AuthedOrgsOrgSlugSettingsGeneralRoute:
+      AuthedOrgsOrgSlugSettingsGeneralRoute,
     AuthedOrgsOrgSlugSettingsSsoRoute: AuthedOrgsOrgSlugSettingsSsoRoute,
     AuthedOrgsOrgSlugSettingsIndexRoute: AuthedOrgsOrgSlugSettingsIndexRoute,
   }
@@ -1235,51 +1200,28 @@ const AuthedOrgsOrgSlugSettingsRouteWithChildren =
     AuthedOrgsOrgSlugSettingsRouteChildren,
   )
 
-interface AuthedOrgsOrgSlugAppsIdSettingsRouteChildren {
-  AuthedOrgsOrgSlugAppsIdSettingsAdvancedRoute: typeof AuthedOrgsOrgSlugAppsIdSettingsAdvancedRoute
-  AuthedOrgsOrgSlugAppsIdSettingsProtectionRoute: typeof AuthedOrgsOrgSlugAppsIdSettingsProtectionRoute
-  AuthedOrgsOrgSlugAppsIdSettingsWebhooksRoute: typeof AuthedOrgsOrgSlugAppsIdSettingsWebhooksRoute
-  AuthedOrgsOrgSlugAppsIdSettingsIndexRoute: typeof AuthedOrgsOrgSlugAppsIdSettingsIndexRoute
-}
-
-const AuthedOrgsOrgSlugAppsIdSettingsRouteChildren: AuthedOrgsOrgSlugAppsIdSettingsRouteChildren =
-  {
-    AuthedOrgsOrgSlugAppsIdSettingsAdvancedRoute:
-      AuthedOrgsOrgSlugAppsIdSettingsAdvancedRoute,
-    AuthedOrgsOrgSlugAppsIdSettingsProtectionRoute:
-      AuthedOrgsOrgSlugAppsIdSettingsProtectionRoute,
-    AuthedOrgsOrgSlugAppsIdSettingsWebhooksRoute:
-      AuthedOrgsOrgSlugAppsIdSettingsWebhooksRoute,
-    AuthedOrgsOrgSlugAppsIdSettingsIndexRoute:
-      AuthedOrgsOrgSlugAppsIdSettingsIndexRoute,
-  }
-
-const AuthedOrgsOrgSlugAppsIdSettingsRouteWithChildren =
-  AuthedOrgsOrgSlugAppsIdSettingsRoute._addFileChildren(
-    AuthedOrgsOrgSlugAppsIdSettingsRouteChildren,
-  )
-
 interface AuthedOrgsOrgSlugAppsIdRouteChildren {
+  AuthedOrgsOrgSlugAppsIdAdvancedRoute: typeof AuthedOrgsOrgSlugAppsIdAdvancedRoute
   AuthedOrgsOrgSlugAppsIdDeploymentsRoute: typeof AuthedOrgsOrgSlugAppsIdDeploymentsRoute
   AuthedOrgsOrgSlugAppsIdDomainsRoute: typeof AuthedOrgsOrgSlugAppsIdDomainsRoute
   AuthedOrgsOrgSlugAppsIdEnvRoute: typeof AuthedOrgsOrgSlugAppsIdEnvRoute
   AuthedOrgsOrgSlugAppsIdLogsRoute: typeof AuthedOrgsOrgSlugAppsIdLogsRoute
-  AuthedOrgsOrgSlugAppsIdOverviewRoute: typeof AuthedOrgsOrgSlugAppsIdOverviewRoute
-  AuthedOrgsOrgSlugAppsIdSettingsRoute: typeof AuthedOrgsOrgSlugAppsIdSettingsRouteWithChildren
+  AuthedOrgsOrgSlugAppsIdPreviewsRoute: typeof AuthedOrgsOrgSlugAppsIdPreviewsRoute
+  AuthedOrgsOrgSlugAppsIdSettingsRoute: typeof AuthedOrgsOrgSlugAppsIdSettingsRoute
   AuthedOrgsOrgSlugAppsIdShellRoute: typeof AuthedOrgsOrgSlugAppsIdShellRoute
   AuthedOrgsOrgSlugAppsIdIndexRoute: typeof AuthedOrgsOrgSlugAppsIdIndexRoute
 }
 
 const AuthedOrgsOrgSlugAppsIdRouteChildren: AuthedOrgsOrgSlugAppsIdRouteChildren =
   {
+    AuthedOrgsOrgSlugAppsIdAdvancedRoute: AuthedOrgsOrgSlugAppsIdAdvancedRoute,
     AuthedOrgsOrgSlugAppsIdDeploymentsRoute:
       AuthedOrgsOrgSlugAppsIdDeploymentsRoute,
     AuthedOrgsOrgSlugAppsIdDomainsRoute: AuthedOrgsOrgSlugAppsIdDomainsRoute,
     AuthedOrgsOrgSlugAppsIdEnvRoute: AuthedOrgsOrgSlugAppsIdEnvRoute,
     AuthedOrgsOrgSlugAppsIdLogsRoute: AuthedOrgsOrgSlugAppsIdLogsRoute,
-    AuthedOrgsOrgSlugAppsIdOverviewRoute: AuthedOrgsOrgSlugAppsIdOverviewRoute,
-    AuthedOrgsOrgSlugAppsIdSettingsRoute:
-      AuthedOrgsOrgSlugAppsIdSettingsRouteWithChildren,
+    AuthedOrgsOrgSlugAppsIdPreviewsRoute: AuthedOrgsOrgSlugAppsIdPreviewsRoute,
+    AuthedOrgsOrgSlugAppsIdSettingsRoute: AuthedOrgsOrgSlugAppsIdSettingsRoute,
     AuthedOrgsOrgSlugAppsIdShellRoute: AuthedOrgsOrgSlugAppsIdShellRoute,
     AuthedOrgsOrgSlugAppsIdIndexRoute: AuthedOrgsOrgSlugAppsIdIndexRoute,
   }

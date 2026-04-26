@@ -20,6 +20,8 @@ volumes:
   registry-data:
   postgres-data:
   redis-data:
+  agent-target:
+  agent-cargo-registry:
 
 services:
   caddy:
@@ -120,7 +122,14 @@ services:
   redis:
     image: redis:7-alpine
     container_name: ploydok-redis
-    command: ["redis-server", "--requirepass", "${PLOYDOK_REDIS_PASSWORD}", "--appendonly", "yes"]
+    command:
+      [
+        "redis-server",
+        "--requirepass",
+        "${PLOYDOK_REDIS_PASSWORD}",
+        "--appendonly",
+        "yes",
+      ]
     ports:
       - "127.0.0.1:6381:6379"
     volumes:
@@ -137,19 +146,45 @@ services:
     networks:
       - ploydok
 
-  # TODO (Sprint 2.3): agent service — will be built from agent/ Dockerfile.
-  # Uncomment and configure once the Rust agent binary and Dockerfile are ready.
-  # agent:
-  #   build:
-  #     context: ../agent
-  #     dockerfile: Dockerfile
-  #   restart: unless-stopped
-  #   volumes:
-  #     - /var/run/docker.sock:/var/run/docker.sock:ro
-  #     - /run/ploydok:/run/ploydok
-  #     - /var/lib/ploydok/volumes:/var/lib/ploydok/volumes
-  #   networks:
-  #     - ploydok
-  #   depends_on:
-  #     caddy:
-  #       condition: service_healthy
+  agent:
+    build:
+      context: ../agent
+      dockerfile: Dockerfile
+    container_name: ploydok-agent
+    restart: unless-stopped
+    labels:
+      ploydok.kind: agent
+      ploydok.service: agent
+    environment:
+      PLOYDOK_AGENT_SOCKET: /run/ploydok/agent.sock
+      PLOYDOK_AGENT_INSECURE: "1"
+      PLOYDOK_VALIDATOR_CONFIG: /workspace/config/dev-validator.toml
+      RUST_LOG: ${RUST_LOG:-info}
+    volumes:
+      - ../agent:/workspace
+      - ../packages/agent-proto:/packages/agent-proto:ro
+      - agent-target:/workspace/target
+      - agent-cargo-registry:/usr/local/cargo/registry
+      - /var/run/docker.sock:/var/run/docker.sock
+      - /tmp/ploydok:/run/ploydok
+    healthcheck:
+      test: ["CMD-SHELL", "test -S /run/ploydok/agent.sock"]
+      interval: 10s
+      timeout: 3s
+      retries: 5
+      start_period: 120s
+    # Limits dimensionnées pour le DEV : cargo-watch rebuild en release mode
+    # peut peaker à ~1.5 GB pendant le link/codegen. Le binaire à l'arrêt
+    # consomme ~30-60 MB. En prod (binaire pré-buildé sans cargo dans l'image),
+    # 256 MB / 0.5 CPU suffisent largement.
+    deploy:
+      resources:
+        limits:
+          cpus: "2.0"
+          memory: 2G
+        reservations:
+          cpus: "0.1"
+          memory: 128M
+    networks:
+      - ploydok
+      - ploydok-public

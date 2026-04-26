@@ -1,10 +1,52 @@
 // SPDX-License-Identifier: AGPL-3.0-only
 import { describe, expect, it } from "bun:test"
 import {
+  extractAppId,
   extractAppName,
+  extractAppStatus,
   resolveTopbarBreadcrumb,
   type MatchWithLoader,
 } from "../../../components/layout/topbar-breadcrumb"
+
+describe("extractAppId", () => {
+  it("reads the app id from the app layout loader data", () => {
+    const matches: Array<MatchWithLoader> = [
+      {
+        routeId: "/_authed/orgs/$orgSlug/databases/$id",
+        params: { id: "db-1" },
+      },
+      {
+        routeId: "/_authed/orgs/$orgSlug/apps/$id",
+        params: { id: "route-app-id" },
+        loaderData: { app: { id: "app-123" } },
+      },
+    ]
+
+    expect(extractAppId(matches)).toBe("app-123")
+  })
+
+  it("falls back to the app route id param", () => {
+    const matches: Array<MatchWithLoader> = [
+      {
+        routeId: "/_authed/orgs/$orgSlug/apps/$id",
+        params: { id: "app-from-route" },
+      },
+    ]
+
+    expect(extractAppId(matches)).toBe("app-from-route")
+  })
+
+  it("ignores non-app id params", () => {
+    const matches: Array<MatchWithLoader> = [
+      {
+        routeId: "/_authed/orgs/$orgSlug/databases/$id",
+        params: { id: "db-1" },
+      },
+    ]
+
+    expect(extractAppId(matches)).toBeNull()
+  })
+})
 
 describe("extractAppName", () => {
   it("reads the app name from the app layout loader data", () => {
@@ -21,6 +63,19 @@ describe("extractAppName", () => {
 
   it("returns null when there is no app loader match", () => {
     expect(extractAppName([])).toBeNull()
+  })
+})
+
+describe("extractAppStatus", () => {
+  it("reads the app status from the app layout loader data", () => {
+    const matches: Array<MatchWithLoader> = [
+      {
+        routeId: "/_authed/orgs/$orgSlug/apps/$id",
+        loaderData: { app: { status: "building" } },
+      },
+    ]
+
+    expect(extractAppStatus(matches)).toBe("building")
   })
 })
 

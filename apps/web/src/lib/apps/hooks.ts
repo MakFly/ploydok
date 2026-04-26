@@ -156,6 +156,7 @@ export function useCreateApp() {
 
 export function useApp(appId: string, opts?: UseAppOptions) {
   const qc = useQueryClient()
+  const subscribeToEvents = opts?.subscribeToEvents ?? true
 
   const syncStatus = (status: import("@ploydok/shared").AppStatus) => {
     qc.setQueryData<AppDetail | undefined>(
@@ -184,11 +185,15 @@ export function useApp(appId: string, opts?: UseAppOptions) {
     void qc.invalidateQueries({ queryKey: ["apps"] })
   }
 
-  useEventsSubscription<AppStatusEventPayload>("build.started", (payload) => {
-    if (payload.appId !== appId) return
-    const status = getEventAppStatus(payload) ?? "building"
-    syncStatus(status)
-  })
+  useEventsSubscription<AppStatusEventPayload>(
+    "build.started",
+    (payload) => {
+      if (payload.appId !== appId) return
+      const status = getEventAppStatus(payload) ?? "building"
+      syncStatus(status)
+    },
+    subscribeToEvents
+  )
 
   useEventsSubscription<AppStatusEventPayload>(
     "deploy.status_change",
@@ -197,18 +202,27 @@ export function useApp(appId: string, opts?: UseAppOptions) {
       const status = getEventAppStatus(payload)
       if (status) syncStatus(status)
       refetchApp()
-    }
+    },
+    subscribeToEvents
   )
 
-  useEventsSubscription<AppStatusEventPayload>("build.failed", (payload) => {
-    if (payload.appId !== appId) return
-    refetchApp()
-  })
+  useEventsSubscription<AppStatusEventPayload>(
+    "build.failed",
+    (payload) => {
+      if (payload.appId !== appId) return
+      refetchApp()
+    },
+    subscribeToEvents
+  )
 
-  useEventsSubscription<AppStatusEventPayload>("build.succeeded", (payload) => {
-    if (payload.appId !== appId) return
-    refetchApp()
-  })
+  useEventsSubscription<AppStatusEventPayload>(
+    "build.succeeded",
+    (payload) => {
+      if (payload.appId !== appId) return
+      refetchApp()
+    },
+    subscribeToEvents
+  )
 
   return useQuery<AppDetail, ApiError>({
     queryKey: ["apps", appId],

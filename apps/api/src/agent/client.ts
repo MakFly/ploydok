@@ -1,29 +1,29 @@
 // SPDX-License-Identifier: AGPL-3.0-only
-import * as grpc from "@grpc/grpc-js";
-import { AgentClient } from "@ploydok/agent-proto";
+import * as grpc from "@grpc/grpc-js"
+import { AgentClient } from "@ploydok/agent-proto"
 
 export interface AgentClientOptions {
   /**
    * Chemin vers le socket Unix de l'agent Rust.
    * Par défaut : process.env.PLOYDOK_AGENT_SOCKET, sinon
-   *   - `/tmp/ploydok-agent.sock` hors prod (aligné sur `make dev-agent`)
+   *   - `/tmp/ploydok/agent.sock` hors prod (exposé par le container `ploydok-agent` via infra/docker-compose.yml)
    *   - `/run/ploydok/agent.sock` en prod
    */
-  socketPath?: string;
+  socketPath?: string
   /**
    * Credentials gRPC.
    * Par défaut : insecure.
    * TODO(2.3): injecter ici les credentials mTLS via grpc.credentials.createSsl(...)
    */
-  credentials?: grpc.ChannelCredentials;
+  credentials?: grpc.ChannelCredentials
 }
 
 function defaultSocketPath(): string {
-  const env = process.env["PLOYDOK_AGENT_SOCKET"];
-  if (env) return env;
+  const env = process.env["PLOYDOK_AGENT_SOCKET"]
+  if (env) return env
   return process.env["NODE_ENV"] === "prod"
     ? "/run/ploydok/agent.sock"
-    : "/tmp/ploydok-agent.sock";
+    : "/tmp/ploydok/agent.sock"
 }
 
 /**
@@ -34,17 +34,17 @@ function defaultSocketPath(): string {
  *   createAgentClient({ credentials: creds });
  */
 export function createAgentClient(opts: AgentClientOptions = {}): AgentClient {
-  const socketPath = opts.socketPath ?? defaultSocketPath();
+  const socketPath = opts.socketPath ?? defaultSocketPath()
 
-  const address = `unix://${socketPath}`;
+  const address = `unix://${socketPath}`
 
-  const credentials = opts.credentials ?? grpc.credentials.createInsecure();
+  const credentials = opts.credentials ?? grpc.credentials.createInsecure()
 
   const channelOptions: grpc.ClientOptions = {
     // Large receive buffer for build context / image pull streams
     "grpc.max_receive_message_length": 256 * 1024 * 1024, // 256 MiB
     "grpc.max_send_message_length": 256 * 1024 * 1024, // 256 MiB
-  };
+  }
 
-  return new AgentClient(address, credentials, channelOptions);
+  return new AgentClient(address, credentials, channelOptions)
 }

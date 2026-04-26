@@ -43,6 +43,7 @@ const schema = z.object({
     .default("docker-container://ploydok-buildkitd"),
   PLOYDOK_PUBLIC_SCHEME: z.enum(["http", "https"]).optional(),
   PLOYDOK_PUBLIC_PORT: z.coerce.number().int().positive().optional(),
+  PLOYDOK_PUBLIC_HOST: z.string().min(1).optional(),
   STRIPE_SECRET_KEY: z.string().optional(),
   STRIPE_WEBHOOK_SECRET: z.string().optional(),
   STRIPE_PRO_PRICE_ID: z.string().optional(),
@@ -77,6 +78,7 @@ const raw = schema.parse({
   PLOYDOK_BUILDKIT_ADDR: Bun.env["PLOYDOK_BUILDKIT_ADDR"],
   PLOYDOK_PUBLIC_SCHEME: Bun.env["PLOYDOK_PUBLIC_SCHEME"],
   PLOYDOK_PUBLIC_PORT: Bun.env["PLOYDOK_PUBLIC_PORT"],
+  PLOYDOK_PUBLIC_HOST: Bun.env["PLOYDOK_PUBLIC_HOST"],
   STRIPE_SECRET_KEY: Bun.env["STRIPE_SECRET_KEY"],
   STRIPE_WEBHOOK_SECRET: Bun.env["STRIPE_WEBHOOK_SECRET"],
   STRIPE_PRO_PRICE_ID: Bun.env["STRIPE_PRO_PRICE_ID"],
@@ -160,6 +162,7 @@ export const env = {
   PLOYDOK_PUBLIC_SCHEME:
     raw.PLOYDOK_PUBLIC_SCHEME ?? (isProd ? "https" : "http"),
   PLOYDOK_PUBLIC_PORT: raw.PLOYDOK_PUBLIC_PORT ?? (isProd ? undefined : 8180),
+  PLOYDOK_PUBLIC_HOST: raw.PLOYDOK_PUBLIC_HOST ?? "localhost",
   STRIPE_SECRET_KEY: raw.STRIPE_SECRET_KEY,
   STRIPE_WEBHOOK_SECRET: raw.STRIPE_WEBHOOK_SECRET,
   STRIPE_PRO_PRICE_ID: raw.STRIPE_PRO_PRICE_ID,

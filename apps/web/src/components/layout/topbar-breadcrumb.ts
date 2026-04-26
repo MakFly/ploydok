@@ -2,7 +2,29 @@
 
 export interface MatchWithLoader {
   routeId?: string
+  params?: Record<string, string | undefined>
   loaderData?: unknown
+}
+
+function findAppMatch(
+  matches: ReadonlyArray<MatchWithLoader>
+): MatchWithLoader | undefined {
+  return matches.find(
+    (m) =>
+      m.routeId === "/_authed/apps/$id" ||
+      m.routeId === "/_authed/orgs/$orgSlug/apps/$id"
+  )
+}
+
+export function extractAppId(
+  matches: ReadonlyArray<MatchWithLoader>
+): string | null {
+  const appMatch = findAppMatch(matches)
+  if (!appMatch) return null
+  const data = appMatch.loaderData as
+    | { app?: { id?: string | null } }
+    | undefined
+  return data?.app?.id ?? appMatch.params?.id ?? null
 }
 
 export interface BreadcrumbItem {
@@ -13,11 +35,7 @@ export interface BreadcrumbItem {
 export function extractAppName(
   matches: ReadonlyArray<MatchWithLoader>
 ): string | null {
-  const appMatch = matches.find(
-    (m) =>
-      m.routeId === "/_authed/apps/$id" ||
-      m.routeId === "/_authed/orgs/$orgSlug/apps/$id"
-  )
+  const appMatch = findAppMatch(matches)
   if (!appMatch) return null
   const data = appMatch.loaderData as
     | { app?: { name?: string | null } }
@@ -28,11 +46,7 @@ export function extractAppName(
 export function extractAppStatus(
   matches: ReadonlyArray<MatchWithLoader>
 ): string | null {
-  const appMatch = matches.find(
-    (m) =>
-      m.routeId === "/_authed/apps/$id" ||
-      m.routeId === "/_authed/orgs/$orgSlug/apps/$id"
-  )
+  const appMatch = findAppMatch(matches)
   if (!appMatch) return null
   const data = appMatch.loaderData as
     | { app?: { status?: string | null } }

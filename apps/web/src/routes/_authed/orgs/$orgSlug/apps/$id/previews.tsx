@@ -10,6 +10,7 @@ import { Badge } from "@workspace/ui/components/badge"
 import { Button } from "@workspace/ui/components/button"
 import { useQuery } from "@tanstack/react-query"
 import { apiFetch } from "../../../../../../lib/api/client"
+import { ApiError } from "../../../../../../lib/api/errors"
 
 export const Route = createFileRoute(
   "/_authed/orgs/$orgSlug/apps/$id/previews"
@@ -37,7 +38,18 @@ function PreviewsPage() {
     isError,
   } = useQuery({
     queryKey: ["app", appId, "previews"],
-    queryFn: () => apiFetch<PreviewDeployment[]>(`/apps/${appId}/previews`),
+    queryFn: async () => {
+      try {
+        return await apiFetch<PreviewDeployment[]>(`/apps/${appId}/previews`)
+      } catch (err) {
+        if (err instanceof ApiError && err.status === 404) return []
+        throw err
+      }
+    },
+    retry: (failureCount, err) => {
+      if (err instanceof ApiError && err.status === 404) return false
+      return failureCount < 2
+    },
   })
 
   if (isError) {
@@ -71,13 +83,11 @@ function PreviewsPage() {
       )}
 
       {!isLoading && previews.length === 0 && (
-        <Card>
-          <CardContent className="pt-6">
-            <p className="text-sm text-gray-500">
-              No preview deployments yet. Open a pull request to create one.
-            </p>
-          </CardContent>
-        </Card>
+        <div className="flex flex-col items-center justify-center rounded-lg border border-dashed py-10 text-center">
+          <p className="text-sm text-muted-foreground">
+            No preview deployments yet. Open a pull request to create one.
+          </p>
+        </div>
       )}
 
       {activePreview.length > 0 && (

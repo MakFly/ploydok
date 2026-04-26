@@ -4,6 +4,7 @@ import { nanoid } from "nanoid"
 import { databases } from "@ploydok/db"
 import type { Db } from "@ploydok/db"
 import { and, desc, eq, gte, isNotNull, lt, max } from "drizzle-orm"
+import { env } from "../env"
 import { childLogger } from "../logger"
 import { encryptSecret, decryptSecret } from "../secrets/crypto"
 import { ensureProjectNetwork } from "../services/projects"
@@ -22,7 +23,12 @@ const DATABASE_HEALTHCHECK_POLL_MS = 1_000
 export type DbKind = "postgres" | "mysql" | "mariadb" | "redis" | "mongo"
 export type DbPlan = "small" | "medium" | "large"
 export type DbExposureMode = "internal" | "direct_port" | "public_proxy"
-export type DbHealthStatus = "unknown" | "starting" | "healthy" | "degraded" | "unhealthy"
+export type DbHealthStatus =
+  | "unknown"
+  | "starting"
+  | "healthy"
+  | "degraded"
+  | "unhealthy"
 
 interface SpawnOptions {
   projectId: string
@@ -46,13 +52,21 @@ interface RecreateOptions {
   exposureMode: DbExposureMode
 }
 
-type RuntimeContainerStatus = "running" | "unhealthy" | "starting" | "stopped" | "unknown"
+type RuntimeContainerStatus =
+  | "running"
+  | "unhealthy"
+  | "starting"
+  | "stopped"
+  | "unknown"
 
 function generatePassword(): string {
   return randomBytes(24).toString("base64url")
 }
 
-function normalizeDatabaseRuntimeToken(dbId: string, maxLength: number): string {
+function normalizeDatabaseRuntimeToken(
+  dbId: string,
+  maxLength: number
+): string {
   const normalized = dbId
     .toLowerCase()
     .replace(/[^a-z0-9-]+/g, "-")
@@ -72,14 +86,16 @@ function volumeName(dbId: string): string {
 }
 
 function defaultPublicHost(): string {
-  return "localhost"
+  return env.PLOYDOK_PUBLIC_HOST
 }
 
 function tcpProxyServerId(dbId: string): string {
   return `ploydok-db-proxy-${normalizeDatabaseRuntimeToken(dbId, 54)}`
 }
 
-function hasValidAgentContainerName(name: string | null | undefined): name is string {
+function hasValidAgentContainerName(
+  name: string | null | undefined
+): name is string {
   return typeof name === "string" && AGENT_CONTAINER_NAME_RE.test(name)
 }
 
@@ -113,7 +129,7 @@ function sleep(ms: number): Promise<void> {
 
 async function waitForDatabaseHealthy(
   containerId: string,
-  agent = getSharedAgent(),
+  agent = getSharedAgent()
 ): Promise<void> {
   const deadline = Date.now() + DATABASE_HEALTHCHECK_TIMEOUT_MS
 
@@ -135,12 +151,14 @@ async function waitForDatabaseHealthy(
     await sleep(DATABASE_HEALTHCHECK_POLL_MS)
   }
 
-  throw new Error(`database healthcheck timed out after ${DATABASE_HEALTHCHECK_TIMEOUT_MS}ms`)
+  throw new Error(
+    `database healthcheck timed out after ${DATABASE_HEALTHCHECK_TIMEOUT_MS}ms`
+  )
 }
 
 function resolveEnv(
   templateEnv: Record<string, string>,
-  password: string,
+  password: string
 ): Record<string, string> {
   const out: Record<string, string> = {}
   for (const [k, v] of Object.entries(templateEnv)) {
@@ -162,7 +180,7 @@ function buildConnectionString(
     host: string
     port: number
     database: string
-  },
+  }
 ): string {
   return template
     .replace("{user}", encodeURIComponent(values.user))
@@ -175,7 +193,7 @@ function buildConnectionString(
 function getCredentials(
   kind: DbKind,
   resolvedEnv: Record<string, string>,
-  resolvedArgs: string[],
+  resolvedArgs: string[]
 ): { user: string; password: string; database: string } {
   switch (kind) {
     case "postgres":
@@ -215,7 +233,7 @@ function getCredentials(
 
 function parseStoredConnectionString(
   kind: DbKind,
-  connString: string,
+  connString: string
 ): { user: string; password: string; database: string } {
   const url = new URL(connString)
   switch (kind) {
@@ -244,7 +262,7 @@ function parseStoredConnectionString(
 
 function runtimeEnvForDatabase(
   kind: DbKind,
-  creds: { user: string; password: string; database: string },
+  creds: { user: string; password: string; database: string }
 ): Record<string, string> {
   switch (kind) {
     case "postgres":
@@ -308,8 +326,8 @@ async function allocatePublicPort(db: Db): Promise<number> {
       and(
         isNotNull(databases.public_port),
         gte(databases.public_port, DIRECT_PORT_MIN),
-        lt(databases.public_port, PROXY_PORT_MIN),
-      ),
+        lt(databases.public_port, PROXY_PORT_MIN)
+      )
     )
   const maxUsed = rows[0]?.max_port ?? DIRECT_PORT_MIN - 1
   return Math.max(maxUsed + 1, DIRECT_PORT_MIN)
@@ -319,7 +337,12 @@ async function allocatePublicProxyPort(db: Db): Promise<number> {
   const rows = await db
     .select({ max_port: max(databases.public_port) })
     .from(databases)
-    .where(and(isNotNull(databases.public_port), gte(databases.public_port, PROXY_PORT_MIN)))
+    .where(
+      and(
+        isNotNull(databases.public_port),
+        gte(databases.public_port, PROXY_PORT_MIN)
+      )
+    )
   const maxUsed = rows[0]?.max_port ?? PROXY_PORT_MIN - 1
   return Math.max(maxUsed + 1, PROXY_PORT_MIN)
 }
@@ -328,9 +351,10 @@ async function updateConnectionSecrets(
   db: Db,
   id: string,
   connectionString: string,
-  password: string,
+  password: string
 ): Promise<void> {
-  const { enc: connEnc, nonce: connNonce } = await encryptSecret(connectionString)
+  const { enc: connEnc, nonce: connNonce } =
+    await encryptSecret(connectionString)
   const { enc: pwEnc, nonce: pwNonce } = await encryptSecret(password)
 
   await db
@@ -356,7 +380,7 @@ async function buildRuntimeConfig(
     creds: { user: string; password: string; database: string }
     exposureMode: DbExposureMode
     publicEnabled: boolean
-  },
+  }
 ): Promise<{
   template: (typeof templates)[DbKind]
   env: Record<string, string>
@@ -370,16 +394,18 @@ async function buildRuntimeConfig(
   const tmpl = templates[opts.kind]
   const env = runtimeEnvForDatabase(opts.kind, opts.creds)
   const args = runtimeArgsForDatabase(opts.kind, opts.creds.password)
-  const publicPort =
-    !opts.publicEnabled
-      ? null
-      : opts.exposureMode === "direct_port"
-        ? await allocatePublicPort(db)
-        : opts.exposureMode === "public_proxy"
-          ? await allocatePublicProxyPort(db)
-          : null
+  const publicPort = !opts.publicEnabled
+    ? null
+    : opts.exposureMode === "direct_port"
+      ? await allocatePublicPort(db)
+      : opts.exposureMode === "public_proxy"
+        ? await allocatePublicProxyPort(db)
+        : null
   const publicHost = publicPort ? defaultPublicHost() : null
-  const publicUrl = publicPort && publicHost ? buildPublicUrl(opts.kind, publicHost, publicPort) : null
+  const publicUrl =
+    publicPort && publicHost
+      ? buildPublicUrl(opts.kind, publicHost, publicPort)
+      : null
   const ports =
     publicPort !== null && opts.exposureMode === "direct_port"
       ? [{ containerPort: tmpl.port, hostPort: publicPort, proto: "tcp" }]
@@ -404,12 +430,16 @@ async function buildRuntimeConfig(
   }
 }
 
-export async function spawnDatabase(db: Db, opts: SpawnOptions): Promise<SpawnResult> {
+export async function spawnDatabase(
+  db: Db,
+  opts: SpawnOptions
+): Promise<SpawnResult> {
   const { projectId, ownerId, kind, name, plan } = opts
   const tmpl = templates[kind]
   const planCfg = tmpl.plans[plan]
   const exposureMode = opts.exposureMode ?? "internal"
-  const publicEnabled = Boolean(opts.publicEnabled) && exposureMode !== "internal"
+  const publicEnabled =
+    Boolean(opts.publicEnabled) && exposureMode !== "internal"
 
   const id = nanoid()
   const password = generatePassword()
@@ -458,7 +488,11 @@ export async function spawnDatabase(db: Db, opts: SpawnOptions): Promise<SpawnRe
       await ensureCaddyOnProjectNetwork(agent, networkName)
     }
     try {
-      await agent.networkCreate({ name: networkName, driver: "bridge", labels: {} })
+      await agent.networkCreate({
+        name: networkName,
+        driver: "bridge",
+        labels: {},
+      })
     } catch (err) {
       const msg = err instanceof Error ? err.message : String(err)
       if (!msg.includes("already exists") && !msg.includes("ALREADY_EXISTS")) {
@@ -478,7 +512,13 @@ export async function spawnDatabase(db: Db, opts: SpawnOptions): Promise<SpawnRe
       command: runtime.args,
       networks: [networkName],
       network: networkName,
-      volumes: [{ hostPath: `/var/lib/ploydok/volumes/${vol}`, containerPath: tmpl.volume_path, readOnly: false }],
+      volumes: [
+        {
+          hostPath: `/var/lib/ploydok/volumes/${vol}`,
+          containerPath: tmpl.volume_path,
+          readOnly: false,
+        },
+      ],
       ports: runtime.ports,
       restartPolicy: "unless-stopped",
       resourceLimits: {
@@ -502,7 +542,11 @@ export async function spawnDatabase(db: Db, opts: SpawnOptions): Promise<SpawnRe
 
     await agent.containerStart({ containerId: containerRes.containerId })
     await waitForDatabaseHealthy(containerRes.containerId, agent)
-    if (publicEnabled && exposureMode === "public_proxy" && runtime.publicPort) {
+    if (
+      publicEnabled &&
+      exposureMode === "public_proxy" &&
+      runtime.publicPort
+    ) {
       await caddy.upsertTcpProxy({
         serverId: tcpProxyServerId(id),
         listenPort: runtime.publicPort,
@@ -510,7 +554,12 @@ export async function spawnDatabase(db: Db, opts: SpawnOptions): Promise<SpawnRe
       })
     }
 
-    await updateConnectionSecrets(db, id, runtime.connectionString, creds.password)
+    await updateConnectionSecrets(
+      db,
+      id,
+      runtime.connectionString,
+      creds.password
+    )
 
     await db
       .update(databases)
@@ -523,7 +572,11 @@ export async function spawnDatabase(db: Db, opts: SpawnOptions): Promise<SpawnRe
 
     log.info({ id, kind, plan, host }, "database spawned")
 
-    return { id, containerId: containerRes.containerId, connectionString: runtime.connectionString }
+    return {
+      id,
+      containerId: containerRes.containerId,
+      connectionString: runtime.connectionString,
+    }
   } catch (err) {
     await db
       .update(databases)
@@ -546,7 +599,7 @@ export async function getConnectionString(row: DatabaseRow): Promise<string> {
 export async function startDatabaseContainer(
   db: Db,
   row: DatabaseRow,
-  opts: { ownerId: string },
+  opts: { ownerId: string }
 ): Promise<void> {
   if (!row.container_id) {
     await recreateDatabaseContainer(db, row, {
@@ -566,7 +619,11 @@ export async function startDatabaseContainer(
     await waitForDatabaseHealthy(row.container_id, agent)
     await db
       .update(databases)
-      .set({ status: "running", health_status: "healthy", last_started_at: new Date() })
+      .set({
+        status: "running",
+        health_status: "healthy",
+        last_started_at: new Date(),
+      })
       .where(eq(databases.id, row.id))
   } catch (err) {
     await db
@@ -577,10 +634,16 @@ export async function startDatabaseContainer(
   }
 }
 
-export async function stopDatabaseContainer(db: Db, row: DatabaseRow): Promise<void> {
+export async function stopDatabaseContainer(
+  db: Db,
+  row: DatabaseRow
+): Promise<void> {
   if (!row.container_id) throw new Error("container not available")
   const agent = getSharedAgent()
-  await agent.containerStop({ containerId: row.container_id, timeoutSeconds: 10 })
+  await agent.containerStop({
+    containerId: row.container_id,
+    timeoutSeconds: 10,
+  })
   await db
     .update(databases)
     .set({ status: "stopped", health_status: "unknown" })
@@ -590,24 +653,24 @@ export async function stopDatabaseContainer(db: Db, row: DatabaseRow): Promise<v
 export async function recreateDatabaseContainer(
   db: Db,
   row: DatabaseRow,
-  opts: RecreateOptions,
+  opts: RecreateOptions
 ): Promise<DatabaseRow> {
   const agent = getSharedAgent()
   const caddy = getSharedCaddy()
   const creds =
     row.connection_string_enc && row.connection_string_nonce
       ? parseStoredConnectionString(
-        row.kind as DbKind,
-        await getConnectionString(row),
-      )
-      : (() => {
-        const password = generatePassword()
-        return getCredentials(
           row.kind as DbKind,
-          resolveEnv(templates[row.kind as DbKind].env, password),
-          resolveArgs(templates[row.kind as DbKind].args, password),
+          await getConnectionString(row)
         )
-      })()
+      : (() => {
+          const password = generatePassword()
+          return getCredentials(
+            row.kind as DbKind,
+            resolveEnv(templates[row.kind as DbKind].env, password),
+            resolveArgs(templates[row.kind as DbKind].args, password)
+          )
+        })()
   const host = hasValidAgentContainerName(row.host)
     ? row.host
     : containerName(row.id)
@@ -632,11 +695,18 @@ export async function recreateDatabaseContainer(
 
   if (row.container_id) {
     try {
-      await agent.containerStop({ containerId: row.container_id, timeoutSeconds: 10 })
+      await agent.containerStop({
+        containerId: row.container_id,
+        timeoutSeconds: 10,
+      })
     } catch (err) {
       log.warn({ err, dbId: row.id }, "container stop warning during recreate")
     }
-    await agent.containerRemove({ containerId: row.container_id, force: true, removeVolumes: false })
+    await agent.containerRemove({
+      containerId: row.container_id,
+      force: true,
+      removeVolumes: false,
+    })
     // The old container is gone; if the upcoming containerCreate or the
     // healthcheck fails, the row would still point at the removed id. Clear
     // container_id and mark transitional so the UI / agent status sync surface
@@ -657,7 +727,13 @@ export async function recreateDatabaseContainer(
       command: runtime.args,
       networks: [networkName],
       network: networkName,
-      volumes: [{ hostPath: `/var/lib/ploydok/volumes/${row.volume_name}`, containerPath: tmpl.volume_path, readOnly: false }],
+      volumes: [
+        {
+          hostPath: `/var/lib/ploydok/volumes/${row.volume_name}`,
+          containerPath: tmpl.volume_path,
+          readOnly: false,
+        },
+      ],
       ports: runtime.ports,
       restartPolicy: "unless-stopped",
       resourceLimits: {
@@ -677,17 +753,30 @@ export async function recreateDatabaseContainer(
 
     await agent.containerStart({ containerId: containerRes.containerId })
     await waitForDatabaseHealthy(containerRes.containerId, agent)
-    if (row.public_enabled && row.exposure_mode === "public_proxy" && row.public_port) {
+    if (
+      row.public_enabled &&
+      row.exposure_mode === "public_proxy" &&
+      row.public_port
+    ) {
       await caddy.removeTcpProxy(tcpProxyServerId(row.id))
     }
-    if (opts.publicEnabled && opts.exposureMode === "public_proxy" && runtime.publicPort) {
+    if (
+      opts.publicEnabled &&
+      opts.exposureMode === "public_proxy" &&
+      runtime.publicPort
+    ) {
       await caddy.upsertTcpProxy({
         serverId: tcpProxyServerId(row.id),
         listenPort: runtime.publicPort,
         upstream: `${host}:${tmpl.port}`,
       })
     }
-    await updateConnectionSecrets(db, row.id, runtime.connectionString, creds.password)
+    await updateConnectionSecrets(
+      db,
+      row.id,
+      runtime.connectionString,
+      creds.password
+    )
     await db
       .update(databases)
       .set({
@@ -730,7 +819,9 @@ export async function recreateDatabaseContainer(
   }
 }
 
-export async function removeDatabasePublicProxy(row: DatabaseRow): Promise<void> {
+export async function removeDatabasePublicProxy(
+  row: DatabaseRow
+): Promise<void> {
   if (!row.public_enabled || row.exposure_mode !== "public_proxy") return
   const caddy = getSharedCaddy()
   await caddy.removeTcpProxy(tcpProxyServerId(row.id))

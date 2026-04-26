@@ -1,6 +1,7 @@
 // SPDX-License-Identifier: AGPL-3.0-only
 import { index, pgTable, text, timestamp } from "drizzle-orm/pg-core"
 import { apps } from "./apps"
+import { users } from "./users"
 
 export const builds = pgTable(
   "builds",
@@ -37,6 +38,27 @@ export const builds = pgTable(
     created_at: timestamp("created_at", { withTimezone: true, mode: "date" })
       .notNull()
       .$defaultFn(() => new Date()),
+    requested_by_user_id: text("requested_by_user_id").references(
+      () => users.id
+    ),
+    source: text("source", {
+      enum: [
+        "api",
+        "webhook:github",
+        "webhook:gitlab",
+        "cron:gc",
+        "cron:cleanup",
+        "auto:push",
+        "auto:tag",
+        "system",
+      ],
+    })
+      .notNull()
+      .default("api"),
+    queued_at: timestamp("queued_at", { withTimezone: true, mode: "date" })
+      .notNull()
+      .$defaultFn(() => new Date()),
+    claimed_at: timestamp("claimed_at", { withTimezone: true, mode: "date" }),
   },
   (t) => [
     index("builds_app_id_idx").on(t.app_id),

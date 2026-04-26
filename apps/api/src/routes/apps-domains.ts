@@ -4,7 +4,7 @@ import { z } from "zod"
 import { randomBytes } from "node:crypto"
 import { eq } from "drizzle-orm"
 import { nanoid } from "nanoid"
-import { createDb, tls_certificates } from "@ploydok/db"
+import { createDb, tls_certificates, domains } from "@ploydok/db"
 import type { Db } from "@ploydok/db"
 import { env } from "../env"
 import { getAppForUser } from "@ploydok/db/queries"
@@ -48,7 +48,12 @@ const log = childLogger("domains")
 // Validation schemas
 // ---------------------------------------------------------------------------
 
-const Dns01ProviderEnum = z.enum(["cloudflare", "route53", "ovh", "digitalocean"])
+const Dns01ProviderEnum = z.enum([
+  "cloudflare",
+  "route53",
+  "ovh",
+  "digitalocean",
+])
 
 const AddDomainBody = z.object({
   hostname: z
@@ -108,7 +113,7 @@ function serializeDomain(row: {
 // ---------------------------------------------------------------------------
 
 const caddyClient = new CaddyClient(
-  Bun.env["CADDY_ADMIN_URL"] ?? "http://127.0.0.1:2020",
+  Bun.env["CADDY_ADMIN_URL"] ?? "http://127.0.0.1:2020"
 )
 
 /**
@@ -124,7 +129,7 @@ const caddyClient = new CaddyClient(
 async function tryCaddyAddDomain(
   appId: string,
   domainId: string,
-  hostname: string,
+  hostname: string
 ): Promise<void> {
   try {
     // Fetch the current upstream from the app's main route. If the app hasn't
@@ -132,7 +137,10 @@ async function tryCaddyAddDomain(
     // hostname now and the deploy handler will set the upstream later.
     const upstream = await caddyClient.getUpstream(appId)
     if (!upstream) {
-      log.warn({ appId, hostname }, "caddy: no upstream found for app — domain registered in DB only")
+      log.warn(
+        { appId, hostname },
+        "caddy: no upstream found for app — domain registered in DB only"
+      )
       return
     }
     await caddyClient.upsertRoute({
@@ -142,19 +150,28 @@ async function tryCaddyAddDomain(
     })
     log.info({ appId, domainId, hostname }, "caddy: domain route registered")
   } catch (err) {
-    log.warn({ appId, domainId, hostname, err }, "caddy: failed to register domain route — continuing")
+    log.warn(
+      { appId, domainId, hostname, err },
+      "caddy: failed to register domain route — continuing"
+    )
   }
 }
 
 /**
  * Attempt to remove a custom hostname route from Caddy. Silently logs on failure.
  */
-async function tryCaddyRemoveDomain(domainId: string, hostname: string): Promise<void> {
+async function tryCaddyRemoveDomain(
+  domainId: string,
+  hostname: string
+): Promise<void> {
   try {
     await caddyClient.removeRoute(`domain-${domainId}`)
     log.info({ domainId, hostname }, "caddy: domain route removed")
   } catch (err) {
-    log.warn({ domainId, hostname, err }, "caddy: failed to remove domain route — DB record deleted anyway")
+    log.warn(
+      { domainId, hostname, err },
+      "caddy: failed to remove domain route — DB record deleted anyway"
+    )
   }
 }
 
@@ -171,7 +188,9 @@ async function tryCaddyRemoveDomain(domainId: string, hostname: string): Promise
  * PKI admin API (`/pki/ca/{id}/certificates`), which is more accurate. That
  * integration is deferred to Wave 4. This heuristic is good enough for MVP.
  */
-async function tryCaddyCheckTls(domainId: string): Promise<"pending" | "issued" | "failed"> {
+async function tryCaddyCheckTls(
+  domainId: string
+): Promise<"pending" | "issued" | "failed"> {
   try {
     await caddyClient.getUpstream(`domain-${domainId}`)
     // If getUpstream returns without throwing, the route exists → consider issued.
@@ -200,7 +219,10 @@ export function createAppsDomainsRouter(db: Db): Hono {
 
     const app = await getAppForUser(db, appId, user.id)
     if (!app) {
-      return c.json({ error: { code: "NOT_FOUND", message: "App not found" } }, 404)
+      return c.json(
+        { error: { code: "NOT_FOUND", message: "App not found" } },
+        404
+      )
     }
 
     const rows = await listDomainsForApp(db, appId)
@@ -218,20 +240,31 @@ export function createAppsDomainsRouter(db: Db): Hono {
 
     const app = await getAppForUser(db, appId, user.id)
     if (!app) {
-      return c.json({ error: { code: "NOT_FOUND", message: "App not found" } }, 404)
+      return c.json(
+        { error: { code: "NOT_FOUND", message: "App not found" } },
+        404
+      )
     }
 
     let body: z.infer<typeof AddDomainBody>
     try {
       body = AddDomainBody.parse(await c.req.json())
     } catch (err) {
-      return c.json({ error: { code: "VALIDATION_ERROR", message: String(err) } }, 400)
+      return c.json(
+        { error: { code: "VALIDATION_ERROR", message: String(err) } },
+        400
+      )
     }
 
     if (body.tls_mode === "dns01" && !body.dns01_provider) {
       return c.json(
-        { error: { code: "VALIDATION_ERROR", message: "dns01_provider is required when tls_mode=dns01" } },
-        400,
+        {
+          error: {
+            code: "VALIDATION_ERROR",
+            message: "dns01_provider is required when tls_mode=dns01",
+          },
+        },
+        400
       )
     }
 
@@ -241,16 +274,24 @@ export function createAppsDomainsRouter(db: Db): Hono {
     const existing = await getDomainByHostname(db, hostname)
     if (existing) {
       return c.json(
-        { error: { code: "CONFLICT", message: "Hostname already in use by another app" } },
-        409,
+        {
+          error: {
+            code: "CONFLICT",
+            message: "Hostname already in use by another app",
+          },
+        },
+        409
       )
     }
 
     const verifyToken = randomBytes(16).toString("hex")
+
     const row = await addDomain(db, appId, hostname, {
       tls_mode: body.tls_mode,
       dns01_provider: body.dns01_provider ?? null,
       verify_token: verifyToken,
+      requested_by_user_id: user.id,
+      verify_source: "api",
     })
 
     // Best-effort Caddy registration — must not block the response.
@@ -259,8 +300,8 @@ export function createAppsDomainsRouter(db: Db): Hono {
     // Enqueue DNS verification job
     await domainVerifyQueue.add(
       "domain.verify",
-      { domainId: row.id, appId },
-      { jobId: `verify-${row.id}-0` },
+      { domainId: row.id },
+      { jobId: `verify-${row.id}-0` }
     )
 
     return c.json({ domain: serializeDomain(row) }, 201)
@@ -277,12 +318,18 @@ export function createAppsDomainsRouter(db: Db): Hono {
 
     const app = await getAppForUser(db, appId, user.id)
     if (!app) {
-      return c.json({ error: { code: "NOT_FOUND", message: "App not found" } }, 404)
+      return c.json(
+        { error: { code: "NOT_FOUND", message: "App not found" } },
+        404
+      )
     }
 
     const domain = await getDomain(db, domainId)
     if (!domain || domain.app_id !== appId) {
-      return c.json({ error: { code: "NOT_FOUND", message: "Domain not found" } }, 404)
+      return c.json(
+        { error: { code: "NOT_FOUND", message: "Domain not found" } },
+        404
+      )
     }
 
     await deleteDomain(db, domainId)
@@ -304,12 +351,18 @@ export function createAppsDomainsRouter(db: Db): Hono {
 
     const app = await getAppForUser(db, appId, user.id)
     if (!app) {
-      return c.json({ error: { code: "NOT_FOUND", message: "App not found" } }, 404)
+      return c.json(
+        { error: { code: "NOT_FOUND", message: "App not found" } },
+        404
+      )
     }
 
     const domain = await getDomain(db, domainId)
     if (!domain || domain.app_id !== appId) {
-      return c.json({ error: { code: "NOT_FOUND", message: "Domain not found" } }, 404)
+      return c.json(
+        { error: { code: "NOT_FOUND", message: "Domain not found" } },
+        404
+      )
     }
 
     const newStatus = await tryCaddyCheckTls(domainId)
@@ -329,19 +382,28 @@ export function createAppsDomainsRouter(db: Db): Hono {
 
     const app = await getAppForUser(db, appId, user.id)
     if (!app) {
-      return c.json({ error: { code: "NOT_FOUND", message: "App not found" } }, 404)
+      return c.json(
+        { error: { code: "NOT_FOUND", message: "App not found" } },
+        404
+      )
     }
 
     const domain = await getDomain(db, domainId)
     if (!domain || domain.app_id !== appId) {
-      return c.json({ error: { code: "NOT_FOUND", message: "Domain not found" } }, 404)
+      return c.json(
+        { error: { code: "NOT_FOUND", message: "Domain not found" } },
+        404
+      )
     }
 
     let body: z.infer<typeof SwitchTlsModeBody>
     try {
       body = SwitchTlsModeBody.parse(await c.req.json())
     } catch (err) {
-      return c.json({ error: { code: "VALIDATION_ERROR", message: String(err) } }, 400)
+      return c.json(
+        { error: { code: "VALIDATION_ERROR", message: String(err) } },
+        400
+      )
     }
 
     if (body.tls_mode === "dns01" && !body.dns01_provider) {
@@ -352,7 +414,7 @@ export function createAppsDomainsRouter(db: Db): Hono {
             message: `no dns01 credentials for ${body.dns01_provider ?? "unknown"} — dns01_provider required`,
           },
         },
-        400,
+        400
       )
     }
 
@@ -363,10 +425,20 @@ export function createAppsDomainsRouter(db: Db): Hono {
 
     // Re-enqueue verification on mode switch
     if (updated) {
+      // Reset the gate for re-verification
+      await db
+        .update(domains)
+        .set({
+          requested_by_user_id: user.id,
+          verify_source: "api",
+          verify_claimed_at: null,
+        })
+        .where(eq(domains.id, domainId))
+
       await domainVerifyQueue.add(
         "domain.verify",
-        { domainId, appId },
-        { jobId: `verify-${domainId}-switch-${Date.now()}` },
+        { domainId },
+        { jobId: `verify-${domainId}-switch-${Date.now()}` }
       )
     }
 
@@ -389,26 +461,44 @@ export function createAppsDomainsRouter(db: Db): Hono {
 
     const app = await getAppForUser(db, appId, user.id)
     if (!app) {
-      return c.json({ error: { code: "NOT_FOUND", message: "App not found" } }, 404)
+      return c.json(
+        { error: { code: "NOT_FOUND", message: "App not found" } },
+        404
+      )
     }
 
     const domain = await getDomainByHostname(db, domainHostname.toLowerCase())
     if (!domain || domain.app_id !== appId) {
-      return c.json({ error: { code: "NOT_FOUND", message: "Domain not found" } }, 404)
+      return c.json(
+        { error: { code: "NOT_FOUND", message: "Domain not found" } },
+        404
+      )
     }
 
     let body: z.infer<typeof UploadCertBody>
     try {
       body = UploadCertBody.parse(await c.req.json())
     } catch (err) {
-      return c.json({ error: { code: "VALIDATION_ERROR", message: String(err) } }, 400)
+      return c.json(
+        { error: { code: "VALIDATION_ERROR", message: String(err) } },
+        400
+      )
     }
 
-    const parseResult = parseAndValidateCert(body.cert, body.key, domainHostname)
+    const parseResult = parseAndValidateCert(
+      body.cert,
+      body.key,
+      domainHostname
+    )
     if (!parseResult.ok) {
       return c.json(
-        { error: { code: "INVALID_CERT", message: parseResult.error ?? "Invalid certificate" } },
-        400,
+        {
+          error: {
+            code: "INVALID_CERT",
+            message: parseResult.error ?? "Invalid certificate",
+          },
+        },
+        400
       )
     }
 
@@ -468,31 +558,46 @@ export function createAppsDomainsRouter(db: Db): Hono {
 
     const app = await getAppForUser(db, appId, user.id)
     if (!app) {
-      return c.json({ error: { code: "NOT_FOUND", message: "App not found" } }, 404)
+      return c.json(
+        { error: { code: "NOT_FOUND", message: "App not found" } },
+        404
+      )
     }
 
     const domain = await getDomainByHostname(db, domainHostname.toLowerCase())
     if (!domain || domain.app_id !== appId) {
-      return c.json({ error: { code: "NOT_FOUND", message: "Domain not found" } }, 404)
+      return c.json(
+        { error: { code: "NOT_FOUND", message: "Domain not found" } },
+        404
+      )
     }
 
-    await db
-      .delete(tls_certificates)
-      .where(
-        eq(tls_certificates.app_id, appId),
-      )
+    await db.delete(tls_certificates).where(eq(tls_certificates.app_id, appId))
 
     // Reset TLS status to pending so ACME can retry
     await updateDomainTlsStatus(db, domain.id, "pending")
 
+    // Reset the gate for re-verification
+    await db
+      .update(domains)
+      .set({
+        requested_by_user_id: user.id,
+        verify_source: "api",
+        verify_claimed_at: null,
+      })
+      .where(eq(domains.id, domain.id))
+
     // Re-enqueue DNS verification to trigger ACME re-issuance
     await domainVerifyQueue.add(
       "domain.verify",
-      { domainId: domain.id, appId },
-      { jobId: `verify-${domain.id}-revert-${Date.now()}` },
+      { domainId: domain.id },
+      { jobId: `verify-${domain.id}-revert-${Date.now()}` }
     )
 
-    log.info({ appId, domain: domainHostname }, "manual TLS cert removed — reverted to ACME")
+    log.info(
+      { appId, domain: domainHostname },
+      "manual TLS cert removed — reverted to ACME"
+    )
 
     return new Response(null, { status: 204 })
   })

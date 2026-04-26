@@ -89,6 +89,7 @@ export async function listAppsForUser(
     branch: string | null
     build_method: string | null
     domain: string | null
+    container_id: string | null
     created_at: Date | null
     updated_at: Date | null
   }[]
@@ -107,6 +108,7 @@ export async function listAppsForUser(
       branch: apps.branch,
       build_method: apps.build_method,
       domain: apps.domain,
+      container_id: apps.container_id,
       created_at: apps.created_at,
       updated_at: apps.updated_at,
     })

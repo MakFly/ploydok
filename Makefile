@@ -1,28 +1,40 @@
-.PHONY: help dev dev-agent db-migrate db-seed infra-up infra-down infra-logs build start test lint typecheck clean secrets-init dod
+.PHONY: help dev dev-agent agent-restart agent-logs db-migrate db-seed infra-up infra-down infra-logs build start test lint typecheck clean secrets-init dod
 
 # Ports locaux :
-#   API 3335 — Web 5173 — Caddy 8180/8543/2020 — Agent unix /tmp/ploydok-agent.sock
+#   API 3335 — Web 5173 — Caddy 8180/8543/2020 — Agent unix /tmp/ploydok/agent.sock
 
 help:
 	@echo "Usage: make <target>"
 	@echo ""
-	@echo "  dev          - Lance web + api via turbo (http://localhost:5173 + :3335)"
-	@echo "  dev-agent    - Lance l'agent Rust (unix socket, insecure)"
-	@echo "  db-migrate   - Applique les migrations Postgres"
-	@echo "  db-seed      - Seed dev (user dev@ploydok.local + backup code DEVD-EVDE-VDEV)"
-	@echo "  secrets-init - Génère PLOYDOK_PG_PASSWORD + PLOYDOK_REDIS_PASSWORD dans .env.local"
-	@echo "  infra-up     - docker compose up (postgres + redis + caddy + buildkitd + registry)"
-	@echo "  infra-down   - cleanup infra"
-	@echo "  infra-logs   - tail logs Caddy"
-	@echo "  dod          - Lance les 11 specs Playwright DoD Sprint 3 (requiert infra + agent + dev up)"
+	@echo "  dev            - Lance web + api via turbo (http://localhost:5173 + :3335)"
+	@echo "  dev-agent      - [debug] Lance l'agent Rust en natif (insecure, /tmp/ploydok/agent.sock)"
+	@echo "                   ⚠ stop le container 'agent' d'abord — collision sur le socket"
+	@echo "  agent-restart  - Redémarre le container 'ploydok-agent' (utile après modif Rust)"
+	@echo "  agent-logs     - Tail logs du container 'ploydok-agent'"
+	@echo "  db-migrate     - Applique les migrations Postgres"
+	@echo "  db-seed        - Seed dev (user dev@ploydok.local + backup code DEVD-EVDE-VDEV)"
+	@echo "  secrets-init   - Génère PLOYDOK_PG_PASSWORD + PLOYDOK_REDIS_PASSWORD dans .env.local"
+	@echo "  infra-up       - docker compose up (postgres + redis + caddy + buildkitd + registry + agent)"
+	@echo "  infra-down     - cleanup infra"
+	@echo "  infra-logs     - tail logs Caddy"
+	@echo "  dod            - Lance les 11 specs Playwright DoD Sprint 3 (requiert infra + dev up)"
 	@echo "  build/start/test/lint/typecheck/clean - délégués à turbo"
 
 dev:
 	bunx turbo dev
 
 dev-agent:
-	@echo "Starting ploydok-agent (insecure, /tmp/ploydok-agent.sock)..."
-	cd agent && PLOYDOK_AGENT_INSECURE=1 PLOYDOK_AGENT_SOCKET=/tmp/ploydok-agent.sock PLOYDOK_VALIDATOR_CONFIG=$(CURDIR)/agent/config/dev-validator.toml cargo run --release -p ploydok-agent
+	@echo "Starting ploydok-agent in native mode (insecure, /tmp/ploydok/agent.sock)..."
+	@echo "⚠  Stop the compose 'agent' service first: docker compose -f infra/docker-compose.yml stop agent"
+	mkdir -p /tmp/ploydok
+	cd agent && PLOYDOK_AGENT_INSECURE=1 PLOYDOK_AGENT_SOCKET=/tmp/ploydok/agent.sock PLOYDOK_VALIDATOR_CONFIG=$(CURDIR)/agent/config/dev-validator.toml cargo run --release -p ploydok-agent
+
+agent-restart:
+	docker compose --env-file apps/api/.env.local -f infra/docker-compose.yml restart agent
+	@echo "agent restarted — tail with: make agent-logs"
+
+agent-logs:
+	docker compose --env-file apps/api/.env.local -f infra/docker-compose.yml logs -f agent
 
 db-migrate:
 	set -a; . apps/api/.env.local; set +a; bun run --cwd packages/db migrate
@@ -100,11 +112,10 @@ clean:
 # Régénère docs/sprints/sprint-3-DoD.md à la fin avec les statuts + mesures.
 dod:
 	@echo "┌─ Pré-requis avant make dod ────────────────────────────────────┐"
-	@echo "│ 1. make infra-up       → postgres/redis/caddy/buildkit/registry│"
-	@echo "│ 2. make dev-agent      → dans un autre shell (daemon Rust)     │"
-	@echo "│ 3. make dev            → dans un autre shell (web + api)       │"
-	@echo "│ 4. make db-seed        → 1× (dev@ploydok.local + backup code)  │"
-	@echo "│ 5. GitHub App installée sur le compte de test                  │"
+	@echo "│ 1. make infra-up       → postgres/redis/caddy/buildkit/registry/agent │"
+	@echo "│ 2. make dev            → dans un autre shell (web + api)       │"
+	@echo "│ 3. make db-seed        → 1× (dev@ploydok.local + backup code)  │"
+	@echo "│ 4. GitHub App installée sur le compte de test                  │"
 	@echo "│    (via /settings/github dans l'UI web)                        │"
 	@echo "└────────────────────────────────────────────────────────────────┘"
 	@echo ""

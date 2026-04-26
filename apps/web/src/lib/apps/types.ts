@@ -122,6 +122,8 @@ export interface AppStatusEventPayload {
 export interface UseAppOptions {
   /** Seed TanStack Query's cache with pre-fetched data (e.g. from a route loader). */
   initialData?: AppDetail
+  /** Subscribe to build/deploy SSE events and patch the app cache. */
+  subscribeToEvents?: boolean
 }
 
 export interface UseBuildsOptions {

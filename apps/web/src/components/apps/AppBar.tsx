@@ -60,29 +60,8 @@ export function AppBar({ app }: { app: AppDetail }): React.JSX.Element {
   const shellDisabled = app.status !== "running"
 
   return (
-    <div className="flex w-full shrink-0 flex-wrap items-center gap-3 px-4 py-3 md:px-8">
-      <Tabs value={activeValue}>
-        <TabsList>
-          {resolvedItems.map((item) =>
-            item.disabled ? (
-              <TabsTrigger
-                key={item.value}
-                value={item.value}
-                disabled
-                title={`Available when the app is running (current: ${app.status})`}
-              >
-                {item.label}
-              </TabsTrigger>
-            ) : (
-              <TabsTrigger key={item.value} value={item.value} asChild>
-                <Link to={item.to as never}>{item.label}</Link>
-              </TabsTrigger>
-            )
-          )}
-        </TabsList>
-      </Tabs>
-
-      <div className="ml-auto flex shrink-0 flex-wrap items-center gap-1.5">
+    <div className="flex w-full shrink-0 flex-col gap-3 px-4 py-3 md:px-8">
+      <div className="flex flex-wrap items-center justify-end gap-1.5">
         <AppHeaderActions app={app} />
         {shellDisabled ? (
           <Button
@@ -105,6 +84,27 @@ export function AppBar({ app }: { app: AppDetail }): React.JSX.Element {
         )}
         <DeleteAppButton app={app} />
       </div>
+
+      <Tabs value={activeValue}>
+        <TabsList>
+          {resolvedItems.map((item) =>
+            item.disabled ? (
+              <TabsTrigger
+                key={item.value}
+                value={item.value}
+                disabled
+                title={`Available when the app is running (current: ${app.status})`}
+              >
+                {item.label}
+              </TabsTrigger>
+            ) : (
+              <TabsTrigger key={item.value} value={item.value} asChild>
+                <Link to={item.to as never}>{item.label}</Link>
+              </TabsTrigger>
+            )
+          )}
+        </TabsList>
+      </Tabs>
     </div>
   )
 }
