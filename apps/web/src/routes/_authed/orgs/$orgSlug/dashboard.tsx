@@ -329,8 +329,8 @@ function ActivityRow({ build }: { build: BuildWithApp }): React.JSX.Element {
       <Link
         to={
           (orgSlug
-            ? organizationPath(orgSlug, `apps/${build.appId}/overview`)
-            : `/apps/${build.appId}/overview`) as never
+            ? organizationPath(orgSlug, `apps/${build.appId}/settings`)
+            : `/apps/${build.appId}/settings`) as never
         }
         className="group -mx-2 flex items-start gap-2.5 rounded-md px-2 py-2 transition-colors hover:bg-accent/40"
       >

@@ -322,3 +322,54 @@ export async function getDefaultOrganizationForUser(
   const row = await ensureDefaultOrganizationForUser(db, userId, displayName)
   return toSummary(row)
 }
+
+export type DeleteOrganizationResult =
+  | { ok: true }
+  | { ok: false; reason: "not_found" | "forbidden" }
+
+/**
+ * Hard-delete a workspace (project) the user owns.
+ *
+ * Authorization: the user must either be the project's `owner_id` or hold an
+ * `owner` membership. Cascade deletes are wired in the schema so apps,
+ * databases, env vars, etc. go with it. Caller is expected to redirect to
+ * another workspace afterwards (or `/dashboard`, which lazily provisions a
+ * default).
+ */
+export async function deleteOrganizationForUser(
+  db: Db,
+  userId: string,
+  slug: string
+): Promise<DeleteOrganizationResult> {
+  const rows = await db
+    .select()
+    .from(projects)
+    .where(eq(projects.slug, slug))
+    .limit(1)
+  const project = rows[0]
+  if (!project) return { ok: false, reason: "not_found" }
+
+  if (project.owner_id !== userId) {
+    let isOwnerMember = false
+    try {
+      const member = await db
+        .select({ role: memberships.role })
+        .from(memberships)
+        .where(
+          and(
+            eq(memberships.org_id, project.id),
+            eq(memberships.user_id, userId),
+            isNotNull(memberships.accepted_at)
+          )
+        )
+        .limit(1)
+      isOwnerMember = member[0]?.role === "owner"
+    } catch {
+      // memberships table missing — owner_id check above already failed.
+    }
+    if (!isOwnerMember) return { ok: false, reason: "forbidden" }
+  }
+
+  await db.delete(projects).where(eq(projects.id, project.id))
+  return { ok: true }
+}

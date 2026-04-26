@@ -77,23 +77,23 @@ describe("resolveTopbarBreadcrumb", () => {
 
   it("builds the app breadcrumb with the dynamic app name", () => {
     expect(
+      resolveTopbarBreadcrumb("/apps/app-123/deployments", "Billing API")
+    ).toEqual([
+      { label: "Workspace" },
+      { label: "Applications", to: "/apps" },
+      { label: "Billing API", to: "/apps/app-123/settings" },
+      { label: "Deployments" },
+    ])
+  })
+
+  it("treats the app general settings as the current page", () => {
+    expect(
       resolveTopbarBreadcrumb("/apps/app-123/settings", "Billing API")
     ).toEqual([
       { label: "Workspace" },
       { label: "Applications", to: "/apps" },
-      { label: "Billing API", to: "/apps/app-123/overview" },
-      { label: "Settings" },
-    ])
-  })
-
-  it("treats the app overview route as the current page", () => {
-    expect(
-      resolveTopbarBreadcrumb("/apps/app-123/overview", "Billing API")
-    ).toEqual([
-      { label: "Workspace" },
-      { label: "Applications", to: "/apps" },
-      { label: "Billing API", to: "/apps/app-123/overview" },
-      { label: "Overview" },
+      { label: "Billing API", to: "/apps/app-123/settings" },
+      { label: "General" },
     ])
   })
 
@@ -204,8 +204,8 @@ describe("resolveTopbarBreadcrumb", () => {
     ).toEqual([
       { label: "Workspace" },
       { label: "Applications", to: "/orgs/acme/apps" },
-      { label: "Billing API", to: "/orgs/acme/apps/app-123/overview" },
-      { label: "Settings" },
+      { label: "Billing API", to: "/orgs/acme/apps/app-123/settings" },
+      { label: "General" },
     ])
   })
 

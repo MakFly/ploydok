@@ -15,8 +15,10 @@ import {
 } from "../../../../../components/layout/AppShell"
 import { AppStatusBadge } from "../../../../../components/apps/AppStatusBadge"
 import {
+  resolveAppHealth,
   resolveRuntimeAppStatus,
   selectAppSnapshot,
+  type AppHealth,
 } from "../../../../../lib/app-runtime"
 import { useApps } from "../../../../../lib/apps"
 import { useGitHubAppConfig } from "../../../../../lib/github"
@@ -38,13 +40,14 @@ function AppsPage(): React.JSX.Element {
   const containers = monitoring?.containers ?? []
   const appsWithRuntimeStatus = React.useMemo(
     () =>
-      apps.map((app) => ({
-        ...app,
-        runtimeStatus: resolveRuntimeAppStatus(
-          app.status,
-          selectAppSnapshot(containers, app.id)
-        ),
-      })),
+      apps.map((app) => {
+        const snapshot = selectAppSnapshot(containers, app.id)
+        return {
+          ...app,
+          runtimeStatus: resolveRuntimeAppStatus(app.status, snapshot),
+          runtimeHealth: resolveAppHealth(snapshot),
+        }
+      }),
     [apps, containers]
   )
 
@@ -109,15 +112,18 @@ function AppCard({
   app,
   currentOrgSlug,
 }: {
-  app: AppListItem & { runtimeStatus: AppListItem["status"] }
+  app: AppListItem & {
+    runtimeStatus: AppListItem["status"]
+    runtimeHealth: AppHealth | null
+  }
   currentOrgSlug: string | null
 }): React.JSX.Element {
   return (
     <Link
       to={
         (currentOrgSlug
-          ? organizationPath(currentOrgSlug, `apps/${app.id}/overview`)
-          : `/apps/${app.id}/overview`) as never
+          ? organizationPath(currentOrgSlug, `apps/${app.id}/settings`)
+          : `/apps/${app.id}/settings`) as never
       }
       className="group rounded-lg border border-border bg-card p-4 transition-colors hover:border-foreground/20 hover:bg-accent/30"
     >
@@ -130,7 +136,7 @@ function AppCard({
             {app.repoFullName ?? "Repository pending"}
           </p>
         </div>
-        <AppStatusBadge status={app.runtimeStatus} />
+        <AppStatusBadge status={app.runtimeStatus} health={app.runtimeHealth} />
       </div>
 
       <div className="mt-4 grid gap-2 text-xs text-muted-foreground">

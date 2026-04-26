@@ -52,15 +52,15 @@ describe("matchesQuery", () => {
 
 describe("navigation path construction", () => {
   function buildAppPath(appId: string): string {
-    return `/apps/${appId}/overview`
+    return `/apps/${appId}/settings`
   }
 
   function buildLogsPath(appId: string): string {
     return `/apps/${appId}/logs`
   }
 
-  it("constructs correct overview path for an app", () => {
-    expect(buildAppPath("abc123")).toBe("/apps/abc123/overview")
+  it("constructs correct landing path for an app", () => {
+    expect(buildAppPath("abc123")).toBe("/apps/abc123/settings")
   })
 
   it("constructs correct logs path for an app", () => {
@@ -69,7 +69,7 @@ describe("navigation path construction", () => {
 
   it("handles UUID-style ids", () => {
     const id = "f47ac10b-58cc-4372-a567-0e02b2c3d479"
-    expect(buildAppPath(id)).toBe(`/apps/${id}/overview`)
+    expect(buildAppPath(id)).toBe(`/apps/${id}/settings`)
   })
 })
 
