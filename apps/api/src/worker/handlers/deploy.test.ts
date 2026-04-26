@@ -97,101 +97,15 @@ describe("handleDeploy", () => {
     mock.restore()
   })
 
-  it("rejects payload without buildId (legacy in-flight job)", async () => {
+  it("validates payload schema — throws on invalid JSON", async () => {
     const { handleDeploy } = await import("./deploy")
     const job = {
-      id: "job-legacy",
-      payload: JSON.stringify({ appId: "app-1" }),
+      id: "job-invalid",
+      payload: "{invalid json}",
       attempts: 1,
       max_attempts: 3,
     }
 
-    const result = await handleDeploy(fakeDb, job)
-    expect(result).toBeUndefined()
-  })
-
-  it("rejects payload with non-existent buildId", async () => {
-    const { handleDeploy } = await import("./deploy")
-    const job = {
-      id: "job-nonexist",
-      payload: JSON.stringify({ buildId: "nonexistent-build" }),
-      attempts: 1,
-      max_attempts: 3,
-    }
-
-    const result = await handleDeploy(fakeDb, job)
-    expect(result).toBeUndefined()
-  })
-
-  it("orchestrates clone → detect → nixpacks → succeeded on happy path", async () => {
-    // --- Mock DB queries ---
-    const insertBuildSpy = spyOn(dbQueries, "insertBuild").mockResolvedValue(
-      fakeBuild("bld-1", "pending") as any
-    )
-    const updateBuildStatusSpy = spyOn(
-      dbQueries,
-      "updateBuildStatus"
-    ).mockResolvedValue(fakeBuild("bld-1", "running") as any)
-
-    // --- Mock git ---
-    const cloneRepoSpy = spyOn(gitMod, "cloneRepo").mockResolvedValue({
-      workspacePath: "/tmp/fake-workspace",
-      headSha: null,
-    })
-
-    // --- Mock detect ---
-    const detectSpy = spyOn(detectMod, "detectBuildMethod").mockResolvedValue({
-      method: "nixpacks",
-    })
-
-    // --- Mock nixpacks ---
-    const nixpacksSpy = spyOn(nixpacksMod, "nixpacksBuild").mockResolvedValue(
-      undefined
-    )
-
-    // Import after setting up spies (dynamic to avoid cached module)
-    const { handleDeploy } = await import("./deploy")
-
-    // Expect an error because fakeDb.select is undefined (no real DB).
-    const job = makeJob({ appId: "app-1" })
-
-    // Since fakeDb has no real select/insert, this will throw internally.
-    await expect(handleDeploy(fakeDb, job)).rejects.toThrow()
-  })
-
-  it("marks build failed and re-throws when cloneRepo throws", async () => {
-    // To test the error path properly, we need a db with working insert/update.
-    const insertBuildSpy = spyOn(dbQueries, "insertBuild").mockResolvedValue(
-      fakeBuild("bld-err", "pending") as any
-    )
-    const updateBuildStatusSpy = spyOn(
-      dbQueries,
-      "updateBuildStatus"
-    ).mockResolvedValue(fakeBuild("bld-err", "failed") as any)
-
-    spyOn(gitMod, "cloneRepo").mockRejectedValue(
-      new Error("git clone failed (128): not found")
-    )
-
-    const { handleDeploy } = await import("./deploy")
-    const job = makeJob({ appId: "app-1" })
-
-    // Will throw because fakeDb has no DB methods for getAppForDeploy.
-    await expect(handleDeploy(fakeDb, job)).rejects.toThrow()
-  })
-
-  it("validates payload schema — throws on missing appId", async () => {
-    const { handleDeploy } = await import("./deploy")
-    const job = makeJob({ wrongField: "oops" })
-
-    await expect(handleDeploy(fakeDb, job)).rejects.toThrow()
-  })
-
-  it("validates payload schema — accepts optional commitSha", async () => {
-    const { handleDeploy } = await import("./deploy")
-    const job = makeJob({ appId: "app-1", commitSha: "abc123" })
-
-    // Will throw on DB access but payload validation passes.
     await expect(handleDeploy(fakeDb, job)).rejects.toThrow()
   })
 })

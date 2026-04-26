@@ -6,6 +6,9 @@ export const provider_credentials = pgTable("provider_credentials", {
   id: text("id").primaryKey(),
   provider: text("provider").notNull(),
   credential_type: text("credential_type").notNull(),
+  last_sync_status: text("last_sync_status", {
+    enum: ["pending", "running", "completed", "failed"],
+  }).default("pending"),
   last_sync_actor_user_id: text("last_sync_actor_user_id").references(
     () => users.id
   ),
