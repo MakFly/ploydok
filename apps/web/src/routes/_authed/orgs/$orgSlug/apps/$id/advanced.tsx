@@ -80,7 +80,7 @@ function AdvancedSettingsPage() {
 
   if (isLoading) {
     return (
-      <div className="space-y-6">
+      <div className="w-full space-y-6 px-4 py-6 md:px-8 md:py-8">
         <div className="space-y-2">
           <Skeleton className="h-6 w-56" />
           <Skeleton className="h-4 w-full max-w-xl" />
@@ -102,7 +102,7 @@ function AdvancedSettingsPage() {
   const isValid = validationError === null
 
   return (
-    <div className="space-y-6">
+    <div className="w-full space-y-6 px-4 py-6 md:px-8 md:py-8">
       <div>
         <h2 className="mb-2 text-lg font-semibold">Caddy Extra Handlers</h2>
         <p className="mb-4 text-sm text-muted-foreground">
