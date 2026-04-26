@@ -8,7 +8,10 @@ import {
   createFileRoute,
 } from "@tanstack/react-router"
 import { Tabs, TabsList, TabsTrigger } from "@workspace/ui/components/tabs"
-import { organizationPath, useCurrentOrganizationSlug } from "../../../../../../lib/organizations"
+import {
+  organizationPath,
+  useCurrentOrganizationSlug,
+} from "../../../../../../lib/organizations"
 
 function AppSettingsLayout(): React.JSX.Element {
   const { id } = useParams({ strict: false }) as { id: string }
@@ -24,14 +27,18 @@ function AppSettingsLayout(): React.JSX.Element {
 
   const tabs = [
     { value: "general", to: buildPath(""), label: "General", exact: true },
-    { value: "webhooks", to: buildPath("/webhooks"), label: "Webhooks", exact: false },
-
-    { value: "protection", to: buildPath("/protection"), label: "Protection", exact: false },
+    { value: "cdn", to: buildPath("/cdn"), label: "CDN", exact: false },
+    {
+      value: "protection",
+      to: buildPath("/protection"),
+      label: "Protection",
+      exact: false,
+    },
   ]
 
   const activeTab =
     tabs.find(({ to, exact }) =>
-      exact ? pathname === to || pathname === `${to}/` : pathname.startsWith(to),
+      exact ? pathname === to || pathname === `${to}/` : pathname.startsWith(to)
     )?.value ?? "general"
 
   return (
@@ -53,6 +60,8 @@ function AppSettingsLayout(): React.JSX.Element {
   )
 }
 
-export const Route = createFileRoute("/_authed/orgs/$orgSlug/apps/$id/settings")({
+export const Route = createFileRoute(
+  "/_authed/orgs/$orgSlug/apps/$id/settings"
+)({
   component: AppSettingsLayout,
 })

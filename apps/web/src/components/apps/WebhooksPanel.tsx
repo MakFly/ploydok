@@ -1,6 +1,5 @@
 // SPDX-License-Identifier: AGPL-3.0-only
 import * as React from "react"
-import { createFileRoute, useParams } from "@tanstack/react-router"
 import {
   RiGitBranchLine,
   RiInboxArchiveLine,
@@ -25,14 +24,12 @@ import {
 } from "@workspace/ui/components/card"
 import { Separator } from "@workspace/ui/components/separator"
 import { Skeleton } from "@workspace/ui/components/skeleton"
-import { RotateSecretDialog } from "../../../../../../../components/webhooks/RotateSecretDialog"
-import { WebhookDeliveriesTable } from "../../../../../../../components/webhooks/WebhookDeliveriesTable"
-import { useApp } from "../../../../../../../lib/apps"
+import { RotateSecretDialog } from "../webhooks/RotateSecretDialog"
+import { WebhookDeliveriesTable } from "../webhooks/WebhookDeliveriesTable"
+import { useApp } from "../../lib/apps"
 
-function WebhooksTab(): React.JSX.Element {
-  // eslint-disable-next-line @typescript-eslint/no-unnecessary-type-assertion
-  const { id } = useParams({ strict: false }) as { id: string }
-  const { data: app, isLoading } = useApp(id)
+export function WebhooksPanel({ appId }: { appId: string }): React.JSX.Element {
+  const { data: app, isLoading } = useApp(appId)
   const [dialogOpen, setDialogOpen] = React.useState(false)
   const [rotated, setRotated] = React.useState(false)
 
@@ -64,7 +61,7 @@ function WebhooksTab(): React.JSX.Element {
         </CardHeader>
 
         <CardContent className="py-5">
-          <WebhookDeliveriesTable appId={id} />
+          <WebhookDeliveriesTable appId={appId} />
         </CardContent>
       </Card>
 
@@ -110,8 +107,7 @@ function WebhooksTab(): React.JSX.Element {
           <AlertTitle>Operator hint</AlertTitle>
           <AlertDescription>
             If deliveries are missing, verify the provider secret first, then
-            the tracked branch, then the auto-deploy switches from the General
-            section.
+            the tracked branch, then the auto-deploy switches above.
           </AlertDescription>
         </Alert>
       </div>
@@ -130,9 +126,9 @@ function WebhooksTab(): React.JSX.Element {
             Signing secret
           </CardTitle>
           <CardDescription className="max-w-2xl text-sm leading-6">
-            Protect inbound webhook deliveries with a shared secret. Rotation
-            is guarded by TOTP — the old secret stays valid 24 h so you can
-            update the provider without interruption.
+            Protect inbound webhook deliveries with a shared secret. Rotation is
+            guarded by TOTP — the old secret stays valid 24 h so you can update
+            the provider without interruption.
           </CardDescription>
         </CardHeader>
 
@@ -157,8 +153,8 @@ function WebhooksTab(): React.JSX.Element {
             <RiShieldCheckLine />
             <AlertTitle>Grace period after rotation</AlertTitle>
             <AlertDescription>
-              The old secret remains valid for 24 hours, which prevents
-              downtime while provider settings are being updated.
+              The old secret remains valid for 24 hours, which prevents downtime
+              while provider settings are being updated.
             </AlertDescription>
           </Alert>
 
@@ -173,7 +169,7 @@ function WebhooksTab(): React.JSX.Element {
       <RotateSecretDialog
         open={dialogOpen}
         onOpenChange={setDialogOpen}
-        appId={id}
+        appId={appId}
         onRotated={handleRotated}
       />
     </div>
@@ -201,7 +197,3 @@ function InsightItem({
     </div>
   )
 }
-
-export const Route = createFileRoute("/_authed/orgs/$orgSlug/apps/$id/settings/webhooks")({
-  component: WebhooksTab,
-})

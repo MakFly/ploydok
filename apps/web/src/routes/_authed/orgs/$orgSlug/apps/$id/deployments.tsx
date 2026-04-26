@@ -9,6 +9,9 @@ import {
 } from "@tanstack/react-router"
 import { DeploymentsTable } from "../../../../../../components/apps/DeploymentsTable"
 import { BuildLogDrawer } from "../../../../../../components/apps/BuildLogDrawer"
+import { DeploymentTriggers } from "../../../../../../components/apps/DeploymentTriggers"
+import { WebhooksPanel } from "../../../../../../components/apps/WebhooksPanel"
+import { Separator } from "@workspace/ui/components/separator"
 import { useApp, useBuilds } from "../../../../../../lib/apps"
 import {
   useRollbackApp,
@@ -102,6 +105,30 @@ function AppDeploymentsTab(): React.JSX.Element {
         appName={app?.name}
         onClose={handleCloseDrawer}
       />
+
+      <Separator />
+
+      <section className="flex flex-col gap-3">
+        <header>
+          <h2 className="text-base font-semibold text-foreground">Triggers</h2>
+          <p className="text-xs text-muted-foreground">
+            How a push or a webhook becomes a deploy.
+          </p>
+        </header>
+        <DeploymentTriggers appId={id} />
+      </section>
+
+      <Separator />
+
+      <section className="flex flex-col gap-3">
+        <header>
+          <h2 className="text-base font-semibold text-foreground">Webhooks</h2>
+          <p className="text-xs text-muted-foreground">
+            Inbound provider deliveries and signing secret.
+          </p>
+        </header>
+        <WebhooksPanel appId={id} />
+      </section>
     </div>
   )
 }
