@@ -71,6 +71,7 @@ import {
   CommandPaletteProvider,
   useCommandPaletteContext,
 } from "../../lib/hooks/command-palette-context"
+import { useUnseenRelease } from "../../lib/hooks/use-unseen-release"
 import { useTheme } from "../theme/ThemeToggle"
 import { CommandBar } from "./CommandBar"
 import { CommandPaletteRoot } from "./CommandPalette"
@@ -440,7 +441,11 @@ export function AppShell({
     setOpen: setSidebarOpen,
     toggle: toggleSidebar,
   } = useSidebarState()
-  const [updateOpen, setUpdateOpen] = React.useState(true)
+  const {
+    unseen: unseenRelease,
+    markSeen: markReleaseSeen,
+    version,
+  } = useUnseenRelease()
   const [profileOpen, setProfileOpen] = React.useState(false)
   const [workspaceSelectOpen, setWorkspaceSelectOpen] = React.useState(false)
   const [openWorkspaceSelectOnExpand, setOpenWorkspaceSelectOnExpand] =
@@ -819,46 +824,38 @@ export function AppShell({
 
               {/* Footer */}
               <div className="flex flex-col p-2">
-                {updateOpen ? (
-                  <div className="relative mb-2 min-h-27 rounded-[10px] border border-border bg-card group-data-[sidebar-state=collapsed]/shell:hidden">
-                    <div className="relative flex size-full flex-col gap-1 overflow-hidden p-3">
-                      <span className="font-mono text-[10px] font-light text-muted-foreground">
-                        UPDATE
-                      </span>
-                      <p className="text-xs font-medium">What&apos;s new</p>
-                      <span className="text-[10px] text-muted-foreground">
-                        Latest fixes and new features.
-                      </span>
-                      <Link
-                        to="/guide"
-                        className="mt-1 inline-flex h-7 w-fit items-center rounded-md border border-border px-2 text-xs font-medium outline-none hover:bg-muted"
-                      >
-                        Learn more
-                      </Link>
-                      <button
-                        type="button"
-                        onClick={() => setUpdateOpen(false)}
-                        className="absolute top-2 right-2 flex size-6 items-center justify-center rounded-full text-muted-foreground outline-none hover:bg-muted"
-                        aria-label="Dismiss update"
-                      >
-                        <RiCloseLine className="size-3.5" />
-                      </button>
-                    </div>
-                  </div>
-                ) : null}
-
                 <ul className="flex w-full min-w-0 flex-col group-data-[sidebar-state=collapsed]/shell:hidden">
                   {accountNavItems.map((item) => {
                     const Icon = item.icon
                     if (!item.to) return null
+                    const showReleaseDot =
+                      item.label === "Guide" && unseenRelease
                     return (
                       <li key={item.label} className="relative">
                         <Link
                           to={item.to}
+                          onClick={showReleaseDot ? markReleaseSeen : undefined}
+                          title={
+                            showReleaseDot
+                              ? `New in v${version} — click to mark as seen`
+                              : item.label
+                          }
                           className="flex h-7 w-full items-center gap-2 overflow-hidden rounded-md px-[11px] text-xs font-medium text-muted-foreground transition-colors outline-none hover:bg-sidebar-accent/60"
                         >
                           <Icon className="size-3.5 shrink-0" />
                           <span className="truncate">{item.label}</span>
+                          {showReleaseDot ? (
+                            <span
+                              aria-label={`New release v${version}`}
+                              className="ml-auto inline-flex items-center gap-1 rounded-full bg-primary/10 px-1.5 py-0.5 text-[10px] font-semibold tracking-wide text-primary uppercase"
+                            >
+                              <span
+                                aria-hidden="true"
+                                className="inline-block size-1.5 rounded-full bg-primary"
+                              />
+                              New
+                            </span>
+                          ) : null}
                         </Link>
                       </li>
                     )
