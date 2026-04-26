@@ -12,10 +12,10 @@ import { Skeleton } from "@workspace/ui/components/skeleton"
 import {
   useAppCaddyExtra,
   useUpdateAppCaddyExtra,
-} from "../../../../../../../lib/apps"
+} from "../../../../../../lib/apps"
 
 export const Route = createFileRoute(
-  "/_authed/orgs/$orgSlug/apps/$id/settings/advanced"
+  "/_authed/orgs/$orgSlug/apps/$id/advanced"
 )({
   component: AdvancedSettingsPage,
 })

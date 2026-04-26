@@ -230,15 +230,15 @@ export function resolveTopbarBreadcrumb(
 
     items.push({
       label: appName ?? appId,
-      to: ws(`/apps/${appId}/overview`),
+      to: ws(`/apps/${appId}/settings`),
     })
 
     const appTabLabels: Record<string, string> = {
-      overview: "Overview",
       deployments: "Deployments",
       logs: "Logs",
       shell: "Shell",
-      settings: "Settings",
+      settings: "General",
+      advanced: "Advanced",
       env: "Env",
       domains: "Domains",
     }

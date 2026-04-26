@@ -25,20 +25,20 @@ export interface ShortcutResult {
 // ---------------------------------------------------------------------------
 
 export type TabSegment =
-  | "overview"
   | "deployments"
   | "logs"
   | "shell"
   | "settings"
+  | "advanced"
   | "env"
   | "domains"
 
 export const SHORTCUT_MAP: Partial<Record<string, TabSegment>> = {
-  o: "overview",
   d: "deployments",
   l: "logs",
   x: "shell",
   s: "settings",
+  a: "advanced",
   e: "env",
   n: "domains",
 }
@@ -110,7 +110,7 @@ function navigateToTab(
   router: AnyRouter,
   appId: string,
   tab: TabSegment,
-  orgSlug: string | null,
+  orgSlug: string | null
 ): void {
   const base = orgSlug ? `/orgs/${orgSlug}/apps/${appId}` : `/apps/${appId}`
   void router.navigate({ href: `${base}/${tab}` })
@@ -145,7 +145,10 @@ function isFocusIgnored(): boolean {
  * Must be mounted inside a component that has access to the router (i.e. inside
  * a TanStack Router route or layout).
  */
-export function useTabShortcuts(appId: string, orgSlug: string | null = null): void {
+export function useTabShortcuts(
+  appId: string,
+  orgSlug: string | null = null
+): void {
   const router = useRouter()
   const stateRef = React.useRef<ShortcutState>({ phase: "idle" })
   const timerRef = React.useRef<ReturnType<typeof setTimeout> | null>(null)
@@ -160,15 +163,17 @@ export function useTabShortcuts(appId: string, orgSlug: string | null = null): v
   const scheduleReset = React.useCallback(() => {
     clearTimer()
     timerRef.current = setTimeout(() => {
-      const result = nextState(stateRef.current, { type: "tick", now: Date.now() })
+      const result = nextState(stateRef.current, {
+        type: "tick",
+        now: Date.now(),
+      })
       stateRef.current = result.state
     }, TIMEOUT_MS)
   }, [clearTimer])
 
   React.useEffect(() => {
     function handleKeyDown(event: KeyboardEvent): void {
-      const modKey =
-        event.ctrlKey || event.metaKey || event.altKey
+      const modKey = event.ctrlKey || event.metaKey || event.altKey
 
       const action: ShortcutAction = {
         type: "key",
@@ -201,4 +206,3 @@ export function useTabShortcuts(appId: string, orgSlug: string | null = null): v
     }
   }, [appId, orgSlug, router, clearTimer, scheduleReset])
 }
-
