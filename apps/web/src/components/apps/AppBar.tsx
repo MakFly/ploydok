@@ -22,13 +22,13 @@ interface NavItem {
 }
 
 const NAV_ITEMS: Array<NavItem> = [
-  { value: "overview", label: "Overview", segment: "overview" },
-  { value: "deployments", label: "Deployments", segment: "deployments" },
-  { value: "logs", label: "Logs", segment: "logs", requiresRunning: true },
-  { value: "previews", label: "Previews", segment: "previews" },
-  { value: "settings", label: "Settings", segment: "settings" },
+  { value: "settings", label: "General", segment: "settings" },
   { value: "env", label: "Env", segment: "env" },
   { value: "domains", label: "Domains", segment: "domains" },
+  { value: "deployments", label: "Deployments", segment: "deployments" },
+  { value: "previews", label: "Previews", segment: "previews" },
+  { value: "logs", label: "Logs", segment: "logs", requiresRunning: true },
+  { value: "advanced", label: "Advanced", segment: "advanced" },
 ]
 
 export function AppBar({ app }: { app: AppDetail }): React.JSX.Element {
@@ -52,7 +52,7 @@ export function AppBar({ app }: { app: AppDetail }): React.JSX.Element {
   const activeValue =
     resolvedItems.find(
       ({ to }) => pathname === to || pathname.startsWith(`${to}/`)
-    )?.value ?? "overview"
+    )?.value ?? "settings"
 
   const shellHref = currentOrgSlug
     ? organizationPath(currentOrgSlug, `apps/${app.id}/shell`)

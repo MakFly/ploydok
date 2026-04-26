@@ -4,8 +4,16 @@
  * No DOM, no React, no router needed.
  */
 import { describe, expect, it } from "bun:test"
-import { SHORTCUT_MAP, TIMEOUT_MS, nextState } from "../../../lib/hooks/use-tab-shortcuts"
-import type { ShortcutAction, ShortcutState, TabSegment } from "../../../lib/hooks/use-tab-shortcuts"
+import {
+  SHORTCUT_MAP,
+  TIMEOUT_MS,
+  nextState,
+} from "../../../lib/hooks/use-tab-shortcuts"
+import type {
+  ShortcutAction,
+  ShortcutState,
+  TabSegment,
+} from "../../../lib/hooks/use-tab-shortcuts"
 
 // ---------------------------------------------------------------------------
 // Helpers
@@ -16,7 +24,7 @@ const T0 = 1_000_000 // arbitrary stable timestamp
 
 function keyAction(
   key: string,
-  opts: { modKey?: boolean; ignored?: boolean; now?: number } = {},
+  opts: { modKey?: boolean; ignored?: boolean; now?: number } = {}
 ): ShortcutAction {
   return {
     type: "key",
@@ -111,11 +119,11 @@ describe("awaiting phase — navigation", () => {
 
   it("all SHORTCUT_MAP values are valid TabSegments", () => {
     const validSegments: ReadonlyArray<TabSegment> = [
-      "overview",
       "deployments",
       "logs",
       "shell",
       "settings",
+      "advanced",
       "env",
       "domains",
     ]
@@ -139,13 +147,19 @@ describe("awaiting phase — cancellation", () => {
   })
 
   it("pressing modifier key cancels", () => {
-    const result = nextState(awaiting(T0), keyAction("o", { modKey: true, now: T0 + 300 }))
+    const result = nextState(
+      awaiting(T0),
+      keyAction("o", { modKey: true, now: T0 + 300 })
+    )
     expect(result.state).toEqual({ phase: "idle" })
     expect(result.navigateTo).toBeUndefined()
   })
 
   it("ignored event (input focused) is no-op — stays in awaiting", () => {
-    const result = nextState(awaiting(T0), keyAction("o", { ignored: true, now: T0 + 300 }))
+    const result = nextState(
+      awaiting(T0),
+      keyAction("o", { ignored: true, now: T0 + 300 })
+    )
     expect(result.state).toEqual({ phase: "awaiting", startedAt: T0 })
     expect(result.navigateTo).toBeUndefined()
   })
@@ -167,7 +181,10 @@ describe("timeout behaviour", () => {
   })
 
   it("key received after timeout resets to idle (no navigation)", () => {
-    const result = nextState(awaiting(T0), keyAction("o", { now: T0 + TIMEOUT_MS + 1 }))
+    const result = nextState(
+      awaiting(T0),
+      keyAction("o", { now: T0 + TIMEOUT_MS + 1 })
+    )
     expect(result.state).toEqual({ phase: "idle" })
     expect(result.navigateTo).toBeUndefined()
   })
@@ -183,14 +200,14 @@ describe("timeout behaviour", () => {
 // Sequence: g → o workflow
 // ---------------------------------------------------------------------------
 
-describe("full g+o sequence", () => {
-  it("g then o produces a navigate to overview", () => {
+describe("full g+a sequence", () => {
+  it("g then a produces a navigate to advanced", () => {
     const afterG = nextState(idle, keyAction("g", { now: T0 }))
     expect(afterG.state.phase).toBe("awaiting")
 
-    const afterO = nextState(afterG.state, keyAction("o", { now: T0 + 200 }))
-    expect(afterO.state.phase).toBe("idle")
-    expect(afterO.navigateTo).toBe("overview")
+    const afterA = nextState(afterG.state, keyAction("a", { now: T0 + 200 }))
+    expect(afterA.state.phase).toBe("idle")
+    expect(afterA.navigateTo).toBe("advanced")
   })
 
   it("g then unknown key cancels, second g+s succeeds", () => {

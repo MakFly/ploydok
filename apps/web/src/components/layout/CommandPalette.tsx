@@ -321,9 +321,9 @@ function CommandPaletteContent({
                   currentOrgSlug
                     ? organizationPath(
                         currentOrgSlug,
-                        `apps/${app.id}/overview`
+                        `apps/${app.id}/settings`
                       )
-                    : "/apps/$id/overview",
+                    : "/apps/$id/settings",
                   currentOrgSlug ? undefined : { id: app.id }
                 )
               }
