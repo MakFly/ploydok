@@ -1,7 +1,10 @@
 // SPDX-License-Identifier: AGPL-3.0-only
 import * as React from "react"
 import { Link, useRouterState } from "@tanstack/react-router"
+import { Button } from "@workspace/ui/components/button"
+import { RiTerminalBoxLine } from "@remixicon/react"
 import { Tabs, TabsList, TabsTrigger } from "@workspace/ui/components/tabs"
+import { AppHeaderActions } from "./AppHeaderActions"
 import { DeleteAppButton } from "./DeleteAppButton"
 import { useTabShortcuts } from "../../lib/hooks/use-tab-shortcuts"
 import type { AppDetail } from "../../lib/apps"
@@ -22,7 +25,7 @@ const NAV_ITEMS: Array<NavItem> = [
   { value: "overview", label: "Overview", segment: "overview" },
   { value: "deployments", label: "Deployments", segment: "deployments" },
   { value: "logs", label: "Logs", segment: "logs", requiresRunning: true },
-  { value: "shell", label: "Shell", segment: "shell" },
+  { value: "previews", label: "Previews", segment: "previews" },
   { value: "settings", label: "Settings", segment: "settings" },
   { value: "env", label: "Env", segment: "env" },
   { value: "domains", label: "Domains", segment: "domains" },
@@ -51,6 +54,11 @@ export function AppBar({ app }: { app: AppDetail }): React.JSX.Element {
       ({ to }) => pathname === to || pathname.startsWith(`${to}/`)
     )?.value ?? "overview"
 
+  const shellHref = currentOrgSlug
+    ? organizationPath(currentOrgSlug, `apps/${app.id}/shell`)
+    : `/apps/${app.id}/shell`
+  const shellDisabled = app.status !== "running"
+
   return (
     <div className="flex w-full shrink-0 flex-wrap items-center gap-3 px-4 py-3 md:px-8">
       <Tabs value={activeValue}>
@@ -74,7 +82,27 @@ export function AppBar({ app }: { app: AppDetail }): React.JSX.Element {
         </TabsList>
       </Tabs>
 
-      <div className="ml-auto flex shrink-0 items-center gap-1.5">
+      <div className="ml-auto flex shrink-0 flex-wrap items-center gap-1.5">
+        <AppHeaderActions app={app} />
+        {shellDisabled ? (
+          <Button
+            size="sm"
+            variant="ghost"
+            disabled
+            className="gap-1.5"
+            title={`Available when the app is running (current: ${app.status})`}
+          >
+            <RiTerminalBoxLine className="size-4" aria-hidden="true" />
+            Shell
+          </Button>
+        ) : (
+          <Button size="sm" variant="ghost" asChild className="gap-1.5">
+            <Link to={shellHref as never}>
+              <RiTerminalBoxLine className="size-4" aria-hidden="true" />
+              Shell
+            </Link>
+          </Button>
+        )}
         <DeleteAppButton app={app} />
       </div>
     </div>
