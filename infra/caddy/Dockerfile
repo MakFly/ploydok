@@ -2,8 +2,8 @@
 # Required for wildcard TLS certificates via DNS challenge.
 # To rebuild after changing modules: make infra-down && make infra-up
 #
-# Pinned to Caddy 2.10 to pull Go 1.25+ (required by caddy-dns/route53 >= v1.6).
-FROM caddy:2.10-builder AS builder
+# Pinned to Caddy 2.11 because caddy-l4 v0.1.x requires Caddy >= 2.11.1.
+FROM caddy:2.11-builder AS builder
 
 RUN xcaddy build \
   --with github.com/mholt/caddy-l4 \
@@ -16,5 +16,5 @@ RUN xcaddy build \
   --with github.com/caddy-dns/ovh \
   --with github.com/caddy-dns/digitalocean
 
-FROM caddy:2.10-alpine
+FROM caddy:2.11-alpine
 COPY --from=builder /usr/bin/caddy /usr/bin/caddy
