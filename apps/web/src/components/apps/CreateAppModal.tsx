@@ -21,6 +21,7 @@ import {
   SelectValue,
 } from "@workspace/ui/components/select"
 import { cn } from "@workspace/ui/lib/utils"
+import { PLANS } from "@ploydok/shared"
 import { useCreateApp } from "../../lib/apps"
 import { apiFetch } from "../../lib/api"
 import {
@@ -28,7 +29,6 @@ import {
   useDatabases,
   useLinkDatabase,
 } from "../../lib/databases"
-import type { Database, DbKind, DbPlan } from "../../lib/databases"
 import { useGitHubBranches } from "../../lib/github"
 import { useGitLabBranches } from "../../lib/gitlab"
 import {
@@ -40,8 +40,8 @@ import { useRegistryCredentials } from "../../lib/registry-credentials"
 import { RepoSelector } from "./RepoSelector"
 import { GitLabRepoSelector } from "./GitLabRepoSelector"
 import { PlanSelector  } from "./PlanSelector"
+import type { Database, DbKind, DbPlan } from "../../lib/databases"
 import type {PlanSelectorValue} from "./PlanSelector";
-import { PLANS } from "@ploydok/shared"
 import type { AppConfig,
   BuildMethod,
   GitBranch,
@@ -1690,7 +1690,7 @@ function readCreatedAppId(created: unknown): string | null {
   }
   const maybeApp =
     created && typeof created === "object" && "app" in created
-      ? (created.app as unknown)
+      ? (created.app)
       : null
   if (
     maybeApp &&
