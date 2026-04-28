@@ -135,6 +135,9 @@ export async function runVolumeBackupOnce(
       )
       await archive.completed
       sizeBytes = stored.sizeBytes
+      if (sizeBytes === 0 && !location.startsWith("s3://")) {
+        sizeBytes = (await stat(location).catch(() => null))?.size ?? 0
+      }
     } catch (err) {
       archive.abort()
       throw err

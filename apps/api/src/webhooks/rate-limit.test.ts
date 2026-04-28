@@ -1,13 +1,69 @@
 // SPDX-License-Identifier: AGPL-3.0-only
 import { describe, it, expect, beforeEach, afterAll } from "bun:test"
 import { Hono } from "hono"
-import { createRedis } from "@ploydok/db"
-import { env } from "../env"
 import { createRateLimiter, checkRateLimit } from "./rate-limit"
 
-const REDIS_URL = Bun.env["PLOYDOK_TEST_REDIS_URL"] ?? env.REDIS_URL
+class MemoryRedis {
+  private readonly sets = new Map<string, Map<string, number>>()
 
-const redis = createRedis(REDIS_URL)
+  async keys(pattern: string): Promise<Array<string>> {
+    const prefix = pattern.endsWith("*") ? pattern.slice(0, -1) : pattern
+    return Array.from(this.sets.keys()).filter((key) => key.startsWith(prefix))
+  }
+
+  async del(...keys: Array<string>): Promise<number> {
+    let deleted = 0
+    for (const key of keys) {
+      if (this.sets.delete(key)) deleted += 1
+    }
+    return deleted
+  }
+
+  async zremrangebyscore(
+    key: string,
+    min: number,
+    max: number
+  ): Promise<number> {
+    const set = this.sets.get(key)
+    if (!set) return 0
+    let removed = 0
+    for (const [member, score] of set) {
+      if (score >= min && score <= max) {
+        set.delete(member)
+        removed += 1
+      }
+    }
+    return removed
+  }
+
+  async zcard(key: string): Promise<number> {
+    return this.sets.get(key)?.size ?? 0
+  }
+
+  async zadd(key: string, score: number, member: string): Promise<number> {
+    const set = this.sets.get(key) ?? new Map<string, number>()
+    const existed = set.has(member)
+    set.set(member, score)
+    this.sets.set(key, set)
+    return existed ? 0 : 1
+  }
+
+  async zrange(key: string, start: number, stop: number): Promise<Array<string>> {
+    const members = Array.from(this.sets.get(key)?.entries() ?? [])
+      .sort((a, b) => a[1] - b[1])
+      .map(([member]) => member)
+    const end = stop === -1 ? undefined : stop + 1
+    return members.slice(start, end)
+  }
+
+  async expire(): Promise<number> {
+    return 1
+  }
+
+  async quit(): Promise<void> {}
+}
+
+const redis = new MemoryRedis()
 
 const PREFIX = "test:ratelimit"
 
@@ -35,7 +91,7 @@ describe("checkRateLimit", () => {
   it("allows requests up to max", async () => {
     const key = `${PREFIX}:check-basic`
     for (let i = 0; i < 5; i++) {
-      const result = await checkRateLimit(redis, key, 60, 5)
+      const result = await checkRateLimit(redis as never, key, 60, 5)
       expect(result.allowed).toBe(true)
     }
   })
@@ -43,9 +99,9 @@ describe("checkRateLimit", () => {
   it("blocks the (max+1)th request", async () => {
     const key = `${PREFIX}:check-block`
     for (let i = 0; i < 5; i++) {
-      await checkRateLimit(redis, key, 60, 5)
+      await checkRateLimit(redis as never, key, 60, 5)
     }
-    const result = await checkRateLimit(redis, key, 60, 5)
+    const result = await checkRateLimit(redis as never, key, 60, 5)
     expect(result.allowed).toBe(false)
     expect(result.remaining).toBe(0)
   })
@@ -56,7 +112,7 @@ describe("checkRateLimit", () => {
 
     // Fill window to max
     for (let i = 0; i < 3; i++) {
-      await checkRateLimit(redis, key, windowSec, 3)
+      await checkRateLimit(redis as never, key, windowSec, 3)
     }
 
     // Manually backdate all entries so they fall outside the window
@@ -69,7 +125,7 @@ describe("checkRateLimit", () => {
     }
 
     // Now the window should be empty → allow again
-    const result = await checkRateLimit(redis, key, windowSec, 3)
+    const result = await checkRateLimit(redis as never, key, windowSec, 3)
     expect(result.allowed).toBe(true)
     expect(result.remaining).toBe(2)
   })
@@ -82,7 +138,7 @@ describe("checkRateLimit", () => {
 function buildApp(windowSec: number, max: number, keyPrefix: string) {
   const app = new Hono()
   const limiter = createRateLimiter({
-    redis,
+    redis: redis as never,
     windowSec,
     max,
     keyPrefix,
@@ -141,7 +197,7 @@ describe("createRateLimiter middleware", () => {
   it("lets all through when keyFrom returns null", async () => {
     const app = new Hono()
     const limiter = createRateLimiter({
-      redis,
+      redis: redis as never,
       windowSec: 60,
       max: 1,
       keyPrefix: `${PREFIX}:mw-null`,

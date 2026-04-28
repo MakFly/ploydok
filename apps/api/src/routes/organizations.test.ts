@@ -43,6 +43,7 @@ mock.module("../services/organizations", () => ({
     created_at: new Date().toISOString(),
   }),
   getOrganizationBySlugForUser: async () => null,
+  deleteOrganizationForUser: async () => ({ ok: true }),
 }));
 
 function buildApp(router: Hono) {
