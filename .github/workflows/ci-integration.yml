@@ -16,6 +16,8 @@ jobs:
   integration:
     name: Integration Tests (DinD)
     runs-on: ubuntu-latest
+    env:
+      PLOYDOK_AGENT_SOCKET: /tmp/ploydok/agent.sock
 
     steps:
       # -----------------------------------------------------------------------
@@ -95,24 +97,22 @@ jobs:
       - name: Start ploydok-agent (insecure mode)
         run: |
           PLOYDOK_AGENT_INSECURE=1 \
-          PLOYDOK_AGENT_SOCKET=/tmp/ploydok-agent.sock \
           ./agent/target/release/ploydok-agent &
 
           echo "Waiting for agent Unix socket..."
           for i in $(seq 1 30); do
-            [ -S /tmp/ploydok-agent.sock ] && echo "Agent socket ready" && break
+            [ -S "$PLOYDOK_AGENT_SOCKET" ] && echo "Agent socket ready" && break
             echo "  ($i/30) socket not yet present, retrying..."
             sleep 1
           done
 
-          [ -S /tmp/ploydok-agent.sock ] || (echo "Agent socket never appeared" && exit 1)
+          [ -S "$PLOYDOK_AGENT_SOCKET" ] || (echo "Agent socket never appeared" && exit 1)
 
       # -----------------------------------------------------------------------
       # 10. Lance l'API Hono
       # -----------------------------------------------------------------------
       - name: Start API
         run: |
-          PLOYDOK_AGENT_SOCKET=/tmp/ploydok-agent.sock \
           PLOYDOK_DOMAIN=localtest.me \
           CADDY_ADMIN_URL=http://127.0.0.1:2020 \
           PLOYDOK_DEBUG_UNAUTHENTICATED=1 \

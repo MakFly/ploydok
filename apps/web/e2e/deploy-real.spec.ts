@@ -17,7 +17,7 @@
  *
  * Prerequisites (run in separate shells before launching this spec):
  *   Shell 1: make infra-up       (caddy + buildkitd + registry)
- *   Shell 2: make dev-agent      (Rust agent on /tmp/ploydok-agent.sock)
+ *   Shell 2: make dev-agent      (Rust agent on /tmp/ploydok/agent.sock)
  *   Shell 3: make dev            (API :3335 + Web :5173)
  *   GitHub:  Ploydok GitHub App installed on the fixture repo's owner,
  *            with access granted to ploydok/fixture-hello. deploy.ts resolves

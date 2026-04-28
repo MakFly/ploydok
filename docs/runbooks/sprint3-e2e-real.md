@@ -11,7 +11,7 @@ Il vérifie : create app → clone → BuildKit → push registry → agent spaw
 # Shell 1 — infra (Caddy :8180/:8543, buildkitd, registry :5000)
 make infra-up
 
-# Shell 2 — agent Rust (socket /tmp/ploydok-agent.sock)
+# Shell 2 — agent Rust (socket /tmp/ploydok/agent.sock)
 make dev-agent
 
 # Shell 3 — stack applicative (API :3335 + Web :5173)

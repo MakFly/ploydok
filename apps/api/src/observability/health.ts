@@ -15,8 +15,15 @@ export interface HealthReport {
   }
 }
 
-const AGENT_SOCKET_PATH = "/tmp/ploydok-agent.sock"
 const CADDY_ADMIN_URL = "http://127.0.0.1:2020/config/"
+
+function defaultAgentSocketPath(): string {
+  const env = process.env["PLOYDOK_AGENT_SOCKET"]
+  if (env) return env
+  return process.env["NODE_ENV"] === "prod"
+    ? "/run/ploydok/agent.sock"
+    : "/tmp/ploydok/agent.sock"
+}
 
 async function checkDb(db: Db): Promise<HealthReport["components"]["db"]> {
   const start = Date.now()
@@ -29,13 +36,14 @@ async function checkDb(db: Db): Promise<HealthReport["components"]["db"]> {
 }
 
 function checkAgent(): HealthReport["components"]["agent"] {
+  const socketPath = defaultAgentSocketPath()
   try {
-    if (existsSync(AGENT_SOCKET_PATH)) {
-      return { status: "ok", socket: AGENT_SOCKET_PATH }
+    if (existsSync(socketPath)) {
+      return { status: "ok", socket: socketPath }
     }
     return {
       status: "down",
-      socket: AGENT_SOCKET_PATH,
+      socket: socketPath,
       error: "socket file not found",
     }
   } catch (err) {
