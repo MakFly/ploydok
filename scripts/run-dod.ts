@@ -193,7 +193,7 @@ function checkPrereqs(): void {
   }
 
   // Agent socket
-  if (!existsSync("/tmp/ploydok-agent.sock")) {
+  if (!existsSync("/tmp/ploydok/agent.sock")) {
     failures.push(
       "Agent not running — did you `make dev-agent`?\n  Fix: make dev-agent (in another shell)",
     )

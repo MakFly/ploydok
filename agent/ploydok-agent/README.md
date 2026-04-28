@@ -21,10 +21,10 @@ cargo build --release -p ploydok-agent --manifest-path agent/Cargo.toml
 ./agent/target/release/ploydok-agent
 
 # Socket personnalisé
-PLOYDOK_AGENT_SOCKET=/tmp/agent.sock ./agent/target/release/ploydok-agent
+PLOYDOK_AGENT_SOCKET=/tmp/ploydok/agent.sock ./agent/target/release/ploydok-agent
 
 # Niveau de log
-RUST_LOG=debug PLOYDOK_AGENT_SOCKET=/tmp/agent.sock ./agent/target/release/ploydok-agent
+RUST_LOG=debug PLOYDOK_AGENT_SOCKET=/tmp/ploydok/agent.sock ./agent/target/release/ploydok-agent
 ```
 
 ## Prérequis
