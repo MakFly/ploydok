@@ -1,7 +1,7 @@
 # Sprint 7 — Parité déploiement (CDN · Previews · Static · Cron · Volumes · Volume backups) ⚠️ Partiel
 
 **Durée estimée** : 2 semaines (6 mini-features découplables en 2 vagues).
-**Objectif** : combler les écarts de parité avec Dokploy/Coolify côté déploiement d'applications, sur la base de l'audit `docs/audits/2026-04-24_20h21_gap-dokploy-sidebar.md` + vérification code.
+**Objectif** : combler les écarts de parité avec Dokploy/Coolify côté déploiement d'applications, sur la base de l'audit `project-docs/audits/2026-04-24_20h21_gap-dokploy-sidebar.md` + vérification code.
 **Dépendances** : Sprint 4 (domaines, secrets) terminé. Indépendant du Sprint 6 (hardening).
 
 ---

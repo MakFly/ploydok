@@ -55,17 +55,19 @@ use ploydok_proto::agent::{
     agent_server::Agent, exec_frame, restore_chunk, BuildProgress, ContainerCreateRequest,
     ContainerCreateResponse, ContainerLogsRequest, ContainerRemoveRequest, ContainerRemoveResponse,
     ContainerStartRequest, ContainerStartResponse, ContainerStatsRequest, ContainerStopRequest,
-    ContainerStopResponse, DumpChunk, DumpRequest, ExecFrame, FileEntry, HostStatsRequest,
-    HostStatsResponse, ImageBuildRequest, ImagePullRequest, InspectContainerHealthRequest,
-    InspectContainerHealthResponse, ListContainerFilesRequest, ListContainerFilesResponse,
-    ListContainersRequest, ListContainersResponse, LogLine, NetworkConnectRequest,
-    NetworkConnectResponse, NetworkCreateRequest, NetworkCreateResponse, NetworkDisconnectRequest,
+    ContainerStopResponse, DumpChunk, DumpRequest, ExecFrame, FileEntry, GetAuditPubkeyRequest,
+    GetAuditPubkeyResponse, HostStatsRequest, HostStatsResponse, ImageBuildRequest,
+    ImagePullRequest, InspectContainerHealthRequest, InspectContainerHealthResponse,
+    ListContainerFilesRequest, ListContainerFilesResponse, ListContainersRequest,
+    ListContainersResponse, LogLine, NetworkConnectRequest, NetworkConnectResponse,
+    NetworkCreateRequest, NetworkCreateResponse, NetworkDisconnectRequest,
     NetworkDisconnectResponse, NetworkRemoveRequest, NetworkRemoveResponse, PingContainerRequest,
     PingContainerResponse, PullProgress, ReadContainerFileRequest, ReadContainerFileResponse,
-    RestoreChunk, RestoreResult, StatsFrame,
+    RestoreChunk, RestoreResult, SignAuditEntryRequest, SignAuditEntryResponse, StatsFrame,
 };
 
 use crate::audit::{audit, audit_with_client, client_identity_from_request};
+use crate::audit_signer::AuditSigner;
 use crate::validator::Validator;
 
 // Include monitor.rs as a submodule. This is the single canonical declaration
@@ -161,12 +163,18 @@ pub struct AgentService {
     validator: Arc<dyn Validator>,
     /// Monitoring — background cache of container snapshots + ad-hoc ping.
     monitor: Arc<Monitor>,
+    /// Audit log signer (Ed25519, persistent key).
+    audit_signer: Arc<AuditSigner>,
 }
 
 impl AgentService {
     /// Construct the service. Monitor is created internally from a cloned Docker handle.
     /// The background poll task (2-second interval) is started automatically.
-    pub fn new(docker: bollard::Docker, validator: Arc<dyn Validator>) -> Self {
+    pub fn new(
+        docker: bollard::Docker,
+        validator: Arc<dyn Validator>,
+        audit_signer: Arc<AuditSigner>,
+    ) -> Self {
         let monitor = Monitor::new(docker.clone());
         // Spawn the poll loop immediately — cache will be warm within 2s.
         Arc::clone(&monitor).spawn_poll_task();
@@ -174,6 +182,7 @@ impl AgentService {
             docker,
             validator,
             monitor,
+            audit_signer,
         }
     }
 }
@@ -1187,8 +1196,7 @@ impl Agent for AgentService {
             "%y\t%m\t%s\t%T@\t%U:%G\t%f\n",
         ];
 
-        let (stdout, exit_code) =
-            exec_capture(&self.docker, &req.container_id, cmd, None).await?;
+        let (stdout, exit_code) = exec_capture(&self.docker, &req.container_id, cmd, None).await?;
 
         if exit_code != 0 {
             // find returns 1 on missing path / not a dir; surface a soft error
@@ -1322,12 +1330,7 @@ impl Agent for AgentService {
 
         // 2. head -c $max_bytes — read up to max_bytes bytes.
         let max_bytes_str = max_bytes.to_string();
-        let head_cmd = vec![
-            "head",
-            "-c",
-            max_bytes_str.as_str(),
-            req.path.as_str(),
-        ];
+        let head_cmd = vec!["head", "-c", max_bytes_str.as_str(), req.path.as_str()];
         let (content, head_exit) =
             exec_capture(&self.docker, &req.container_id, head_cmd, None).await?;
         if head_exit != 0 {
@@ -1391,12 +1394,7 @@ impl Agent for AgentService {
         // command — see validate_age_recipient for the threat model.
         if !age_recipient.is_empty() {
             if let Err(e) = crate::validator::validate_age_recipient(&age_recipient) {
-                audit_with_client(
-                    "dump_database",
-                    &container_id,
-                    Err(e.message()),
-                    &client,
-                );
+                audit_with_client("dump_database", &container_id, Err(e.message()), &client);
                 return Err(*e);
             }
         }
@@ -1482,6 +1480,33 @@ impl Agent for AgentService {
                 error: e.to_string(),
             })),
         }
+    }
+
+    // ── SignAuditEntry ──────────────────────────────────────────────────────
+
+    async fn sign_audit_entry(
+        &self,
+        request: Request<SignAuditEntryRequest>,
+    ) -> Result<Response<SignAuditEntryResponse>, Status> {
+        let req = request.into_inner();
+        let (signature, key_id) = self.audit_signer.sign(&req.canonical_payload);
+        Ok(Response::new(SignAuditEntryResponse {
+            signature: signature.to_bytes().to_vec(),
+            key_id,
+        }))
+    }
+
+    // ── GetAuditPubkey ──────────────────────────────────────────────────────
+
+    async fn get_audit_pubkey(
+        &self,
+        _request: Request<GetAuditPubkeyRequest>,
+    ) -> Result<Response<GetAuditPubkeyResponse>, Status> {
+        // NOTE: The `key_id` field in the request is ignored for v1.0 — only a
+        // single active key is supported. When key rotation is implemented, this
+        // handler will use the `key_id` to return a specific historical key.
+        let (pubkey, key_id) = self.audit_signer.pubkey();
+        Ok(Response::new(GetAuditPubkeyResponse { pubkey, key_id }))
     }
 }
 

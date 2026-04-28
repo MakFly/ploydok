@@ -25,7 +25,7 @@
 | R3 | `nixpacks.ts` n'expose aucun cache persistant (`--cache-from/--cache-to` absents) | 3 | Critère "2ᵉ build < 40% du 1ᵉʳ" invalidable sur path Nixpacks |
 | R4 | Widget "Registry usage par app" + bouton "Prune now" absents de l'UI | 3 | Spec 3.6 incomplète, ops n'a aucun lever en cas de disque plein |
 | R5 | BuildKit rootless non prouvé : pas de config user-ns/seccomp visible dans `infra/buildkit/` | 3 | DoD "builds rootless vérifiés" non auditable |
-| R6 | Aucun run de `bun scripts/run-dod.ts` → 11 specs e2e `⊘ non exécuté` (`docs/sprints/sprint-3-DoD.md`) | 3 | **Blocker final** : pas de preuve bout-en-bout |
+| R6 | Aucun run de `bun scripts/run-dod.ts` → 11 specs e2e `⊘ non exécuté` (`project-docs/roadmap/sprint-3-DoD.md`) | 3 | **Blocker final** : pas de preuve bout-en-bout |
 
 ---
 
@@ -128,7 +128,7 @@
 **Owner exclusif :**
 - `infra/buildkit/` (config `buildkitd.toml` + `Dockerfile` si custom image nécessaire)
 - `infra/docker-compose.yml` (flags `security-opt`, user, etc.)
-- `docs/runbooks/buildkit-rootless.md` (nouveau)
+- `project-docs/operations/runbooks/buildkit-rootless.md` (nouveau)
 - `scripts/audit-rootless.sh` ou `.ts` (nouveau — retourne 0 si conforme)
 
 **Tâches :**
@@ -150,7 +150,7 @@
 
 **Owner exclusif :**
 - `apps/web/e2e/dod/*.spec.ts` (modifications uniquement si un test est mal écrit)
-- `docs/sprints/sprint-3-DoD.md` (auto-généré par le script)
+- `project-docs/roadmap/sprint-3-DoD.md` (auto-généré par le script)
 - Patches ciblés dans `apps/api` ou `agent/` **uniquement pour fixer ce qui est cassé** — chaque patch = 1 commit distinct avec message `fix(sprint-3-dod): <item>`.
 
 **Tâches :**
@@ -188,7 +188,7 @@ Durée cumulée estimée : **4-6h** si les e2e passent du premier coup, **8-12h*
 - [ ] Nixpacks `--cache-from/to` présent (test unitaire + mesure à la main sur un 2ᵉ build → ratio < 0.40).
 - [ ] Widget `RegistryUsage` + bouton `Prune now` visibles sur `/apps/$id/overview`.
 - [ ] Script `scripts/audit-rootless.sh` retourne 0 et est branché dans `turbo typecheck` ou équivalent.
-- [ ] `PLOYDOK_E2E_REAL=1 bun scripts/run-dod.ts` : **11/11 verts**, `docs/sprints/sprint-3-DoD.md` régénéré avec statuts ✅.
+- [ ] `PLOYDOK_E2E_REAL=1 bun scripts/run-dod.ts` : **11/11 verts**, `project-docs/roadmap/sprint-3-DoD.md` régénéré avec statuts ✅.
 - [ ] `bun run typecheck && bun run lint && bun test && bun run check:spdx` verts.
 - [ ] Pas de push sans autorisation utilisateur (convention projet).
 

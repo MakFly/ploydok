@@ -16,6 +16,15 @@ interface SetupToken {
 
 let current: SetupToken | null = null
 
+function hasActiveToken(): boolean {
+  if (!current) return false
+  if (!current.permanent && Date.now() > current.expires_at) {
+    current = null
+    return false
+  }
+  return true
+}
+
 function newRandom(): string {
   return randomBytes(32).toString("hex")
 }
@@ -25,7 +34,7 @@ function buildSetupUrl(token: string): string {
 }
 
 export async function bootstrapSetupToken(db: Db): Promise<void> {
-  if (current) return
+  if (hasActiveToken()) return
 
   const existing = await db.select({ id: users.id }).from(users).limit(1)
   if (existing.length > 0) return
@@ -59,14 +68,10 @@ export function getSetupTokenState(): {
   active: boolean
   expires_at: number | null
 } {
-  if (!current) return { active: false, expires_at: null }
-  if (!current.permanent && Date.now() > current.expires_at) {
-    current = null
-    return { active: false, expires_at: null }
-  }
+  if (!hasActiveToken()) return { active: false, expires_at: null }
   return {
     active: true,
-    expires_at: current.permanent ? null : current.expires_at,
+    expires_at: current!.permanent ? null : current!.expires_at,
   }
 }
 
@@ -91,12 +96,8 @@ export function clearSetupToken(): void {
 // Dev-only — exposes the raw token so the /setup page can auto-inject it on
 // localhost. NEVER call this from a route reachable in production.
 export function peekSetupTokenUnsafe(): string | null {
-  if (!current) return null
-  if (!current.permanent && Date.now() > current.expires_at) {
-    current = null
-    return null
-  }
-  return current.value
+  if (!hasActiveToken()) return null
+  return current!.value
 }
 
 // Test-only — never call from production code.

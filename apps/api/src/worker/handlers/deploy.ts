@@ -113,6 +113,8 @@ interface AppForDeploy {
   hooks_timeout_s: number | null
 }
 
+type JsonObject = Record<string, unknown>
+
 /**
  * Fetch the app row + project owner_id needed for a deploy.
  * Throws if the app doesn't exist.
@@ -184,7 +186,69 @@ async function classifyWorkspaceStack(params: {
       }
     })
   )
-  return classifyStack(probes)
+  const base = classifyStack(probes)
+  if (base.stack !== "php" && base.stack !== "compose") return base
+  if (!(await isSymfonyFlexWorkspace(root))) return base
+  return {
+    ...base,
+    stack: "symfony",
+    framework: "Symfony",
+    confidence: "high",
+    suggestedEnvVars: {
+      NIXPACKS_PHP_ROOT_DIR: "/app/public",
+      NIXPACKS_PHP_FALLBACK_PATH: "/index.php",
+      NIXPACKS_INSTALL_CMD:
+        "mkdir -p /var/log/nginx /var/cache/nginx && COMPOSER_ALLOW_SUPERUSER=1 composer install --no-interaction --no-progress --prefer-dist --ignore-platform-reqs --optimize-autoloader",
+    },
+  }
+}
+
+export async function isSymfonyFlexWorkspace(root: string): Promise<boolean> {
+  const composerJson = await readJsonObject(path.join(root, "composer.json"))
+  if (!composerJson) return false
+
+  const scripts = asObject(composerJson["scripts"])
+  if (asObject(scripts?.["auto-scripts"])) return true
+
+  const extra = asObject(composerJson["extra"])
+  if (asObject(extra?.["symfony"])) return true
+
+  const require = asObject(composerJson["require"])
+  const requireDev = asObject(composerJson["require-dev"])
+  return hasAnyPackage(require, requireDev, [
+    "symfony/flex",
+    "symfony/framework-bundle",
+    "symfony/runtime",
+  ])
+}
+
+async function readJsonObject(filePath: string): Promise<JsonObject | null> {
+  try {
+    const raw = await fs.promises.readFile(filePath, "utf8")
+    const parsed = JSON.parse(raw)
+    return asObject(parsed)
+  } catch {
+    return null
+  }
+}
+
+function hasAnyPackage(
+  ...args: Array<JsonObject | readonly string[] | null | undefined>
+): boolean {
+  const packageNames = args.at(-1)
+  if (!Array.isArray(packageNames)) return false
+  const maps = args.slice(0, -1)
+  return maps.some((obj) =>
+    packageNames.some(
+      (name) => typeof (obj as JsonObject | null)?.[name] === "string"
+    )
+  )
+}
+
+function asObject(value: unknown): JsonObject | null {
+  return typeof value === "object" && value !== null && !Array.isArray(value)
+    ? (value as JsonObject)
+    : null
 }
 
 function defaultRuntimePortForStack(
@@ -1441,8 +1505,7 @@ export async function handleDeploy(
     // Notification dispatch — build/deploy outcome
     if (
       workspacePathForAudit &&
-      (finalStatus === "succeeded" ||
-        finalStatus === "succeeded_with_warning")
+      (finalStatus === "succeeded" || finalStatus === "succeeded_with_warning")
     ) {
       captureAppManifests(db, {
         appId: app.id,

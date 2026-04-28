@@ -4,7 +4,7 @@
 **Objectif** : `curl -fsSL https://install.ploydok.dev | bash` pose Ploydok sur un VPS — vierge **ou** avec nginx/apache2 déjà en prod — sans jamais casser l'existant sans consentement explicite.
 **Dépendances** : Sprint 6 (hardening, observabilité, doc user) terminé. La release v1.0.0 (sprint 6.9) dépend directement de ce sprint.
 
-> **Origine** : reformulation des sections **6.7 Script d'installation** et **6.7-bis Tests d'installation** du `sprint-6-hardening-release.md`, repoussées hors scope sprint 6 le 2026-04-25. Spec source : [`docs/research/install-strategy.md`](../research/install-strategy.md).
+> **Origine** : reformulation des sections **6.7 Script d'installation** et **6.7-bis Tests d'installation** du `sprint-6-hardening-release.md`, repoussées hors scope sprint 6 le 2026-04-25. Spec source : [`project-docs/research/install-strategy.md`](../research/install-strategy.md).
 
 ---
 
@@ -91,7 +91,7 @@ Options :
 2. Génération d'un snippet pour le proxy frontal :
    - **nginx** : fichier `/etc/nginx/snippets/ploydok.conf` avec `proxy_pass http://127.0.0.1:8080;` + headers `Host`, `X-Real-IP`, `X-Forwarded-For`, `X-Forwarded-Proto`, upgrade WebSocket.
    - **apache2** : équivalent `mod_proxy` généré.
-3. TLS géré par le proxy frontal (Ploydok désactive ACME en mode coexist) ; documenté dans `docs/install/coexist.md`.
+3. TLS géré par le proxy frontal (Ploydok désactive ACME en mode coexist) ; documenté dans `project-docs/operations/install/coexist.md`.
 4. Caddy interne en HTTP-only sur loopback.
 
 ### Mode C — `--mode=abort`
@@ -178,7 +178,7 @@ ufw deny 2019        # admin Caddy jamais exposé
 ufw deny 5000        # registry local jamais exposé
 ```
 
-**firewalld** et **nftables** : équivalents documentés dans `docs/install/firewall.md`.
+**firewalld** et **nftables** : équivalents documentés dans `project-docs/operations/install/firewall.md`.
 
 ---
 
@@ -197,7 +197,7 @@ ufw deny 5000        # registry local jamais exposé
 
 ## 9.10 Tests d'installation (bloquant release)
 
-8 scénarios joués via **VMs Vagrant** ou **GitHub Actions matrix** (référence : `docs/research/testing-strategy.md` § Test d'installation).
+8 scénarios joués via **VMs Vagrant** ou **GitHub Actions matrix** (référence : `project-docs/research/testing-strategy.md` § Test d'installation).
 
 Pour chaque scénario, assertions minimales :
 
@@ -244,9 +244,9 @@ Pour chaque scénario, assertions minimales :
 
 ### Docs
 
-- [x] `docs/install/getting-started.md` (one-liner + 3 modes expliqués).
-- [x] `docs/install/coexist.md` (snippets nginx/apache2 + TLS frontal).
-- [x] `docs/install/firewall.md` (ufw/firewalld/nftables).
+- [x] `project-docs/operations/install/getting-started.md` (one-liner + 3 modes expliqués).
+- [x] `project-docs/operations/install/coexist.md` (snippets nginx/apache2 + TLS frontal).
+- [x] `project-docs/operations/install/firewall.md` (ufw/firewalld/nftables).
 - [x] Section « Install » de `apps/docs/` (Astro + shadcn) à jour avec les 3 modes.
 
 ### Release
@@ -269,7 +269,7 @@ Pour chaque scénario, assertions minimales :
 
 ## Références
 
-- Spec source : `docs/research/install-strategy.md`.
-- Stratégie de tests : `docs/research/testing-strategy.md` § Test d'installation.
-- Sprint d'origine : `docs/sprints/sprint-6-hardening-release.md` §6.7, §6.7-bis, §6.9.
-- Roadmap : `docs/sprints/README.md`.
+- Spec source : `project-docs/research/install-strategy.md`.
+- Stratégie de tests : `project-docs/research/testing-strategy.md` § Test d'installation.
+- Sprint d'origine : `project-docs/roadmap/sprint-6-hardening-release.md` §6.7, §6.7-bis, §6.9.
+- Roadmap : `project-docs/roadmap/README.md`.

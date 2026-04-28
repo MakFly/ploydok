@@ -61,7 +61,7 @@ Dokploy et Coolify utilisent le **GitHub App Manifest flow** : 1 clic "Create Gi
 - [ ] User clique "Install GitHub App" → onboarding complet en < 1min
 - [ ] Push sur repo connecté déclenche un redeploy auto
 - [ ] `bun typecheck` + `bun run test` verts
-- [ ] Runbook mis à jour `docs/runbooks/github-app-setup.md`
+- [ ] Runbook mis à jour `project-docs/operations/runbooks/github-app-setup.md`
 
 ---
 

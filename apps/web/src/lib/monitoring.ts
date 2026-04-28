@@ -9,13 +9,24 @@ import {
 } from "./api"
 import { useBackendUnavailable } from "./backend-status"
 import { useEventsSubscription } from "./events-provider"
-import type {
-  ApiError} from "./api";
-import type {
-  ContainerSnapshot,
-  MonitoringEvent,
-  MonitoringOverview,
+import type { ApiError } from "./api"
+import {
+  ContainerSnapshotSchema,
+  type ContainerSnapshot,
+  type MonitoringOverview,
 } from "@ploydok/shared"
+
+interface ContainerHealthNotification {
+  appId?: string
+  data?: Record<string, unknown>
+}
+
+export function getContainerHealthSnapshot(
+  event: ContainerHealthNotification
+): ContainerSnapshot | null {
+  const parsed = ContainerSnapshotSchema.safeParse(event.data?.["container"])
+  return parsed.success ? parsed.data : null
+}
 
 // ---------------------------------------------------------------------------
 // useMonitoring — GET /monitoring/overview, live-patched via SSE
@@ -32,10 +43,11 @@ export function useMonitoring(options: { enabled?: boolean } = {}) {
   const backendUnavailable = useBackendUnavailable()
   const qc = useQueryClient()
 
-  useEventsSubscription<MonitoringEvent>(
+  useEventsSubscription<ContainerHealthNotification>(
     "container.health",
     (monEv) => {
-      const snap = monEv.container
+      const snap = getContainerHealthSnapshot(monEv)
+      if (!snap) return
       qc.setQueryData<MonitoringOverview>(["monitoring", "overview"], (old) => {
         if (!old) return old
         const idx = old.containers.findIndex((c) => c.id === snap.id)
@@ -117,7 +129,11 @@ export function usePingContainer() {
 export function useMonitoringEvents(
   onChange: (container: ContainerSnapshot) => void
 ): void {
-  useEventsSubscription<MonitoringEvent>("container.health", (monEv) => {
-    onChange(monEv.container)
-  })
+  useEventsSubscription<ContainerHealthNotification>(
+    "container.health",
+    (monEv) => {
+      const snap = getContainerHealthSnapshot(monEv)
+      if (snap) onChange(snap)
+    }
+  )
 }

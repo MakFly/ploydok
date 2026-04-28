@@ -20,7 +20,6 @@ describe("feature-gate", () => {
                 caddy_override: false,
                 audit_logs: true,
                 s3_backups: true,
-                custom_license: false,
               },
               quotas: {
                 apps_count: 3,
@@ -68,7 +67,6 @@ describe("feature-gate", () => {
                 caddy_override: false,
                 audit_logs: true,
                 s3_backups: true,
-                custom_license: false,
               },
               quotas: {
                 apps_count: 3,
@@ -116,7 +114,6 @@ describe("feature-gate", () => {
                 caddy_override: false,
                 audit_logs: true,
                 s3_backups: true,
-                custom_license: false,
               },
               quotas: {
                 apps_count: 3,
@@ -147,7 +144,6 @@ describe("feature-gate", () => {
                 caddy_override: false,
                 audit_logs: true,
                 s3_backups: true,
-                custom_license: false,
               },
               quotas: {
                 apps_count: 3,

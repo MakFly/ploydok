@@ -205,14 +205,10 @@ describe("resolveTopbarBreadcrumb", () => {
     ])
   })
 
-  it("builds new workspace-group breadcrumbs (deployments/templates)", () => {
+  it("builds new workspace-group breadcrumbs", () => {
     expect(resolveTopbarBreadcrumb("/orgs/acme/deployments", null)).toEqual([
       { label: "Workspace" },
       { label: "Deployments" },
-    ])
-    expect(resolveTopbarBreadcrumb("/orgs/acme/templates", null)).toEqual([
-      { label: "Workspace" },
-      { label: "Templates" },
     ])
   })
 

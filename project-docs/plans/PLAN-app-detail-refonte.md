@@ -1,6 +1,6 @@
 # PLAN — Refonte app-detail `/apps/$id/*`
 
-> Base research : `docs/research/RESEARCH-app-detail-refonte.md`
+> Base research : `project-docs/research/RESEARCH-app-detail-refonte.md`
 > Objectif : refonte UX/UI + logique inspirée de Dokploy et Coolify.
 > Date : 2026-04-17
 

@@ -10,7 +10,6 @@ export const FeatureKeySchema = z.enum([
   "caddy_override",
   "audit_logs",
   "s3_backups",
-  "custom_license",
 ])
 
 export type FeatureKey = z.infer<typeof FeatureKeySchema>

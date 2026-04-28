@@ -38,14 +38,13 @@ pub async fn read_host_stats() -> HostStatsResponse {
         (0.0, 0.0, 0.0)
     });
 
-    let (disk_total, disk_free, disk_used, inodes_total, inodes_used) =
-        match statvfs_root() {
-            Ok(v) => v,
-            Err(e) => {
-                errs.push(format!("disk:{e}"));
-                (0, 0, 0, 0, 0)
-            }
-        };
+    let (disk_total, disk_free, disk_used, inodes_total, inodes_used) = match statvfs_root() {
+        Ok(v) => v,
+        Err(e) => {
+            errs.push(format!("disk:{e}"));
+            (0, 0, 0, 0, 0)
+        }
+    };
 
     let cpu_count = num_cpus_from_proc().unwrap_or(0);
     let uptime_seconds = read_uptime().unwrap_or(0);
@@ -120,7 +119,12 @@ fn read_meminfo() -> Result<(u64, u64, u64, u64), String> {
             Some(p) => p,
             None => continue,
         };
-        let kb: u64 = v.split_whitespace().next().unwrap_or("0").parse().unwrap_or(0);
+        let kb: u64 = v
+            .split_whitespace()
+            .next()
+            .unwrap_or("0")
+            .parse()
+            .unwrap_or(0);
         match k {
             "MemTotal" => total = kb * 1024,
             "MemAvailable" => avail = kb * 1024,

@@ -21,6 +21,7 @@ export const users = pgTable("users", {
   require_totp_for_secret_reveal: boolean("require_totp_for_secret_reveal")
     .notNull()
     .default(true),
+  is_instance_admin: boolean("is_instance_admin").notNull().default(false),
 })
 
 export type UserRow = typeof users.$inferSelect

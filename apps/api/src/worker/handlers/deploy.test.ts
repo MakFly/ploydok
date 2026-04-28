@@ -16,7 +16,9 @@ import {
   afterAll,
 } from "bun:test"
 import fs from "node:fs"
+import { mkdtemp, writeFile, rm } from "node:fs/promises"
 import path from "node:path"
+import os from "node:os"
 import { nanoid } from "nanoid"
 
 // ---------------------------------------------------------------------------
@@ -142,6 +144,46 @@ describe("handleDeploy", () => {
     expect(auditSpy.mock.calls[0]?.[0]).toMatchObject({
       reason: "build row not found or not pending",
     })
+  })
+})
+
+describe("isSymfonyFlexWorkspace", () => {
+  it("detects Symfony Flex via composer auto-scripts", async () => {
+    const { isSymfonyFlexWorkspace } = await import("./deploy")
+    const dir = await mkdtemp(path.join(os.tmpdir(), "ploydok-symfony-flex-"))
+    try {
+      await writeFile(
+        path.join(dir, "composer.json"),
+        JSON.stringify({
+          scripts: {
+            "auto-scripts": {
+              "cache:clear": "symfony-cmd",
+            },
+          },
+        })
+      )
+      await expect(isSymfonyFlexWorkspace(dir)).resolves.toBe(true)
+    } finally {
+      await rm(dir, { recursive: true, force: true })
+    }
+  })
+
+  it("does not mark generic PHP repos as Symfony", async () => {
+    const { isSymfonyFlexWorkspace } = await import("./deploy")
+    const dir = await mkdtemp(path.join(os.tmpdir(), "ploydok-generic-php-"))
+    try {
+      await writeFile(
+        path.join(dir, "composer.json"),
+        JSON.stringify({
+          require: {
+            php: "^8.3",
+          },
+        })
+      )
+      await expect(isSymfonyFlexWorkspace(dir)).resolves.toBe(false)
+    } finally {
+      await rm(dir, { recursive: true, force: true })
+    }
   })
 })
 

@@ -1,7 +1,10 @@
 // SPDX-License-Identifier: AGPL-3.0-only
 import * as React from "react"
 import { detectLevel } from "../../lib/hooks/use-log-stream"
-import type { LogLine as LogLineData } from "../../lib/hooks/use-log-stream"
+import type {
+  LogLine as LogLineData,
+  LogSeverity,
+} from "../../lib/hooks/use-log-stream"
 
 // ---------------------------------------------------------------------------
 // Types
@@ -66,14 +69,29 @@ function formatTimestamp(t: number): string {
   return `${hh}:${mm}:${ss}.${ms}`
 }
 
-function levelColorClass(level: "error" | "warn" | "info"): string {
+function levelColorClass(level: LogSeverity): string {
   switch (level) {
     case "error":
       return "text-red-400"
     case "warn":
       return "text-amber-400"
+    case "debug":
+      return "text-sky-400"
     default:
       return "text-zinc-300"
+  }
+}
+
+function levelLabel(level: LogSeverity): string {
+  switch (level) {
+    case "error":
+      return "ERR"
+    case "warn":
+      return "WARN"
+    case "debug":
+      return "DBG"
+    default:
+      return "INFO"
   }
 }
 
@@ -135,6 +153,7 @@ export const LogLine = React.memo(function LogLineRow({
   const level = detectLevel(line.text)
   const isError = level === "error"
   const isWarn = level === "warn"
+  const isDebug = level === "debug"
   const isStackTrace = STACK_TRACE_RE.test(line.text)
 
   const inlineMatch = TIMESTAMP_PREFIX_RE.exec(line.text)
@@ -147,7 +166,9 @@ export const LogLine = React.memo(function LogLineRow({
     ? "bg-red-500/5 hover:bg-red-500/10"
     : isWarn
       ? "hover:bg-amber-500/5"
-      : "hover:bg-zinc-900/60"
+      : isDebug
+        ? "hover:bg-sky-500/5"
+        : "hover:bg-zinc-900/60"
   const wrapCls = wrap
     ? "whitespace-pre-wrap break-all"
     : "whitespace-pre overflow-hidden"
@@ -185,13 +206,9 @@ export const LogLine = React.memo(function LogLineRow({
         className={`w-12 shrink-0 text-right font-semibold select-none ${levelColorClass(level)}`}
         aria-hidden="true"
       >
-        {level === "info" ? (
-          <span className="text-zinc-500">INFO</span>
-        ) : level === "warn" ? (
-          <span className="text-amber-400">WARN</span>
-        ) : (
-          <span className="text-red-400">ERR</span>
-        )}
+        <span className={level === "info" ? "text-zinc-500" : undefined}>
+          {levelLabel(level)}
+        </span>
       </span>
 
       <span

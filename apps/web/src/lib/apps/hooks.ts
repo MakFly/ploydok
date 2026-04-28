@@ -239,9 +239,21 @@ export function useApp(appId: string, opts?: UseAppOptions) {
         builds: Array<Build>
       }>(`/apps/${appId}`)
       const normalized = normalizeAppDetail(app)
+      const currentBuild = rawBuilds.find(
+        (build) =>
+          (build.status === "succeeded" ||
+            build.status === "succeeded_with_warning") &&
+          build.commitSha
+      )
       // Attach builds[] returned by the endpoint so consumers (e.g. LastDeploymentCard)
       // can derive the last build without a separate /builds request.
-      return { ...normalized, builds: rawBuilds }
+      return {
+        ...normalized,
+        currentCommitSha:
+          normalized.currentCommitSha ?? currentBuild?.commitSha,
+        latestBuildId: normalized.latestBuildId ?? rawBuilds[0]?.id,
+        builds: rawBuilds,
+      }
     },
     staleTime: 15_000,
     enabled: Boolean(appId),

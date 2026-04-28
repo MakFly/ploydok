@@ -1,6 +1,6 @@
 # PLAN — Sprint 1 Fondations (tâches 1.2 → 1.8)
 
-> Contexte complet : `docs/PRD.md`, `docs/sprints/sprint-1-fondations.md`.
+> Contexte complet : `docs/PRD.md`, `project-docs/roadmap/sprint-1-fondations.md`.
 > Tâche 1.1 (init monorepo shadcn preset `bgm023GIT`) déjà faite.
 
 ## Stack figée (non négociable)
@@ -47,12 +47,12 @@
 3. Commit atomique par tâche : `feat(sprint-1): <task> — <summary>` + trailer `Co-Authored-By`.
 4. Tests : chaque package modifié doit avoir au moins 1 test qui passe via `bun test` (ou `cargo test` pour Rust).
 5. Pas de secret en clair dans le code. Cookies flags vérifiés.
-6. Pas de feature hors scope. TODO en `docs/adr/` si manque détecté.
+6. Pas de feature hors scope. TODO en `project-docs/decisions/` si manque détecté.
 7. Après chaque tâche : typecheck + test + lint verts avant merge.
 
 ## Merge strategy
 - Merge worktrees dans `main` en fin de wave (fast-forward quand possible, sinon merge commit).
-- À la fin : ADR `docs/adr/0001-stack-choices.md` résumant décisions clés (SQLite, Bun, AGPL, passkey-only).
+- À la fin : ADR `project-docs/decisions/0001-stack-choices.md` résumant décisions clés (SQLite, Bun, AGPL, passkey-only).
 - README racine mis à jour : install < 5 min, `bun install && bun db:migrate && bun dev`.
 
 ## DoD Sprint 1 (rappel)

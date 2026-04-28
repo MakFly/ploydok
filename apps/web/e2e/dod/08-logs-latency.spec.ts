@@ -25,7 +25,7 @@
  *
  * TODO: update the harness `readBuildLogsWs` to accept an optional `headers`
  *       parameter so future specs can use it directly.
- *       Filed in docs/sprints/sprint-3-DoD.md.
+ *       Filed in project-docs/roadmap/sprint-3-DoD.md.
  */
 
 import { performance } from "node:perf_hooks"

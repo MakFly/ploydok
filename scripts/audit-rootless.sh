@@ -146,7 +146,7 @@ echo ""
 echo -e "${_BOLD}=== Summary: ${PASS} passed, ${FAIL} failed ===${_RESET}"
 if [ "${FAIL}" -gt 0 ]; then
   echo ""
-  echo "**Overall: FAIL** — ${FAIL} check(s) failed. See runbook: docs/runbooks/buildkit-rootless.md"
+  echo "**Overall: FAIL** — ${FAIL} check(s) failed. See runbook: project-docs/operations/runbooks/buildkit-rootless.md"
   exit 1
 fi
 echo "All checks passed — BuildKit is running rootless."

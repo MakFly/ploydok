@@ -15,7 +15,11 @@ import {
 } from "@ploydok/db"
 import type { Db } from "@ploydok/db"
 import { makeTestDb as makePgTestDb, TEST_PG_URL } from "../test/db-helpers"
-import { createAppsRouter, enqueueAppDeleteJob } from "./apps"
+import {
+  createAppsRouter,
+  deriveCurrentBuildMetadata,
+  enqueueAppDeleteJob,
+} from "./apps"
 import type { AuthUser } from "../auth/middleware"
 import * as singletons from "../debug/singletons"
 import * as githubModule from "./github"
@@ -34,6 +38,33 @@ async function makeTestDb() {
 }
 
 type TestDb = Db
+
+describe("deriveCurrentBuildMetadata", () => {
+  it("uses the latest successful build commit as the current deployed commit", () => {
+    const metadata = deriveCurrentBuildMetadata([
+      { id: "failed-newer", status: "failed", commit_sha: "badbeef" },
+      { id: "success", status: "succeeded", commit_sha: "abc123def456" },
+      { id: "older", status: "succeeded", commit_sha: "older" },
+    ])
+
+    expect(metadata).toEqual({
+      currentCommitSha: "abc123def456",
+      latestBuildId: "failed-newer",
+    })
+  })
+
+  it("supports succeeded_with_warning builds as deployed commits", () => {
+    const metadata = deriveCurrentBuildMetadata([
+      {
+        id: "warning",
+        status: "succeeded_with_warning",
+        commit_sha: "warn123",
+      },
+    ])
+
+    expect(metadata.currentCommitSha).toBe("warn123")
+  })
+})
 
 // ---------------------------------------------------------------------------
 // Test fixtures helpers
@@ -184,7 +215,9 @@ describe("enqueueAppDeleteJob", () => {
       update: mock((_table: unknown) => ({
         set: mock((values: unknown) => ({
           where: mock(async () => {
-            calls.push(`tx${phase}:update:${(values as { status?: string }).status ?? "unknown"}`)
+            calls.push(
+              `tx${phase}:update:${(values as { status?: string }).status ?? "unknown"}`
+            )
             return []
           }),
         })),
@@ -221,12 +254,18 @@ describe("enqueueAppDeleteJob", () => {
     } as unknown as Db
 
     const queue = {
-      add: mock(async (_name: string, payload: { jobId: string }, opts?: { jobId?: string }) => {
-        calls.push(`queue:add:${activeTransactions}`)
-        const jobId = opts?.jobId ?? "missing-job-id"
-        expect(payload.jobId).toBe(jobId)
-        return { id: jobId }
-      }),
+      add: mock(
+        async (
+          _name: string,
+          payload: { jobId: string },
+          opts?: { jobId?: string }
+        ) => {
+          calls.push(`queue:add:${activeTransactions}`)
+          const jobId = opts?.jobId ?? "missing-job-id"
+          expect(payload.jobId).toBe(jobId)
+          return { id: jobId }
+        }
+      ),
     }
 
     const result = await enqueueAppDeleteJob({
@@ -253,14 +292,19 @@ describe("enqueueAppDeleteJob", () => {
 
   it("restores the app row when queue.add fails after commit", async () => {
     const calls: string[] = []
-    const appUpdates: Array<{ phase: number; values: Record<string, unknown> }> = []
+    const appUpdates: Array<{
+      phase: number
+      values: Record<string, unknown>
+    }> = []
 
     const makeTx = (phase: number) => ({
       update: mock((table: unknown) => ({
         set: mock((values: Record<string, unknown>) => ({
           where: mock(async () => {
             if (table === apps) appUpdates.push({ phase, values })
-            calls.push(`tx${phase}:update:${String(values.status ?? "unknown")}`)
+            calls.push(
+              `tx${phase}:update:${String(values.status ?? "unknown")}`
+            )
             return []
           }),
         })),
@@ -317,8 +361,14 @@ describe("enqueueAppDeleteJob", () => {
     expect(calls).toContain("tx2:delete")
     expect(calls).toContain("tx2:update:running")
     expect(appUpdates).toEqual([
-      expect.objectContaining({ phase: 1, values: expect.objectContaining({ status: "deleting" }) }),
-      expect.objectContaining({ phase: 2, values: expect.objectContaining({ status: "running" }) }),
+      expect.objectContaining({
+        phase: 1,
+        values: expect.objectContaining({ status: "deleting" }),
+      }),
+      expect.objectContaining({
+        phase: 2,
+        values: expect.objectContaining({ status: "running" }),
+      }),
     ])
   })
 })
@@ -367,7 +417,7 @@ describe.skipIf(skip)("POST /apps", () => {
     }
     expect(body.app.name).toBe("My App")
     expect(body.app.slug).toBe("my-app")
-    expect(body.app.status).toBe("created")
+    expect(body.app.status).toBe("pending")
     expect(body.app.domain).toBe("my-app.demo.ploydok.local")
     expect(body.app.restartPolicy).toBe("unless-stopped")
     expect(body.app.id).toBeString()
@@ -439,7 +489,9 @@ describe.skipIf(skip)("POST /apps", () => {
     })
 
     expect(res.status).toBe(400)
-    const body = (await res.json()) as { error: { code: string; message: string } }
+    const body = (await res.json()) as {
+      error: { code: string; message: string }
+    }
     expect(body.error.code).toBe("VALIDATION_ERROR")
     expect(body.error.message).toContain("safe relative path")
   })
@@ -463,6 +515,12 @@ describe.skipIf(skip)("POST /apps", () => {
             scope: "shared",
             phase: "runtime",
           },
+          {
+            key: "APP_ENV",
+            value: "prod",
+            scope: "shared",
+            phase: "runtime",
+          },
         ],
       }),
     })
@@ -480,6 +538,11 @@ describe.skipIf(skip)("POST /apps", () => {
 
     expect(rows).toContainEqual({
       key: "PLOYDOK_LARAVEL_SEED",
+      scope: "shared",
+      phase: "runtime",
+    })
+    expect(rows).toContainEqual({
+      key: "APP_ENV",
       scope: "shared",
       phase: "runtime",
     })
@@ -867,7 +930,9 @@ describe.skipIf(skip)("PATCH /apps/:id", () => {
     })
 
     expect(res.status).toBe(400)
-    const body = (await res.json()) as { error: { code: string; message: string } }
+    const body = (await res.json()) as {
+      error: { code: string; message: string }
+    }
     expect(body.error.code).toBe("VALIDATION_ERROR")
     expect(body.error.message).toContain("safe relative path")
   })
@@ -921,7 +986,11 @@ describe.skipIf(skip)("DELETE /apps/:id", () => {
     const res = await honoApp.request(`/apps/${appId}`, { method: "DELETE" })
 
     expect(res.status).toBe(202)
-    const body = (await res.json()) as { ok: boolean; jobId: string; status: string }
+    const body = (await res.json()) as {
+      ok: boolean
+      jobId: string
+      status: string
+    }
     expect(body.ok).toBe(true)
     expect(body.status).toBe("deleting")
 
@@ -1425,16 +1494,67 @@ describe.skipIf(skip)("POST /apps — auto-inject suggestedEnvVars", () => {
     )
     const fallback = envVars.find((v) => v.key === "NIXPACKS_PHP_FALLBACK_PATH")
     expect(fallback?.phase).toBe("build")
-    expect(await decryptSecret(fallback!.value_ciphertext, fallback!.nonce)).toBe(
-      "/index.php"
-    )
+    expect(
+      await decryptSecret(fallback!.value_ciphertext, fallback!.nonce)
+    ).toBe("/index.php")
     const installCmd = envVars.find((v) => v.key === "NIXPACKS_INSTALL_CMD")
     expect(installCmd?.phase).toBe("build")
     expect(
       await decryptSecret(installCmd!.value_ciphertext, installCmd!.nonce)
-    ).toContain(
-      "COMPOSER_ALLOW_SUPERUSER=1 composer install --no-interaction"
+    ).toContain("COMPOSER_ALLOW_SUPERUSER=1 composer install --no-interaction")
+    const appEnv = envVars.find((v) => v.key === "APP_ENV")
+    expect(appEnv?.phase).toBe("runtime")
+    expect(await decryptSecret(appEnv!.value_ciphertext, appEnv!.nonce)).toBe(
+      "prod"
     )
+  })
+
+  it("Symfony repo with compose.yaml: still injects Nixpacks PHP vars when build method is explicit", async () => {
+    using _spy = spyOn(
+      githubModule.ghProvider,
+      "fileExists"
+    ).mockImplementation(
+      async (_installId: string, _fullName: string, filePath: string) => {
+        return (
+          filePath === "composer.json" ||
+          filePath === "symfony.lock" ||
+          filePath === "compose.yaml"
+        )
+      }
+    )
+
+    const app = buildTestApp(db, fakeUser(userId, `u@t.com`))
+    const res = await app.request("/apps", {
+      method: "POST",
+      headers: { "content-type": "application/json" },
+      body: JSON.stringify({
+        name: "Symfony App With Compose",
+        projectId,
+        gitProvider: "github",
+        repoFullName: "owner/symfony-compose-repo",
+        branch: "main",
+        installationId: "123456",
+        buildMethod: "nixpacks",
+      }),
+    })
+
+    expect(res.status).toBe(201)
+    const { app: created } = (await res.json()) as { app: { id: string } }
+
+    const envVars = await db
+      .select()
+      .from(secrets)
+      .where(eq(secrets.app_id, created.id))
+    const phpRoot = envVars.find((v) => v.key === "NIXPACKS_PHP_ROOT_DIR")
+    const installCmd = envVars.find((v) => v.key === "NIXPACKS_INSTALL_CMD")
+    const appEnv = envVars.find((v) => v.key === "APP_ENV")
+
+    expect(phpRoot?.phase).toBe("build")
+    expect(await decryptSecret(phpRoot!.value_ciphertext, phpRoot!.nonce)).toBe(
+      "/app/public"
+    )
+    expect(installCmd?.phase).toBe("build")
+    expect(appEnv?.phase).toBe("runtime")
   })
 
   it("Laravel repo: injects runtime-safe defaults including APP_KEY", async () => {
@@ -1470,10 +1590,10 @@ describe.skipIf(skip)("POST /apps — auto-inject suggestedEnvVars", () => {
       .where(eq(secrets.app_id, created.id))
     const byKey = new Map(
       await Promise.all(
-        envVars.map(async (v) => [
-          v.key,
-          await decryptSecret(v.value_ciphertext, v.nonce),
-        ] as const)
+        envVars.map(
+          async (v) =>
+            [v.key, await decryptSecret(v.value_ciphertext, v.nonce)] as const
+        )
       )
     )
     expect(byKey.get("SESSION_DRIVER")).toBe("file")

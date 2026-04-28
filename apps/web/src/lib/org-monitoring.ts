@@ -9,11 +9,10 @@ import {
 } from "./api"
 import { useBackendUnavailable } from "./backend-status"
 import { useEventsSubscription } from "./events-provider"
-import type {
-  ApiError} from "./api";
+import { getContainerHealthSnapshot } from "./monitoring"
+import type { ApiError } from "./api"
 import type {
   ContainerSnapshot,
-  MonitoringEvent,
   MonitoringOverview,
 } from "@ploydok/shared"
 
@@ -93,7 +92,11 @@ export function usePingOrgContainer(orgSlug: string) {
 export function useOrgMonitoringEvents(
   onChange: (container: ContainerSnapshot) => void
 ): void {
-  useEventsSubscription<MonitoringEvent>("container.health", (monEv) => {
-    onChange(monEv.container)
-  })
+  useEventsSubscription<{ data?: Record<string, unknown> }>(
+    "container.health",
+    (monEv) => {
+      const snap = getContainerHealthSnapshot(monEv)
+      if (snap) onChange(snap)
+    }
+  )
 }

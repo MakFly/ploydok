@@ -14,7 +14,7 @@ labels: enhancement
 <!-- other approaches and why they don't work as well -->
 
 ## Scope
-- [ ] Fits current roadmap (see `docs/sprints/README.md`)
+- [ ] Fits current roadmap (see `project-docs/roadmap/README.md`)
 - [ ] Would require a new sprint / ADR
 
 ## Additional context

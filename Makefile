@@ -12,7 +12,7 @@ help:
 	@echo "  agent-restart  - Redémarre le container 'ploydok-agent' (utile après modif Rust)"
 	@echo "  agent-logs     - Tail logs du container 'ploydok-agent'"
 	@echo "  db-migrate     - Applique les migrations Postgres"
-	@echo "  db-reset       - Wipe Postgres + Redis + apply migrations (état fresh install, aucun user)"
+	@echo "  db-reset       - Wipe runtime app/db containers + Postgres + Redis + apply migrations"
 	@echo "  db-seed        - Seed dev (user dev@ploydok.local + backup code DEVD-EVDE-VDEV)"
 	@echo "  secrets-init   - Génère PLOYDOK_PG_PASSWORD + PLOYDOK_REDIS_PASSWORD dans .env.local"
 	@echo "  infra-up       - docker compose up (postgres + redis + caddy + buildkitd + registry + agent)"
@@ -41,6 +41,14 @@ db-migrate:
 	set -a; . apps/api/.env.local; set +a; bun run --cwd packages/db migrate
 
 db-reset:
+	@echo "[db-reset] removing runtime app/database containers..."
+	@containers=$$({ docker ps -aq --filter 'name=^/ploydok-app-'; docker ps -aq --filter 'name=^/ploydok-db-'; } | sort -u); \
+	if [ -n "$$containers" ]; then \
+	  docker rm -f $$containers >/dev/null; \
+	  echo "[db-reset] removed runtime containers: $$containers"; \
+	else \
+	  echo "[db-reset] no runtime containers to remove"; \
+	fi
 	@echo "[db-reset] dropping public + drizzle schemas..."
 	@docker compose --env-file apps/api/.env.local -f infra/docker-compose.yml exec -T postgres psql -U ploydok -d ploydok -v ON_ERROR_STOP=1 --quiet -c 'SET client_min_messages = warning; DROP SCHEMA IF EXISTS public CASCADE; DROP SCHEMA IF EXISTS drizzle CASCADE; CREATE SCHEMA public; GRANT ALL ON SCHEMA public TO ploydok; GRANT ALL ON SCHEMA public TO public;' >/dev/null
 	@echo "[db-reset] flushing redis..."
@@ -120,7 +128,7 @@ clean:
 	rm -rf apps/web/.vite apps/web/dist apps/api/dist .turbo */.turbo **/*/.turbo 2>/dev/null || true
 
 # Exécute les 11 specs Playwright DoD Sprint 3 contre l'infra réelle.
-# Régénère docs/sprints/sprint-3-DoD.md à la fin avec les statuts + mesures.
+# Régénère project-docs/roadmap/sprint-3-DoD.md à la fin avec les statuts + mesures.
 dod:
 	@echo "┌─ Pré-requis avant make dod ────────────────────────────────────┐"
 	@echo "│ 1. make infra-up       → postgres/redis/caddy/buildkit/registry/agent │"

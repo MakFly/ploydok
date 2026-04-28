@@ -141,7 +141,7 @@ Par app, activables indépendamment :
 - [x] 3 templates DB testés, volumes persistent après restart
   — `apps/api/src/databases/spawner.ts` templates Postgres 16 / Redis 7 / Mongo 7 ; volume `ploydok-db-<id>` nommé — commit `5131d6330` (W3)
 - [x] Auto-deploy webhook signé et vérifié
-  — livré Sprint 3.1.1 (commit `eee35db`) — référence dans `docs/sprints/sprint-3.1.1-webhook-autodeploy.md`
+  — livré Sprint 3.1.1 (commit `eee35db`) — référence dans `project-docs/roadmap/sprint-3.1.1-webhook-autodeploy.md`
 - [x] Backup + restore Postgres vérifié avec dataset réaliste (100 MB)
   — `apps/api/src/databases/backup.ts` + `restore.ts` ; tests `backup.test.ts` + `restore.test.ts` : 11/11 pass ; S3 multipart 4 MB ; chiffrement age client-side — commit `cff0991` (W6)
 - [x] Secrets jamais visibles en logs (grep `ploydok.log` après flow complet)

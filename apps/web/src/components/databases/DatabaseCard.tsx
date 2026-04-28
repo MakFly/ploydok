@@ -47,6 +47,8 @@ export function DatabaseCard({
     : `/databases/${database.id}`
 
   const kindLabel = KIND_LABELS[database.kind] ?? database.kind
+  const sourceLabel =
+    database.management_mode === "external" ? "external" : database.plan
   const endpoint = database.host
     ? `${database.host}:${database.port ?? "—"}`
     : "Endpoint pending"
@@ -63,7 +65,7 @@ export function DatabaseCard({
             {database.name}
           </p>
           <p className="mt-1 truncate text-xs text-muted-foreground">
-            {kindLabel} · {database.plan}
+            {kindLabel} · {sourceLabel}
           </p>
         </div>
         <Badge variant={STATUS_VARIANTS[database.status] ?? "outline"}>

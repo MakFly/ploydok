@@ -13,7 +13,7 @@
 //   - /auth/backup-codes/consume rejects invalid code
 //   - /auth/sessions/revoke-others works via DB helpers
 //
-// See docs/adr/0002-auth-design.md for rationale.
+// See project-docs/decisions/0002-auth-design.md for rationale.
 
 import { describe, it, expect, test } from "bun:test";
 

@@ -92,7 +92,7 @@ service Agent {
 - [ ] Caddy admin API non exposée publiquement (bind `127.0.0.1`)
 - [ ] Test e2e `spawn-nginx` vert en CI
 - [ ] Audit log tracé pour chaque RPC
-- [ ] Doc `docs/runbooks/agent.md` : comment debug, restart, renouveler certs
+- [ ] Doc `project-docs/operations/runbooks/agent.md` : comment debug, restart, renouveler certs
 
 ---
 

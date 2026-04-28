@@ -183,17 +183,7 @@ export async function refreshAdvisories(
     }
   }
 
-  if (activeMatchIds.size > 0) {
-    await db
-      .update(cve_matches)
-      .set({ fixed_at: new Date() })
-      .where(
-        and(
-          isNull(cve_matches.fixed_at),
-          notInArray(cve_matches.id, [...activeMatchIds])
-        )
-      )
-  }
+  await closeObsoleteMatches(db, activeMatchIds)
 
   return {
     manifests: manifestRows.length,
@@ -216,6 +206,15 @@ async function persistManifestSnapshots(
     snapshots: ManifestSnapshot[]
   }
 ): Promise<number> {
+  await db
+    .delete(app_manifests)
+    .where(
+      and(
+        eq(app_manifests.scope, params.scope),
+        eq(app_manifests.target_id, params.targetId)
+      )
+    )
+
   let count = 0
   for (const snapshot of params.snapshots) {
     const deps = snapshot.dependencies
@@ -239,6 +238,21 @@ async function persistManifestSnapshots(
     count += 1
   }
   return count
+}
+
+async function closeObsoleteMatches(
+  db: Db,
+  activeMatchIds: Set<string>
+): Promise<void> {
+  const where =
+    activeMatchIds.size > 0
+      ? and(
+          isNull(cve_matches.fixed_at),
+          notInArray(cve_matches.id, [...activeMatchIds])
+        )
+      : isNull(cve_matches.fixed_at)
+
+  await db.update(cve_matches).set({ fixed_at: new Date() }).where(where)
 }
 
 function normalizeDependencies(value: unknown): FoundDependency[] {

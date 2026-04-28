@@ -15,7 +15,7 @@
 //   DOCKER_HOST               Override Docker daemon endpoint
 
 use std::os::unix::fs::PermissionsExt;
-use std::path::Path;
+use std::path::{Path, PathBuf};
 use std::sync::Arc;
 
 use tokio::net::UnixListener;
@@ -26,6 +26,7 @@ use tracing::{info, warn};
 use ploydok_proto::agent::agent_server::AgentServer;
 
 mod audit;
+mod audit_signer;
 mod boot_guard;
 mod host_stats;
 mod pki;
@@ -33,9 +34,10 @@ mod service;
 mod socket_config;
 mod validator;
 
+use audit_signer::AuditSigner;
 use boot_guard::assert_insecure_safe_from_process_env;
 use service::AgentService;
-use socket_config::{ALLOWED_SOCKET_DIRS, validate_socket_path};
+use socket_config::{validate_socket_path, ALLOWED_SOCKET_DIRS};
 use validator::StrictValidator;
 
 const DEFAULT_SOCKET: &str = "/run/ploydok/agent.sock";
@@ -87,8 +89,26 @@ async fn main() -> anyhow::Result<()> {
     );
     let validator = Arc::new(validator);
 
+    // ── Audit signer ─────────────────────────────────────────────────────────
+    let audit_key_dir: PathBuf = std::env::var("PLOYDOK_AUDIT_KEY_DIR")
+        .map(PathBuf::from)
+        .unwrap_or_else(|_| {
+            // In dev (non-root), default to $HOME/.ploydok-dev/keys
+            // In prod (root), default to /var/lib/ploydok/keys
+            let is_root = unsafe { libc::geteuid() == 0 };
+            if is_root {
+                PathBuf::from("/var/lib/ploydok/keys")
+            } else {
+                let home = std::env::var("HOME").unwrap_or_else(|_| "/root".to_string());
+                PathBuf::from(home).join(".ploydok-dev/keys")
+            }
+        });
+
+    let audit_signer = AuditSigner::bootstrap(&audit_key_dir)?;
+    info!(key_dir = %audit_key_dir.display(), "audit signer bootstrapped");
+
     // ── gRPC service ─────────────────────────────────────────────────────────
-    let agent_service = AgentService::new(docker, validator);
+    let agent_service = AgentService::new(docker, validator, audit_signer);
     let svc = AgentServer::new(agent_service);
 
     // ── Unix socket listener ─────────────────────────────────────────────────
@@ -111,8 +131,7 @@ async fn main() -> anyhow::Result<()> {
     // Defense-in-depth: explicitly enforce mode 0o666 in case the umask was
     // ignored by an exotic FS. We log on failure rather than aborting — the
     // listener is bound, terminating now would leave a stale socket file.
-    if let Err(err) =
-        std::fs::set_permissions(socket_path, std::fs::Permissions::from_mode(0o666))
+    if let Err(err) = std::fs::set_permissions(socket_path, std::fs::Permissions::from_mode(0o666))
     {
         warn!(?err, socket = %socket_path.display(),
             "failed to chmod 0o666 on socket; non-root host clients may fail to connect");

@@ -2,7 +2,13 @@
 import { rm } from "node:fs/promises"
 import path from "node:path"
 import { Worker, UnrecoverableError } from "bullmq"
-import { createRedis, apps, app_delete_jobs, system_jobs } from "@ploydok/db"
+import {
+  createRedis,
+  apps,
+  app_delete_jobs,
+  builds,
+  system_jobs,
+} from "@ploydok/db"
 import type { Db } from "@ploydok/db"
 import { eq } from "drizzle-orm"
 import { resolveAppOwner } from "@ploydok/db/queries"
@@ -55,6 +61,10 @@ import {
   startCleanupPreviewsCron,
   stopCleanupPreviewsCron,
 } from "./jobs/cleanup-previews"
+import {
+  startAuditAnchorCron,
+  stopAuditAnchorCron,
+} from "./jobs/audit-anchor"
 import { handleSyncProviderRepos } from "./handlers/sync-provider-repos"
 import type { SyncProviderReposPayload } from "./handlers/sync-provider-repos"
 import { handlePreviewDeploy } from "./handlers/preview-deploy"
@@ -65,8 +75,12 @@ import {
   startScheduledJobsRunner,
   stopScheduledJobsRunner,
 } from "./jobs/scheduled-jobs-runner"
-import { refreshAdvisories } from "../advisories/service"
+import {
+  capturePlatformManifests,
+  refreshAdvisories,
+} from "../advisories/service"
 import { startCveRefreshCron, stopCveRefreshCron } from "./jobs/cve-refresh"
+import { withAppDeployLock } from "./app-deploy-lock"
 
 // ---------------------------------------------------------------------------
 // Types
@@ -80,6 +94,28 @@ export interface WorkerHandle {
 interface GcRegistryPayload {
   id?: string
   data: unknown
+}
+
+async function resolveDeployJobAppId(
+  db: Db,
+  data: unknown
+): Promise<string | null> {
+  const payload = typeof data === "string" ? JSON.parse(data) : data
+
+  if (!payload || typeof payload !== "object") return null
+
+  const buildId = (payload as { buildId?: unknown }).buildId
+  if (typeof buildId === "string") {
+    const rows = await db
+      .select({ app_id: builds.app_id })
+      .from(builds)
+      .where(eq(builds.id, buildId))
+      .limit(1)
+    return rows[0]?.app_id ?? null
+  }
+
+  const appId = (payload as { appId?: unknown }).appId
+  return typeof appId === "string" ? appId : null
 }
 
 export async function handleGcRegistryJob(
@@ -175,9 +211,8 @@ export async function handleGcRegistryJob(
 /**
  * Start BullMQ workers for all job types.
  *
- * Each queue maps 1-to-1 to a handler. Concurrency is 1 per queue so that
- * deployments remain sequential per-app (BullMQ job options can throttle
- * further if needed).
+ * Each queue maps 1-to-1 to a handler. Deploy jobs can run concurrently for
+ * different apps; an in-process per-app lock keeps same-app deploys sequential.
  *
  * Pass `opts.signal` to stop via AbortSignal (e.g. from a test or SIGTERM).
  */
@@ -187,6 +222,7 @@ export function startWorker(
 ): WorkerHandle {
   const connection = createRedis(env.REDIS_URL)
   const agent = opts?.agent ?? getSharedAgent()
+  const deployConcurrency = env.PLOYDOK_DEPLOY_CONCURRENCY
 
   const workers: Worker[] = [
     new Worker(
@@ -199,12 +235,19 @@ export function startWorker(
           "deploy job started"
         )
         try {
-          await handleDeploy(db, {
-            id: job.id ?? "",
-            payload: JSON.stringify(job.data),
-            attempts: attempt,
-            max_attempts: maxAttempts,
-          })
+          const runDeploy = () =>
+            handleDeploy(db, {
+              id: job.id ?? "",
+              payload: JSON.stringify(job.data),
+              attempts: attempt,
+              max_attempts: maxAttempts,
+            })
+          const appId = await resolveDeployJobAppId(db, job.data)
+          if (appId) {
+            await withAppDeployLock(appId, runDeploy)
+          } else {
+            await runDeploy()
+          }
         } catch (err) {
           if (err instanceof FatalDeployError) {
             logger.error(
@@ -220,7 +263,7 @@ export function startWorker(
           throw err
         }
       },
-      { connection, concurrency: 1 }
+      { connection, concurrency: deployConcurrency }
     ),
 
     new Worker(
@@ -371,6 +414,7 @@ export function startWorker(
       "cve.refresh",
       async (job) => {
         logger.info({ jobId: job.id, data: job.data }, "cve.refresh job started")
+        await capturePlatformManifests(db)
         const result = await refreshAdvisories(db, connection)
         logger.info({ jobId: job.id, ...result }, "cve.refresh done")
       },
@@ -394,6 +438,7 @@ export function startWorker(
   startReapStuckBuildsCron(db)
   startCleanupPreviewsCron(db)
   startAuditRetentionCron({ db })
+  startAuditAnchorCron(db, agent)
   startScheduledJobsRunner(db, agent)
   startCveRefreshCron(db)
 
@@ -410,6 +455,7 @@ export function startWorker(
     stopReapStuckBuildsCron()
     stopCleanupPreviewsCron()
     stopAuditRetentionCron()
+    stopAuditAnchorCron()
     stopScheduledJobsRunner()
     stopCveRefreshCron()
     Promise.all(workers.map((w) => w.close())).catch((err) => {

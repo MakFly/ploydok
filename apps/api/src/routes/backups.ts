@@ -22,6 +22,7 @@ import { runVolumeBackupOnce } from "../backups/volume"
 import { runRestore } from "../databases/restore"
 import { childLogger } from "../logger"
 import type { AuthUser } from "../auth/middleware"
+import { requireAnyScope, requireScope } from "../auth/require-scope"
 import { deleteBackupArtifact } from "../backups/storage"
 
 const log = childLogger("backups.routes")
@@ -30,6 +31,15 @@ type AppEnv = { Variables: { user?: AuthUser } }
 
 function getUser(c: { get: (k: string) => unknown }): AuthUser {
   return c.get("user") as AuthUser
+}
+
+function param(
+  c: { req: { param: (key: string) => string | undefined } },
+  key: string
+): string {
+  const value = c.req.param(key)
+  if (!value) throw new Error(`Missing route parameter: ${key}`)
+  return value
 }
 
 // ---------------------------------------------------------------------------
@@ -103,11 +113,16 @@ async function getAppVolumeForUser(
 export function createBackupsRouter(db: Db): Hono<any, any, any> {
   const router = new Hono<AppEnv>()
   const totpMiddleware = requireTotpVerified(db)
+  const appBackupsRead = requireScope("apps:read")
+  const appBackupsWrite = requireScope("apps:write")
+  const databaseBackupsRead = requireScope("databases:read")
+  const databaseBackupsWrite = requireScope("databases:write")
+  const deleteBackupScope = requireAnyScope(["apps:write", "databases:write"])
 
   // GET /databases/:id/backups
-  router.get("/databases/:id/backups", async (c) => {
+  router.get("/databases/:id/backups", databaseBackupsRead, async (c) => {
     const user = getUser(c)
-    const dbId = c.req.param("id")
+    const dbId = param(c, "id")
 
     const dbRow = await getDbForUser(db, dbId, user.id)
     if (!dbRow)
@@ -127,10 +142,10 @@ export function createBackupsRouter(db: Db): Hono<any, any, any> {
   })
 
   // GET /apps/:appId/volumes/:volumeId/backups
-  router.get("/apps/:appId/volumes/:volumeId/backups", async (c) => {
+  router.get("/apps/:appId/volumes/:volumeId/backups", appBackupsRead, async (c) => {
     const user = getUser(c)
-    const appId = c.req.param("appId")
-    const volumeId = c.req.param("volumeId")
+    const appId = param(c, "appId")
+    const volumeId = param(c, "volumeId")
 
     const volume = await getAppVolumeForUser(db, appId, volumeId, user.id)
     if (!volume) {
@@ -158,9 +173,9 @@ export function createBackupsRouter(db: Db): Hono<any, any, any> {
   })
 
   // GET /databases/:id/backup-config
-  router.get("/databases/:id/backup-config", async (c) => {
+  router.get("/databases/:id/backup-config", databaseBackupsRead, async (c) => {
     const user = getUser(c)
-    const dbId = c.req.param("id")
+    const dbId = param(c, "id")
 
     const dbRow = await getDbForUser(db, dbId, user.id)
     if (!dbRow)
@@ -182,40 +197,44 @@ export function createBackupsRouter(db: Db): Hono<any, any, any> {
   })
 
   // GET /apps/:appId/volumes/:volumeId/backup-config
-  router.get("/apps/:appId/volumes/:volumeId/backup-config", async (c) => {
-    const user = getUser(c)
-    const appId = c.req.param("appId")
-    const volumeId = c.req.param("volumeId")
+  router.get(
+    "/apps/:appId/volumes/:volumeId/backup-config",
+    appBackupsRead,
+    async (c) => {
+      const user = getUser(c)
+      const appId = param(c, "appId")
+      const volumeId = param(c, "volumeId")
 
-    const volume = await getAppVolumeForUser(db, appId, volumeId, user.id)
-    if (!volume) {
-      return c.json(
-        { error: { code: "NOT_FOUND", message: "App volume not found" } },
-        404
-      )
-    }
-
-    const configRows = await db
-      .select()
-      .from(volume_backup_configs)
-      .where(
-        and(
-          eq(volume_backup_configs.app_id, appId),
-          eq(volume_backup_configs.volume_id, volumeId)
+      const volume = await getAppVolumeForUser(db, appId, volumeId, user.id)
+      if (!volume) {
+        return c.json(
+          { error: { code: "NOT_FOUND", message: "App volume not found" } },
+          404
         )
-      )
-      .limit(1)
+      }
 
-    if (!configRows[0]) {
-      return c.json({ config: null })
+      const configRows = await db
+        .select()
+        .from(volume_backup_configs)
+        .where(
+          and(
+            eq(volume_backup_configs.app_id, appId),
+            eq(volume_backup_configs.volume_id, volumeId)
+          )
+        )
+        .limit(1)
+
+      if (!configRows[0]) {
+        return c.json({ config: null })
+      }
+      return c.json({ config: serializeVolumeConfig(configRows[0]!) })
     }
-    return c.json({ config: serializeVolumeConfig(configRows[0]!) })
-  })
+  )
 
   // PUT /databases/:id/backup-config
-  router.put("/databases/:id/backup-config", async (c) => {
+  router.put("/databases/:id/backup-config", databaseBackupsWrite, async (c) => {
     const user = getUser(c)
-    const dbId = c.req.param("id")
+    const dbId = param(c, "id")
 
     const dbRow = await getDbForUser(db, dbId, user.id)
     if (!dbRow)
@@ -301,104 +320,108 @@ export function createBackupsRouter(db: Db): Hono<any, any, any> {
   })
 
   // PUT /apps/:appId/volumes/:volumeId/backup-config
-  router.put("/apps/:appId/volumes/:volumeId/backup-config", async (c) => {
-    const user = getUser(c)
-    const appId = c.req.param("appId")
-    const volumeId = c.req.param("volumeId")
+  router.put(
+    "/apps/:appId/volumes/:volumeId/backup-config",
+    appBackupsWrite,
+    async (c) => {
+      const user = getUser(c)
+      const appId = param(c, "appId")
+      const volumeId = param(c, "volumeId")
 
-    const volume = await getAppVolumeForUser(db, appId, volumeId, user.id)
-    if (!volume) {
-      return c.json(
-        { error: { code: "NOT_FOUND", message: "App volume not found" } },
-        404
-      )
-    }
-
-    const body = await c.req.json().catch(() => null)
-    const parsed = BackupConfigBody.safeParse(body)
-    if (!parsed.success) {
-      return c.json(
-        { error: { code: "VALIDATION_ERROR", message: parsed.error.message } },
-        400
-      )
-    }
-
-    const data = parsed.data
-    const existing = await db
-      .select()
-      .from(volume_backup_configs)
-      .where(
-        and(
-          eq(volume_backup_configs.app_id, appId),
-          eq(volume_backup_configs.volume_id, volumeId)
+      const volume = await getAppVolumeForUser(db, appId, volumeId, user.id)
+      if (!volume) {
+        return c.json(
+          { error: { code: "NOT_FOUND", message: "App volume not found" } },
+          404
         )
-      )
-      .limit(1)
+      }
 
-    const updateFields = {
-      ...(data.destinationKind !== undefined && {
-        destination_kind: data.destinationKind,
-      }),
-      ...(data.s3Endpoint !== undefined && { s3_endpoint: data.s3Endpoint }),
-      ...(data.s3Bucket !== undefined && { s3_bucket: data.s3Bucket }),
-      ...(data.s3Prefix !== undefined && { s3_prefix: data.s3Prefix }),
-      ...(data.s3Region !== undefined && { s3_region: data.s3Region }),
-      ...(data.s3CredentialsSecretId !== undefined && {
-        s3_credentials_secret_id: data.s3CredentialsSecretId,
-      }),
-      ...(data.scheduleCron !== undefined && {
-        schedule_cron: data.scheduleCron,
-      }),
-      ...(data.retentionDays !== undefined && {
-        retention_days: data.retentionDays,
-      }),
-      ...(data.ageRecipientPublicKey !== undefined && {
-        age_recipient_public_key: data.ageRecipientPublicKey,
-      }),
-      ...(data.enabled !== undefined && { enabled: data.enabled }),
-    }
+      const body = await c.req.json().catch(() => null)
+      const parsed = BackupConfigBody.safeParse(body)
+      if (!parsed.success) {
+        return c.json(
+          { error: { code: "VALIDATION_ERROR", message: parsed.error.message } },
+          400
+        )
+      }
 
-    if (existing[0]) {
-      await db
-        .update(volume_backup_configs)
-        .set(updateFields)
-        .where(eq(volume_backup_configs.id, existing[0].id))
-      const updated = await db
+      const data = parsed.data
+      const existing = await db
         .select()
         .from(volume_backup_configs)
-        .where(eq(volume_backup_configs.id, existing[0].id))
+        .where(
+          and(
+            eq(volume_backup_configs.app_id, appId),
+            eq(volume_backup_configs.volume_id, volumeId)
+          )
+        )
         .limit(1)
-      return c.json({ config: serializeVolumeConfig(updated[0]!) })
-    }
 
-    const id = nanoid()
-    await db.insert(volume_backup_configs).values({
-      id,
-      app_id: appId,
-      volume_id: volumeId,
-      destination_kind: data.destinationKind ?? "local",
-      s3_endpoint: data.s3Endpoint,
-      s3_bucket: data.s3Bucket,
-      s3_prefix: data.s3Prefix,
-      s3_region: data.s3Region,
-      s3_credentials_secret_id: data.s3CredentialsSecretId,
-      schedule_cron: data.scheduleCron ?? "0 3 * * *",
-      retention_days: data.retentionDays ?? 7,
-      age_recipient_public_key: data.ageRecipientPublicKey ?? null,
-      enabled: data.enabled ?? true,
-    })
-    const created = await db
-      .select()
-      .from(volume_backup_configs)
-      .where(eq(volume_backup_configs.id, id))
-      .limit(1)
-    return c.json({ config: serializeVolumeConfig(created[0]!) }, 201)
-  })
+      const updateFields = {
+        ...(data.destinationKind !== undefined && {
+          destination_kind: data.destinationKind,
+        }),
+        ...(data.s3Endpoint !== undefined && { s3_endpoint: data.s3Endpoint }),
+        ...(data.s3Bucket !== undefined && { s3_bucket: data.s3Bucket }),
+        ...(data.s3Prefix !== undefined && { s3_prefix: data.s3Prefix }),
+        ...(data.s3Region !== undefined && { s3_region: data.s3Region }),
+        ...(data.s3CredentialsSecretId !== undefined && {
+          s3_credentials_secret_id: data.s3CredentialsSecretId,
+        }),
+        ...(data.scheduleCron !== undefined && {
+          schedule_cron: data.scheduleCron,
+        }),
+        ...(data.retentionDays !== undefined && {
+          retention_days: data.retentionDays,
+        }),
+        ...(data.ageRecipientPublicKey !== undefined && {
+          age_recipient_public_key: data.ageRecipientPublicKey,
+        }),
+        ...(data.enabled !== undefined && { enabled: data.enabled }),
+      }
+
+      if (existing[0]) {
+        await db
+          .update(volume_backup_configs)
+          .set(updateFields)
+          .where(eq(volume_backup_configs.id, existing[0].id))
+        const updated = await db
+          .select()
+          .from(volume_backup_configs)
+          .where(eq(volume_backup_configs.id, existing[0].id))
+          .limit(1)
+        return c.json({ config: serializeVolumeConfig(updated[0]!) })
+      }
+
+      const id = nanoid()
+      await db.insert(volume_backup_configs).values({
+        id,
+        app_id: appId,
+        volume_id: volumeId,
+        destination_kind: data.destinationKind ?? "local",
+        s3_endpoint: data.s3Endpoint,
+        s3_bucket: data.s3Bucket,
+        s3_prefix: data.s3Prefix,
+        s3_region: data.s3Region,
+        s3_credentials_secret_id: data.s3CredentialsSecretId,
+        schedule_cron: data.scheduleCron ?? "0 3 * * *",
+        retention_days: data.retentionDays ?? 7,
+        age_recipient_public_key: data.ageRecipientPublicKey ?? null,
+        enabled: data.enabled ?? true,
+      })
+      const created = await db
+        .select()
+        .from(volume_backup_configs)
+        .where(eq(volume_backup_configs.id, id))
+        .limit(1)
+      return c.json({ config: serializeVolumeConfig(created[0]!) }, 201)
+    }
+  )
 
   // POST /databases/:id/backup-now
-  router.post("/databases/:id/backup-now", async (c) => {
+  router.post("/databases/:id/backup-now", databaseBackupsWrite, async (c) => {
     const user = getUser(c)
-    const dbId = c.req.param("id")
+    const dbId = param(c, "id")
 
     const dbRow = await getDbForUser(db, dbId, user.id)
     if (!dbRow)
@@ -410,7 +433,9 @@ export function createBackupsRouter(db: Db): Hono<any, any, any> {
     const enabledConfig = await db
       .select({ id: backup_configs.id })
       .from(backup_configs)
-      .where(and(eq(backup_configs.database_id, dbId), eq(backup_configs.enabled, true)))
+      .where(
+        and(eq(backup_configs.database_id, dbId), eq(backup_configs.enabled, true))
+      )
       .limit(1)
     if (!enabledConfig[0]) {
       return c.json(
@@ -427,124 +452,144 @@ export function createBackupsRouter(db: Db): Hono<any, any, any> {
 
     log.info({ databaseId: dbId, userId: user.id }, "manual backup requested")
 
-    // Run asynchronously — return immediately with the backup id
-    const backupId = nanoid()
-
-    void (async () => {
-      try {
-        await runBackupOnce(db, dbId)
-      } catch (err) {
-        log.error({ err, databaseId: dbId }, "manual backup failed")
-      }
-    })()
-
-    return c.json({ message: "Backup enqueued", backupId }, 202)
+    const result = await runBackupOnce(db, dbId)
+    if (result.status === "failed") {
+      return c.json({ message: "Backup failed", ...result }, 500)
+    }
+    return c.json({ message: "Backup completed", ...result }, 200)
   })
 
   // POST /apps/:appId/volumes/:volumeId/backup-now
-  router.post("/apps/:appId/volumes/:volumeId/backup-now", async (c) => {
-    const user = getUser(c)
-    const appId = c.req.param("appId")
-    const volumeId = c.req.param("volumeId")
+  router.post(
+    "/apps/:appId/volumes/:volumeId/backup-now",
+    appBackupsWrite,
+    async (c) => {
+      const user = getUser(c)
+      const appId = param(c, "appId")
+      const volumeId = param(c, "volumeId")
 
-    const volume = await getAppVolumeForUser(db, appId, volumeId, user.id)
-    if (!volume) {
-      return c.json(
-        { error: { code: "NOT_FOUND", message: "App volume not found" } },
-        404
-      )
-    }
-
-    log.info(
-      { appId, volumeId, volumeName: volume.name, userId: user.id },
-      "manual volume backup requested"
-    )
-
-    const backupId = nanoid()
-
-    void (async () => {
-      try {
-        await runVolumeBackupOnce(db, appId, volumeId)
-      } catch (err) {
-        log.error({ err, appId, volumeId }, "manual volume backup failed")
+      const volume = await getAppVolumeForUser(db, appId, volumeId, user.id)
+      if (!volume) {
+        return c.json(
+          { error: { code: "NOT_FOUND", message: "App volume not found" } },
+          404
+        )
       }
-    })()
 
-    return c.json({ message: "Backup enqueued", backupId }, 202)
-  })
-
-  // POST /databases/:id/restore — TOTP required
-  router.post("/databases/:id/restore", totpMiddleware, async (c) => {
-    const user = getUser(c)
-    const dbId = c.req.param("id")
-
-    const dbRow = await getDbForUser(db, dbId!, user.id)
-    if (!dbRow)
-      return c.json(
-        { error: { code: "NOT_FOUND", message: "Database not found" } },
-        404
+      log.info(
+        { appId, volumeId, volumeName: volume.name, userId: user.id },
+        "manual volume backup requested"
       )
 
-    const body = await c.req.json().catch(() => null)
-    const parsed = RestoreBody.safeParse(body)
-    if (!parsed.success) {
-      return c.json(
-        { error: { code: "VALIDATION_ERROR", message: parsed.error.message } },
-        400
-      )
-    }
-
-    const { backupId, ageIdentity, confirm } = parsed.data
-
-    // Challenge: user must type "restore <db_name>"
-    const expected = `restore ${dbRow.name}`
-    if (confirm !== expected) {
-      return c.json(
-        {
-          error: {
-            code: "CONFIRM_MISMATCH",
-            message: `Type exactly "${expected}" to confirm restore`,
-          },
-        },
-        400
-      )
-    }
-
-    log.warn(
-      { databaseId: dbId, backupId, userId: user.id },
-      "restore initiated"
-    )
-
-    try {
-      const result = await runRestore(db, {
-        backupId,
-        ...(ageIdentity ? { ageIdentity } : {}),
-      })
-      if (!result.ok) {
+      const enabledConfig = await db
+        .select({ id: volume_backup_configs.id })
+        .from(volume_backup_configs)
+        .where(
+          and(
+            eq(volume_backup_configs.app_id, appId),
+            eq(volume_backup_configs.volume_id, volumeId),
+            eq(volume_backup_configs.enabled, true)
+          )
+        )
+        .limit(1)
+      if (!enabledConfig[0]) {
         return c.json(
           {
             error: {
-              code: "RESTORE_FAILED",
-              message: result.error ?? "restore failed",
+              code: "BACKUP_NOT_CONFIGURED",
+              message:
+                "No enabled backup config for this app volume. Configure a destination (S3 or local) and enable backups before running one.",
             },
           },
+          400
+        )
+      }
+
+      const result = await runVolumeBackupOnce(db, appId, volumeId)
+      if (result.status === "failed") {
+        return c.json({ message: "Backup failed", ...result }, 500)
+      }
+      return c.json({ message: "Backup completed", ...result }, 200)
+    }
+  )
+
+  // POST /databases/:id/restore — TOTP required
+  router.post(
+    "/databases/:id/restore",
+    databaseBackupsWrite,
+    totpMiddleware,
+    async (c) => {
+      const user = getUser(c)
+      const dbId = param(c, "id")
+
+      const dbRow = await getDbForUser(db, dbId, user.id)
+      if (!dbRow)
+        return c.json(
+          { error: { code: "NOT_FOUND", message: "Database not found" } },
+          404
+        )
+
+      const body = await c.req.json().catch(() => null)
+      const parsed = RestoreBody.safeParse(body)
+      if (!parsed.success) {
+        return c.json(
+          { error: { code: "VALIDATION_ERROR", message: parsed.error.message } },
+          400
+        )
+      }
+
+      const { backupId, ageIdentity, confirm } = parsed.data
+
+      // Challenge: user must type "restore <db_name>"
+      const expected = `restore ${dbRow.name}`
+      if (confirm !== expected) {
+        return c.json(
+          {
+            error: {
+              code: "CONFIRM_MISMATCH",
+              message: `Type exactly "${expected}" to confirm restore`,
+            },
+          },
+          400
+        )
+      }
+
+      log.warn(
+        { databaseId: dbId, backupId, userId: user.id },
+        "restore initiated"
+      )
+
+      try {
+        const result = await runRestore(db, {
+          backupId,
+          ...(ageIdentity ? { ageIdentity } : {}),
+        })
+        if (!result.ok) {
+          return c.json(
+            {
+              error: {
+                code: "RESTORE_FAILED",
+                message: result.error ?? "restore failed",
+              },
+            },
+            500
+          )
+        }
+        return c.json({ ok: true })
+      } catch (err) {
+        log.error({ err, databaseId: dbId, backupId }, "restore error")
+        return c.json(
+          { error: { code: "RESTORE_FAILED", message: "Restore failed" } },
           500
         )
       }
-      return c.json({ ok: true })
-    } catch (err) {
-      log.error({ err, databaseId: dbId, backupId }, "restore error")
-      return c.json(
-        { error: { code: "RESTORE_FAILED", message: "Restore failed" } },
-        500
-      )
     }
-  })
+  )
 
   // DELETE /backups/:backupId
-  router.delete("/backups/:backupId", async (c) => {
+  router.delete("/backups/:backupId", deleteBackupScope, async (c) => {
     const user = getUser(c)
-    const backupId = c.req.param("backupId")
+    const backupId = param(c, "backupId")
 
     // Load backup and verify ownership (owner-only for delete)
     const backupRows = await db

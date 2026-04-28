@@ -15,10 +15,9 @@ import {
 } from "../../../../../components/layout/AppShell"
 import { AppStatusBadge } from "../../../../../components/apps/AppStatusBadge"
 import {
-
   resolveAppHealth,
   resolveRuntimeAppStatus,
-  selectAppSnapshot
+  selectAppSnapshot,
 } from "../../../../../lib/app-runtime"
 import { useApps } from "../../../../../lib/apps"
 import { useGitHubAppConfig } from "../../../../../lib/github"
@@ -28,7 +27,7 @@ import {
   useCurrentOrganization,
   useCurrentOrganizationSlug,
 } from "../../../../../lib/organizations"
-import type {AppHealth} from "../../../../../lib/app-runtime";
+import type { AppHealth } from "../../../../../lib/app-runtime"
 import type { AppListItem } from "../../../../../lib/apps"
 
 function AppsPage(): React.JSX.Element {
@@ -122,15 +121,9 @@ function AppCard({
   }
   currentOrgSlug: string | null
 }): React.JSX.Element {
-  return (
-    <Link
-      to={
-        (currentOrgSlug
-          ? organizationPath(currentOrgSlug, `apps/${app.id}/settings`)
-          : `/apps/${app.id}/settings`) as never
-      }
-      className="group rounded-lg border border-border bg-card p-4 transition-colors hover:border-foreground/20 hover:bg-accent/30"
-    >
+  const isDeleting = app.status === "deleting"
+  const content = (
+    <>
       <div className="flex items-start justify-between gap-3">
         <div className="min-w-0">
           <p className="truncate text-sm font-semibold text-foreground">
@@ -155,9 +148,44 @@ function AppCard({
       </div>
 
       <div className="mt-4 flex items-center justify-between border-t border-border pt-4">
-        <span className="text-xs text-muted-foreground">Open deployment</span>
-        <RiArrowRightUpLine className="size-4 text-muted-foreground transition-transform group-hover:translate-x-0.5 group-hover:-translate-y-0.5" />
+        <span className="text-xs text-muted-foreground">
+          {isDeleting ? "Deletion in progress" : "Open deployment"}
+        </span>
+        <RiArrowRightUpLine
+          className={[
+            "size-4 text-muted-foreground transition-transform",
+            isDeleting
+              ? "opacity-40"
+              : "group-hover:translate-x-0.5 group-hover:-translate-y-0.5",
+          ]
+            .filter(Boolean)
+            .join(" ")}
+        />
       </div>
+    </>
+  )
+
+  if (isDeleting) {
+    return (
+      <div
+        className="cursor-not-allowed rounded-lg border border-border bg-muted/30 p-4 opacity-60"
+        aria-disabled="true"
+      >
+        {content}
+      </div>
+    )
+  }
+
+  return (
+    <Link
+      to={
+        (currentOrgSlug
+          ? organizationPath(currentOrgSlug, `apps/${app.id}/settings`)
+          : `/apps/${app.id}/settings`) as never
+      }
+      className="group rounded-lg border border-border bg-card p-4 transition-colors hover:border-foreground/20 hover:bg-accent/30"
+    >
+      {content}
     </Link>
   )
 }

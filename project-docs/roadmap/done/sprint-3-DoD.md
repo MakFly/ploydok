@@ -21,4 +21,4 @@
 ## Notes
 
 Le détail d'implémentation du sprint est conservé dans
-`docs/sprints/sprint-3-deploy-from-git.md`.
+`project-docs/roadmap/sprint-3-deploy-from-git.md`.

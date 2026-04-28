@@ -39,7 +39,7 @@ ploydok/
 ├── agent/
 │   └── ploydok-cli/      # Rust CLI (admin-recovery, more soon)
 ├── scripts/              # check-spdx.ts, tooling
-└── docs/                 # PRD, sprint roadmap, ADRs
+└── project-docs/        # PRD, roadmap, decisions, operations docs
 ```
 
 ## Scripts
@@ -77,4 +77,4 @@ See [CONTRIBUTING.md](./CONTRIBUTING.md) — DCO sign-off required (`git commit 
 
 ## Roadmap
 
-See [`docs/sprints/README.md`](./docs/sprints/README.md). 7 sprints to v1.0.
+See [`project-docs/roadmap/README.md`](./project-docs/roadmap/README.md). 7 sprints to v1.0.

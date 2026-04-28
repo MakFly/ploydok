@@ -20,38 +20,75 @@ export interface LogLine {
   stream?: "stdout" | "stderr"
 }
 
-export type LogLevel = "all" | "info" | "warn" | "error"
+export type LogLevel = "all" | "debug" | "info" | "warn" | "error"
+export type LogSeverity = Exclude<LogLevel, "all">
 
 // ---------------------------------------------------------------------------
 // Level detection — pure helper, exported for tests
 // ---------------------------------------------------------------------------
 
+const EXPLICIT_LEVEL_RE =
+  /^(?:PHP\s+)?\[(debug|info|notice|warn|warning|error|critical|alert|emergency)\]/i
+
 const ERROR_PATTERNS = [
   /\[ERROR\]/i,
+  /\[CRITICAL\]/i,
+  /\[ALERT\]/i,
+  /\[EMERGENCY\]/i,
   /ERROR:/i,
+  /CRITICAL:/i,
   /\bfatal\b/i,
   /\bpanic\b/i,
   // "err:" as a word (e.g. "read err: connection reset") — no trailing \b since ":" is non-word
   /\berr:/i,
-  /\b(error|fatal)\b/i,
+  /\b(error|fatal|critical)\b/i,
 ]
 
 const WARN_PATTERNS = [/\[WARN\]/i, /WARN:/i, /\bwarn(ing)?\b/i]
 
+const DEBUG_PATTERNS = [/\[DEBUG\]/i, /DEBUG:/i, /\bdebug\b/i]
+
 const INFO_PATTERNS = [/\[INFO\]/i, /INFO:/i, /\binfo\b/i]
+
+function detectExplicitLevel(text: string): LogSeverity | null {
+  const match = EXPLICIT_LEVEL_RE.exec(text.trim())
+  const marker = match?.[1]?.toLowerCase()
+  switch (marker) {
+    case "debug":
+      return "debug"
+    case "warn":
+    case "warning":
+      return "warn"
+    case "error":
+    case "critical":
+    case "alert":
+    case "emergency":
+      return "error"
+    case "info":
+    case "notice":
+      return "info"
+    default:
+      return null
+  }
+}
 
 /**
  * Detects the log level of a line based on textual heuristics.
- * Returns "error" | "warn" | "info" (falls back to "info" for unknown lines).
+ * Explicit level markers win over message text; unknown lines fall back to info.
  */
-export function detectLevel(text: string): "error" | "warn" | "info" {
+export function detectLevel(text: string): LogSeverity {
+  const explicitLevel = detectExplicitLevel(text)
+  if (explicitLevel) return explicitLevel
+
   for (const re of ERROR_PATTERNS) {
     if (re.test(text)) return "error"
   }
   for (const re of WARN_PATTERNS) {
     if (re.test(text)) return "warn"
   }
-  // Default: treat as info (includes stdout, debug, trace, etc.)
+  for (const re of DEBUG_PATTERNS) {
+    if (re.test(text)) return "debug"
+  }
   for (const re of INFO_PATTERNS) {
     if (re.test(text)) return "info"
   }
@@ -87,7 +124,21 @@ export function filterBySearch(
 // Parsing helper — attempts JSON {t, line} envelope; falls back to raw text
 // ---------------------------------------------------------------------------
 
-function parseLine(raw: string, fallbackT: number): LogLine & { _raw: string } {
+type ParsedLogLine = LogLine & { _raw: string }
+
+interface FastCgiChunk {
+  requestId: string | null
+  payload: string
+  complete: boolean
+}
+
+interface PendingFastCgiChunk {
+  requestId: string | null
+  envelope: ParsedLogLine
+  payload: string
+}
+
+function parseLineEnvelope(raw: string, fallbackT: number): ParsedLogLine {
   if (raw.startsWith("{")) {
     try {
       const parsed: unknown = JSON.parse(raw)
@@ -98,11 +149,10 @@ function parseLine(raw: string, fallbackT: number): LogLine & { _raw: string } {
         typeof (parsed as Record<string, unknown>)["line"] === "string"
       ) {
         const obj = parsed as Record<string, unknown>
-        const t =
-          typeof obj["t"] === "number" ? (obj["t"]) : fallbackT
+        const t = typeof obj["t"] === "number" ? obj["t"] : fallbackT
         const stream =
           obj["stream"] === "stdout" || obj["stream"] === "stderr"
-            ? (obj["stream"])
+            ? obj["stream"]
             : undefined
         return { id: 0, text: obj["line"] as string, t, stream, _raw: raw }
       }
@@ -111,6 +161,155 @@ function parseLine(raw: string, fallbackT: number): LogLine & { _raw: string } {
     }
   }
   return { id: 0, text: raw, t: fallbackT, _raw: raw }
+}
+
+const FASTCGI_STDERR_MARKER = 'FastCGI sent in stderr: "'
+const FASTCGI_STDERR_SUFFIX = '" while '
+const PHP_MESSAGE_SPLIT_RE = /;\s*PHP message:\s*/g
+
+function parseFastCgiChunk(text: string): FastCgiChunk | null {
+  const markerIndex = text.indexOf(FASTCGI_STDERR_MARKER)
+  if (markerIndex === -1) return null
+
+  const payloadStart = markerIndex + FASTCGI_STDERR_MARKER.length
+  const suffixIndex = text.lastIndexOf(FASTCGI_STDERR_SUFFIX)
+  const complete = suffixIndex > payloadStart
+  const payloadEnd = complete ? suffixIndex : text.length
+  const payload = text.slice(payloadStart, payloadEnd)
+
+  if (payload.trim().length === 0) return null
+
+  const requestMatch = /\*(\d+)\s+$/.exec(text.slice(0, markerIndex))
+  return {
+    requestId: requestMatch?.[1] ?? null,
+    payload,
+    complete,
+  }
+}
+
+function splitPhpMessages(
+  text: string,
+  options?: { allowLeadingText?: boolean }
+): Array<string> | null {
+  const payloadText = text.trim()
+  if (
+    !payloadText.includes("PHP message:") ||
+    (!options?.allowLeadingText && !payloadText.startsWith("PHP message:"))
+  ) {
+    return null
+  }
+
+  const payload = payloadText.replace(/^PHP message:\s*/, "")
+  const messages = payload
+    .split(PHP_MESSAGE_SPLIT_RE)
+    .map((part) => part.trim().replace(/;$/, "").trim())
+    .filter(Boolean)
+
+  if (messages.length === 0) return null
+  return messages.map((message) => `PHP ${message}`)
+}
+
+function expandFastCgiPayload(
+  envelope: ParsedLogLine,
+  payload: string
+): Array<ParsedLogLine> {
+  return (
+    splitPhpMessages(payload, { allowLeadingText: true }) ?? [envelope.text]
+  ).map((text) => ({
+    ...envelope,
+    text,
+  }))
+}
+
+function expandPlainLogEnvelope(envelope: ParsedLogLine): Array<ParsedLogLine> {
+  return (splitPhpMessages(envelope.text) ?? [envelope.text]).map((text) => ({
+    ...envelope,
+    text,
+  }))
+}
+
+function canAppendFastCgiChunk(
+  pending: PendingFastCgiChunk,
+  chunk: FastCgiChunk
+): boolean {
+  return (
+    pending.requestId !== null &&
+    chunk.requestId !== null &&
+    pending.requestId === chunk.requestId
+  )
+}
+
+export function createLogEntryNormalizer(): {
+  append: (raw: string, fallbackT: number) => Array<ParsedLogLine>
+  flush: () => Array<ParsedLogLine>
+} {
+  let pendingFastCgi: PendingFastCgiChunk | null = null
+
+  const flush = (): Array<ParsedLogLine> => {
+    if (!pendingFastCgi) return []
+    const pending = pendingFastCgi
+    pendingFastCgi = null
+    return expandFastCgiPayload(pending.envelope, pending.payload)
+  }
+
+  return {
+    append(raw: string, fallbackT: number): Array<ParsedLogLine> {
+      const envelope = parseLineEnvelope(raw, fallbackT)
+      const chunk = parseFastCgiChunk(envelope.text)
+
+      if (!chunk) {
+        return [...flush(), ...expandPlainLogEnvelope(envelope)]
+      }
+
+      if (pendingFastCgi && canAppendFastCgiChunk(pendingFastCgi, chunk)) {
+        pendingFastCgi.payload += chunk.payload
+        if (!chunk.complete) return []
+
+        const pending = pendingFastCgi
+        pendingFastCgi = null
+        return expandFastCgiPayload(pending.envelope, pending.payload)
+      }
+
+      const flushed = flush()
+      if (!chunk.complete) {
+        pendingFastCgi = {
+          requestId: chunk.requestId,
+          envelope,
+          payload: chunk.payload,
+        }
+        return flushed
+      }
+
+      return [...flushed, ...expandFastCgiPayload(envelope, chunk.payload)]
+    },
+
+    flush,
+  }
+}
+
+function parseStatelessLogEnvelope(
+  envelope: ParsedLogLine
+): Array<ParsedLogLine> {
+  const chunk = parseFastCgiChunk(envelope.text)
+  if (chunk) {
+    return (
+      splitPhpMessages(chunk.payload, { allowLeadingText: true }) ?? [
+        envelope.text,
+      ]
+    ).map((text) => ({
+      ...envelope,
+      text,
+    }))
+  }
+
+  return expandPlainLogEnvelope(envelope)
+}
+
+export function parseLogEntries(
+  raw: string,
+  fallbackT: number
+): Array<ParsedLogLine> {
+  return parseStatelessLogEnvelope(parseLineEnvelope(raw, fallbackT))
 }
 
 // ---------------------------------------------------------------------------
@@ -180,19 +379,34 @@ export function useLogStream({
   const [connected, setConnected] = React.useState(false)
   const [error, setError] = React.useState<string | null>(null)
   const counterRef = React.useRef(0)
+  const normalizerRef = React.useRef(createLogEntryNormalizer())
 
-  const appendLine = React.useCallback(
-    (raw: string) => {
+  const appendParsedEntries = React.useCallback(
+    (parsedEntries: Array<ParsedLogLine>) => {
+      if (parsedEntries.length === 0) return
       setLines((prev) => {
-        const id = ++counterRef.current
-        const parsed = parseLine(raw, Date.now())
-        const entry: LogLine = { ...parsed, id }
-        const next = [...prev, entry]
+        const entries = parsedEntries.map((parsed) => {
+          const id = ++counterRef.current
+          const entry: LogLine = { ...parsed, id }
+          return entry
+        })
+        const next = [...prev, ...entries]
         return next.length > cap ? next.slice(next.length - cap) : next
       })
     },
     [cap]
   )
+
+  const appendLine = React.useCallback(
+    (raw: string) => {
+      appendParsedEntries(normalizerRef.current.append(raw, Date.now()))
+    },
+    [appendParsedEntries]
+  )
+
+  const flushPendingLines = React.useCallback(() => {
+    appendParsedEntries(normalizerRef.current.flush())
+  }, [appendParsedEntries])
 
   // When maxLines changes (user picks a smaller volume), trim existing lines
   React.useEffect(() => {
@@ -206,6 +420,7 @@ export function useLogStream({
     setError(null)
     setConnected(false)
     counterRef.current = 0
+    normalizerRef.current = createLogEntryNormalizer()
 
     if (archiveOnly && buildId && buildId !== "latest") {
       let cancelled = false
@@ -216,7 +431,9 @@ export function useLogStream({
           setError(null)
           setLines([])
           counterRef.current = 0
+          normalizerRef.current = createLogEntryNormalizer()
           for (const raw of result.lines) appendLine(raw)
+          flushPendingLines()
         })
         .catch((err: unknown) => {
           if (cancelled) return
@@ -258,7 +475,9 @@ export function useLogStream({
           setError(null)
           setLines([])
           counterRef.current = 0
+          normalizerRef.current = createLogEntryNormalizer()
           for (const raw of result.lines) appendLine(raw)
+          flushPendingLines()
         })
         .catch((err: unknown) => {
           const msg = err instanceof Error ? err.message : "Failed to load logs"
@@ -292,6 +511,7 @@ export function useLogStream({
 
       ws.onclose = (ev) => {
         setConnected(false)
+        flushPendingLines()
         if (!ev.wasClean && !fallbackTriggered) {
           fallbackTriggered = true
           triggerFallback()
@@ -307,7 +527,7 @@ export function useLogStream({
     return () => {
       ws?.close()
     }
-  }, [appId, buildId, archiveOnly, appendLine])
+  }, [appId, buildId, archiveOnly, appendLine, flushPendingLines])
 
   return { lines, connected, error }
 }

@@ -43,7 +43,6 @@ import { createServicesRouter } from "./routes/services"
 import { auditRouter } from "./routes/audit"
 import { createBillingRouter } from "./routes/billing"
 import { createStripeWebhookRouter } from "./routes/webhooks-stripe"
-import { createLicenseRouter } from "./routes/license"
 import { createSSORouter } from "./routes/sso"
 import { createBrandingRouter } from "./routes/branding"
 import { createEventWebhooksRouter } from "./routes/event-webhooks"
@@ -52,6 +51,7 @@ import { createProjectEnvRouter } from "./routes/project-env"
 import { createOrgMonitoringRouter } from "./routes/org-monitoring"
 import { createHostStatsRouter } from "./routes/host-stats"
 import { createAdvisoriesRouter } from "./routes/advisories"
+import { auditPubkeyRouter } from "./routes/audit-pubkey"
 import { getDefaultOrganizationForUser } from "./services/organizations"
 import {
   collectProcessMetrics,
@@ -485,10 +485,6 @@ billingOrgScoped.route("/:orgSlug/billing", createBillingRouter(db))
 app.route("/orgs", billingOrgScoped)
 app.route("/", createStripeWebhookRouter(db))
 
-// License (instance-wide, self-hosted) — /license/status is public, /activate requires auth.
-app.route("/license", createLicenseRouter(db))
-app.use("/license/activate", requireAuth(db))
-
 // SSO (OIDC) — config CRUD requires auth ; /auth/sso/:slug/{login,callback} are public.
 app.route("/", createSSORouter(db))
 
@@ -531,6 +527,9 @@ app.route("/organizations", createOrgMonitoringRouter(db))
 app.use("/admin/*", requireAuth(db))
 app.use("/organizations/*/apps/*/advisories", requireAuth(db))
 app.route("/", createAdvisoriesRouter(db))
+
+// Audit pubkey — public (no auth required)
+app.route("/instance", auditPubkeyRouter)
 
 // /me — requires auth
 app.get("/me", requireAuth(db), async (c) => {

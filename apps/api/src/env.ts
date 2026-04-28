@@ -41,6 +41,7 @@ const schema = z.object({
   PLOYDOK_BUILDKIT_ADDR: z
     .string()
     .default("docker-container://ploydok-buildkitd"),
+  PLOYDOK_DEPLOY_CONCURRENCY: z.coerce.number().int().min(1).max(16).default(2),
   PLOYDOK_PUBLIC_SCHEME: z.enum(["http", "https"]).optional(),
   PLOYDOK_PUBLIC_PORT: z.coerce.number().int().positive().optional(),
   PLOYDOK_PUBLIC_HOST: z.string().min(1).optional(),
@@ -48,8 +49,6 @@ const schema = z.object({
   STRIPE_WEBHOOK_SECRET: z.string().optional(),
   STRIPE_PRO_PRICE_ID: z.string().optional(),
   STRIPE_ENTERPRISE_PRICE_ID: z.string().optional(),
-  PLOYDOK_LICENSE_PUBLIC_KEY: z.string().optional(),
-  PLOYDOK_SHOW_LICENSE_UI: z.coerce.boolean().default(false),
   PLOYDOK_CVE_SCAN: z.enum(["on", "off"]).default("on"),
 })
 
@@ -77,6 +76,7 @@ const raw = schema.parse({
   PLOYDOK_REGISTRY_PASS: Bun.env["PLOYDOK_REGISTRY_PASS"],
   PLOYDOK_BUILD_DIR: Bun.env["PLOYDOK_BUILD_DIR"],
   PLOYDOK_BUILDKIT_ADDR: Bun.env["PLOYDOK_BUILDKIT_ADDR"],
+  PLOYDOK_DEPLOY_CONCURRENCY: Bun.env["PLOYDOK_DEPLOY_CONCURRENCY"],
   PLOYDOK_PUBLIC_SCHEME: Bun.env["PLOYDOK_PUBLIC_SCHEME"],
   PLOYDOK_PUBLIC_PORT: Bun.env["PLOYDOK_PUBLIC_PORT"],
   PLOYDOK_PUBLIC_HOST: Bun.env["PLOYDOK_PUBLIC_HOST"],
@@ -84,8 +84,6 @@ const raw = schema.parse({
   STRIPE_WEBHOOK_SECRET: Bun.env["STRIPE_WEBHOOK_SECRET"],
   STRIPE_PRO_PRICE_ID: Bun.env["STRIPE_PRO_PRICE_ID"],
   STRIPE_ENTERPRISE_PRICE_ID: Bun.env["STRIPE_ENTERPRISE_PRICE_ID"],
-  PLOYDOK_LICENSE_PUBLIC_KEY: Bun.env["PLOYDOK_LICENSE_PUBLIC_KEY"],
-  PLOYDOK_SHOW_LICENSE_UI: Bun.env["PLOYDOK_SHOW_LICENSE_UI"],
   PLOYDOK_CVE_SCAN: Bun.env["PLOYDOK_CVE_SCAN"],
 })
 
@@ -161,6 +159,7 @@ export const env = {
   PLOYDOK_REGISTRY_PASS: raw.PLOYDOK_REGISTRY_PASS,
   PLOYDOK_BUILD_DIR: raw.PLOYDOK_BUILD_DIR,
   PLOYDOK_BUILDKIT_ADDR: raw.PLOYDOK_BUILDKIT_ADDR,
+  PLOYDOK_DEPLOY_CONCURRENCY: raw.PLOYDOK_DEPLOY_CONCURRENCY,
   PLOYDOK_PUBLIC_SCHEME:
     raw.PLOYDOK_PUBLIC_SCHEME ?? (isProd ? "https" : "http"),
   PLOYDOK_PUBLIC_PORT: raw.PLOYDOK_PUBLIC_PORT ?? (isProd ? undefined : 8180),
@@ -169,7 +168,5 @@ export const env = {
   STRIPE_WEBHOOK_SECRET: raw.STRIPE_WEBHOOK_SECRET,
   STRIPE_PRO_PRICE_ID: raw.STRIPE_PRO_PRICE_ID,
   STRIPE_ENTERPRISE_PRICE_ID: raw.STRIPE_ENTERPRISE_PRICE_ID,
-  PLOYDOK_LICENSE_PUBLIC_KEY: raw.PLOYDOK_LICENSE_PUBLIC_KEY,
-  PLOYDOK_SHOW_LICENSE_UI: raw.PLOYDOK_SHOW_LICENSE_UI,
   PLOYDOK_CVE_SCAN: raw.PLOYDOK_CVE_SCAN,
 } as const

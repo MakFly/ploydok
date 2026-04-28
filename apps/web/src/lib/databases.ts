@@ -28,6 +28,7 @@ export type DbHealthStatus =
   | "degraded"
   | "unhealthy"
 export type DbExposureMode = "internal" | "direct_port" | "public_proxy"
+export type DbManagementMode = "managed" | "external"
 
 export interface Database {
   organization_id?: string
@@ -37,6 +38,7 @@ export interface Database {
   version: string
   name: string
   plan: DbPlan
+  management_mode: DbManagementMode
   status: DbStatus
   health_status: DbHealthStatus
   host: string | null
@@ -81,6 +83,13 @@ export interface CreateDatabaseInput {
   plan: DbPlan
   exposureMode?: DbExposureMode
   publicEnabled?: boolean
+}
+
+export interface RegisterExternalDatabaseInput {
+  organizationId?: string
+  projectId: string
+  name: string
+  connectionString: string
 }
 
 export interface DatabaseLogLine {
@@ -153,6 +162,26 @@ export function useCreateDatabase() {
   })
 }
 
+export function useRegisterExternalDatabase() {
+  const qc = useQueryClient()
+  return useMutation({
+    mutationFn: async (input: RegisterExternalDatabaseInput) => {
+      return apiFetch<{ id: string }>("/databases/external", {
+        method: "POST",
+        body: input,
+        headers: { "content-type": "application/json" },
+      })
+    },
+    onSuccess: (_, vars) => {
+      qc.invalidateQueries({ queryKey: databaseKeys.list(vars.projectId) })
+      toast.success("External database registered")
+    },
+    onError: (err: Error) => {
+      toast.error(err.message)
+    },
+  })
+}
+
 export function useDeleteDatabase() {
   const qc = useQueryClient()
   return useMutation({
@@ -199,19 +228,24 @@ export function useLinkDatabase() {
       databaseId: string
       env_prefix?: string
     }) => {
-      return apiFetch<{ ok: boolean; vars: Array<string> }>(
-        `/apps/${appId}/databases/${databaseId}/link`,
-        {
-          method: "POST",
-          body: { env_prefix: env_prefix ?? "DATABASE" },
-          headers: { "content-type": "application/json" },
-        }
-      )
+      return apiFetch<{
+        ok: boolean
+        vars: Array<string>
+        requiresRedeploy: boolean
+      }>(`/apps/${appId}/databases/${databaseId}/link`, {
+        method: "POST",
+        body: { env_prefix: env_prefix ?? "DB" },
+        headers: { "content-type": "application/json" },
+      })
     },
-    onSuccess: (_data, vars) => {
+    onSuccess: (data, vars) => {
       qc.invalidateQueries({ queryKey: ["apps", vars.appId, "secrets"] })
       qc.invalidateQueries({ queryKey: databaseKeys.all })
-      toast.success("Database linked to app")
+      toast.success("Database linked to app", {
+        description: data.requiresRedeploy
+          ? "Redeploy the app for the new variables to reach the container."
+          : undefined,
+      })
     },
     onError: (err: Error) => {
       toast.error(err.message)

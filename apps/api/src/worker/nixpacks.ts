@@ -150,6 +150,40 @@ function effectiveNixpacksEnv(
   }
 }
 
+function normalizeCommandOverride(
+  value: string | null | undefined
+): string | undefined {
+  const trimmed = value?.trim()
+  return trimmed ? trimmed : undefined
+}
+
+function resolveNixpacksCommandOverrides(opts: {
+  buildEnv?: Record<string, string>
+  installCmd?: string
+  buildCmd?: string
+  startCmd?: string
+}): {
+  installCmd?: string
+  buildCmd?: string
+  startCmd?: string
+} {
+  const installCmd =
+    normalizeCommandOverride(opts.installCmd) ??
+    normalizeCommandOverride(opts.buildEnv?.["NIXPACKS_INSTALL_CMD"])
+  const buildCmd =
+    normalizeCommandOverride(opts.buildCmd) ??
+    normalizeCommandOverride(opts.buildEnv?.["NIXPACKS_BUILD_CMD"])
+  const startCmd =
+    normalizeCommandOverride(opts.startCmd) ??
+    normalizeCommandOverride(opts.buildEnv?.["NIXPACKS_START_CMD"])
+
+  return {
+    ...(installCmd ? { installCmd } : {}),
+    ...(buildCmd ? { buildCmd } : {}),
+    ...(startCmd ? { startCmd } : {}),
+  }
+}
+
 /**
  * Run `nixpacks build` for the given workspace.
  * Streams stdout and stderr through `opts.onLog` line by line.
@@ -158,6 +192,7 @@ function effectiveNixpacksEnv(
 export async function nixpacksBuild(opts: NixpacksBuildOptions): Promise<void> {
   const bin = await ensureNixpacksInstalled()
   const ctx = path.join(opts.workspacePath, opts.rootDir ?? ".")
+  const commandOverrides = resolveNixpacksCommandOverrides(opts)
 
   // npm v7+ defaults to strict peer-dep resolution, which breaks on the very
   // common Next.js / React pre-release mismatches (e.g. next@15.0.3 peer
@@ -168,8 +203,19 @@ export async function nixpacksBuild(opts: NixpacksBuildOptions): Promise<void> {
   // Nixpacks still falls back to Node 18 on some PHP+Vite projects. Modern
   // Laravel/Vite dependencies now require Node 20.19+ or 22.12+, so pin a
   // platform default and let per-app nodeVersion/env settings override it.
+  //
+  // Composer disables plugins automatically when it runs as root unless
+  // COMPOSER_ALLOW_SUPERUSER=1 is present. Nixpacks-generated PHP Dockerfiles
+  // run composer inside a root build step, so Symfony Flex's `symfony-cmd`
+  // helper can disappear before auto-scripts run. Apply the Composer root
+  // opt-in for PHP projects even when stack auto-injection did not provide a
+  // custom install command.
+  const composerBuildDefaults = existsSync(path.join(ctx, "composer.json"))
+    ? { COMPOSER_ALLOW_SUPERUSER: "1" }
+    : {}
   const effectiveBuildEnv = effectiveNixpacksEnv(opts, {
     NPM_CONFIG_LEGACY_PEER_DEPS: "true",
+    ...composerBuildDefaults,
   })
 
   const phpPlanOverride = await resolvePhpAwareNixpacksPlan({
@@ -179,9 +225,15 @@ export async function nixpacksBuild(opts: NixpacksBuildOptions): Promise<void> {
     ...(opts.configFile
       ? { configFile: path.join(opts.workspacePath, opts.configFile) }
       : {}),
-    ...(opts.installCmd ? { installCmd: opts.installCmd } : {}),
-    ...(opts.buildCmd ? { buildCmd: opts.buildCmd } : {}),
-    ...(opts.startCmd ? { startCmd: opts.startCmd } : {}),
+    ...(commandOverrides.installCmd
+      ? { installCmd: commandOverrides.installCmd }
+      : {}),
+    ...(commandOverrides.buildCmd
+      ? { buildCmd: commandOverrides.buildCmd }
+      : {}),
+    ...(commandOverrides.startCmd
+      ? { startCmd: commandOverrides.startCmd }
+      : {}),
     ...(opts.runtimeEnv ? { runtimeEnv: opts.runtimeEnv } : {}),
     ...(opts.onLog ? { onLog: opts.onLog } : {}),
   })
@@ -219,9 +271,15 @@ export async function nixpacksBuild(opts: NixpacksBuildOptions): Promise<void> {
 
   if (opts.configFile)
     args.push("--config", path.join(opts.workspacePath, opts.configFile))
-  if (opts.installCmd) args.push("--install-cmd", opts.installCmd)
-  if (opts.buildCmd) args.push("--build-cmd", opts.buildCmd)
-  if (opts.startCmd) args.push("--start-cmd", opts.startCmd)
+  if (commandOverrides.installCmd) {
+    args.push("--install-cmd", commandOverrides.installCmd)
+  }
+  if (commandOverrides.buildCmd) {
+    args.push("--build-cmd", commandOverrides.buildCmd)
+  }
+  if (commandOverrides.startCmd) {
+    args.push("--start-cmd", commandOverrides.startCmd)
+  }
 
   // Propagate build env into the generated Dockerfile via nixpacks `--env`.
   // Without this flag, variables set on the host process are NOT seen by the
@@ -832,12 +890,25 @@ export async function nixpacksPlan(opts: {
   rootDir?: string
   nodeVersion?: string
   buildEnv?: Record<string, string>
+  installCmd?: string
+  buildCmd?: string
+  startCmd?: string
 }): Promise<NixpacksPlan | null> {
   const bin = await ensureNixpacksInstalled()
   const ctx = path.join(opts.workspacePath, opts.rootDir ?? ".")
 
   const effectiveBuildEnv = effectiveNixpacksEnv(opts)
+  const commandOverrides = resolveNixpacksCommandOverrides(opts)
   const args = ["plan", ctx, "--format=json"]
+  if (commandOverrides.installCmd) {
+    args.push("--install-cmd", commandOverrides.installCmd)
+  }
+  if (commandOverrides.buildCmd) {
+    args.push("--build-cmd", commandOverrides.buildCmd)
+  }
+  if (commandOverrides.startCmd) {
+    args.push("--start-cmd", commandOverrides.startCmd)
+  }
   for (const [key, value] of Object.entries(effectiveBuildEnv)) {
     args.push("--env", `${key}=${value}`)
   }

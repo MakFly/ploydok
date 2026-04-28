@@ -13,37 +13,46 @@ export async function enqueueWithDbRow<
   insertRow: (txDb: any) => Promise<TRow>
   buildPayload: (row: TRow) => TPayload
   jobOptions?: JobsOptions
+  onQueueAddError?: (row: TRow, error: unknown) => Promise<void> | void
 }): Promise<{ jobId: string; row: TRow }> {
-  let row: TRow
-  let job: Awaited<ReturnType<Queue["add"]>>
+  let row!: TRow
 
   await opts.db.transaction(async (tx) => {
     row = await opts.insertRow(tx as any)
+  })
+
+  let job: Awaited<ReturnType<Queue["add"]>>
+  try {
     job = await opts.queue.add(
       opts.jobName,
       opts.buildPayload(row),
       opts.jobOptions
     )
-  })
+  } catch (err) {
+    await opts.onQueueAddError?.(row, err)
+    throw err
+  }
 
   const jobId = job!.id
   if (!jobId) {
-    throw new Error(`Failed to get job ID from queue.add(${opts.jobName})`)
+    const err = new Error(`Failed to get job ID from queue.add(${opts.jobName})`)
+    await opts.onQueueAddError?.(row, err)
+    throw err
   }
 
-  const actor = (row! as any)?.requested_by_user_id ?? null
-  const source = (row! as any)?.source ?? "system"
+  const actor = (row as any)?.requested_by_user_id ?? null
+  const source = (row as any)?.source ?? "system"
 
   auditEnqueued({
     jobName: opts.jobName,
     jobId,
-    rowId: row!.id,
+    rowId: row.id,
     actor,
     source,
   })
 
   return {
     jobId,
-    row: row!,
+    row,
   }
 }

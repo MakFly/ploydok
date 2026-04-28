@@ -35,12 +35,26 @@ export const Route = createFileRoute("/_public/setup")({
   validateSearch: (search): SetupSearch => ({
     token: typeof search.token === "string" ? search.token : undefined,
   }),
+  loaderDeps: ({ search }) => ({ token: search.token }),
+  loader: async ({ deps }) => {
+    if (deps.token) return { devToken: null as string | null }
+    try {
+      const { token: devToken } = await apiFetch<{ token: string }>(
+        "/auth/setup/dev-token"
+      )
+      return { devToken }
+    } catch {
+      return { devToken: null as string | null }
+    }
+  },
   component: SetupPage,
 })
 
 function SetupPage(): React.JSX.Element {
   const router = useRouter()
   const { token } = Route.useSearch()
+  const { devToken } = Route.useLoaderData()
+  const effectiveToken = token ?? devToken ?? undefined
 
   const [step, setStep] = React.useState<"form" | "totp" | "codes">("form")
   const [email, setEmail] = React.useState("")
@@ -59,37 +73,11 @@ function SetupPage(): React.JSX.Element {
   const [totpVerifying, setTotpVerifying] = React.useState(false)
   const [totpError, setTotpError] = React.useState<string | null>(null)
   const [totpCopied, setTotpCopied] = React.useState(false)
-
-  // Dev-only shortcut: if no token in the URL, ask the API for the active
-  // setup token. The endpoint 404s in production and behind non-loopback
-  // origins, so this is a friction win in dev with zero impact on prod.
-  React.useEffect(() => {
-    if (token) return
-    let cancelled = false
-    void (async () => {
-      try {
-        const { token: devToken } = await apiFetch<{ token: string }>(
-          "/auth/setup/dev-token"
-        )
-        if (!cancelled && devToken) {
-          await router.navigate({
-            to: "/setup",
-            search: { token: devToken },
-            replace: true,
-          })
-        }
-      } catch {
-        // Prod or no token available — fall through to the manual screen.
-      }
-    })()
-    return () => {
-      cancelled = true
-    }
-  }, [token, router])
+  const totpEnrollStarted = React.useRef(false)
 
   const handleSubmit = async (e: React.FormEvent): Promise<void> => {
     e.preventDefault()
-    if (!token) {
+    if (!effectiveToken) {
       setError(
         "Setup token missing. Open the URL printed in the API logs at first boot."
       )
@@ -103,7 +91,7 @@ function SetupPage(): React.JSX.Element {
         {
           method: "POST",
           body: {
-            token,
+            token: effectiveToken,
             email: email.trim(),
             display_name: displayName.trim(),
           },
@@ -138,8 +126,9 @@ function SetupPage(): React.JSX.Element {
   }
 
   React.useEffect(() => {
-    if (step !== "totp" || totpData || totpEnrolling) return
+    if (step !== "totp" || totpData || totpEnrollStarted.current) return
     let cancelled = false
+    totpEnrollStarted.current = true
     setTotpEnrolling(true)
     setTotpError(null)
     void (async () => {
@@ -153,6 +142,7 @@ function SetupPage(): React.JSX.Element {
         const msg =
           err instanceof Error ? err.message : "Failed to start TOTP enrollment"
         setTotpError(msg)
+        totpEnrollStarted.current = false
       } finally {
         if (!cancelled) setTotpEnrolling(false)
       }
@@ -160,7 +150,7 @@ function SetupPage(): React.JSX.Element {
     return () => {
       cancelled = true
     }
-  }, [step, totpData, totpEnrolling])
+  }, [step, totpData])
 
   const handleTotpVerify = async (e: React.FormEvent): Promise<void> => {
     e.preventDefault()
@@ -209,7 +199,7 @@ function SetupPage(): React.JSX.Element {
     }
   }
 
-  if (!token && step === "form") {
+  if (!effectiveToken && step === "form") {
     return (
       <Shell title="Setup token required">
         <Alert variant="destructive">

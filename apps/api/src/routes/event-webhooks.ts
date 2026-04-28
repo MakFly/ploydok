@@ -22,6 +22,8 @@ import type { WebhookPayload } from "@ploydok/shared"
 import type { AuthUser } from "../auth/middleware"
 import { requireScope } from "../auth/require-scope"
 
+export const WEBHOOK_REDIRECT_ERROR = "Webhook redirects are not allowed"
+
 function getUser(c: { get: (key: string) => unknown }): AuthUser {
   return c.get("user") as AuthUser
 }
@@ -74,7 +76,9 @@ function isBlockedIpAddress(hostname: string): boolean {
   return false
 }
 
-async function validateEventWebhookUrl(rawUrl: string): Promise<string | null> {
+export async function validateEventWebhookUrl(
+  rawUrl: string
+): Promise<string | null> {
   let parsed: URL
   try {
     parsed = new URL(rawUrl)
@@ -114,6 +118,17 @@ async function validateEventWebhookUrl(rawUrl: string): Promise<string | null> {
   }
 
   return null
+}
+
+export async function fetchEventWebhook(
+  url: string,
+  init: RequestInit
+): Promise<Response> {
+  const response = await fetch(url, { ...init, redirect: "manual" })
+  if (response.status >= 300 && response.status < 400) {
+    throw new Error(WEBHOOK_REDIRECT_ERROR)
+  }
+  return response
 }
 
 export function createEventWebhooksRouter(db: Db): Hono {
@@ -419,7 +434,7 @@ export function createEventWebhooksRouter(db: Db): Hono {
       const controller = new AbortController()
       const timeoutHandle = setTimeout(() => controller.abort(), 10000)
 
-      const response = await fetch(webhook.url, {
+      const response = await fetchEventWebhook(webhook.url, {
         method: "POST",
         headers,
         body,
@@ -432,11 +447,23 @@ export function createEventWebhooksRouter(db: Db): Hono {
       return c.json({ status: response.status, latency_ms: latency })
     } catch (error) {
       const latency = Date.now() - startTime
+      const message = error instanceof Error ? error.message : "Unknown error"
+      if (message === WEBHOOK_REDIRECT_ERROR) {
+        return c.json(
+          {
+            error: {
+              code: "VALIDATION_ERROR",
+              message,
+            },
+          },
+          400
+        )
+      }
       return c.json(
         {
           status: 0,
           latency_ms: latency,
-          error: error instanceof Error ? error.message : "Unknown error",
+          error: message,
         },
         500
       )

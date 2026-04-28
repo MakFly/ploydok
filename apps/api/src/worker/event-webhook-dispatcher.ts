@@ -6,6 +6,11 @@ import {
 } from "@ploydok/db/queries"
 import { decryptField } from "../github/app-credentials"
 import type { WebhookPayload } from "@ploydok/shared"
+import {
+  fetchEventWebhook,
+  validateEventWebhookUrl,
+  WEBHOOK_REDIRECT_ERROR,
+} from "../routes/event-webhooks"
 
 const RETRY_DELAYS = [1000, 5000, 30000] // 1s, 5s, 30s in ms
 const TIMEOUT_MS = 10000
@@ -86,6 +91,15 @@ async function deliverWithRetry(
   retryCount: number
 ): Promise<void> {
   try {
+    const urlError = await validateEventWebhookUrl(url)
+    if (urlError) {
+      await updateEventWebhook(db, webhookId, orgId, {
+        last_triggered_at: new Date(),
+        last_error: urlError,
+      })
+      return
+    }
+
     const headers: Record<string, string> = {
       "Content-Type": "application/json",
       "X-Ploydok-Event": body ? JSON.parse(body).event : "unknown",
@@ -104,7 +118,7 @@ async function deliverWithRetry(
     const controller = new AbortController()
     const timeoutHandle = setTimeout(() => controller.abort(), TIMEOUT_MS)
 
-    const response = await fetch(url, {
+    const response = await fetchEventWebhook(url, {
       method: "POST",
       headers,
       body,
@@ -145,7 +159,10 @@ async function deliverWithRetry(
       last_error: errorMessage.substring(0, 500),
     })
 
-    if (retryCount < RETRY_DELAYS.length) {
+    if (
+      errorMessage !== WEBHOOK_REDIRECT_ERROR &&
+      retryCount < RETRY_DELAYS.length
+    ) {
       const delay = RETRY_DELAYS[retryCount]!
       setTimeout(() => {
         deliverWithRetry(

@@ -31,6 +31,7 @@ const getEventWebhookMock = mock(async () => ({
 }))
 
 mock.module("@ploydok/db/queries", () => ({
+  getAppForUser: mock(async () => null),
   getMembership: getMembershipMock,
   listEventWebhooks: mock(async () => []),
   getEventWebhook: getEventWebhookMock,
@@ -60,7 +61,7 @@ mock.module("../github/app-credentials", () => ({
   decryptField: mock(async () => "secret"),
 }))
 
-import { createEventWebhooksRouter } from "./event-webhooks"
+const { createEventWebhooksRouter } = await import("./event-webhooks")
 
 function buildApp(user: AuthUser) {
   const app = new Hono()
@@ -147,5 +148,28 @@ describe("event-webhooks routes", () => {
     expect(res.status).toBe(400)
     const body = (await res.json()) as { error: { code: string } }
     expect(body.error.code).toBe("VALIDATION_ERROR")
+  })
+
+  it("rejects webhook test redirects before following them", async () => {
+    const originalFetch = globalThis.fetch
+    globalThis.fetch = mock(async () => new Response(null, { status: 302 })) as never
+
+    try {
+      const app = buildApp(sessionUser)
+      const res = await app.request("/orgs/org-1/event-webhooks/wh-1/test", {
+        method: "POST",
+      })
+
+      expect(res.status).toBe(400)
+      const body = (await res.json()) as { error: { code: string; message: string } }
+      expect(body.error.code).toBe("VALIDATION_ERROR")
+      expect(body.error.message).toBe("Webhook redirects are not allowed")
+      expect(globalThis.fetch).toHaveBeenCalledWith(
+        "https://1.1.1.1/hook",
+        expect.objectContaining({ redirect: "manual" })
+      )
+    } finally {
+      globalThis.fetch = originalFetch
+    }
   })
 })

@@ -1,6 +1,6 @@
 # PLAN — Sprint 3.1.1 : Webhook Auto-Deploy
 
-> Plan d'implémentation détaillé du sprint `docs/sprints/sprint-3.1.1-webhook-autodeploy.md`.
+> Plan d'implémentation détaillé du sprint `project-docs/roadmap/sprint-3.1.1-webhook-autodeploy.md`.
 > Calibré sur l'état réel du code (audit 2026-04-21).
 >
 > **Décisions lockées 2026-04-21** :
@@ -257,7 +257,7 @@ Objectif : le flow `push → delivery logged → job enqueued` est complet, audi
 
 **Retirée du sprint** (décision 2026-04-21) : dépend du wildcard TLS sprint 4, et reste un différenciant "nice-to-have" vs une brique de parité critique.
 
-Reportée dans un futur `docs/sprints/sprint-3.1.2-pr-previews.md` (ou fusionnée avec sprint 4 si on synchronise la livraison wildcard TLS + PR previews). Le flag `instance_settings.pr_previews_enabled` n'est **pas** créé dans ce sprint.
+Reportée dans un futur `project-docs/roadmap/sprint-3.1.2-pr-previews.md` (ou fusionnée avec sprint 4 si on synchronise la livraison wildcard TLS + PR previews). Le flag `instance_settings.pr_previews_enabled` n'est **pas** créé dans ce sprint.
 
 ---
 
@@ -265,7 +265,7 @@ Reportée dans un futur `docs/sprints/sprint-3.1.2-pr-previews.md` (ou fusionné
 
 - **6.A — Script `scripts/test-webhook-e2e.sh`** : spawn cloudflared tunnel, enregistre webhook, fake un push via `gh api`, assert delivery DB + build success.
 - **6.B — Playwright** : `apps/web/e2e/webhook/autodeploy.spec.ts` couvrant scénario démo §Deliverable (skip_path, skip_directive, happy path, coalescing 3 pushes, rotate secret).
-- **6.C — Runbook** `docs/runbooks/webhook-autodeploy.md` : setup tunnel dev, debug delivery (`psql` query + logs pino), rotate secret, activer preview.
+- **6.C — Runbook** `project-docs/operations/runbooks/webhook-autodeploy.md` : setup tunnel dev, debug delivery (`psql` query + logs pino), rotate secret, activer preview.
 - **6.D — Cleanup** : purge containers e2e en fin de run (cf. `.claude/rules/testing.md` section cleanup).
 - **6.E — DoD check** : cocher chaque case de `sprint-3.1.1-webhook-autodeploy.md` avec preuve concrète (commit hash, test vert, screenshot).
 
@@ -320,7 +320,7 @@ Wave 1 (fondations)
 
 ## Checklist avant de démarrer
 
-- [x] Relire `docs/sprints/sprint-3.1.1-webhook-autodeploy.md` § Scope + DoD.
+- [x] Relire `project-docs/roadmap/sprint-3.1.1-webhook-autodeploy.md` § Scope + DoD.
 - [x] Relire `.claude/rules/{db,auth,testing,commits}.md`.
 - [x] Budget : one-shot ~10 j, Waves 1→4+6, pas de split a/b (décision 2026-04-21).
 - [x] Dette double-enqueue : supprimée dans wave 2.F (décision 2026-04-21).

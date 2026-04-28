@@ -98,7 +98,7 @@ Commit `8999ab3`.
 ### 5. FrankenPHP via Dockerfile user-fourni (prod haute-perf)
 
 Recommandé officiellement par Symfony depuis 7.4 (runtime/frankenphp-symfony).
-Pas de recipe TS — 3 fichiers de référence dans `docs/fixtures/symfony-references/`
+Pas de recipe TS — 3 fichiers de référence dans `project-docs/fixtures/symfony-references/`
 que les users copient dans leur repo. Worker mode, JIT tracing, Caddy sans
 `try_files` dans `php_server` (pattern `dunglas/symfony-docker`).
 
@@ -182,9 +182,9 @@ state d'une version antérieure de Ploydok.
 | `apps/api/src/worker/detect.ts`                | `"railpack"` dans l'union              |
 | `packages/db/src/queries/builds.ts`            | `BuildMethod` inclut `"railpack"`      |
 | `packages/db/migrations/0018_*.sql`            | drop `recipe_*` columns + migrate data |
-| `docs/fixtures/symfony-references/*`           | 3 fichiers de référence FrankenPHP     |
-| `docs/plans/PLAN-build-strategy-v2.md`         | plan d'implémentation                  |
-| `docs/adr/0004-build-strategy.md`              | **ce document**                        |
+| `project-docs/fixtures/symfony-references/*`           | 3 fichiers de référence FrankenPHP     |
+| `project-docs/plans/PLAN-build-strategy-v2.md`         | plan d'implémentation                  |
+| `project-docs/decisions/0004-build-strategy.md`              | **ce document**                        |
 
 ---
 

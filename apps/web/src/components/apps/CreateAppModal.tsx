@@ -1,30 +1,54 @@
 // SPDX-License-Identifier: AGPL-3.0-only
 import * as React from "react"
 import {
+  RiAddLine,
   RiArrowRightSLine,
   RiCheckLine,
   RiCloseLine,
+  RiDeleteBinLine,
   RiGithubFill,
   RiGitlabFill,
   RiInformationLine,
 } from "@remixicon/react"
 import { Button } from "@workspace/ui/components/button"
+import { Input } from "@workspace/ui/components/input"
+import {
+  Select,
+  SelectContent,
+  SelectGroup,
+  SelectItem,
+  SelectTrigger,
+  SelectValue,
+} from "@workspace/ui/components/select"
 import { cn } from "@workspace/ui/lib/utils"
 import { useCreateApp } from "../../lib/apps"
+import { apiFetch } from "../../lib/api"
+import {
+  useCreateDatabase,
+  useDatabases,
+  useLinkDatabase,
+} from "../../lib/databases"
+import type { Database, DbKind, DbPlan } from "../../lib/databases"
 import { useGitHubBranches } from "../../lib/github"
 import { useGitLabBranches } from "../../lib/gitlab"
-import { useStackClassification } from "../../lib/stack-classifier-hook"
+import {
+  detectedEnvFiles,
+  importEnvFileVars,
+  useStackClassification,
+} from "../../lib/stack-classifier-hook"
 import { useRegistryCredentials } from "../../lib/registry-credentials"
 import { RepoSelector } from "./RepoSelector"
 import { GitLabRepoSelector } from "./GitLabRepoSelector"
 import { PlanSelector  } from "./PlanSelector"
 import type {PlanSelectorValue} from "./PlanSelector";
+import { PLANS } from "@ploydok/shared"
 import type { AppConfig,
   BuildMethod,
   GitBranch,
   GitProviderKind,
   GitRepo,
   ImagePullPolicy,
+  ProbeResults,
   StackClassification } from "@ploydok/shared"
 
 // ---------------------------------------------------------------------------
@@ -38,7 +62,25 @@ interface CreateAppModalProps {
 }
 
 type SourceKind = GitProviderKind
-type StepId = "source" | "build" | "resources"
+type StepId = "source" | "build" | "env" | "database" | "resources"
+
+interface InitialEnvVar {
+  id: string
+  key: string
+  value: string
+  phase: "runtime" | "build" | "both"
+}
+
+type DatabaseMode = "none" | "existing" | "new"
+
+interface DatabaseSelection {
+  mode: DatabaseMode
+  existingDatabaseId: string
+  newDatabaseName: string
+  newDatabaseKind: DbKind
+  newDatabasePlan: DbPlan
+  envPrefix: string
+}
 
 interface FormState {
   name: string
@@ -61,6 +103,8 @@ interface FormState {
   healthcheckPath: string
   healthcheckPort: string
   laravelSeedOnFirstDeploy: boolean
+  initialEnvVars: Array<InitialEnvVar>
+  database: DatabaseSelection
   plan: PlanSelectorValue
 }
 
@@ -85,7 +129,21 @@ const INITIAL_FORM: FormState = {
   healthcheckPath: "/",
   healthcheckPort: "",
   laravelSeedOnFirstDeploy: false,
+  initialEnvVars: [],
+  database: {
+    mode: "none",
+    existingDatabaseId: "",
+    newDatabaseName: "",
+    newDatabaseKind: "postgres",
+    newDatabasePlan: "small",
+    envPrefix: "DB",
+  },
   plan: { plan: "small" },
+}
+
+function formatBranchOption(branch: GitBranch): string {
+  const shortSha = branch.commitSha ? branch.commitSha.slice(0, 8) : ""
+  return shortSha ? `${branch.name} · ${shortSha}` : branch.name
 }
 
 // ---------------------------------------------------------------------------
@@ -102,16 +160,22 @@ export function CreateAppModal({
   const [showAdvanced, setShowAdvanced] = React.useState(false)
   const [submitError, setSubmitError] = React.useState<string | null>(null)
   const createApp = useCreateApp()
+  const createDatabase = useCreateDatabase()
+  const linkDatabase = useLinkDatabase()
 
   const steps: Array<{ id: StepId; label: string; hint: string }> =
     form.source === "image"
       ? [
           { id: "source", label: "Source", hint: "Image OCI" },
+          { id: "database", label: "Database", hint: "Link DB" },
+          { id: "env", label: "Env", hint: "Variables" },
           { id: "resources", label: "Ressources", hint: "Plan & quotas" },
         ]
       : [
           { id: "source", label: "Source", hint: "Repo & branche" },
           { id: "build", label: "Build", hint: "Méthode & options" },
+          { id: "database", label: "Database", hint: "Link DB" },
+          { id: "env", label: "Env", hint: "Variables" },
           { id: "resources", label: "Ressources", hint: "Plan & quotas" },
         ]
 
@@ -140,6 +204,10 @@ export function CreateAppModal({
       ? null
       : classification.recommendedBuild === "dockerfile"
   const detectionLoading = classifier.isLoading
+  const { data: databases, isLoading: databasesLoading } = useDatabases(
+    organizationId,
+    { enabled: open && (currentStep === "database" || currentStep === "env") }
+  )
 
   const branches: Array<GitBranch> =
     form.source === "github"
@@ -181,6 +249,32 @@ export function CreateAppModal({
       return { ...prev, buildMethod: next }
     })
   }, [hasDockerfile])
+
+  React.useEffect(() => {
+    if (classification?.stack !== "symfony") return
+    setForm((prev) => {
+      const existing = new Set(prev.initialEnvVars.map((item) => item.key))
+      const additions: Array<InitialEnvVar> = []
+      if (!existing.has("APP_ENV")) {
+        additions.push({
+          id: "suggested-app-env",
+          key: "APP_ENV",
+          value: "prod",
+          phase: "runtime",
+        })
+      }
+      if (!existing.has("APP_DEBUG")) {
+        additions.push({
+          id: "suggested-app-debug",
+          key: "APP_DEBUG",
+          value: "0",
+          phase: "runtime",
+        })
+      }
+      if (additions.length === 0) return prev
+      return { ...prev, initialEnvVars: [...prev.initialEnvVars, ...additions] }
+    })
+  }, [classification?.stack])
 
   React.useEffect(() => {
     if (!open) return
@@ -226,6 +320,16 @@ export function CreateAppModal({
       if (form.source === "image") return form.imageRef.trim().length > 0
       return form.selectedRepo !== null && form.branch.length > 0
     }
+    if (currentStep === "env") return validateInitialEnvVars(form.initialEnvVars)
+    if (currentStep === "database") {
+      if (!/^[A-Z0-9_]+$/.test(form.database.envPrefix)) return false
+      if (form.database.mode === "existing") {
+        return form.database.existingDatabaseId.length > 0
+      }
+      if (form.database.mode === "new") {
+        return /^[a-z0-9-]+$/.test(form.database.newDatabaseName.trim())
+      }
+    }
     return true
   }
 
@@ -233,7 +337,26 @@ export function CreateAppModal({
     setSubmitError(null)
     try {
       const body = buildCreateAppBody(form, organizationId)
-      await createApp.mutateAsync(body as Partial<AppConfig>)
+      const databaseId = await resolveDatabaseForCreate({
+        form,
+        organizationId,
+        createDatabase: createDatabase.mutateAsync,
+      })
+      if (databaseId) {
+        body.initialDatabaseLink = {
+          databaseId,
+          envPrefix: form.database.envPrefix,
+        }
+      }
+      const created = await createApp.mutateAsync(body as Partial<AppConfig>)
+      const appId = readCreatedAppId(created)
+      if (databaseId && appId && !body.initialDatabaseLink) {
+        await linkDatabase.mutateAsync({
+          appId,
+          databaseId,
+          env_prefix: form.database.envPrefix,
+        })
+      }
       onClose()
     } catch (err) {
       setSubmitError(
@@ -377,8 +500,31 @@ export function CreateAppModal({
               )}
               {currentStep === "resources" && (
                 <ResourcesStep
+                  form={form}
+                  classification={classification}
                   value={form.plan}
                   onChange={(v) => setField("plan", v)}
+                />
+              )}
+              {currentStep === "env" && (
+                <EnvStep
+                  vars={form.initialEnvVars}
+                  onChange={(vars) => setField("initialEnvVars", vars)}
+                  classification={classification}
+                  probes={classifier.probes}
+                  source={form.source}
+                  repoFullName={form.selectedRepo?.fullName}
+                  branch={form.branch}
+                  database={form.database}
+                  databases={databases ?? []}
+                />
+              )}
+              {currentStep === "database" && (
+                <DatabaseStep
+                  value={form.database}
+                  onChange={(database) => setField("database", database)}
+                  databases={databases ?? []}
+                  isLoading={databasesLoading}
                 />
               )}
 
@@ -491,6 +637,20 @@ function SummaryCard({ form }: { form: FormState }): React.JSX.Element {
           {form.laravelSeedOnFirstDeploy && (
             <SummaryRow label="Laravel seed" value="first deploy" />
           )}
+          <SummaryRow
+            label="Env"
+            value={`${form.initialEnvVars.filter((item) => item.key.trim()).length} vars`}
+          />
+          <SummaryRow
+            label="Database"
+            value={
+              form.database.mode === "none"
+                ? "—"
+                : form.database.mode === "existing"
+                  ? "existing"
+                  : form.database.newDatabaseName || "new"
+            }
+          />
         </>
       )}
       {form.source === "image" && (
@@ -499,6 +659,24 @@ function SummaryCard({ form }: { form: FormState }): React.JSX.Element {
           value={form.imageRef || "—"}
           mono={!!form.imageRef}
           truncate
+        />
+      )}
+      {form.source === "image" && (
+        <SummaryRow
+          label="Env"
+          value={`${form.initialEnvVars.filter((item) => item.key.trim()).length} vars`}
+        />
+      )}
+      {form.source === "image" && (
+        <SummaryRow
+          label="Database"
+          value={
+            form.database.mode === "none"
+              ? "—"
+              : form.database.mode === "existing"
+                ? "existing"
+                : form.database.newDatabaseName || "new"
+          }
         />
       )}
       <SummaryRow label="Plan" value={form.plan.plan} />
@@ -570,13 +748,12 @@ function SourceStep({
         <label htmlFor="app-name" className="text-sm font-medium">
           Nom de l'application
         </label>
-        <input
+        <Input
           id="app-name"
           type="text"
           placeholder="my-app"
           value={form.name}
           onChange={(e) => setField("name", e.target.value)}
-          className="w-full rounded-md border border-input bg-background px-3 py-2 text-sm shadow-sm focus:ring-2 focus:ring-ring focus:outline-none"
           autoFocus
         />
         <p className="text-xs text-muted-foreground">
@@ -746,6 +923,9 @@ function GitSection({
   branchesLoading: boolean
   children: React.ReactNode
 }): React.JSX.Element {
+  const selectedBranch = branches.find((b) => b.name === branch)
+  const selectedCommitSha = selectedBranch?.commitSha ?? ""
+
   return (
     <div className="space-y-4">
       <div className="space-y-2">
@@ -761,19 +941,28 @@ function GitSection({
           {branchesLoading ? (
             <div className="h-9 w-full animate-pulse rounded-md bg-muted" />
           ) : (
-            <select
-              id="branch-select"
-              value={branch}
-              onChange={(e) => onBranchChange(e.target.value)}
-              className="w-full rounded-md border border-input bg-background px-3 py-2 text-sm shadow-sm focus:ring-2 focus:ring-ring focus:outline-none"
-            >
-              <option value="">Sélectionner une branche…</option>
-              {branches.map((b) => (
-                <option key={b.name} value={b.name}>
-                  {b.name}
-                </option>
-              ))}
-            </select>
+            <Select value={branch} onValueChange={onBranchChange}>
+              <SelectTrigger id="branch-select">
+                <SelectValue placeholder="Sélectionner une branche…" />
+              </SelectTrigger>
+              <SelectContent>
+                <SelectGroup>
+                  {branches.map((b) => (
+                    <SelectItem key={b.name} value={b.name}>
+                      {formatBranchOption(b)}
+                    </SelectItem>
+                  ))}
+                </SelectGroup>
+              </SelectContent>
+            </Select>
+          )}
+          {selectedCommitSha && (
+            <p className="text-xs text-muted-foreground">
+              Commit courant :{" "}
+              <code className="rounded bg-muted px-1 py-0.5 font-mono text-[11px] text-foreground">
+                {selectedCommitSha.slice(0, 12)}
+              </code>
+            </p>
           )}
         </div>
       )}
@@ -806,13 +995,13 @@ function ImageSection({
         <label htmlFor="image-ref" className="text-sm font-medium">
           Référence de l'image
         </label>
-        <input
+        <Input
           id="image-ref"
           type="text"
           placeholder="nginx:alpine"
           value={imageRef}
           onChange={(e) => onImageRefChange(e.target.value)}
-          className="w-full rounded-md border border-input bg-background px-3 py-2 font-mono text-sm shadow-sm focus:ring-2 focus:ring-ring focus:outline-none"
+          className="font-mono"
           autoFocus
         />
         <p className="text-xs text-muted-foreground">
@@ -825,23 +1014,27 @@ function ImageSection({
         <label htmlFor="registry-cred" className="text-sm font-medium">
           Credentials du registry
         </label>
-        <select
-          id="registry-cred"
-          value={registryCredentialId}
-          onChange={(e) => onRegistryCredentialIdChange(e.target.value)}
-          className="w-full rounded-md border border-input bg-background px-3 py-2 text-sm shadow-sm focus:ring-2 focus:ring-ring focus:outline-none"
+        <Select
+          value={registryCredentialId || "public"}
+          onValueChange={(value) =>
+            onRegistryCredentialIdChange(value === "public" ? "" : value)
+          }
+          disabled={isLoading}
         >
-          <option value="">Public / anonyme</option>
-          {isLoading ? (
-            <option disabled>Chargement…</option>
-          ) : (
-            (credentials ?? []).map((c) => (
-              <option key={c.id} value={c.id}>
-                {c.label} ({c.registryHost})
-              </option>
-            ))
-          )}
-        </select>
+          <SelectTrigger id="registry-cred">
+            <SelectValue placeholder="Public / anonyme" />
+          </SelectTrigger>
+          <SelectContent>
+            <SelectGroup>
+              <SelectItem value="public">Public / anonyme</SelectItem>
+              {(credentials ?? []).map((c) => (
+                <SelectItem key={c.id} value={c.id}>
+                  {c.label} ({c.registryHost})
+                </SelectItem>
+              ))}
+            </SelectGroup>
+          </SelectContent>
+        </Select>
         <p className="text-xs text-muted-foreground">
           Gérer les credentials dans{" "}
           <a className="underline underline-offset-2" href="/settings/registry">
@@ -1101,7 +1294,7 @@ function BuildStep({
                   >
                     Port
                   </label>
-                  <input
+                  <Input
                     id="healthcheck-port"
                     type="number"
                     min={1}
@@ -1111,7 +1304,6 @@ function BuildStep({
                     onChange={(e) =>
                       setField("healthcheckPort", e.target.value)
                     }
-                    className="w-full rounded-md border border-input bg-background px-3 py-1.5 text-sm shadow-sm focus:ring-2 focus:ring-ring focus:outline-none"
                   />
                 </div>
               </div>
@@ -1128,12 +1320,46 @@ function BuildStep({
 // ---------------------------------------------------------------------------
 
 function ResourcesStep({
+  form,
+  classification,
   value,
   onChange,
 }: {
+  form: FormState
+  classification: StackClassification | null
   value: PlanSelectorValue
   onChange: (v: PlanSelectorValue) => void
 }): React.JSX.Element {
+  const envCount = form.initialEnvVars.filter((item) => item.key.trim()).length
+  const dbVars =
+    form.database.mode === "none" ? [] : databaseEnvKeys(form.database.envPrefix)
+  const sourceValue =
+    form.source === "image"
+      ? form.imageRef || "—"
+      : form.selectedRepo?.fullName ?? "—"
+  const buildValue =
+    form.source === "image"
+      ? "Image OCI"
+      : form.buildMethod === "docker"
+        ? "Dockerfile"
+        : form.buildMethod === "static"
+          ? "Static site"
+          : form.buildMethod
+  const databaseValue =
+    form.database.mode === "none"
+      ? "Aucune"
+      : form.database.mode === "existing"
+        ? "Database existante"
+        : `${form.database.newDatabaseName || "Nouvelle database"} (${form.database.newDatabaseKind})`
+  const selectedLimits =
+    value.plan === "custom"
+      ? {
+          cpu: value.cpuLimit,
+          memMB: value.memLimitMB,
+          pids: value.pidsLimit,
+        }
+      : PLANS[value.plan]
+
   return (
     <div className="space-y-4">
       <div className="flex items-start gap-2 rounded-lg border border-border bg-muted/30 px-3 py-2 text-xs text-muted-foreground">
@@ -1144,7 +1370,144 @@ function ResourcesStep({
           modifiés après création.
         </p>
       </div>
+
+      <section className="rounded-lg border border-border bg-card">
+        <div className="border-b border-border px-4 py-3">
+          <h3 className="text-sm font-semibold">Résumé avant création</h3>
+          <p className="mt-1 text-xs text-muted-foreground">
+            Vérifie les valeurs qui seront utilisées pour créer l'application.
+          </p>
+        </div>
+        <div className="grid gap-0 sm:grid-cols-2 xl:grid-cols-4">
+          <ReviewTile label="Nom" value={form.name || "—"} mono />
+          <ReviewTile label="Source" value={sourceValue} mono />
+          <ReviewTile label="Branche" value={form.branch || "—"} mono />
+          <ReviewTile
+            label="Stack"
+            value={classification?.framework ?? classification?.stack ?? "—"}
+          />
+          <ReviewTile label="Build" value={buildValue} />
+          <ReviewTile
+            label="Healthcheck"
+            value={
+              form.buildMethod === "static"
+                ? "Static"
+                : `${form.healthcheckPath || "/"}${form.healthcheckPort ? `:${form.healthcheckPort}` : ""}`
+            }
+            mono
+          />
+          <ReviewTile label="Database" value={databaseValue} />
+          <ReviewTile label="DB prefix" value={form.database.envPrefix} mono />
+        </div>
+      </section>
+
+      <section className="grid gap-3 lg:grid-cols-2">
+        <div className="rounded-lg border border-border bg-card p-4">
+          <h3 className="text-sm font-semibold">Variables</h3>
+          <p className="mt-1 text-xs text-muted-foreground">
+            {envCount} variable{envCount > 1 ? "s" : ""} manuelle
+            {dbVars.length > 0
+              ? ` + ${dbVars.length} variable${dbVars.length > 1 ? "s" : ""} DB générée${dbVars.length > 1 ? "s" : ""}`
+              : ""}
+            .
+          </p>
+          <div className="mt-3 flex flex-wrap gap-1">
+            {form.initialEnvVars
+              .filter((item) => item.key.trim())
+              .slice(0, 12)
+              .map((item) => (
+                <code
+                  key={item.id}
+                  className="rounded bg-muted px-1.5 py-0.5 font-mono text-[11px]"
+                >
+                  {item.key}
+                </code>
+              ))}
+            {dbVars.map((key) => (
+              <code
+                key={key}
+                className="rounded bg-primary/10 px-1.5 py-0.5 font-mono text-[11px] text-primary"
+              >
+                {key}
+              </code>
+            ))}
+            {envCount + dbVars.length === 0 && (
+              <span className="text-xs text-muted-foreground">Aucune variable</span>
+            )}
+          </div>
+        </div>
+
+        <div className="rounded-lg border border-border bg-card p-4">
+          <h3 className="text-sm font-semibold">Ressources sélectionnées</h3>
+          <div className="mt-3 grid gap-2 text-sm">
+            <ReviewLine label="Plan" value={value.plan} />
+            <ReviewLine
+              label="CPU"
+              value={
+                selectedLimits?.cpu === undefined ? "—" : `${selectedLimits.cpu} CPU`
+              }
+            />
+            <ReviewLine
+              label="Mémoire"
+              value={
+                selectedLimits?.memMB === undefined
+                  ? "—"
+                  : `${selectedLimits.memMB} MB`
+              }
+            />
+            <ReviewLine
+              label="PIDs"
+              value={
+                selectedLimits?.pids === undefined ? "—" : `${selectedLimits.pids}`
+              }
+            />
+          </div>
+        </div>
+      </section>
+
       <PlanSelector value={value} onChange={onChange} />
+    </div>
+  )
+}
+
+function ReviewTile({
+  label,
+  value,
+  mono,
+}: {
+  label: string
+  value: string
+  mono?: boolean
+}): React.JSX.Element {
+  return (
+    <div className="min-w-0 border-b border-border px-4 py-3 xl:border-b-0 xl:border-r xl:last:border-r-0">
+      <p className="text-[11px] font-medium tracking-wide text-muted-foreground uppercase">
+        {label}
+      </p>
+      <p
+        className={cn(
+          "mt-1 truncate text-sm text-foreground",
+          mono && "font-mono text-xs"
+        )}
+        title={value}
+      >
+        {value}
+      </p>
+    </div>
+  )
+}
+
+function ReviewLine({
+  label,
+  value,
+}: {
+  label: string
+  value: string
+}): React.JSX.Element {
+  return (
+    <div className="flex items-center justify-between gap-3">
+      <span className="text-muted-foreground">{label}</span>
+      <span className="font-mono text-xs">{value}</span>
     </div>
   )
 }
@@ -1245,6 +1608,775 @@ function LaravelRuntimePanel({
   )
 }
 
+function validateInitialEnvVars(vars: Array<InitialEnvVar>): boolean {
+  const seen = new Set<string>()
+  for (const item of vars) {
+    const key = item.key.trim()
+    const value = item.value
+    if (!key && !value) continue
+    if (!/^[A-Z_][A-Z0-9_]*$/.test(key)) return false
+    if (seen.has(key)) return false
+    seen.add(key)
+  }
+  return true
+}
+
+function databaseEnvKeysForPrefix(prefix: string): Set<string> {
+  return new Set([
+    `${prefix}_URL`,
+    `${prefix}_HOST`,
+    `${prefix}_PORT`,
+    `${prefix}_USER`,
+    `${prefix}_PASSWORD`,
+    `${prefix}_NAME`,
+  ])
+}
+
+function databaseEnvKeys(prefix: string): Array<string> {
+  return [
+    `${prefix}_URL`,
+    `${prefix}_HOST`,
+    `${prefix}_PORT`,
+    `${prefix}_USER`,
+    `${prefix}_PASSWORD`,
+    `${prefix}_NAME`,
+  ]
+}
+
+function normalizePostgresUrlForDisplay(connString: string): string {
+  const url = new URL(connString)
+  if (!url.searchParams.has("serverVersion")) {
+    url.searchParams.set("serverVersion", "16")
+  }
+  if (!url.searchParams.has("charset")) {
+    url.searchParams.set("charset", "utf8")
+  }
+  return url.toString()
+}
+
+function parseDatabaseConnectionVars(
+  kind: DbKind,
+  connString: string,
+  prefix: string
+): Record<string, string> {
+  const normalizedConnString =
+    kind === "postgres" ? normalizePostgresUrlForDisplay(connString) : connString
+  const url = new URL(normalizedConnString)
+  const vars: Record<string, string> = {}
+
+  vars[`${prefix}_URL`] = normalizedConnString
+  vars[`${prefix}_HOST`] = url.hostname
+  vars[`${prefix}_PORT`] =
+    url.port ||
+    (kind === "postgres" ? "5432" : kind === "redis" ? "6379" : "3306")
+
+  if (kind !== "redis") {
+    vars[`${prefix}_USER`] = decodeURIComponent(url.username)
+    vars[`${prefix}_NAME`] = url.pathname.replace(/^\//, "").split("?")[0] ?? ""
+  }
+  vars[`${prefix}_PASSWORD`] = decodeURIComponent(url.password)
+
+  return vars
+}
+
+function readCreatedAppId(created: unknown): string | null {
+  if (
+    created &&
+    typeof created === "object" &&
+    "id" in created &&
+    typeof created.id === "string"
+  ) {
+    return created.id
+  }
+  const maybeApp =
+    created && typeof created === "object" && "app" in created
+      ? (created.app as unknown)
+      : null
+  if (
+    maybeApp &&
+    typeof maybeApp === "object" &&
+    "id" in maybeApp &&
+    typeof maybeApp.id === "string"
+  ) {
+    return maybeApp.id
+  }
+  return null
+}
+
+async function waitForDatabaseRunning(databaseId: string): Promise<Database> {
+  const deadline = Date.now() + 120_000
+  let last: Database | null = null
+
+  while (Date.now() < deadline) {
+    const database = await apiFetch<Database>(`/databases/${databaseId}`)
+    last = database
+    if (database.status === "running" && database.health_status !== "unhealthy") {
+      return database
+    }
+    if (database.status === "failed") {
+      throw new Error("Database creation failed")
+    }
+    await new Promise((resolve) => setTimeout(resolve, 2_000))
+  }
+
+  throw new Error(
+    last
+      ? `Database is not running yet (${last.status})`
+      : "Database readiness check timed out"
+  )
+}
+
+async function resolveDatabaseForCreate({
+  form,
+  organizationId,
+  createDatabase,
+}: {
+  form: FormState
+  organizationId?: string
+  createDatabase: (input: {
+    organizationId?: string
+    projectId: string
+    kind: DbKind
+    name: string
+    plan: DbPlan
+  }) => Promise<{ id: string }>
+}): Promise<string | null> {
+  if (form.database.mode === "none") return null
+
+  if (form.database.mode === "existing") {
+    const id = form.database.existingDatabaseId
+    const database = await apiFetch<Database>(`/databases/${id}`)
+    if (database.status !== "running") {
+      throw new Error("La base sélectionnée doit être running avant le link")
+    }
+    return id
+  }
+
+  if (!organizationId) {
+    throw new Error("Organization id is required to create a database")
+  }
+
+  const created = await createDatabase({
+    organizationId,
+    projectId: organizationId,
+    kind: form.database.newDatabaseKind,
+    name: form.database.newDatabaseName.trim(),
+    plan: form.database.newDatabasePlan,
+  })
+  await waitForDatabaseRunning(created.id)
+  return created.id
+}
+
+function DatabaseStep({
+  value,
+  onChange,
+  databases,
+  isLoading,
+}: {
+  value: DatabaseSelection
+  onChange: (value: DatabaseSelection) => void
+  databases: Array<Database>
+  isLoading: boolean
+}): React.JSX.Element {
+  const runningDatabases = databases.filter((db) => db.status === "running")
+
+  const update = (patch: Partial<DatabaseSelection>): void => {
+    onChange({ ...value, ...patch })
+  }
+
+  return (
+    <div className="flex flex-col gap-4">
+      <section className="flex flex-col gap-2">
+        <p className="text-sm font-medium">Database</p>
+        <p className="text-xs text-muted-foreground">
+          Lie une base avant le premier déploiement. Ploydok vérifie que la base
+          est running avant d'injecter les variables.
+        </p>
+        <Select
+          value={value.mode}
+          onValueChange={(mode) => update({ mode: mode as DatabaseMode })}
+        >
+          <SelectTrigger>
+            <SelectValue />
+          </SelectTrigger>
+          <SelectContent>
+            <SelectGroup>
+              <SelectItem value="none">Aucune database</SelectItem>
+              <SelectItem value="existing">Lier une database existante</SelectItem>
+              <SelectItem value="new">Créer puis lier une database</SelectItem>
+            </SelectGroup>
+          </SelectContent>
+        </Select>
+      </section>
+
+      {value.mode !== "none" && (
+        <section className="flex flex-col gap-2">
+          <label htmlFor="database-env-prefix" className="text-sm font-medium">
+            Préfixe des variables
+          </label>
+          <Input
+            id="database-env-prefix"
+            value={value.envPrefix}
+            onChange={(e) => update({ envPrefix: e.target.value.toUpperCase() })}
+            placeholder="DB"
+            aria-invalid={!/^[A-Z0-9_]+$/.test(value.envPrefix)}
+            className="font-mono"
+          />
+          <p className="text-xs text-muted-foreground">
+            Génère <code>{"${prefix}_URL"}</code>,{" "}
+            <code>{"${prefix}_HOST"}</code>, etc. Utilise{" "}
+            <code>DATABASE</code> pour obtenir <code>DATABASE_URL</code>.
+          </p>
+        </section>
+      )}
+
+      {value.mode === "existing" && (
+        <section className="flex flex-col gap-2">
+          <label htmlFor="database-select" className="text-sm font-medium">
+            Database existante
+          </label>
+          {isLoading ? (
+            <div className="text-sm text-muted-foreground">Chargement…</div>
+          ) : runningDatabases.length === 0 ? (
+            <div className="rounded-md border border-border bg-muted/30 px-3 py-2 text-sm text-muted-foreground">
+              Aucune database running dans ce projet.
+            </div>
+          ) : (
+            <Select
+              value={value.existingDatabaseId}
+              onValueChange={(existingDatabaseId) =>
+                update({ existingDatabaseId })
+              }
+            >
+              <SelectTrigger id="database-select">
+                <SelectValue placeholder="Choisir une database running" />
+              </SelectTrigger>
+              <SelectContent>
+                <SelectGroup>
+                  {runningDatabases.map((db) => (
+                    <SelectItem key={db.id} value={db.id}>
+                      {db.name} ({db.kind}) · {db.health_status}
+                    </SelectItem>
+                  ))}
+                </SelectGroup>
+              </SelectContent>
+            </Select>
+          )}
+        </section>
+      )}
+
+      {value.mode === "new" && (
+        <section className="grid gap-3 sm:grid-cols-3">
+          <div className="flex flex-col gap-1">
+            <label htmlFor="database-name" className="text-sm font-medium">
+              Nom
+            </label>
+            <Input
+              id="database-name"
+              value={value.newDatabaseName}
+              onChange={(e) =>
+                update({
+                  newDatabaseName: e.target.value
+                    .toLowerCase()
+                    .replace(/[^a-z0-9-]+/g, "-"),
+                })
+              }
+              placeholder="app-db"
+              aria-invalid={
+                value.newDatabaseName.length > 0 &&
+                !/^[a-z0-9-]+$/.test(value.newDatabaseName)
+              }
+            />
+          </div>
+          <div className="flex flex-col gap-1">
+            <label htmlFor="database-kind" className="text-sm font-medium">
+              Type
+            </label>
+            <Select
+              value={value.newDatabaseKind}
+              onValueChange={(newDatabaseKind) =>
+                update({ newDatabaseKind: newDatabaseKind as DbKind })
+              }
+            >
+              <SelectTrigger id="database-kind">
+                <SelectValue />
+              </SelectTrigger>
+              <SelectContent>
+                <SelectGroup>
+                  <SelectItem value="postgres">Postgres</SelectItem>
+                  <SelectItem value="mysql">MySQL</SelectItem>
+                  <SelectItem value="mariadb">MariaDB</SelectItem>
+                  <SelectItem value="redis">Redis</SelectItem>
+                  <SelectItem value="mongo">Mongo</SelectItem>
+                </SelectGroup>
+              </SelectContent>
+            </Select>
+          </div>
+          <div className="flex flex-col gap-1">
+            <label htmlFor="database-plan" className="text-sm font-medium">
+              Plan
+            </label>
+            <Select
+              value={value.newDatabasePlan}
+              onValueChange={(newDatabasePlan) =>
+                update({ newDatabasePlan: newDatabasePlan as DbPlan })
+              }
+            >
+              <SelectTrigger id="database-plan">
+                <SelectValue />
+              </SelectTrigger>
+              <SelectContent>
+                <SelectGroup>
+                  <SelectItem value="small">Small</SelectItem>
+                  <SelectItem value="medium">Medium</SelectItem>
+                  <SelectItem value="large">Large</SelectItem>
+                </SelectGroup>
+              </SelectContent>
+            </Select>
+          </div>
+        </section>
+      )}
+    </div>
+  )
+}
+
+function EnvStep({
+  vars,
+  onChange,
+  classification,
+  probes,
+  source,
+  repoFullName,
+  branch,
+  database,
+  databases,
+}: {
+  vars: Array<InitialEnvVar>
+  onChange: (vars: Array<InitialEnvVar>) => void
+  classification: StackClassification | null
+  probes: ProbeResults | undefined
+  source: SourceKind
+  repoFullName?: string
+  branch: string
+  database: DatabaseSelection
+  databases: Array<Database>
+}): React.JSX.Element {
+  const envFiles = detectedEnvFiles(probes)
+  const selectedDatabase = databases.find(
+    (item) => item.id === database.existingDatabaseId
+  )
+  const [databaseValues, setDatabaseValues] =
+    React.useState<Record<string, string> | null>(null)
+  const [databaseValuesError, setDatabaseValuesError] = React.useState<
+    string | null
+  >(null)
+  const [databaseValuesLoading, setDatabaseValuesLoading] =
+    React.useState(false)
+  const databaseOverrideKeys =
+    database.mode === "none"
+      ? new Set<string>()
+      : databaseEnvKeysForPrefix(database.envPrefix)
+  const databaseManagedKeys =
+    database.mode === "none"
+      ? []
+      : databaseValues
+        ? Object.keys(databaseValues)
+        : databaseEnvKeys(database.envPrefix)
+  const overriddenEnvVars = vars.filter((item) =>
+    databaseOverrideKeys.has(item.key.trim())
+  )
+  const [selectedEnvFile, setSelectedEnvFile] = React.useState("")
+  const [envImportError, setEnvImportError] = React.useState<string | null>(null)
+  const [isImportingEnv, setIsImportingEnv] = React.useState(false)
+
+  React.useEffect(() => {
+    setSelectedEnvFile((current) => {
+      if (current && envFiles.includes(current)) return current
+      return envFiles[0] ?? ""
+    })
+  }, [envFiles])
+
+  React.useEffect(() => {
+    if (
+      database.mode !== "existing" ||
+      !database.existingDatabaseId ||
+      !selectedDatabase
+    ) {
+      setDatabaseValues(null)
+      setDatabaseValuesError(null)
+      setDatabaseValuesLoading(false)
+      return
+    }
+
+    let cancelled = false
+    setDatabaseValuesLoading(true)
+    setDatabaseValuesError(null)
+    void apiFetch<{ connection_string: string }>(
+      `/databases/${database.existingDatabaseId}/reveal`,
+      { method: "POST" }
+    )
+      .then((data) => {
+        if (cancelled) return
+        setDatabaseValues(
+          parseDatabaseConnectionVars(
+            selectedDatabase.kind,
+            data.connection_string,
+            database.envPrefix
+          )
+        )
+      })
+      .catch((err: Error) => {
+        if (cancelled) return
+        setDatabaseValues(null)
+        setDatabaseValuesError(err.message)
+      })
+      .finally(() => {
+        if (!cancelled) setDatabaseValuesLoading(false)
+      })
+
+    return () => {
+      cancelled = true
+    }
+  }, [
+    database.mode,
+    database.existingDatabaseId,
+    database.envPrefix,
+    selectedDatabase,
+  ])
+  const addVar = (): void => {
+    onChange([
+      ...vars,
+      {
+        id: `env-${Date.now()}-${vars.length}`,
+        key: "",
+        value: "",
+        phase: "runtime",
+      },
+    ])
+  }
+
+  const updateVar = (
+    id: string,
+    patch: Partial<Omit<InitialEnvVar, "id">>
+  ): void => {
+    onChange(vars.map((item) => (item.id === id ? { ...item, ...patch } : item)))
+  }
+
+  const removeVar = (id: string): void => {
+    onChange(vars.filter((item) => item.id !== id))
+  }
+
+  const importSelectedEnvFile = async (): Promise<void> => {
+    if (
+      source === "image" ||
+      !repoFullName ||
+      !branch ||
+      !selectedEnvFile
+    ) {
+      return
+    }
+
+    setIsImportingEnv(true)
+    setEnvImportError(null)
+    try {
+      const imported = await importEnvFileVars({
+        source,
+        fullName: repoFullName,
+        ref: branch,
+        path: selectedEnvFile,
+      })
+      const existingByKey = new Map(vars.map((item) => [item.key, item]))
+      const next = [...vars]
+      for (const item of imported) {
+        const existing = existingByKey.get(item.key)
+        if (existing) {
+          const index = next.findIndex((row) => row.id === existing.id)
+          next[index] = { ...existing, value: item.value }
+        } else {
+          next.push({
+            id: `env-import-${selectedEnvFile}-${item.key}`,
+            key: item.key,
+            value: item.value,
+            phase: "runtime",
+          })
+        }
+      }
+      onChange(next)
+    } catch (err) {
+      setEnvImportError(
+        err instanceof Error ? err.message : "Impossible d'importer ce fichier"
+      )
+    } finally {
+      setIsImportingEnv(false)
+    }
+  }
+
+  const keys = vars.map((item) => item.key.trim()).filter(Boolean)
+  const duplicateKeys = new Set(
+    keys.filter((key, index) => keys.indexOf(key) !== index)
+  )
+
+  return (
+    <div className="space-y-4">
+      <section className="space-y-2">
+        <div className="flex items-start justify-between gap-3">
+          <div>
+            <p className="text-sm font-medium">Variables d'environnement</p>
+            <p className="mt-1 text-xs text-muted-foreground">
+              Ces variables sont créées avant le premier déploiement.
+            </p>
+          </div>
+          <Button type="button" size="sm" variant="outline" onClick={addVar}>
+            <RiAddLine className="size-4" />
+            Ajouter
+          </Button>
+        </div>
+
+        {classification?.stack === "symfony" && (
+          <div className="rounded-md border border-primary/20 bg-primary/5 px-3 py-2 text-xs text-muted-foreground">
+            Symfony détecté : <code className="font-mono">APP_ENV=prod</code>{" "}
+            et <code className="font-mono">APP_DEBUG=0</code> sont préremplis
+            pour éviter les logs debug en production.
+          </div>
+        )}
+
+        {envFiles.length > 0 && (
+          <div className="rounded-md border border-border bg-muted/30 px-3 py-2">
+            <p className="text-xs text-muted-foreground">
+              Fichiers env détectés dans le repo :
+            </p>
+            <div className="mt-1 flex flex-wrap gap-1">
+              {envFiles.map((path) => (
+                <code
+                  key={path}
+                  className="rounded bg-background px-1.5 py-0.5 font-mono text-[11px]"
+                >
+                  {path}
+                </code>
+              ))}
+            </div>
+            <div className="mt-3 flex flex-col gap-2 sm:flex-row">
+              <Select
+                value={selectedEnvFile}
+                onValueChange={setSelectedEnvFile}
+              >
+                <SelectTrigger className="min-w-0 flex-1 font-mono">
+                  <SelectValue placeholder="Choisir un fichier env" />
+                </SelectTrigger>
+                <SelectContent>
+                  <SelectGroup>
+                    {envFiles.map((path) => (
+                      <SelectItem key={path} value={path}>
+                        {path}
+                      </SelectItem>
+                    ))}
+                  </SelectGroup>
+                </SelectContent>
+              </Select>
+              <Button
+                type="button"
+                size="sm"
+                variant="outline"
+                disabled={
+                  isImportingEnv ||
+                  source === "image" ||
+                  !repoFullName ||
+                  !branch ||
+                  !selectedEnvFile
+                }
+                onClick={() => void importSelectedEnvFile()}
+              >
+                {isImportingEnv ? "Import…" : "Importer les vars"}
+              </Button>
+            </div>
+            {envImportError && (
+              <p className="mt-2 text-[11px] text-destructive">
+                {envImportError}
+              </p>
+            )}
+          </div>
+        )}
+
+        {overriddenEnvVars.length > 0 && (
+          <div className="rounded-md border border-border bg-muted/30 px-3 py-2 text-xs text-muted-foreground">
+            Le lien database va override ces variables importées au premier
+            déploiement :{" "}
+            <span className="font-mono">
+              {overriddenEnvVars.map((item) => item.key).join(", ")}
+            </span>
+            .
+          </div>
+        )}
+
+        {databaseValuesError && (
+          <div className="rounded-md border border-destructive/30 bg-destructive/5 px-3 py-2 text-xs text-destructive">
+            Impossible de lire les valeurs DB : {databaseValuesError}
+          </div>
+        )}
+
+        <div className="rounded-md border border-border bg-muted/20 px-3 py-2 text-xs text-muted-foreground">
+          <span className="font-medium text-foreground">Phase</span> :{" "}
+          <code>Runtime</code> injecte la variable uniquement dans le conteneur
+          lancé ; <code>Build</code> uniquement pendant la construction de
+          l'image ; <code>Both</code> dans les deux phases.
+        </div>
+      </section>
+
+      {vars.length === 0 && databaseManagedKeys.length === 0 ? (
+        <button
+          type="button"
+          onClick={addVar}
+          className="flex min-h-28 w-full items-center justify-center rounded-lg border border-dashed border-border bg-muted/20 px-4 text-sm text-muted-foreground transition-colors hover:bg-muted/40"
+        >
+          Ajouter une variable
+        </button>
+      ) : (
+        <div className="space-y-2">
+          {databaseManagedKeys.map((key) => {
+            const importedConflict = vars.some((item) => item.key.trim() === key)
+            return (
+              <div
+                key={`database-managed-${key}`}
+                className="grid gap-2 rounded-lg border border-primary/20 bg-primary/5 p-3 sm:grid-cols-[minmax(0,1fr)_minmax(0,1.4fr)_8rem_2.25rem]"
+              >
+                <div className="space-y-1">
+                  <label className="text-xs font-medium">Key</label>
+                  <Input value={key} readOnly className="font-mono" />
+                  {importedConflict && (
+                    <p className="text-[11px] text-muted-foreground">
+                      Override la valeur importée
+                    </p>
+                  )}
+                </div>
+                <div className="space-y-1">
+                  <label className="text-xs font-medium">Value</label>
+                  <Input
+                    value={
+                      databaseValuesLoading
+                        ? "Chargement…"
+                        : databaseValues?.[key] ??
+                          (database.mode === "new"
+                            ? "Générée après création de la database"
+                            : "Générée depuis la database liée")
+                    }
+                    readOnly
+                    className="font-mono"
+                  />
+                </div>
+                <div className="space-y-1">
+                  <label className="text-xs font-medium">Phase</label>
+                  <Input value="Runtime" readOnly />
+                </div>
+                <div className="flex items-end">
+                  <span className="rounded-md border border-primary/20 px-2 py-1 text-[11px] text-primary">
+                    DB
+                  </span>
+                </div>
+              </div>
+            )
+          })}
+          {vars.map((item) => {
+            const key = item.key.trim()
+            const invalidKey = key.length > 0 && !/^[A-Z_][A-Z0-9_]*$/.test(key)
+            const duplicate = key.length > 0 && duplicateKeys.has(key)
+            const databaseOverridden = databaseOverrideKeys.has(key)
+            return (
+              <div
+                key={item.id}
+                className={cn(
+                  "grid gap-2 rounded-lg border border-border bg-card p-3 sm:grid-cols-[minmax(0,1fr)_minmax(0,1.4fr)_8rem_2.25rem]",
+                  databaseOverridden && "opacity-60"
+                )}
+              >
+                <div className="space-y-1">
+                  <label className="text-xs font-medium" htmlFor={`${item.id}-key`}>
+                    Key
+                  </label>
+                  <Input
+                    id={`${item.id}-key`}
+                    value={item.key}
+                    onChange={(e) =>
+                      updateVar(item.id, { key: e.target.value.toUpperCase() })
+                    }
+                    placeholder="APP_ENV"
+                    aria-invalid={invalidKey || duplicate}
+                    className={cn(
+                      "font-mono",
+                      (invalidKey || duplicate) && "border-destructive"
+                    )}
+                  />
+                  {(invalidKey || duplicate) && (
+                    <p className="text-[11px] text-destructive">
+                      {duplicate ? "Key dupliquée" : "Format KEY_NAME requis"}
+                    </p>
+                  )}
+                  {databaseOverridden && (
+                    <p className="text-[11px] text-muted-foreground">
+                      Overridée par la database
+                    </p>
+                  )}
+                </div>
+                <div className="space-y-1">
+                  <label
+                    className="text-xs font-medium"
+                    htmlFor={`${item.id}-value`}
+                  >
+                    Value
+                  </label>
+                  <Input
+                    id={`${item.id}-value`}
+                    value={item.value}
+                    onChange={(e) => updateVar(item.id, { value: e.target.value })}
+                    placeholder="prod"
+                    className="font-mono"
+                  />
+                </div>
+                <div className="space-y-1">
+                  <label
+                    className="text-xs font-medium"
+                    htmlFor={`${item.id}-phase`}
+                  >
+                    Phase
+                  </label>
+                  <Select
+                    value={item.phase}
+                    onValueChange={(value) =>
+                      updateVar(item.id, {
+                        phase: value as InitialEnvVar["phase"],
+                      })
+                    }
+                  >
+                    <SelectTrigger id={`${item.id}-phase`}>
+                      <SelectValue />
+                    </SelectTrigger>
+                    <SelectContent>
+                      <SelectGroup>
+                        <SelectItem value="runtime">Runtime</SelectItem>
+                        <SelectItem value="build">Build</SelectItem>
+                        <SelectItem value="both">Both</SelectItem>
+                      </SelectGroup>
+                    </SelectContent>
+                  </Select>
+                </div>
+                <div className="flex items-end">
+                  <button
+                    type="button"
+                    onClick={() => removeVar(item.id)}
+                    className="flex size-9 items-center justify-center rounded-md text-muted-foreground transition-colors hover:bg-muted hover:text-destructive"
+                    aria-label={`Supprimer ${item.key || "la variable"}`}
+                  >
+                    <RiDeleteBinLine className="size-4" />
+                  </button>
+                </div>
+              </div>
+            )
+          })}
+        </div>
+      )}
+    </div>
+  )
+}
+
 function BuildMethodCard({
   label,
   hint,
@@ -1334,13 +2466,13 @@ function ConfigField({
       <label htmlFor={id} className="block text-xs font-medium">
         {label}
       </label>
-      <input
+      <Input
         id={id}
         type="text"
         placeholder={placeholder}
         value={value}
         onChange={(e) => onChange(e.target.value)}
-        className="w-full rounded-md border border-input bg-background px-3 py-1.5 font-mono text-sm shadow-sm focus:ring-2 focus:ring-ring focus:outline-none"
+        className="font-mono"
       />
     </div>
   )
@@ -1433,16 +2565,28 @@ function buildCreateAppBody(
       }
     }
 
-    if (form.laravelSeedOnFirstDeploy) {
-      body.initialSecrets = [
-        {
-          key: "PLOYDOK_LARAVEL_SEED",
-          value: "true",
-          scope: "shared",
-          phase: "runtime",
-        },
-      ]
-    }
+  }
+
+  const initialSecrets = form.initialEnvVars
+    .map((item) => ({
+      key: item.key.trim(),
+      value: item.value,
+      scope: "shared",
+      phase: item.phase,
+    }))
+    .filter((item) => item.key.length > 0)
+
+  if (form.laravelSeedOnFirstDeploy) {
+    initialSecrets.push({
+      key: "PLOYDOK_LARAVEL_SEED",
+      value: "true",
+      scope: "shared",
+      phase: "runtime",
+    })
+  }
+
+  if (initialSecrets.length > 0) {
+    body.initialSecrets = initialSecrets
   }
 
   body.plan = form.plan.plan

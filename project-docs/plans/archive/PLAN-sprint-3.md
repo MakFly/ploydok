@@ -75,7 +75,7 @@ Sprint 3 connecte un repo GitHub à un domaine live en moins de 2 minutes. Il s'
 - `infra/registry/.gitkeep`
 - `infra/buildkit/.gitkeep`
 - `Makefile` (modification — ajout targets)
-- `docs/runbooks/sprint3-infra-setup.md`
+- `project-docs/operations/runbooks/sprint3-infra-setup.md`
 - `scripts/smoke-registry.sh`
 
 **Tasks** :

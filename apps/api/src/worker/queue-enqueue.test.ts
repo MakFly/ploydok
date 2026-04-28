@@ -35,15 +35,47 @@ describe("enqueueWithDbRow", () => {
     expect(result.row).toEqual(fakeRow)
   })
 
-  it("rolls back transaction if queue.add throws", async () => {
+  it("adds the queue job after the DB transaction commits", async () => {
+    const calls: string[] = []
+    let activeTransactions = 0
+
+    const mockDb = {
+      transaction: mock(async (callback) => {
+        activeTransactions += 1
+        calls.push("tx:start")
+        try {
+          const result = await callback({} as Db)
+          calls.push("tx:commit")
+          return result
+        } finally {
+          activeTransactions -= 1
+        }
+      }),
+    } as unknown as Db
+
+    const mockQueue = {
+      add: mock(async () => {
+        calls.push(`queue:add:${activeTransactions}`)
+        return { id: "job-456" }
+      }),
+    } as unknown as Queue
+
+    await enqueueWithDbRow({
+      db: mockDb,
+      queue: mockQueue,
+      jobName: "test.job",
+      insertRow: mock(async () => ({ id: "row-123" })),
+      buildPayload: (row) => ({ rowId: row.id }),
+    })
+
+    expect(calls).toEqual(["tx:start", "tx:commit", "queue:add:0"])
+  })
+
+  it("calls onQueueAddError if queue.add throws after commit", async () => {
     const mockDb = {
       transaction: mock(async (callback) => {
         const mockTx = {}
-        try {
-          await callback(mockTx as Db)
-        } catch (e) {
-          throw e
-        }
+        await callback(mockTx as Db)
       }),
     } as unknown as Db
 
@@ -57,6 +89,7 @@ describe("enqueueWithDbRow", () => {
       id: "row-123",
       name: "test-row",
     }))
+    const onQueueAddError = mock(async () => {})
 
     await expect(
       enqueueWithDbRow({
@@ -65,8 +98,14 @@ describe("enqueueWithDbRow", () => {
         jobName: "test.job",
         insertRow: insertRowMock,
         buildPayload: (row) => ({ rowId: row.id }),
+        onQueueAddError,
       })
     ).rejects.toThrow("Queue add failed")
+
+    expect(onQueueAddError).toHaveBeenCalledWith(
+      { id: "row-123", name: "test-row" },
+      expect.any(Error)
+    )
   })
 
   it("throws if job.id is undefined", async () => {

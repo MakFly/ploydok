@@ -104,10 +104,6 @@ export function resolveTopbarBreadcrumb(
     return [WORKSPACE, { label: "Marketplace" }]
   }
 
-  if (normalized === "/templates") {
-    return [WORKSPACE, { label: "Templates" }]
-  }
-
   if (normalized === "/deployments") {
     return [WORKSPACE, { label: "Deployments" }]
   }

@@ -2,7 +2,20 @@
 import { describe, expect, it, mock } from "bun:test"
 import { Hono } from "hono"
 import type { Db } from "@ploydok/db"
-import { createBackupsRouter } from "./backups"
+
+mock.module("@ploydok/db/queries", () => ({
+  getAppForUser: mock(async () => ({
+    id: "app-1",
+    project_id: "proj-1",
+    name: "demo-app",
+  })),
+  getMembership: mock(async () => null),
+  listEventWebhooks: mock(async () => []),
+  getEventWebhook: mock(async () => null),
+  createEventWebhook: mock(async () => null),
+  updateEventWebhook: mock(async () => null),
+  deleteEventWebhook: mock(async () => false),
+}))
 
 mock.module("../auth/second-factor", () => ({
   requireTotpVerified:
@@ -16,6 +29,8 @@ mock.module("../logger", () => ({
     error: () => {},
   }),
 }))
+
+const { createBackupsRouter } = await import("./backups")
 
 const fakeUser = {
   id: "user-1",
@@ -67,11 +82,14 @@ function buildDb(selectResults: unknown[]) {
   return { db: db as unknown as Db, inserts, updates, deletes }
 }
 
-function wrapRouter(db: Db) {
+function wrapRouter(
+  db: Db,
+  user: typeof fakeUser & { token_scopes?: string[] } = fakeUser
+) {
   const app = new Hono()
   app.use("*", async (c, next) => {
     // eslint-disable-next-line @typescript-eslint/no-explicit-any
-    ;(c as any).set("user", fakeUser)
+    ;(c as any).set("user", user)
     await next()
   })
   app.route("/", createBackupsRouter(db))
@@ -88,7 +106,6 @@ function req(method: string, path: string, body?: unknown) {
 
 describe("volume backup routes", () => {
   it("lists app volume backups for an authorized member", async () => {
-    const appRow = { id: "app-1", project_id: "proj-1", name: "demo-app" }
     const volumeRow = {
       id: "vol-1",
       app_id: "app-1",
@@ -111,7 +128,7 @@ describe("volume backup routes", () => {
       started_at: new Date("2026-04-28T10:00:00.000Z"),
       finished_at: new Date("2026-04-28T10:01:00.000Z"),
     }
-    const { db } = buildDb([[{ app: appRow }], [volumeRow], [backupRow]])
+    const { db } = buildDb([[volumeRow], [backupRow]])
 
     const res = await wrapRouter(db).fetch(
       req("GET", "/apps/app-1/volumes/vol-1/backups")
@@ -153,7 +170,6 @@ describe("volume backup routes", () => {
   })
 
   it("creates a volume backup config with the same shape as database backups", async () => {
-    const appRow = { id: "app-1", project_id: "proj-1", name: "demo-app" }
     const volumeRow = {
       id: "vol-1",
       app_id: "app-1",
@@ -180,12 +196,7 @@ describe("volume backup routes", () => {
       last_error: null,
       created_at: new Date("2026-04-28T10:00:00.000Z"),
     }
-    const { db, inserts } = buildDb([
-      [{ app: appRow }],
-      [volumeRow],
-      [],
-      [createdRow],
-    ])
+    const { db, inserts } = buildDb([[volumeRow], [], [createdRow]])
 
     const res = await wrapRouter(db).fetch(
       req("PUT", "/apps/app-1/volumes/vol-1/backup-config", {
@@ -208,5 +219,69 @@ describe("volume backup routes", () => {
     expect(data.config.appId).toBe("app-1")
     expect(data.config.volumeId).toBe("vol-1")
     expect(data.config.retentionDays).toBe(14)
+  })
+
+  it("requires apps:write scope to mutate backup configuration with a PAT", async () => {
+    const { db, inserts } = buildDb([])
+
+    const res = await wrapRouter(db, {
+      ...fakeUser,
+      token_scopes: ["apps:read"],
+    }).fetch(
+      req("PUT", "/apps/app-1/volumes/vol-1/backup-config", {
+        retentionDays: 14,
+      })
+    )
+
+    expect(res.status).toBe(403)
+    expect(inserts).toHaveLength(0)
+    const body = (await res.json()) as { error: { code: string } }
+    expect(body.error.code).toBe("FORBIDDEN")
+  })
+})
+
+describe("database backup routes", () => {
+  it("requires database scopes for database backup config reads", async () => {
+    const { db } = buildDb([])
+
+    const res = await wrapRouter(db, {
+      ...fakeUser,
+      token_scopes: ["apps:read"],
+    }).fetch(req("GET", "/databases/db-1/backup-config"))
+
+    expect(res.status).toBe(403)
+    const body = (await res.json()) as { error: { code: string } }
+    expect(body.error.code).toBe("FORBIDDEN")
+  })
+
+  it("allows databases:* scope for database backup config reads", async () => {
+    const dbRow = { id: "db-1", name: "primary" }
+    const configRow = {
+      id: "cfg-1",
+      database_id: "db-1",
+      destination_kind: "local",
+      s3_endpoint: null,
+      s3_bucket: null,
+      s3_prefix: null,
+      s3_region: null,
+      s3_credentials_secret_id: null,
+      schedule_cron: "0 3 * * *",
+      retention_days: 7,
+      age_recipient_public_key: null,
+      enabled: true,
+      last_run_at: null,
+      last_error: null,
+      created_at: new Date("2026-04-28T10:00:00.000Z"),
+    }
+    const { db } = buildDb([[{ db: dbRow }], [configRow]])
+
+    const res = await wrapRouter(db, {
+      ...fakeUser,
+      token_scopes: ["databases:*"],
+    }).fetch(req("GET", "/databases/db-1/backup-config"))
+
+    expect(res.status).toBe(200)
+    const body = (await res.json()) as { config: { id: string } }
+    expect(body.config.id).toBe("cfg-1")
   })
 })

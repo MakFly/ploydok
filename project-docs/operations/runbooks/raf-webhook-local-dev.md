@@ -14,7 +14,7 @@
 
 Le `make dev` lance l'API + la Web. Il **ne lance pas** de tunnel. Le dev :
 
-1. Doit connaître la contrainte (aujourd'hui, uniquement dans la doc `docs/runbooks/` future + CR sprint).
+1. Doit connaître la contrainte (aujourd'hui, uniquement dans la doc `project-docs/operations/runbooks/` future + CR sprint).
 2. Doit choisir un tunnel + l'installer.
 3. Doit reconfigurer la GitHub App manuellement (URL webhook change à chaque relance avec les tunnels gratuits quick).
 4. Doit resynchroniser le webhook secret si régénéré.
@@ -51,8 +51,8 @@ Friction importante pour un onboarding contributeur ou un test rapide de la feat
 - **Ne résout pas** le besoin de test manuel avec un vrai repo GitHub.
 
 ### Option 5 — Documenter l'état actuel dans un runbook (minimum viable)
-- Créer `docs/runbooks/webhook-autodeploy-local-dev.md` avec les 3 options tunnel (cloudflared, ngrok, smee), step-by-step + troubleshooting.
-- **Déjà prévu** dans la DoD sprint 3.1.1 Wave 6 (`docs/runbooks/webhook-autodeploy.md`).
+- Créer `project-docs/operations/runbooks/webhook-autodeploy-local-dev.md` avec les 3 options tunnel (cloudflared, ngrok, smee), step-by-step + troubleshooting.
+- **Déjà prévu** dans la DoD sprint 3.1.1 Wave 6 (`project-docs/operations/runbooks/webhook-autodeploy.md`).
 - **Ne résout pas** la friction — documente juste le contournement.
 
 ## Recommandation
@@ -69,8 +69,8 @@ Friction importante pour un onboarding contributeur ou un test rapide de la feat
 
 ## Références
 
-- Sprint 3.1.1 : `docs/sprints/sprint-3.1.1-webhook-autodeploy.md`
-- Plan : `docs/plans/PLAN-sprint-3.1.1.md` (Wave 6 inclut runbook webhook)
+- Sprint 3.1.1 : `project-docs/roadmap/sprint-3.1.1-webhook-autodeploy.md`
+- Plan : `project-docs/plans/PLAN-sprint-3.1.1.md` (Wave 6 inclut runbook webhook)
 - Handler webhook actuel : `apps/api/src/routes/github.ts:504`, `apps/api/src/routes/gitlab.ts:314`
 
 ## Liens smee.io / cloudflared (référence)

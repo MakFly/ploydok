@@ -8,8 +8,8 @@
 > pareil). Les 4 recipes PHP livrées dupliquaient exactement ce que Nixpacks
 > produit et n'étaient même pas exposées dans le wizard. Voir :
 >
-> - `docs/plans/PLAN-build-strategy-v2.md` (plan d'exécution du pivot)
-> - `docs/adr/0004-build-strategy.md` (décision architecturale)
+> - `project-docs/plans/PLAN-build-strategy-v2.md` (plan d'exécution du pivot)
+> - `project-docs/decisions/0004-build-strategy.md` (décision architecturale)
 >
 > Ce qui a été **conservé** du sprint 3.2 : le classifier (`packages/shared/src/stack-classifier.ts`).
 > Il a été enrichi avec `suggestedEnvVars` qui automatisent la config Symfony
@@ -23,7 +23,7 @@
 >
 > Ce qui a été **ajouté** en conséquence : Railpack comme build path
 > first-class, pre-check `nixpacks plan` avant build, Dockerfile FrankenPHP
-> de référence dans `docs/fixtures/symfony-references/` pour l'option
+> de référence dans `project-docs/fixtures/symfony-references/` pour l'option
 > prod haute-perf.
 
 **Durée** : 1 semaine
@@ -43,7 +43,7 @@ Ploydok a déjà une longueur d'avance : le wizard sonde `Dockerfile` statiqueme
 3. **Enum `buildMethod` étendu** : `auto | dockerfile | recipe | compose | nixpacks | railpack`.
 4. **UX wizard** : bloc "Detected" explicite (framework, signals, recommandation) + 3 cartes principales (Dockerfile / Recipe / Nixpacks) + Advanced (Compose, Railpack).
 
-Détail stratégique complet : `docs/plans/PLAN-sprint-3.2.md`.
+Détail stratégique complet : `project-docs/plans/PLAN-sprint-3.2.md`.
 
 ---
 
@@ -108,5 +108,5 @@ Détail stratégique complet : `docs/plans/PLAN-sprint-3.2.md`.
 - [x] Railpack first-class ajouté
 - [x] Nixpacks fallback non régressé
 - [x] Symfony zero-config validé sous Nixpacks
-- [x] Dockerfile FrankenPHP de référence conservé dans `docs/fixtures/symfony-references/`
-- [x] Décision documentée dans `docs/adr/0004-build-strategy.md` + `docs/plans/PLAN-build-strategy-v2.md`
+- [x] Dockerfile FrankenPHP de référence conservé dans `project-docs/fixtures/symfony-references/`
+- [x] Décision documentée dans `project-docs/decisions/0004-build-strategy.md` + `project-docs/plans/PLAN-build-strategy-v2.md`

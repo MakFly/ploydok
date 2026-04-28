@@ -83,7 +83,7 @@ Options :
 
    **apache2** : équivalent `mod_proxy` généré.
 
-3. TLS : géré par le proxy frontal (Ploydok ne gère plus ACME dans ce mode) ; documenté dans `docs/install/coexist.md`
+3. TLS : géré par le proxy frontal (Ploydok ne gère plus ACME dans ce mode) ; documenté dans `project-docs/operations/install/coexist.md`
 4. Caddy interne désactive ACME, mode HTTP-only sur loopback
 
 ### Mode C — `--mode=abort`
