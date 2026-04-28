@@ -189,8 +189,10 @@ preflight() {
   fi
 
   if ! command -v docker >/dev/null 2>&1; then
-    [[ "$SKIP_DOCKER_INSTALL" == "1" ]] && die "Docker is missing and --skip-docker-install was set" 3
-    die "Docker >= 24 is required; install Docker official packages, then rerun" 3
+    if [[ "$SKIP_DOCKER_INSTALL" == "1" ]]; then
+      die "Docker is missing and --skip-docker-install was set" 3
+    fi
+    install_docker
   fi
   local major
   major="$(docker_major)"
@@ -335,6 +337,25 @@ generate_mtls() {
     -days 3650 >/dev/null 2>&1
 }
 
+install_docker() {
+  log "Docker not found; installing via get.docker.com (skip with --skip-docker-install)"
+  if [[ "$DRY_RUN" == "1" ]]; then
+    log "dry-run: curl -fsSL https://get.docker.com | sh"
+    return
+  fi
+  curl -fsSL https://get.docker.com | sh >/dev/null
+  systemctl enable --now docker >/dev/null 2>&1 || true
+  command -v docker >/dev/null 2>&1 || die "Docker installation failed" 3
+}
+
+install_cli() {
+  local src
+  src="$(install_dir)/ploydok-cli"
+  if [[ -f "$src" ]]; then
+    install -D -m 0755 "$src" "$(real_path /usr/local/bin/ploydok-cli)"
+  fi
+}
+
 verify_or_pull_images() {
   local images=(
     "$IMAGE_REGISTRY/ploydok-api:$VERSION"
@@ -422,6 +443,7 @@ main() {
   verify_or_pull_images
   write_templates
   configure_firewall
+  install_cli
   start_services
   wait_health
   log "Ploydok installed. Open https://${PLOYDOK_PUBLIC_HOST:-localhost}/setup from this machine's DNS."
