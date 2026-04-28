@@ -582,6 +582,39 @@ export interface HostStatsResponse {
   error: string;
 }
 
+/**
+ * Sign a canonical audit-log payload with the agent's Ed25519 private key.
+ * The agent NEVER exposes the private key to the API.
+ */
+export interface SignAuditEntryRequest {
+  /**
+   * Exactly the bytes the verifier (CLI) re-derives from the audit_log row.
+   * Format v1: "v1\n<id>\n<created_at_iso>\n<user_id|->\n<action>\n<target_type>\n<target_id>\n<sha256_hex(metadata)>\n<prev_hash|->\n<hash>"
+   */
+  canonicalPayload: Uint8Array;
+  /** Empty = use current key. Caller can pin a kid for testing. */
+  keyId: string;
+}
+
+export interface SignAuditEntryResponse {
+  /** Ed25519 signature, raw 64 bytes (caller base64-encodes for storage). */
+  signature: Uint8Array;
+  /** Identifier of the key actually used (for rotation visibility). */
+  keyId: string;
+}
+
+/** Retrieve the agent's audit-log Ed25519 public key for offline verification. */
+export interface GetAuditPubkeyRequest {
+  /** Empty = current. Pinning a kid lets the CLI verify legacy entries. */
+  keyId: string;
+}
+
+export interface GetAuditPubkeyResponse {
+  /** Raw 32 bytes Ed25519 public key. */
+  pubkey: Uint8Array;
+  keyId: string;
+}
+
 function createBaseVolumeMount(): VolumeMount {
   return { hostPath: "", containerPath: "", readOnly: false };
 }
@@ -6588,6 +6621,314 @@ export const HostStatsResponse: MessageFns<HostStatsResponse> = {
   },
 };
 
+function createBaseSignAuditEntryRequest(): SignAuditEntryRequest {
+  return { canonicalPayload: new Uint8Array(0), keyId: "" };
+}
+
+export const SignAuditEntryRequest: MessageFns<SignAuditEntryRequest> = {
+  encode(message: SignAuditEntryRequest, writer: BinaryWriter = new BinaryWriter()): BinaryWriter {
+    if (message.canonicalPayload.length !== 0) {
+      writer.uint32(10).bytes(message.canonicalPayload);
+    }
+    if (message.keyId !== "") {
+      writer.uint32(18).string(message.keyId);
+    }
+    return writer;
+  },
+
+  decode(input: BinaryReader | Uint8Array, length?: number): SignAuditEntryRequest {
+    const reader = input instanceof BinaryReader ? input : new BinaryReader(input);
+    const end = length === undefined ? reader.len : reader.pos + length;
+    const message = createBaseSignAuditEntryRequest();
+    while (reader.pos < end) {
+      const tag = reader.uint32();
+      switch (tag >>> 3) {
+        case 1: {
+          if (tag !== 10) {
+            break;
+          }
+
+          message.canonicalPayload = reader.bytes();
+          continue;
+        }
+        case 2: {
+          if (tag !== 18) {
+            break;
+          }
+
+          message.keyId = reader.string();
+          continue;
+        }
+      }
+      if ((tag & 7) === 4 || tag === 0) {
+        break;
+      }
+      reader.skip(tag & 7);
+    }
+    return message;
+  },
+
+  fromJSON(object: any): SignAuditEntryRequest {
+    return {
+      canonicalPayload: isSet(object.canonicalPayload)
+        ? bytesFromBase64(object.canonicalPayload)
+        : isSet(object.canonical_payload)
+        ? bytesFromBase64(object.canonical_payload)
+        : new Uint8Array(0),
+      keyId: isSet(object.keyId)
+        ? globalThis.String(object.keyId)
+        : isSet(object.key_id)
+        ? globalThis.String(object.key_id)
+        : "",
+    };
+  },
+
+  toJSON(message: SignAuditEntryRequest): unknown {
+    const obj: any = {};
+    if (message.canonicalPayload.length !== 0) {
+      obj.canonicalPayload = base64FromBytes(message.canonicalPayload);
+    }
+    if (message.keyId !== "") {
+      obj.keyId = message.keyId;
+    }
+    return obj;
+  },
+
+  create(base?: DeepPartial<SignAuditEntryRequest>): SignAuditEntryRequest {
+    return SignAuditEntryRequest.fromPartial(base ?? {});
+  },
+  fromPartial(object: DeepPartial<SignAuditEntryRequest>): SignAuditEntryRequest {
+    const message = createBaseSignAuditEntryRequest();
+    message.canonicalPayload = object.canonicalPayload ?? new Uint8Array(0);
+    message.keyId = object.keyId ?? "";
+    return message;
+  },
+};
+
+function createBaseSignAuditEntryResponse(): SignAuditEntryResponse {
+  return { signature: new Uint8Array(0), keyId: "" };
+}
+
+export const SignAuditEntryResponse: MessageFns<SignAuditEntryResponse> = {
+  encode(message: SignAuditEntryResponse, writer: BinaryWriter = new BinaryWriter()): BinaryWriter {
+    if (message.signature.length !== 0) {
+      writer.uint32(10).bytes(message.signature);
+    }
+    if (message.keyId !== "") {
+      writer.uint32(18).string(message.keyId);
+    }
+    return writer;
+  },
+
+  decode(input: BinaryReader | Uint8Array, length?: number): SignAuditEntryResponse {
+    const reader = input instanceof BinaryReader ? input : new BinaryReader(input);
+    const end = length === undefined ? reader.len : reader.pos + length;
+    const message = createBaseSignAuditEntryResponse();
+    while (reader.pos < end) {
+      const tag = reader.uint32();
+      switch (tag >>> 3) {
+        case 1: {
+          if (tag !== 10) {
+            break;
+          }
+
+          message.signature = reader.bytes();
+          continue;
+        }
+        case 2: {
+          if (tag !== 18) {
+            break;
+          }
+
+          message.keyId = reader.string();
+          continue;
+        }
+      }
+      if ((tag & 7) === 4 || tag === 0) {
+        break;
+      }
+      reader.skip(tag & 7);
+    }
+    return message;
+  },
+
+  fromJSON(object: any): SignAuditEntryResponse {
+    return {
+      signature: isSet(object.signature) ? bytesFromBase64(object.signature) : new Uint8Array(0),
+      keyId: isSet(object.keyId)
+        ? globalThis.String(object.keyId)
+        : isSet(object.key_id)
+        ? globalThis.String(object.key_id)
+        : "",
+    };
+  },
+
+  toJSON(message: SignAuditEntryResponse): unknown {
+    const obj: any = {};
+    if (message.signature.length !== 0) {
+      obj.signature = base64FromBytes(message.signature);
+    }
+    if (message.keyId !== "") {
+      obj.keyId = message.keyId;
+    }
+    return obj;
+  },
+
+  create(base?: DeepPartial<SignAuditEntryResponse>): SignAuditEntryResponse {
+    return SignAuditEntryResponse.fromPartial(base ?? {});
+  },
+  fromPartial(object: DeepPartial<SignAuditEntryResponse>): SignAuditEntryResponse {
+    const message = createBaseSignAuditEntryResponse();
+    message.signature = object.signature ?? new Uint8Array(0);
+    message.keyId = object.keyId ?? "";
+    return message;
+  },
+};
+
+function createBaseGetAuditPubkeyRequest(): GetAuditPubkeyRequest {
+  return { keyId: "" };
+}
+
+export const GetAuditPubkeyRequest: MessageFns<GetAuditPubkeyRequest> = {
+  encode(message: GetAuditPubkeyRequest, writer: BinaryWriter = new BinaryWriter()): BinaryWriter {
+    if (message.keyId !== "") {
+      writer.uint32(10).string(message.keyId);
+    }
+    return writer;
+  },
+
+  decode(input: BinaryReader | Uint8Array, length?: number): GetAuditPubkeyRequest {
+    const reader = input instanceof BinaryReader ? input : new BinaryReader(input);
+    const end = length === undefined ? reader.len : reader.pos + length;
+    const message = createBaseGetAuditPubkeyRequest();
+    while (reader.pos < end) {
+      const tag = reader.uint32();
+      switch (tag >>> 3) {
+        case 1: {
+          if (tag !== 10) {
+            break;
+          }
+
+          message.keyId = reader.string();
+          continue;
+        }
+      }
+      if ((tag & 7) === 4 || tag === 0) {
+        break;
+      }
+      reader.skip(tag & 7);
+    }
+    return message;
+  },
+
+  fromJSON(object: any): GetAuditPubkeyRequest {
+    return {
+      keyId: isSet(object.keyId)
+        ? globalThis.String(object.keyId)
+        : isSet(object.key_id)
+        ? globalThis.String(object.key_id)
+        : "",
+    };
+  },
+
+  toJSON(message: GetAuditPubkeyRequest): unknown {
+    const obj: any = {};
+    if (message.keyId !== "") {
+      obj.keyId = message.keyId;
+    }
+    return obj;
+  },
+
+  create(base?: DeepPartial<GetAuditPubkeyRequest>): GetAuditPubkeyRequest {
+    return GetAuditPubkeyRequest.fromPartial(base ?? {});
+  },
+  fromPartial(object: DeepPartial<GetAuditPubkeyRequest>): GetAuditPubkeyRequest {
+    const message = createBaseGetAuditPubkeyRequest();
+    message.keyId = object.keyId ?? "";
+    return message;
+  },
+};
+
+function createBaseGetAuditPubkeyResponse(): GetAuditPubkeyResponse {
+  return { pubkey: new Uint8Array(0), keyId: "" };
+}
+
+export const GetAuditPubkeyResponse: MessageFns<GetAuditPubkeyResponse> = {
+  encode(message: GetAuditPubkeyResponse, writer: BinaryWriter = new BinaryWriter()): BinaryWriter {
+    if (message.pubkey.length !== 0) {
+      writer.uint32(10).bytes(message.pubkey);
+    }
+    if (message.keyId !== "") {
+      writer.uint32(18).string(message.keyId);
+    }
+    return writer;
+  },
+
+  decode(input: BinaryReader | Uint8Array, length?: number): GetAuditPubkeyResponse {
+    const reader = input instanceof BinaryReader ? input : new BinaryReader(input);
+    const end = length === undefined ? reader.len : reader.pos + length;
+    const message = createBaseGetAuditPubkeyResponse();
+    while (reader.pos < end) {
+      const tag = reader.uint32();
+      switch (tag >>> 3) {
+        case 1: {
+          if (tag !== 10) {
+            break;
+          }
+
+          message.pubkey = reader.bytes();
+          continue;
+        }
+        case 2: {
+          if (tag !== 18) {
+            break;
+          }
+
+          message.keyId = reader.string();
+          continue;
+        }
+      }
+      if ((tag & 7) === 4 || tag === 0) {
+        break;
+      }
+      reader.skip(tag & 7);
+    }
+    return message;
+  },
+
+  fromJSON(object: any): GetAuditPubkeyResponse {
+    return {
+      pubkey: isSet(object.pubkey) ? bytesFromBase64(object.pubkey) : new Uint8Array(0),
+      keyId: isSet(object.keyId)
+        ? globalThis.String(object.keyId)
+        : isSet(object.key_id)
+        ? globalThis.String(object.key_id)
+        : "",
+    };
+  },
+
+  toJSON(message: GetAuditPubkeyResponse): unknown {
+    const obj: any = {};
+    if (message.pubkey.length !== 0) {
+      obj.pubkey = base64FromBytes(message.pubkey);
+    }
+    if (message.keyId !== "") {
+      obj.keyId = message.keyId;
+    }
+    return obj;
+  },
+
+  create(base?: DeepPartial<GetAuditPubkeyResponse>): GetAuditPubkeyResponse {
+    return GetAuditPubkeyResponse.fromPartial(base ?? {});
+  },
+  fromPartial(object: DeepPartial<GetAuditPubkeyResponse>): GetAuditPubkeyResponse {
+    const message = createBaseGetAuditPubkeyResponse();
+    message.pubkey = object.pubkey ?? new Uint8Array(0);
+    message.keyId = object.keyId ?? "";
+    return message;
+  },
+};
+
 export type AgentService = typeof AgentService;
 export const AgentService = {
   /** Container lifecycle */
@@ -6812,6 +7153,29 @@ export const AgentService = {
     responseSerialize: (value: HostStatsResponse): Buffer => Buffer.from(HostStatsResponse.encode(value).finish()),
     responseDeserialize: (value: Buffer): HostStatsResponse => HostStatsResponse.decode(value),
   },
+  /** Audit log signing */
+  signAuditEntry: {
+    path: "/ploydok.agent.v1.Agent/SignAuditEntry" as const,
+    requestStream: false as const,
+    responseStream: false as const,
+    requestSerialize: (value: SignAuditEntryRequest): Buffer =>
+      Buffer.from(SignAuditEntryRequest.encode(value).finish()),
+    requestDeserialize: (value: Buffer): SignAuditEntryRequest => SignAuditEntryRequest.decode(value),
+    responseSerialize: (value: SignAuditEntryResponse): Buffer =>
+      Buffer.from(SignAuditEntryResponse.encode(value).finish()),
+    responseDeserialize: (value: Buffer): SignAuditEntryResponse => SignAuditEntryResponse.decode(value),
+  },
+  getAuditPubkey: {
+    path: "/ploydok.agent.v1.Agent/GetAuditPubkey" as const,
+    requestStream: false as const,
+    responseStream: false as const,
+    requestSerialize: (value: GetAuditPubkeyRequest): Buffer =>
+      Buffer.from(GetAuditPubkeyRequest.encode(value).finish()),
+    requestDeserialize: (value: Buffer): GetAuditPubkeyRequest => GetAuditPubkeyRequest.decode(value),
+    responseSerialize: (value: GetAuditPubkeyResponse): Buffer =>
+      Buffer.from(GetAuditPubkeyResponse.encode(value).finish()),
+    responseDeserialize: (value: Buffer): GetAuditPubkeyResponse => GetAuditPubkeyResponse.decode(value),
+  },
 } as const;
 
 export interface AgentServer extends UntypedServiceImplementation {
@@ -6845,6 +7209,9 @@ export interface AgentServer extends UntypedServiceImplementation {
   restoreDatabase: handleClientStreamingCall<RestoreChunk, RestoreResult>;
   /** Host monitoring (VPS health — Sprint 6.6) */
   hostStats: handleUnaryCall<HostStatsRequest, HostStatsResponse>;
+  /** Audit log signing */
+  signAuditEntry: handleUnaryCall<SignAuditEntryRequest, SignAuditEntryResponse>;
+  getAuditPubkey: handleUnaryCall<GetAuditPubkeyRequest, GetAuditPubkeyResponse>;
 }
 
 export interface AgentClient extends Client {
@@ -7115,6 +7482,37 @@ export interface AgentClient extends Client {
     metadata: Metadata,
     options: Partial<CallOptions>,
     callback: (error: ServiceError | null, response: HostStatsResponse) => void,
+  ): ClientUnaryCall;
+  /** Audit log signing */
+  signAuditEntry(
+    request: SignAuditEntryRequest,
+    callback: (error: ServiceError | null, response: SignAuditEntryResponse) => void,
+  ): ClientUnaryCall;
+  signAuditEntry(
+    request: SignAuditEntryRequest,
+    metadata: Metadata,
+    callback: (error: ServiceError | null, response: SignAuditEntryResponse) => void,
+  ): ClientUnaryCall;
+  signAuditEntry(
+    request: SignAuditEntryRequest,
+    metadata: Metadata,
+    options: Partial<CallOptions>,
+    callback: (error: ServiceError | null, response: SignAuditEntryResponse) => void,
+  ): ClientUnaryCall;
+  getAuditPubkey(
+    request: GetAuditPubkeyRequest,
+    callback: (error: ServiceError | null, response: GetAuditPubkeyResponse) => void,
+  ): ClientUnaryCall;
+  getAuditPubkey(
+    request: GetAuditPubkeyRequest,
+    metadata: Metadata,
+    callback: (error: ServiceError | null, response: GetAuditPubkeyResponse) => void,
+  ): ClientUnaryCall;
+  getAuditPubkey(
+    request: GetAuditPubkeyRequest,
+    metadata: Metadata,
+    options: Partial<CallOptions>,
+    callback: (error: ServiceError | null, response: GetAuditPubkeyResponse) => void,
   ): ClientUnaryCall;
 }
 

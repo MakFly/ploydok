@@ -530,6 +530,39 @@ message HostStatsResponse {
 }
 
 // ─────────────────────────────────────────────────────────────────────────────
+// Audit log signing (Ed25519, key stored in agent OS keyring / file)
+// ─────────────────────────────────────────────────────────────────────────────
+
+// Sign a canonical audit-log payload with the agent's Ed25519 private key.
+// The agent NEVER exposes the private key to the API.
+message SignAuditEntryRequest {
+  // Exactly the bytes the verifier (CLI) re-derives from the audit_log row.
+  // Format v1: "v1\n<id>\n<created_at_iso>\n<user_id|->\n<action>\n<target_type>\n<target_id>\n<sha256_hex(metadata)>\n<prev_hash|->\n<hash>"
+  bytes  canonical_payload = 1;
+  // Empty = use current key. Caller can pin a kid for testing.
+  string key_id = 2;
+}
+
+message SignAuditEntryResponse {
+  // Ed25519 signature, raw 64 bytes (caller base64-encodes for storage).
+  bytes  signature = 1;
+  // Identifier of the key actually used (for rotation visibility).
+  string key_id    = 2;
+}
+
+// Retrieve the agent's audit-log Ed25519 public key for offline verification.
+message GetAuditPubkeyRequest {
+  // Empty = current. Pinning a kid lets the CLI verify legacy entries.
+  string key_id = 1;
+}
+
+message GetAuditPubkeyResponse {
+  // Raw 32 bytes Ed25519 public key.
+  bytes  pubkey = 1;
+  string key_id = 2;
+}
+
+// ─────────────────────────────────────────────────────────────────────────────
 // Service definition
 // ─────────────────────────────────────────────────────────────────────────────
 
@@ -572,4 +605,8 @@ service Agent {
 
   // Host monitoring (VPS health — Sprint 6.6)
   rpc HostStats       (HostStatsRequest)        returns (HostStatsResponse);
+
+  // Audit log signing
+  rpc SignAuditEntry  (SignAuditEntryRequest)  returns (SignAuditEntryResponse);
+  rpc GetAuditPubkey  (GetAuditPubkeyRequest)  returns (GetAuditPubkeyResponse);
 }
