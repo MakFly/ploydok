@@ -28,7 +28,7 @@
 | Registry auth chiffré | ❌ absent | — |
 | Quotas ressources par plan | ⚠️ champ proto `ResourceLimits` OK, rien en DB / UI | — |
 | Network isolation per-project | ❌ absent (tous sur `ploydok-public`) | — |
-| 11 specs DoD Playwright | ❌ `⊘ non exécuté` | `docs/sprints/sprint-3-DoD.md` |
+| 11 specs DoD Playwright | ❌ `⊘ non exécuté` | `project-docs/roadmap/sprint-3-DoD.md` |
 
 ---
 
@@ -159,7 +159,7 @@ Déjà détaillé dans `PLAN-sprint-3-closure.md` (Waves 1-4). **Pré-requis** a
 - `infra/docker-compose.yml` : ajout services `postgres` + `redis` (section 3.1).
 - `Makefile` : `make infra-up` génère `PLOYDOK_PG_PASSWORD` / `PLOYDOK_REDIS_PASSWORD` dans `apps/api/.env.local` s'ils sont absents.
 - `make db-migrate` pointe désormais sur Postgres.
-- Runbook : `docs/runbooks/postgres-redis-local.md`.
+- Runbook : `project-docs/operations/runbooks/postgres-redis-local.md`.
 
 #### 1.2 Drizzle Postgres
 - `packages/db/package.json` : ajout deps `drizzle-orm`, `postgres` (postgres-js driver, plus rapide et moins de deps que `pg`), `ioredis`.
@@ -344,7 +344,7 @@ Déjà détaillé dans `PLAN-sprint-3-closure.md` (Waves 1-4). **Pré-requis** a
 **Owner** :
 - `scripts/test-webhook-e2e.sh` (nouveau — bash)
 - `apps/web/e2e/webhook/github-autodeploy.spec.ts` (nouveau Playwright)
-- `docs/runbooks/test-webhook-real-repo.md`
+- `project-docs/operations/runbooks/test-webhook-real-repo.md`
 
 **Pré-requis vérifiés côté infra** :
 - GitHub App installée sur `MakFly` (visible via `/github/installations` selon `apps/api/src/routes/github.ts:245`).
@@ -391,7 +391,7 @@ Déjà détaillé dans `PLAN-sprint-3-closure.md` (Waves 1-4). **Pré-requis** a
    echo "TIMEOUT"; exit 1
    ```
 2. Spec Playwright `apps/web/e2e/webhook/github-autodeploy.spec.ts` : identique mais via UI (create app → attendre build → push → attendre redeploy → assertion domaine répond 200).
-3. Runbook `docs/runbooks/test-webhook-real-repo.md` :
+3. Runbook `project-docs/operations/runbooks/test-webhook-real-repo.md` :
    - Comment créer une app via UI en pointant sur `MakFly/ploydok-hello`.
    - Comment exposer le webhook (cloudflared free) si l'environnement dev n'est pas public.
    - Comment vérifier signature reçue (`curl -X POST /github/webhook` avec bon HMAC).

@@ -55,6 +55,14 @@ describe("detectLevel", () => {
     expect(detectLevel("warning: deprecated API used")).toBe("warn")
   })
 
+  it("detects [DEBUG] prefix", () => {
+    expect(detectLevel("[DEBUG] event listener notified")).toBe("debug")
+  })
+
+  it("detects DEBUG: prefix", () => {
+    expect(detectLevel("DEBUG: checking authenticator support")).toBe("debug")
+  })
+
   it("detects [INFO] prefix", () => {
     expect(detectLevel("[INFO] server started on port 3000")).toBe("info")
   })
@@ -79,9 +87,9 @@ describe("detectLevel", () => {
     expect(detectLevel("Warning: slow query detected")).toBe("warn")
   })
 
-  // Error takes precedence over warn when both keywords appear
-  it("error takes precedence over warn", () => {
-    expect(detectLevel("[WARN] error rate is high")).toBe("error")
+  it("explicit level marker takes precedence over message text", () => {
+    expect(detectLevel("[WARN] error rate is high")).toBe("warn")
+    expect(detectLevel("PHP [debug] handled kernel.exception")).toBe("debug")
   })
 })
 
@@ -96,10 +104,11 @@ describe("filterByLevel", () => {
     line(3, "[ERROR] connection refused"),
     line(4, "INFO: request received"),
     line(5, "plain stdout line"),
+    line(6, "[DEBUG] event listener notified"),
   ]
 
   it("returns all lines for level 'all'", () => {
-    expect(filterByLevel(lines, "all")).toHaveLength(5)
+    expect(filterByLevel(lines, "all")).toHaveLength(6)
   })
 
   it("filters to info lines only", () => {
@@ -113,6 +122,12 @@ describe("filterByLevel", () => {
     const result = filterByLevel(lines, "warn")
     expect(result.every((l) => detectLevel(l.text) === "warn")).toBe(true)
     expect(result.length).toBeGreaterThanOrEqual(1)
+  })
+
+  it("filters to debug lines only", () => {
+    const result = filterByLevel(lines, "debug")
+    expect(result.every((l) => detectLevel(l.text) === "debug")).toBe(true)
+    expect(result).toHaveLength(1)
   })
 
   it("filters to error lines only", () => {
@@ -176,9 +191,9 @@ describe("filterBySearch", () => {
   it("trims leading/trailing whitespace from query", () => {
     const result = filterBySearch(lines, "  connection  ")
     expect(result.length).toBeGreaterThan(0)
-    expect(result.every((l) => l.text.toLowerCase().includes("connection"))).toBe(
-      true,
-    )
+    expect(
+      result.every((l) => l.text.toLowerCase().includes("connection"))
+    ).toBe(true)
   })
 
   it("does not mutate the input array", () => {
@@ -194,10 +209,7 @@ describe("filterBySearch", () => {
 // ---------------------------------------------------------------------------
 
 describe("volume cap", () => {
-  function applyVolumeCap(
-    lines: Array<LogLine>,
-    cap: number,
-  ): Array<LogLine> {
+  function applyVolumeCap(lines: Array<LogLine>, cap: number): Array<LogLine> {
     return lines.length > cap ? lines.slice(lines.length - cap) : lines
   }
 

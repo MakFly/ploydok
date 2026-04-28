@@ -1,7 +1,7 @@
 // SPDX-License-Identifier: AGPL-3.0-only
 import { Hono } from "hono"
 import { z } from "zod"
-import { and, eq } from "drizzle-orm"
+import { and, eq, isNotNull } from "drizzle-orm"
 import { CronExpressionParser } from "cron-parser"
 import {
   ScheduledJobCreateSchema,
@@ -46,7 +46,14 @@ async function verifyOrgOwnership(
   const membership = await db
     .select()
     .from(memberships)
-    .where(and(eq(memberships.org_id, orgId), eq(memberships.user_id, userId)))
+    .where(
+      and(
+        eq(memberships.org_id, orgId),
+        eq(memberships.user_id, userId),
+        eq(memberships.role, "owner"),
+        isNotNull(memberships.accepted_at)
+      )
+    )
     .limit(1)
 
   return membership.length > 0

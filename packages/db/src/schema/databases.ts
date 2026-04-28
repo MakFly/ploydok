@@ -26,6 +26,11 @@ export const databases = pgTable("databases", {
   version: text("version").notNull().default(""),
   name: text("name").notNull(),
   plan: text("plan", { enum: ["small", "medium", "large"] }).notNull(),
+  management_mode: text("management_mode", {
+    enum: ["managed", "external"],
+  })
+    .notNull()
+    .default("managed"),
   container_id: text("container_id"),
   volume_name: text("volume_name").notNull(),
   connection_string_enc: bytea("connection_string_enc"),

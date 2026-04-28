@@ -12,6 +12,7 @@ import { Button } from "@workspace/ui/components/button"
 import { Input } from "@workspace/ui/components/input"
 import { Label } from "@workspace/ui/components/label"
 import { Switch } from "@workspace/ui/components/switch"
+import { Textarea } from "@workspace/ui/components/textarea"
 import {
   Select,
   SelectContent,
@@ -19,7 +20,10 @@ import {
   SelectTrigger,
   SelectValue,
 } from "@workspace/ui/components/select"
-import { useCreateDatabase } from "../../lib/databases"
+import {
+  useCreateDatabase,
+  useRegisterExternalDatabase,
+} from "../../lib/databases"
 import type { DbExposureMode, DbKind, DbPlan } from "../../lib/databases"
 
 interface CreateDatabaseDialogProps {
@@ -53,6 +57,7 @@ const CREATE_PROGRESS_STAGES = [
 const CREATE_PROGRESS_TICK_MS = 120
 const CREATE_SUCCESS_CLOSE_DELAY_MS = 700
 const MAX_PENDING_PROGRESS = 94
+type CreateMode = "managed" | "external"
 
 function getCreateProgress(elapsedMs: number): number {
   if (elapsedMs <= 0) return 7
@@ -78,6 +83,7 @@ export function CreateDatabaseDialog({
   organizationId,
   onClose,
 }: CreateDatabaseDialogProps): React.JSX.Element {
+  const [mode, setMode] = React.useState<CreateMode>("managed")
   const [kind, setKind] = React.useState<DbKind>("postgres")
   const [plan, setPlan] = React.useState<DbPlan>("small")
   const [publicEnabled, setPublicEnabled] = React.useState(false)
@@ -87,21 +93,32 @@ export function CreateDatabaseDialog({
   const [phase, setPhase] = React.useState<"form" | "progress" | "done">("form")
   const [elapsedMs, setElapsedMs] = React.useState(0)
   const [actionError, setActionError] = React.useState<string | null>(null)
+  const [connectionString, setConnectionString] = React.useState("")
   const createDatabase = useCreateDatabase()
-  const resetMutationRef = React.useRef(createDatabase.reset)
+  const registerExternalDatabase = useRegisterExternalDatabase()
+  const resetCreateMutationRef = React.useRef(createDatabase.reset)
+  const resetRegisterMutationRef = React.useRef(registerExternalDatabase.reset)
   const progressTimerRef = React.useRef<ReturnType<typeof setInterval> | null>(
     null
   )
   const closeTimerRef = React.useRef<ReturnType<typeof setTimeout> | null>(null)
 
-  const isPending = createDatabase.isPending
+  const isPending =
+    createDatabase.isPending || registerExternalDatabase.isPending
   const progressValue = phase === "done" ? 100 : getCreateProgress(elapsedMs)
   const stageLabel =
-    phase === "done" ? "Database ready" : getCreateStageLabel(elapsedMs)
+    phase === "done"
+      ? mode === "external"
+        ? "Database registered"
+        : "Database ready"
+      : mode === "external"
+        ? "Register external endpoint"
+        : getCreateStageLabel(elapsedMs)
 
   React.useEffect(() => {
-    resetMutationRef.current = createDatabase.reset
-  }, [createDatabase.reset])
+    resetCreateMutationRef.current = createDatabase.reset
+    resetRegisterMutationRef.current = registerExternalDatabase.reset
+  }, [createDatabase.reset, registerExternalDatabase.reset])
 
   const clearTimers = React.useCallback(() => {
     if (progressTimerRef.current) {
@@ -115,11 +132,13 @@ export function CreateDatabaseDialog({
   }, [])
 
   const resetForm = React.useCallback(() => {
+    setMode("managed")
     setKind("postgres")
     setPlan("small")
     setPublicEnabled(false)
     setExposureMode("internal")
     setName("")
+    setConnectionString("")
   }, [])
 
   const resetState = React.useCallback(() => {
@@ -127,7 +146,8 @@ export function CreateDatabaseDialog({
     setPhase("form")
     setElapsedMs(0)
     setActionError(null)
-    resetMutationRef.current()
+    resetCreateMutationRef.current()
+    resetRegisterMutationRef.current()
   }, [clearTimers])
 
   React.useEffect(() => {
@@ -157,26 +177,40 @@ export function CreateDatabaseDialog({
     setElapsedMs(0)
     clearTimers()
 
-    progressTimerRef.current = setInterval(() => {
-      setElapsedMs((current) => current + CREATE_PROGRESS_TICK_MS)
-    }, CREATE_PROGRESS_TICK_MS)
+    if (mode === "managed") {
+      progressTimerRef.current = setInterval(() => {
+        setElapsedMs((current) => current + CREATE_PROGRESS_TICK_MS)
+      }, CREATE_PROGRESS_TICK_MS)
+    }
 
     try {
-      await createDatabase.mutateAsync({
-        organizationId,
-        projectId: organizationId,
-        kind,
-        name,
-        plan,
-        exposureMode: finalExposureMode,
-        publicEnabled,
-      })
+      if (mode === "external") {
+        await registerExternalDatabase.mutateAsync({
+          organizationId,
+          projectId: organizationId,
+          name,
+          connectionString,
+        })
+      } else {
+        await createDatabase.mutateAsync({
+          organizationId,
+          projectId: organizationId,
+          kind,
+          name,
+          plan,
+          exposureMode: finalExposureMode,
+          publicEnabled,
+        })
+      }
 
       clearTimers()
       resetForm()
       setPhase("done")
       setElapsedMs(
-        CREATE_PROGRESS_STAGES[CREATE_PROGRESS_STAGES.length - 1]?.untilMs ?? 0
+        mode === "external"
+          ? 0
+          : (CREATE_PROGRESS_STAGES[CREATE_PROGRESS_STAGES.length - 1]
+              ?.untilMs ?? 0)
       )
 
       closeTimerRef.current = setTimeout(() => {
@@ -187,7 +221,7 @@ export function CreateDatabaseDialog({
       clearTimers()
       setPhase("form")
       setActionError(
-        err instanceof Error ? err.message : "Database creation failed"
+        err instanceof Error ? err.message : "Database action failed"
       )
     }
   }
@@ -198,13 +232,15 @@ export function CreateDatabaseDialog({
         <DialogHeader>
           <DialogTitle>
             {phase === "progress" || phase === "done"
-              ? `Creating ${name || "database"}`
-              : "Create database"}
+              ? `${mode === "external" ? "Registering" : "Creating"} ${name || "database"}`
+              : "Add database"}
           </DialogTitle>
           <DialogDescription>
             {phase === "progress" || phase === "done"
-              ? "Waiting for the API to provision the database and confirm it is healthy."
-              : "Provision a managed database inside the current organization."}
+              ? mode === "external"
+                ? "Saving the external PostgreSQL endpoint and encrypted connection string."
+                : "Waiting for the API to provision the database and confirm it is healthy."
+              : "Provision a managed database or register an existing PostgreSQL endpoint."}
           </DialogDescription>
         </DialogHeader>
 
@@ -213,7 +249,9 @@ export function CreateDatabaseDialog({
             <div className="flex flex-col gap-4">
               <div className="rounded-md border bg-muted/30 px-3 py-2 text-sm">
                 <span className="text-muted-foreground">
-                  {kind} {plan}
+                  {mode === "external"
+                    ? "postgres external"
+                    : `${kind} ${plan}`}
                 </span>
                 <span className="mx-2 text-muted-foreground">·</span>
                 <span>{name || "database"}</span>
@@ -279,25 +317,51 @@ export function CreateDatabaseDialog({
         ) : (
           <form onSubmit={handleSubmit} className="flex flex-col gap-4">
             <div className="flex flex-col gap-2">
-              <Label>Type</Label>
-              <div className="grid grid-cols-2 gap-2 sm:grid-cols-3">
-                {KINDS.map((k) => (
-                  <button
-                    key={k.value}
-                    type="button"
-                    onClick={() => setKind(k.value)}
-                    className={`flex flex-col items-center gap-1 rounded-md border p-3 text-sm transition-colors ${
-                      kind === k.value
-                        ? "border-primary bg-primary/10"
-                        : "border-border hover:border-muted-foreground"
-                    }`}
-                  >
-                    <span className="text-2xl">{k.icon}</span>
-                    <span>{k.label}</span>
-                  </button>
-                ))}
-              </div>
+              <Label htmlFor="db-mode">Mode</Label>
+              <Select
+                value={mode}
+                onValueChange={(value) => setMode(value as CreateMode)}
+              >
+                <SelectTrigger id="db-mode">
+                  <SelectValue />
+                </SelectTrigger>
+                <SelectContent>
+                  <SelectItem value="managed">
+                    Managed Docker database
+                  </SelectItem>
+                  <SelectItem value="external">
+                    Existing PostgreSQL endpoint
+                  </SelectItem>
+                </SelectContent>
+              </Select>
+              <span className="text-xs text-muted-foreground">
+                External databases are linked and injected into apps, but
+                lifecycle, backups, and password rotation stay outside Ploydok.
+              </span>
             </div>
+
+            {mode === "managed" ? (
+              <div className="flex flex-col gap-2">
+                <Label>Type</Label>
+                <div className="grid grid-cols-2 gap-2 sm:grid-cols-3">
+                  {KINDS.map((k) => (
+                    <button
+                      key={k.value}
+                      type="button"
+                      onClick={() => setKind(k.value)}
+                      className={`flex flex-col items-center gap-1 rounded-md border p-3 text-sm transition-colors ${
+                        kind === k.value
+                          ? "border-primary bg-primary/10"
+                          : "border-border hover:border-muted-foreground"
+                      }`}
+                    >
+                      <span className="text-2xl">{k.icon}</span>
+                      <span>{k.label}</span>
+                    </button>
+                  ))}
+                </div>
+              </div>
+            ) : null}
 
             <div className="flex flex-col gap-2">
               <Label htmlFor="db-name">Name</Label>
@@ -314,61 +378,91 @@ export function CreateDatabaseDialog({
               </span>
             </div>
 
-            <div className="flex flex-col gap-2">
-              <Label htmlFor="db-plan">Plan</Label>
-              <Select value={plan} onValueChange={(v) => setPlan(v as DbPlan)}>
-                <SelectTrigger id="db-plan">
-                  <SelectValue />
-                </SelectTrigger>
-                <SelectContent>
-                  {PLANS.map((p) => (
-                    <SelectItem key={p.value} value={p.value}>
-                      <span className="font-medium">{p.label}</span>
-                      <span className="ml-2 text-xs text-muted-foreground">
-                        {p.desc}
-                      </span>
-                    </SelectItem>
-                  ))}
-                </SelectContent>
-              </Select>
-            </div>
-
-            <div className="rounded-lg border p-3">
-              <div className="flex items-center justify-between gap-3">
-                <div className="flex flex-col gap-1">
-                  <Label htmlFor="db-public">Public access</Label>
-                  <span className="text-xs text-muted-foreground">
-                    Exposes the database on a direct TCP port for external
-                    tools.
-                  </span>
-                </div>
-                <Switch
-                  id="db-public"
-                  checked={publicEnabled}
-                  onCheckedChange={(next) => {
-                    setPublicEnabled(next)
-                    setExposureMode(next ? "direct_port" : "internal")
-                  }}
-                />
-              </div>
-              {publicEnabled ? (
-                <div className="mt-3 flex flex-col gap-2">
-                  <Label htmlFor="db-exposure-mode">Exposure mode</Label>
+            {mode === "managed" ? (
+              <>
+                <div className="flex flex-col gap-2">
+                  <Label htmlFor="db-plan">Plan</Label>
                   <Select
-                    value={exposureMode}
-                    onValueChange={(v) => setExposureMode(v as DbExposureMode)}
+                    value={plan}
+                    onValueChange={(v) => setPlan(v as DbPlan)}
                   >
-                    <SelectTrigger id="db-exposure-mode">
+                    <SelectTrigger id="db-plan">
                       <SelectValue />
                     </SelectTrigger>
                     <SelectContent>
-                      <SelectItem value="direct_port">Direct port</SelectItem>
-                      <SelectItem value="public_proxy">Public proxy</SelectItem>
+                      {PLANS.map((p) => (
+                        <SelectItem key={p.value} value={p.value}>
+                          <span className="font-medium">{p.label}</span>
+                          <span className="ml-2 text-xs text-muted-foreground">
+                            {p.desc}
+                          </span>
+                        </SelectItem>
+                      ))}
                     </SelectContent>
                   </Select>
                 </div>
-              ) : null}
-            </div>
+
+                <div className="rounded-lg border p-3">
+                  <div className="flex items-center justify-between gap-3">
+                    <div className="flex flex-col gap-1">
+                      <Label htmlFor="db-public">Public access</Label>
+                      <span className="text-xs text-muted-foreground">
+                        Exposes the database on a direct TCP port for external
+                        tools.
+                      </span>
+                    </div>
+                    <Switch
+                      id="db-public"
+                      checked={publicEnabled}
+                      onCheckedChange={(next) => {
+                        setPublicEnabled(next)
+                        setExposureMode(next ? "direct_port" : "internal")
+                      }}
+                    />
+                  </div>
+                  {publicEnabled ? (
+                    <div className="mt-3 flex flex-col gap-2">
+                      <Label htmlFor="db-exposure-mode">Exposure mode</Label>
+                      <Select
+                        value={exposureMode}
+                        onValueChange={(v) =>
+                          setExposureMode(v as DbExposureMode)
+                        }
+                      >
+                        <SelectTrigger id="db-exposure-mode">
+                          <SelectValue />
+                        </SelectTrigger>
+                        <SelectContent>
+                          <SelectItem value="direct_port">
+                            Direct port
+                          </SelectItem>
+                          <SelectItem value="public_proxy">
+                            Public proxy
+                          </SelectItem>
+                        </SelectContent>
+                      </Select>
+                    </div>
+                  ) : null}
+                </div>
+              </>
+            ) : (
+              <div className="flex flex-col gap-2">
+                <Label htmlFor="external-db-url">PostgreSQL URL</Label>
+                <Textarea
+                  id="external-db-url"
+                  value={connectionString}
+                  onChange={(e) => setConnectionString(e.target.value)}
+                  placeholder="postgres://user:password@host:5432/database"
+                  spellCheck={false}
+                  className="min-h-24 font-mono text-xs"
+                />
+                <span className="text-xs text-muted-foreground">
+                  Use an endpoint reachable from deployed app containers. For a
+                  native database on the VPS, PostgreSQL must listen on a
+                  container-reachable host address, not only 127.0.0.1.
+                </span>
+              </div>
+            )}
 
             {actionError ? (
               <p className="text-sm text-destructive" role="alert">
@@ -385,8 +479,21 @@ export function CreateDatabaseDialog({
               >
                 Cancel
               </Button>
-              <Button type="submit" disabled={!name || isPending}>
-                Create
+              <Button
+                type="submit"
+                disabled={
+                  !name ||
+                  isPending ||
+                  (mode === "external" && !connectionString.trim())
+                }
+              >
+                {isPending
+                  ? mode === "external"
+                    ? "Registering..."
+                    : "Creating..."
+                  : mode === "external"
+                    ? "Register"
+                    : "Create"}
               </Button>
             </DialogFooter>
           </form>

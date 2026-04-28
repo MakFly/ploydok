@@ -2,7 +2,7 @@
 
 > ✅ Terminé 2026-04-22
 
-> Plan d'implémentation détaillé pour `docs/sprints/sprint-4-secrets-domaines-db.md`.
+> Plan d'implémentation détaillé pour `project-docs/roadmap/sprint-4-secrets-domaines-db.md`.
 > Écrit 2026-04-22 après clôture du sprint 3.1.1.
 > Objectif : livrer l'autonomie complète pour déployer une app de prod réelle (env scopées, wildcard TLS, DB managées, protection apps, backups).
 >
@@ -414,8 +414,8 @@ Objectif : `/apps/$id/env` complet avec reveal TOTP, import/export `.env`, injec
   5. Rotate DB → `curl` toutes les 500 ms pendant rotation → 0 downtime (cap 5% 5xx max).
   6. Enable basic auth → 401 sans creds, 200 avec.
   7. Backup Postgres → restore sur nouvelle DB → schema identique.
-- **7.B — Runbook** `docs/runbooks/sprint-4-operations.md` : setup DNS-01 par provider, rotation DB, restore, budget storage.
-- **7.C — DoD check** `docs/sprints/sprint-4-secrets-domaines-db.md` → cocher tout + `✅ Terminé`, maj `docs/sprints/README.md`.
+- **7.B — Runbook** `project-docs/operations/runbooks/sprint-4-operations.md` : setup DNS-01 par provider, rotation DB, restore, budget storage.
+- **7.C — DoD check** `project-docs/roadmap/sprint-4-secrets-domaines-db.md` → cocher tout + `✅ Terminé`, maj `project-docs/roadmap/README.md`.
 - **7.D — Cleanup containers e2e** : `ploydok-db-e2e-*` préfixé pour purge automatique (cf. `.claude/rules/testing.md`).
 
 ---
@@ -473,7 +473,7 @@ Objectif : `/apps/$id/env` complet avec reveal TOTP, import/export `.env`, injec
 - `packages/db/src/schema/{databases,app_db_links,tls_certificates,backup_configs,password_history}.ts`
 - `packages/db/migrations/NNNN_sprint4.sql` (generate + relire)
 - `infra/caddy/Dockerfile` (xcaddy build)
-- `docs/runbooks/sprint-4-operations.md`
+- `project-docs/operations/runbooks/sprint-4-operations.md`
 - `apps/web/e2e/sprint4/full-flow.spec.ts`
 
 ### À modifier
@@ -485,7 +485,7 @@ Objectif : `/apps/$id/env` complet avec reveal TOTP, import/export `.env`, injec
 - `packages/agent-proto/proto/agent.proto` (+ DumpDatabase/RestoreDatabase)
 - `agent/ploydok-agent/src/service.rs` (impl Dump/Restore)
 - `infra/docker-compose.yml` (build Caddy custom)
-- `docs/sprints/sprint-4-secrets-domaines-db.md` + `docs/sprints/README.md` (✅ Terminé en fin W7)
+- `project-docs/roadmap/sprint-4-secrets-domaines-db.md` + `project-docs/roadmap/README.md` (✅ Terminé en fin W7)
 
 ### Réutilisables déjà en place
 - `apps/api/src/keyring.ts` → `loadMasterKey()`
@@ -520,7 +520,7 @@ Manuel (infra up + dev up) :
 
 ## Checklist avant de démarrer
 
-- [x] Sprint 3.1.1 mergé, `✅ Terminé` dans `docs/sprints/README.md`.
+- [x] Sprint 3.1.1 mergé, `✅ Terminé` dans `project-docs/roadmap/README.md`.
 - [x] Audit conformité Dokploy/Coolify référence (baseline 42 %, cible post-sprint-4 ≈ 65 %).
 - [x] Briques existantes auditées : `secrets`, `domains`, `encryptField`, Caddy client, agent RPC, notify dispatcher.
 - [x] **Décision `age`** : binary system (recommandé) vs lib JS. → Décision prise : binary system (agent Rust `docker exec age`). W6 livré.
@@ -537,7 +537,7 @@ Manuel (infra up + dev up) :
 2. **J+2** : merge W1 + W2, lancer W3 + W4 en parallèle (W4 commence par Dockerfile xcaddy).
 3. **J+4** : merge W3 + W4, lancer W5 + W6 en parallèle.
 4. **J+7** : W7 solo (E2E + docs).
-5. **J+8** : commit + audit interne + mise à jour `docs/sprints/README.md` → `✅ Terminé`.
+5. **J+8** : commit + audit interne + mise à jour `project-docs/roadmap/README.md` → `✅ Terminé`.
 
 ---
 
@@ -562,5 +562,5 @@ Conformité estimée après sprint 4 : **~65 %** (vs 42 % aujourd'hui).
 
 ## Notes post-plan
 
-- L'ancien `PLAN-sprint-4.md` (flow GitHub App Manifest, daté 2026-04-16) a été archivé → `docs/plans/PLAN-sprint-4-legacy-github-app.md`. Le flow GitHub App est déjà livré (sprints 3 / 3bis).
+- L'ancien `PLAN-sprint-4.md` (flow GitHub App Manifest, daté 2026-04-16) a été archivé → `project-docs/plans/PLAN-sprint-4-legacy-github-app.md`. Le flow GitHub App est déjà livré (sprints 3 / 3bis).
 - Le sprint 3.1.2 "PR previews" consomme directement les briques W2 (DNS-01 wildcard) et W5 (hooks) — synergies à exploiter si planification serrée post-v1.0.

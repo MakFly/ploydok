@@ -3,7 +3,7 @@
 
 ## Related
 - Sprint: <!-- e.g. sprint-1 task 1.4 -->
-- Issue / ADR: <!-- #123 or docs/adr/NNNN-... -->
+- Issue / ADR: <!-- #123 or project-docs/decisions/NNNN-... -->
 
 ## Checklist
 - [ ] Commits signed-off (DCO) — `git commit -s`

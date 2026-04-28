@@ -84,6 +84,13 @@ export async function fetchGitHub(
   return { status: res.status, data };
 }
 
+function encodeRepoPath(filePath: string): string {
+  return filePath
+    .split("/")
+    .map((segment) => encodeURIComponent(segment))
+    .join("/")
+}
+
 // ---------------------------------------------------------------------------
 // GitHubProvider
 // ---------------------------------------------------------------------------
@@ -166,10 +173,7 @@ export class GitHubProvider implements GitProvider {
     filePath: string,
     ref: string,
   ): Promise<boolean> {
-    const encodedPath = filePath
-      .split("/")
-      .map((segment) => encodeURIComponent(segment))
-      .join("/")
+    const encodedPath = encodeRepoPath(filePath)
     const { status } = await fetchGitHub(
       installationId,
       `/repos/${fullName}/contents/${encodedPath}?ref=${encodeURIComponent(ref)}`,
@@ -178,6 +182,32 @@ export class GitHubProvider implements GitProvider {
     if (status === 200) return true
     if (status === 404) return false
     throw new Error(`GitHub /repos/${fullName}/contents/${filePath} returned ${status}`)
+  }
+
+  async readFile(
+    installationId: string,
+    fullName: string,
+    filePath: string,
+    ref: string,
+  ): Promise<string> {
+    const encodedPath = encodeRepoPath(filePath)
+    const { status, data } = await fetchGitHub(
+      installationId,
+      `/repos/${fullName}/contents/${encodedPath}?ref=${encodeURIComponent(ref)}`,
+      this.cache,
+    )
+    if (status !== 200) {
+      throw new Error(`GitHub /repos/${fullName}/contents/${filePath} returned ${status}`)
+    }
+
+    const body = data as { type?: string; encoding?: string; content?: string; size?: number }
+    if (body.type !== "file" || body.encoding !== "base64" || typeof body.content !== "string") {
+      throw new Error(`GitHub /repos/${fullName}/contents/${filePath} is not a base64 file`)
+    }
+    if ((body.size ?? 0) > 64 * 1024) {
+      throw new Error(`GitHub /repos/${fullName}/contents/${filePath} is too large`)
+    }
+    return Buffer.from(body.content.replace(/\s/g, ""), "base64").toString("utf8")
   }
 
   cloneUrlWithToken(fullName: string, token: string): string {

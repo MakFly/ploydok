@@ -287,6 +287,37 @@ describe("nixpacksBuild", () => {
     expect(cmd).toContain("bun run start")
   })
 
+  it("maps NIXPACKS_*_CMD build env values to explicit command flags", async () => {
+    spawnSpy = spyOn(Bun, "spawn").mockReturnValue(
+      fakeBunProcess({}) as ReturnType<typeof Bun.spawn>
+    )
+
+    await nixpacksMod.nixpacksBuild({
+      workspacePath: tmpDir,
+      tag: "127.0.0.1:5000/app-abc:sha123",
+      buildEnv: {
+        NIXPACKS_INSTALL_CMD:
+          "COMPOSER_ALLOW_SUPERUSER=1 composer install --ignore-platform-reqs",
+        NIXPACKS_BUILD_CMD: "php bin/console cache:warmup",
+        NIXPACKS_START_CMD: "php-fpm",
+      },
+    })
+
+    const spawnMock = spawnSpy as unknown as {
+      mock: { calls: Array<[unknown[], unknown]> }
+    }
+    const buildCall = spawnMock.mock.calls[0]
+    const cmd = buildCall![0] as string[]
+    expect(cmd).toContain("--install-cmd")
+    expect(cmd).toContain(
+      "COMPOSER_ALLOW_SUPERUSER=1 composer install --ignore-platform-reqs"
+    )
+    expect(cmd).toContain("--build-cmd")
+    expect(cmd).toContain("php bin/console cache:warmup")
+    expect(cmd).toContain("--start-cmd")
+    expect(cmd).toContain("php-fpm")
+  })
+
   it("passes config path, node version env, and build env", async () => {
     let spawnEnv: Record<string, string> | undefined
     spawnSpy = spyOn(Bun, "spawn").mockImplementation(((...args: unknown[]) => {
@@ -385,6 +416,36 @@ describe("nixpacksBuild", () => {
     expect(spawnEnv?.["NPM_CONFIG_LEGACY_PEER_DEPS"]).toBe("true")
     expect(cmd).toContain("--env")
     expect(cmd).toContain("NPM_CONFIG_LEGACY_PEER_DEPS=true")
+  })
+
+  it("injects COMPOSER_ALLOW_SUPERUSER=1 for Composer projects", async () => {
+    await writeFile(
+      path.join(tmpDir, "composer.json"),
+      JSON.stringify({ require: { "symfony/flex": "^2" } })
+    )
+
+    let spawnEnv: Record<string, string> | undefined
+    spawnSpy = spyOn(Bun, "spawn").mockImplementation(((...args: unknown[]) => {
+      const opts = (args.length === 1 ? args[0] : args[1]) as
+        | { env?: Record<string, string> }
+        | undefined
+      spawnEnv = opts?.env
+      return fakeBunProcess({}) as ReturnType<typeof Bun.spawn>
+    }) as typeof Bun.spawn)
+
+    await nixpacksMod.nixpacksBuild({
+      workspacePath: tmpDir,
+      tag: "127.0.0.1:5000/app-symfony:sha123",
+    })
+
+    const spawnMock = spawnSpy as unknown as {
+      mock: { calls: Array<[unknown[], unknown]> }
+    }
+    const buildCall = spawnMock.mock.calls[0]
+    const cmd = buildCall![0] as string[]
+    expect(spawnEnv?.["COMPOSER_ALLOW_SUPERUSER"]).toBe("1")
+    expect(cmd).toContain("--env")
+    expect(cmd).toContain("COMPOSER_ALLOW_SUPERUSER=1")
   })
 
   it("rewrites the Nixpacks PHP packages from composer.lock constraints", async () => {
@@ -629,5 +690,31 @@ describe("nixpacksBuild", () => {
     const buildCall = spawnMock.mock.calls[0]
     const cmd = buildCall![0] as string[]
     expect(cmd).toContain("NIXPACKS_NODE_VERSION=22")
+  })
+
+  it("maps NIXPACKS_INSTALL_CMD build env values to nixpacks plan flags", async () => {
+    spawnSpy = spyOn(Bun, "spawn").mockReturnValue(
+      fakeBunProcess({
+        stdoutLines: ['{"providers":["php"],"phases":{"install":{}}}'],
+      }) as ReturnType<typeof Bun.spawn>
+    )
+
+    await nixpacksMod.nixpacksPlan({
+      workspacePath: tmpDir,
+      buildEnv: {
+        NIXPACKS_INSTALL_CMD:
+          "COMPOSER_ALLOW_SUPERUSER=1 composer install --ignore-platform-reqs",
+      },
+    })
+
+    const spawnMock = spawnSpy as unknown as {
+      mock: { calls: Array<[unknown[], unknown]> }
+    }
+    const planCall = spawnMock.mock.calls[0]
+    const cmd = planCall![0] as string[]
+    expect(cmd).toContain("--install-cmd")
+    expect(cmd).toContain(
+      "COMPOSER_ALLOW_SUPERUSER=1 composer install --ignore-platform-reqs"
+    )
   })
 })

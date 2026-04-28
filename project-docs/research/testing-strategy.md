@@ -62,7 +62,7 @@
 - Burp Suite pro : session manuelle pentest avant release
 
 ### 5.3 Checklist ASVS L2
-Exécutée Sprint 6, documentée dans `docs/security/pentest-v1.md`.
+Exécutée Sprint 6, documentée dans `project-docs/operations/security/pentest-v1.md`.
 
 ---
 

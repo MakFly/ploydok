@@ -1,7 +1,8 @@
 // SPDX-License-Identifier: AGPL-3.0-only
 import type { Context, MiddlewareHandler } from "hono"
 import type { Db } from "@ploydok/db"
-import { insertAuditLog } from "@ploydok/db/queries"
+import type { Agent } from "../agent"
+import { insertAuditLogSigned } from "@ploydok/db/queries"
 import { childLogger } from "../logger"
 
 const auditLog = childLogger("audit")
@@ -17,10 +18,13 @@ export interface AuditMiddlewareOptions {
 /**
  * Middleware that automatically logs mutations to the audit table.
  * Calls next() first, then if the response is 2xx, inserts an audit log entry.
+ * Signs each entry via agent.signAuditEntry().
+ * If signing fails or agent is unavailable, logs a warning and writes signature=NULL.
  * Errors in audit insertion are logged but don't break the response.
  */
 export function auditMiddleware(
   db: Db,
+  agent: Agent,
   opts: AuditMiddlewareOptions
 ): MiddlewareHandler {
   return async (c: Context, next) => {
@@ -41,17 +45,37 @@ export function auditMiddleware(
         return
       }
 
-      // TODO: wire hash-chain — compute SHA256(prev_hash || JSON.stringify(entry)) and lookup the previous entry
-      const success = await insertAuditLog(db, {
-        user_id: user?.id ?? null,
-        action: opts.action,
-        target_type: opts.targetType,
-        target_id: targetId,
-        metadata: metadata ? JSON.stringify(metadata) : "{}",
-        created_at: new Date(),
-      })
+      const signFn = async (
+        canonical: Uint8Array
+      ): Promise<{ signature: string; keyId: string } | null> => {
+        try {
+          const { signature, keyId } = await agent.signAuditEntry(canonical, "")
+          const sig = Buffer.from(signature).toString("base64url")
+          return { signature: sig, keyId }
+        } catch (err) {
+          auditLog.warn(
+            { err, action: opts.action, targetType: opts.targetType, targetId },
+            "agent sign failed, writing unsigned entry"
+          )
+          return null
+        }
+      }
 
-      if (!success) {
+      const row = await insertAuditLogSigned(
+        db,
+        {
+          user_id: user?.id ?? null,
+          action: opts.action,
+          target_type: opts.targetType,
+          target_id: targetId,
+          metadata: metadata ? JSON.stringify(metadata) : "{}",
+          created_at: new Date(),
+          org_id: orgId ?? null,
+        },
+        signFn
+      )
+
+      if (!row) {
         auditLog.warn(
           { action: opts.action, targetType: opts.targetType, targetId },
           "failed to insert audit log"

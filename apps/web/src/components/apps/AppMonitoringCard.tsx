@@ -2,7 +2,7 @@
 import * as React from "react"
 import { useEventsSubscription } from "../../lib/events-provider"
 import { selectAppSnapshot } from "../../lib/app-runtime"
-import { useMonitoring } from "../../lib/monitoring"
+import { getContainerHealthSnapshot, useMonitoring } from "../../lib/monitoring"
 import { ResourceCard } from "../monitoring/ResourceCard"
 import type { AppStatus, ContainerSnapshot } from "@ploydok/shared"
 
@@ -12,7 +12,7 @@ import type { AppStatus, ContainerSnapshot } from "@ploydok/shared"
 
 interface ContainerHealthPayload {
   appId?: string
-  container?: ContainerSnapshot
+  data?: Record<string, unknown>
   t?: number
 }
 
@@ -128,9 +128,8 @@ export function AppMonitoringCard({
   const handleHealth = React.useCallback(
     (payload: ContainerHealthPayload) => {
       if (payload.appId !== appId) return
-      if (!payload.container) return
-
-      const snap = payload.container
+      const snap = getContainerHealthSnapshot(payload)
+      if (!snap) return
       setSnapshot(snap)
       setCpuHistory((prev) => pushToHistory(prev, snap.cpu_pct))
       setMemHistory((prev) => pushToHistory(prev, snap.mem_bytes))

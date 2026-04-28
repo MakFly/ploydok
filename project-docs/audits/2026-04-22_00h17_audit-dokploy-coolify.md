@@ -100,7 +100,7 @@ Ploydok a un **moteur solide** (build, blue-green, agent Rust, auth) mais manque
 - [x] Préparer le **Sprint 4** : choisir la stack DB one-click (templates Docker vs opérateur custom), benchmark Coolify/Dokploy sur la provisioning DB→app (ENV auto-injectés, backup schedule) — livré ✅ (commits c0c838d / 5131d6330 / 185fb9f / cff0991 — 2026-04-22).
 - [x] Décider du positionnement **volumes persistants** : inclure dans Sprint 4 — livré ✅ (volumes nommés `ploydok-db-<id>` dans spawner.ts — W3).
 - [x] Valider la stratégie **TLS wildcard DNS-01** : livré ✅ — 4 providers (Cloudflare / Route53 / OVH / DigitalOcean) via modules Caddy xcaddy — W2+W4.
-- [x] Archiver ce rapport dans `docs/audits/` — fait (ce fichier).
+- [x] Archiver ce rapport dans `project-docs/audits/` — fait (ce fichier).
 
 **Mise à jour verdict conformité post-Sprint 4 : ~65 %** (vs 42 % baseline au moment de cet audit).
 

@@ -1,7 +1,7 @@
 // SPDX-License-Identifier: AGPL-3.0-only
 import * as React from "react"
 import { Link, useRouterState } from "@tanstack/react-router"
-import { RiKey2Line, RiShieldCheckLine, RiUserLine } from "@remixicon/react"
+import { RiShieldCheckLine, RiUserLine } from "@remixicon/react"
 import { cn } from "@workspace/ui/lib/utils"
 
 interface SettingsTab {
@@ -23,12 +23,6 @@ const TABS: ReadonlyArray<SettingsTab> = [
     label: "Security",
     icon: RiShieldCheckLine,
     matches: (p) => p.startsWith("/settings/security"),
-  },
-  {
-    to: "/settings/license",
-    label: "License",
-    icon: RiKey2Line,
-    matches: (p) => p.startsWith("/settings/license"),
   },
 ]
 

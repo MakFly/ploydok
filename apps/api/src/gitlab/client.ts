@@ -101,6 +101,32 @@ export class GitLabProvider implements GitProvider {
     throw new Error(`GitLab /projects/${fullName}/repository/files/${filePath} returned ${res.status}`);
   }
 
+  async readFile(
+    token: string,
+    fullName: string,
+    filePath: string,
+    ref: string,
+  ): Promise<string> {
+    const project = encodeURIComponent(fullName);
+    const file = encodeURIComponent(filePath);
+    const url = `${this.apiBase}/projects/${project}/repository/files/${file}/raw?ref=${encodeURIComponent(ref)}`;
+    const res = await fetch(url, { headers: this.headers(token) });
+    if (res.status !== 200) {
+      throw new Error(`GitLab /projects/${fullName}/repository/files/${filePath}/raw returned ${res.status}`);
+    }
+
+    const contentLength = Number(res.headers.get("content-length") ?? "0");
+    if (contentLength > 64 * 1024) {
+      throw new Error(`GitLab /projects/${fullName}/repository/files/${filePath}/raw is too large`);
+    }
+
+    const content = await res.text();
+    if (content.length > 64 * 1024) {
+      throw new Error(`GitLab /projects/${fullName}/repository/files/${filePath}/raw is too large`);
+    }
+    return content;
+  }
+
   /** Build a clone URL embedding the OAuth token (for `git clone`). */
   cloneUrlWithToken(fullName: string, token: string): string {
     const host = new URL(this.instanceUrl).host;

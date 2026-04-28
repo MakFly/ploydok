@@ -1,6 +1,6 @@
 // SPDX-License-Identifier: AGPL-3.0-only
-import { and, eq, lt } from "drizzle-orm"
-import { builds } from "@ploydok/db"
+import { and, eq, lt, or } from "drizzle-orm"
+import { apps, builds } from "@ploydok/db"
 import { updateBuildStatus } from "@ploydok/db/queries"
 import type { Db } from "@ploydok/db"
 import { childLogger } from "../../logger"
@@ -11,6 +11,37 @@ const STUCK_THRESHOLD_MS = 30 * 60 * 1000
 const TICK_MS = 5 * 60 * 1000
 
 let _timer: ReturnType<typeof setInterval> | null = null
+
+async function repairAppStatusAfterReap(db: Db, appId: string): Promise<void> {
+  const activeBuilds = await db
+    .select({ id: builds.id })
+    .from(builds)
+    .where(
+      and(
+        eq(builds.app_id, appId),
+        or(eq(builds.status, "pending"), eq(builds.status, "running"))
+      )
+    )
+    .limit(1)
+
+  if (activeBuilds.length > 0) return
+
+  const appRows = await db
+    .select({ status: apps.status, container_id: apps.container_id })
+    .from(apps)
+    .where(eq(apps.id, appId))
+    .limit(1)
+  const app = appRows[0]
+  if (!app || app.status !== "building") return
+
+  await db
+    .update(apps)
+    .set({
+      status: app.container_id ? "running" : "failed",
+      updated_at: new Date(),
+    })
+    .where(eq(apps.id, appId))
+}
 
 /**
  * Finds `builds` rows with status in (pending, running) whose started_at is
@@ -23,7 +54,7 @@ let _timer: ReturnType<typeof setInterval> | null = null
 export async function reapStuckBuilds(db: Db): Promise<{ reaped: string[] }> {
   const threshold = new Date(Date.now() - STUCK_THRESHOLD_MS)
   const candidates = await db
-    .select({ id: builds.id, status: builds.status })
+    .select({ id: builds.id, app_id: builds.app_id, status: builds.status })
     .from(builds)
     .where(and(lt(builds.started_at, threshold), eq(builds.status, "running")))
 
@@ -34,11 +65,12 @@ export async function reapStuckBuilds(db: Db): Promise<{ reaped: string[] }> {
       errorMessage:
         "Build reaped: stuck in `running` for > 30 min (worker likely crashed or was restarted mid-deploy).",
     })
+    await repairAppStatusAfterReap(db, row.app_id)
     reaped.push(row.id)
   }
 
   const pending = await db
-    .select({ id: builds.id })
+    .select({ id: builds.id, app_id: builds.app_id })
     .from(builds)
     .where(and(lt(builds.created_at, threshold), eq(builds.status, "pending")))
   for (const row of pending) {
@@ -46,6 +78,7 @@ export async function reapStuckBuilds(db: Db): Promise<{ reaped: string[] }> {
       finishedAt: new Date(),
       errorMessage: "Build reaped: stuck in `pending` for > 30 min.",
     })
+    await repairAppStatusAfterReap(db, row.app_id)
     reaped.push(row.id)
   }
 

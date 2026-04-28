@@ -54,6 +54,17 @@ export type ProbeKey =
   | "compose.yml"
   | "docker-compose.yml"
   | "docker-compose.yaml"
+  // Env files
+  | ".env"
+  | ".env.example"
+  | ".env.sample"
+  | ".env.dist"
+  | ".env.local"
+  | ".env.development"
+  | ".env.dev"
+  | ".env.production"
+  | ".env.prod"
+  | ".env.test"
   // PHP
   | "composer.json"
   | "artisan"
@@ -115,6 +126,16 @@ export const ALL_PROBE_KEYS: ReadonlyArray<ProbeKey> = [
   "compose.yml",
   "docker-compose.yml",
   "docker-compose.yaml",
+  ".env",
+  ".env.example",
+  ".env.sample",
+  ".env.dist",
+  ".env.local",
+  ".env.development",
+  ".env.dev",
+  ".env.production",
+  ".env.prod",
+  ".env.test",
   "composer.json",
   "artisan",
   "symfony.lock",
@@ -139,6 +160,19 @@ export const ALL_PROBE_KEYS: ReadonlyArray<ProbeKey> = [
   "build.gradle",
   "build.gradle.kts",
   "index.html",
+]
+
+export const ENV_FILE_PROBE_KEYS: ReadonlyArray<ProbeKey> = [
+  ".env",
+  ".env.example",
+  ".env.sample",
+  ".env.dist",
+  ".env.local",
+  ".env.development",
+  ".env.dev",
+  ".env.production",
+  ".env.prod",
+  ".env.test",
 ]
 
 function has(probes: ProbeResults, key: ProbeKey): boolean {
@@ -253,11 +287,13 @@ export function classifyStack(probes: ProbeResults): StackClassification {
         //   build so the autoloader + Flex helpers are wired correctly.
         //   Also prepends `mkdir -p /var/log/nginx /var/cache/nginx` that
         //   the default Nixpacks PHP recipe runs but we override wholesale.
-        // APP_ENV is intentionally NOT injected: `prod` on a fresh repo
-        // without DATABASE_URL / writable var/cache breaks cache:warmup and
-        // makes the app 500 on every route. The user sets APP_ENV per
-        // environment scope (sprint-4) once the DB is wired.
+        // APP_ENV / APP_DEBUG: Symfony defaults to dev when APP_ENV is absent,
+        // which leaks verbose debug logs through php-fpm/nginx in deployed apps.
+        // Keep runtime explicit and production-oriented by default; users can
+        // override these in the app env step before first deploy.
         suggestedEnvVars: {
+          APP_ENV: "prod",
+          APP_DEBUG: "0",
           NIXPACKS_PHP_ROOT_DIR: "/app/public",
           NIXPACKS_PHP_FALLBACK_PATH: "/index.php",
           NIXPACKS_INSTALL_CMD:

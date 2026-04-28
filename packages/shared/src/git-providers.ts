@@ -64,6 +64,8 @@ export interface GitProvider {
   listBranches(token: string, fullName: string): Promise<GitBranch[]>;
   /** Check whether a file exists at the given path on the given ref/branch. */
   fileExists(token: string, fullName: string, filePath: string, ref: string): Promise<boolean>;
+  /** Read a small text file at the given path on the given ref/branch. */
+  readFile(token: string, fullName: string, filePath: string, ref: string): Promise<string>;
   /** Build a clone URL embedding the token (for `git clone`). */
   cloneUrlWithToken(fullName: string, token: string): string;
   /** Constant-time signature/token verification for incoming webhooks. */

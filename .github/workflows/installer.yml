@@ -4,8 +4,8 @@ on:
   pull_request:
     paths:
       - "installer/**"
-      - "docs/install/**"
-      - "apps/docs/src/pages/docs/install.mdx"
+      - "project-docs/operations/install/**"
+      - "apps/docs/src/pages/project-docs/operations/install.mdx"
       - "apps/docs/src/lib/nav.ts"
       - ".github/workflows/installer.yml"
   push:
@@ -13,8 +13,8 @@ on:
       - main
     paths:
       - "installer/**"
-      - "docs/install/**"
-      - "apps/docs/src/pages/docs/install.mdx"
+      - "project-docs/operations/install/**"
+      - "apps/docs/src/pages/project-docs/operations/install.mdx"
       - "apps/docs/src/lib/nav.ts"
       - ".github/workflows/installer.yml"
   workflow_dispatch:

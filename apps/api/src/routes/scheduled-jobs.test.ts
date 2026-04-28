@@ -28,6 +28,14 @@ mock.module("@ploydok/db/queries", () => ({
   updateScheduledJobRun: updateScheduledJobRunMock,
   listDueJobs: listDueJobsMock,
   listAppVolumes: listAppVolumesMock,
+  getAppForUser: mock(async () => null),
+  getMembership: mock(async () => null),
+  listEventWebhooks: mock(async () => []),
+  getEventWebhook: mock(async () => null),
+  createEventWebhook: mock(async () => null),
+  updateEventWebhook: mock(async () => null),
+  deleteEventWebhook: mock(async () => false),
+  listEnabledWebhooksForEvent: mock(async () => []),
 }))
 
 const { createScheduledJobsRouter } = await import("./scheduled-jobs")
@@ -41,8 +49,13 @@ const fakeUser = {
   session_id: "sess-1",
 }
 
-function makeDb() {
+function makeDb(
+  options: { membershipRows?: Array<Record<string, unknown>> } = {}
+) {
   let selectCount = 0
+  const membershipRows = options.membershipRows ?? [
+    { org_id: "org-1", user_id: fakeUser.id, role: "owner" },
+  ]
   return {
     select: mock(() => ({
       from: mock(() => ({
@@ -51,7 +64,7 @@ function makeDb() {
             selectCount += 1
             return selectCount % 2 === 1
               ? [{ id: "org-1", slug: "acme" }]
-              : [{ org_id: "org-1", user_id: fakeUser.id }]
+              : membershipRows
           }),
         })),
       })),
@@ -76,7 +89,10 @@ function makeRunRow() {
   }
 }
 
-function makeApp(runJobNow: RunJobNow = mock(async () => makeRunRow())) {
+function makeApp(
+  runJobNow: RunJobNow = mock(async () => makeRunRow()),
+  db = makeDb()
+) {
   const app = new Hono()
   app.use("*", async (c, next) => {
     ;(c as { set: (key: string, value: unknown) => void }).set("user", fakeUser)
@@ -84,7 +100,7 @@ function makeApp(runJobNow: RunJobNow = mock(async () => makeRunRow())) {
   })
   app.route(
     "/orgs/:orgSlug/scheduled-jobs",
-    createScheduledJobsRouter(makeDb() as never, {
+    createScheduledJobsRouter(db as never, {
       agent: { containerExec: mock() } as never,
       runJobNow,
     })
@@ -142,5 +158,30 @@ describe("POST /orgs/:orgSlug/scheduled-jobs/:id/run", () => {
 
     expect(res.status).toBe(409)
     expect(await res.json()).toEqual({ error: "Job is already running" })
+  })
+})
+
+describe("POST /orgs/:orgSlug/scheduled-jobs", () => {
+  it("rejects users that are not accepted organization owners", async () => {
+    const { app } = makeApp(
+      mock(async () => makeRunRow()),
+      makeDb({ membershipRows: [] })
+    )
+
+    const res = await app.request("/orgs/acme/scheduled-jobs", {
+      method: "POST",
+      headers: { "content-type": "application/json" },
+      body: JSON.stringify({
+        name: "Unsafe job",
+        schedule_cron: "*/5 * * * *",
+        kind: "container_run",
+        image: "alpine:3.20",
+        command: ["sh", "-c", "id"],
+        enabled: true,
+      }),
+    })
+
+    expect(res.status).toBe(403)
+    expect(createScheduledJobMock).not.toHaveBeenCalled()
   })
 })

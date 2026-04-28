@@ -97,10 +97,16 @@ function DatabaseDetailPage(): React.JSX.Element {
     )
   }
 
+  const isExternal = db.management_mode === "external"
+
   return (
     <ShellPage
       title={db.name}
-      description={`${db.kind} ${db.version} · ${db.plan} plan`}
+      description={
+        isExternal
+          ? `${db.kind} · external endpoint`
+          : `${db.kind} ${db.version} · ${db.plan} plan`
+      }
       actions={
         <div className="flex items-center gap-2">
           <DatabaseStatusBadge status={db.status} health={db.health_status} />
@@ -146,96 +152,125 @@ function DatabaseDetailPage(): React.JSX.Element {
           </div>
 
           <div className="flex flex-col gap-3 rounded-lg border p-4">
-            <div className="flex items-center justify-between gap-3">
-              <div className="flex flex-col">
-                <span className="text-sm font-medium">Direct public port</span>
-                <span className="text-xs text-muted-foreground">
-                  Internal linking always keeps the private endpoint.
-                </span>
-              </div>
-              <Switch
-                checked={publicEnabled}
-                onCheckedChange={(next) => {
-                  setPublicEnabled(next)
-                  setExposureMode(
-                    next
-                      ? db.exposure_mode === "internal"
-                        ? "direct_port"
-                        : db.exposure_mode
-                      : "internal"
-                  )
-                }}
-                disabled={isUpdatingNetwork}
-              />
-            </div>
-            {publicEnabled && (
-              <Select
-                value={exposureMode}
-                onValueChange={(value) =>
-                  setExposureMode(
-                    value as "internal" | "direct_port" | "public_proxy"
-                  )
-                }
-              >
-                <SelectTrigger>
-                  <SelectValue />
-                </SelectTrigger>
-                <SelectContent>
-                  <SelectItem value="direct_port">Direct port</SelectItem>
-                  <SelectItem value="public_proxy">Public proxy</SelectItem>
-                </SelectContent>
-              </Select>
+            {isExternal ? (
+              <>
+                <div className="flex flex-col gap-1">
+                  <span className="text-sm font-medium">
+                    External PostgreSQL endpoint
+                  </span>
+                  <span className="text-xs text-muted-foreground">
+                    Ploydok stores and injects the connection string, but the
+                    database process, firewall, backups, and password rotation
+                    are managed outside Ploydok.
+                  </span>
+                </div>
+                <div className="rounded-md border bg-muted/30 px-3 py-2 font-mono text-xs">
+                  {db.internal_host ?? "—"}:{db.internal_port ?? "—"}
+                </div>
+                <Button variant="outline" onClick={() => setRevealOpen(true)}>
+                  Reveal connection string
+                </Button>
+              </>
+            ) : (
+              <>
+                <div className="flex items-center justify-between gap-3">
+                  <div className="flex flex-col">
+                    <span className="text-sm font-medium">
+                      Direct public port
+                    </span>
+                    <span className="text-xs text-muted-foreground">
+                      Internal linking always keeps the private endpoint.
+                    </span>
+                  </div>
+                  <Switch
+                    checked={publicEnabled}
+                    onCheckedChange={(next) => {
+                      setPublicEnabled(next)
+                      setExposureMode(
+                        next
+                          ? db.exposure_mode === "internal"
+                            ? "direct_port"
+                            : db.exposure_mode
+                          : "internal"
+                      )
+                    }}
+                    disabled={isUpdatingNetwork}
+                  />
+                </div>
+                {publicEnabled && (
+                  <Select
+                    value={exposureMode}
+                    onValueChange={(value) =>
+                      setExposureMode(
+                        value as "internal" | "direct_port" | "public_proxy"
+                      )
+                    }
+                  >
+                    <SelectTrigger>
+                      <SelectValue />
+                    </SelectTrigger>
+                    <SelectContent>
+                      <SelectItem value="direct_port">Direct port</SelectItem>
+                      <SelectItem value="public_proxy">Public proxy</SelectItem>
+                    </SelectContent>
+                  </Select>
+                )}
+                {publicEnabled && (
+                  <Alert variant="destructive">
+                    <AlertTitle>
+                      This database will be reachable publicly
+                    </AlertTitle>
+                    <AlertDescription>
+                      The container port will be bound to{" "}
+                      <span className="font-mono">0.0.0.0</span> on the host.
+                      Any client able to reach this server on the allocated port
+                      can attempt to connect with the generated credentials.
+                      Make sure your firewall only allows the IPs you trust
+                      before applying.
+                    </AlertDescription>
+                  </Alert>
+                )}
+                <Button
+                  variant={publicEnabled ? "destructive" : "outline"}
+                  onClick={() =>
+                    updateNetwork({
+                      id: dbId,
+                      exposureMode: publicEnabled ? exposureMode : "internal",
+                      publicEnabled,
+                    })
+                  }
+                  disabled={isUpdatingNetwork}
+                >
+                  {isUpdatingNetwork
+                    ? "Updating network..."
+                    : publicEnabled
+                      ? "Expose database publicly"
+                      : "Apply network settings"}
+                </Button>
+                <div className="grid grid-cols-3 gap-2">
+                  <Button
+                    variant="outline"
+                    onClick={() => startDb(dbId)}
+                    disabled={isStarting || db.status === "running"}
+                  >
+                    {isStarting ? "Starting..." : "Start"}
+                  </Button>
+                  <Button
+                    variant="outline"
+                    onClick={() => stopDb(dbId)}
+                    disabled={isStopping || db.status === "stopped"}
+                  >
+                    {isStopping ? "Stopping..." : "Stop"}
+                  </Button>
+                  <Button
+                    variant="outline"
+                    onClick={() => setRestartOpen(true)}
+                  >
+                    Restart
+                  </Button>
+                </div>
+              </>
             )}
-            {publicEnabled && (
-              <Alert variant="destructive">
-                <AlertTitle>
-                  This database will be reachable publicly
-                </AlertTitle>
-                <AlertDescription>
-                  The container port will be bound to{" "}
-                  <span className="font-mono">0.0.0.0</span> on the host. Any
-                  client able to reach this server on the allocated port can
-                  attempt to connect with the generated credentials. Make sure
-                  your firewall only allows the IPs you trust before applying.
-                </AlertDescription>
-              </Alert>
-            )}
-            <Button
-              variant={publicEnabled ? "destructive" : "outline"}
-              onClick={() =>
-                updateNetwork({
-                  id: dbId,
-                  exposureMode: publicEnabled ? exposureMode : "internal",
-                  publicEnabled,
-                })
-              }
-              disabled={isUpdatingNetwork}
-            >
-              {isUpdatingNetwork
-                ? "Updating network..."
-                : publicEnabled
-                  ? "Expose database publicly"
-                  : "Apply network settings"}
-            </Button>
-            <div className="grid grid-cols-3 gap-2">
-              <Button
-                variant="outline"
-                onClick={() => startDb(dbId)}
-                disabled={isStarting || db.status === "running"}
-              >
-                {isStarting ? "Starting..." : "Start"}
-              </Button>
-              <Button
-                variant="outline"
-                onClick={() => stopDb(dbId)}
-                disabled={isStopping || db.status === "stopped"}
-              >
-                {isStopping ? "Stopping..." : "Stop"}
-              </Button>
-              <Button variant="outline" onClick={() => setRestartOpen(true)}>
-                Restart
-              </Button>
-            </div>
           </div>
         </div>
 
@@ -284,7 +319,18 @@ function DatabaseDetailPage(): React.JSX.Element {
               </div>
             )}
 
-            <RotationPanel db={db} onScheduleChange={() => void refetch()} />
+            {isExternal ? (
+              <Alert>
+                <AlertTitle>External database</AlertTitle>
+                <AlertDescription>
+                  Lifecycle and password rotation stay with the PostgreSQL
+                  server owner. Use the connection tab to reveal the stored URL
+                  or link this database to apps.
+                </AlertDescription>
+              </Alert>
+            ) : (
+              <RotationPanel db={db} onScheduleChange={() => void refetch()} />
+            )}
           </TabsContent>
 
           <TabsContent value="connection" className="flex flex-col gap-4">
@@ -313,90 +359,116 @@ function DatabaseDetailPage(): React.JSX.Element {
           </TabsContent>
 
           <TabsContent value="monitoring" className="flex flex-col gap-4">
-            <div className="grid gap-3 rounded-lg border p-4 text-sm sm:grid-cols-2 lg:grid-cols-4">
-              <div>
-                <span className="text-muted-foreground">CPU</span>
+            {isExternal ? (
+              <Alert>
+                <AlertTitle>Monitoring unavailable</AlertTitle>
+                <AlertDescription>
+                  Ploydok only collects container metrics for managed database
+                  containers. Monitor this PostgreSQL server from its host or
+                  provider.
+                </AlertDescription>
+              </Alert>
+            ) : (
+              <div className="grid gap-3 rounded-lg border p-4 text-sm sm:grid-cols-2 lg:grid-cols-4">
                 <div>
-                  {stats?.stats
-                    ? `${stats.stats.cpu_percent.toFixed(2)} %`
-                    : "—"}
+                  <span className="text-muted-foreground">CPU</span>
+                  <div>
+                    {stats?.stats
+                      ? `${stats.stats.cpu_percent.toFixed(2)} %`
+                      : "—"}
+                  </div>
+                </div>
+                <div>
+                  <span className="text-muted-foreground">Memory</span>
+                  <div>
+                    {stats?.stats
+                      ? `${Math.round(stats.stats.memory_bytes / 1024 / 1024)} MB`
+                      : "—"}
+                  </div>
+                </div>
+                <div>
+                  <span className="text-muted-foreground">RX</span>
+                  <div>
+                    {stats?.stats
+                      ? `${Math.round(stats.stats.net_rx_bytes / 1024)} KB`
+                      : "—"}
+                  </div>
+                </div>
+                <div>
+                  <span className="text-muted-foreground">TX</span>
+                  <div>
+                    {stats?.stats
+                      ? `${Math.round(stats.stats.net_tx_bytes / 1024)} KB`
+                      : "—"}
+                  </div>
                 </div>
               </div>
-              <div>
-                <span className="text-muted-foreground">Memory</span>
-                <div>
-                  {stats?.stats
-                    ? `${Math.round(stats.stats.memory_bytes / 1024 / 1024)} MB`
-                    : "—"}
-                </div>
-              </div>
-              <div>
-                <span className="text-muted-foreground">RX</span>
-                <div>
-                  {stats?.stats
-                    ? `${Math.round(stats.stats.net_rx_bytes / 1024)} KB`
-                    : "—"}
-                </div>
-              </div>
-              <div>
-                <span className="text-muted-foreground">TX</span>
-                <div>
-                  {stats?.stats
-                    ? `${Math.round(stats.stats.net_tx_bytes / 1024)} KB`
-                    : "—"}
-                </div>
-              </div>
-            </div>
+            )}
           </TabsContent>
 
           <TabsContent value="backups" className="flex flex-col gap-4">
-            <div className="grid gap-4 xl:grid-cols-[minmax(0,1fr)_minmax(320px,420px)]">
-              <div className="rounded-lg border p-4">
-                <div className="mb-4 flex flex-wrap items-center justify-between gap-3">
-                  <div>
-                    <h2 className="text-sm font-semibold">Database backups</h2>
+            {isExternal ? (
+              <Alert>
+                <AlertTitle>Backups are external</AlertTitle>
+                <AlertDescription>
+                  Ploydok does not run backup or restore jobs against external
+                  PostgreSQL endpoints yet. Keep the server or provider backup
+                  policy enabled before linking production apps.
+                </AlertDescription>
+              </Alert>
+            ) : (
+              <div className="grid gap-4 xl:grid-cols-[minmax(0,1fr)_minmax(320px,420px)]">
+                <div className="rounded-lg border p-4">
+                  <div className="mb-4 flex flex-wrap items-center justify-between gap-3">
+                    <div>
+                      <h2 className="text-sm font-semibold">
+                        Database backups
+                      </h2>
+                      <p className="text-xs text-muted-foreground">
+                        Manual and scheduled backups for this database.
+                      </p>
+                    </div>
+                    <Button
+                      variant="outline"
+                      onClick={() => backupNow()}
+                      disabled={isBackingUp}
+                    >
+                      {isBackingUp ? "Starting..." : "Backup now"}
+                    </Button>
+                  </div>
+                  <BackupsList
+                    target={{ kind: "database", databaseId: dbId }}
+                    restoreLabel={db.name}
+                    onBackupNow={() => backupNow()}
+                    backupNowLoading={isBackingUp}
+                  />
+                </div>
+
+                <div className="rounded-lg border p-4">
+                  <div className="mb-4">
+                    <h2 className="text-sm font-semibold">Backup policy</h2>
                     <p className="text-xs text-muted-foreground">
-                      Manual and scheduled backups for this database.
+                      Store locally or on S3-compatible storage such as R2, AWS,
+                      Scaleway, or OVH.
                     </p>
                   </div>
-                  <Button
-                    variant="outline"
-                    onClick={() => backupNow()}
-                    disabled={isBackingUp}
-                  >
-                    {isBackingUp ? "Starting..." : "Backup now"}
-                  </Button>
+                  <BackupConfigPanel
+                    target={{ kind: "database", databaseId: dbId }}
+                  />
                 </div>
-                <BackupsList
-                  target={{ kind: "database", databaseId: dbId }}
-                  restoreLabel={db.name}
-                  onBackupNow={() => backupNow()}
-                  backupNowLoading={isBackingUp}
-                />
               </div>
-
-              <div className="rounded-lg border p-4">
-                <div className="mb-4">
-                  <h2 className="text-sm font-semibold">Backup policy</h2>
-                  <p className="text-xs text-muted-foreground">
-                    Store locally or on S3-compatible storage such as R2, AWS,
-                    Scaleway, or OVH.
-                  </p>
-                </div>
-                <BackupConfigPanel
-                  target={{ kind: "database", databaseId: dbId }}
-                />
-              </div>
-            </div>
+            )}
           </TabsContent>
 
           <TabsContent value="logs">
             <div className="max-h-[420px] overflow-auto rounded-lg border bg-muted/20 p-4 font-mono text-xs whitespace-pre-wrap">
-              {logs?.lines?.length
-                ? logs.lines
-                    .map((line) => `[${line.stream ?? "log"}] ${line.line}`)
-                    .join("\n")
-                : "No logs available."}
+              {isExternal
+                ? "External databases do not have Ploydok container logs."
+                : logs?.lines?.length
+                  ? logs.lines
+                      .map((line) => `[${line.stream ?? "log"}] ${line.line}`)
+                      .join("\n")
+                  : "No logs available."}
             </div>
           </TabsContent>
 
@@ -412,7 +484,9 @@ function DatabaseDetailPage(): React.JSX.Element {
               </div>
               <div>
                 <span className="text-muted-foreground">Container</span>
-                <div className="font-mono">{db.id}</div>
+                <div className="font-mono">
+                  {isExternal ? "External (no Ploydok container)" : db.id}
+                </div>
               </div>
             </div>
           </TabsContent>

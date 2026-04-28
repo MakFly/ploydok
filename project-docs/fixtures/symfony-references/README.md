@@ -93,5 +93,5 @@ machine, du dataset Doctrine et du warmup du kernel cache.
 - https://frankenphp.dev/docs/production
 - https://packagist.org/packages/runtime/frankenphp-symfony
 - https://coolify.io/docs/applications/symfony
-- `docs/plans/PLAN-build-strategy-v2.md`
-- `docs/adr/0004-build-strategy.md` (à créer wave 4)
+- `project-docs/plans/PLAN-build-strategy-v2.md`
+- `project-docs/decisions/0004-build-strategy.md` (à créer wave 4)

@@ -31,4 +31,16 @@ describe("framework env guardrails", () => {
 
     expect(suggested.APP_KEY).toBeUndefined()
   })
+
+  it("keeps Symfony runtime env explicit", () => {
+    const classification = classifyStack({
+      "composer.json": true,
+      "symfony.lock": true,
+    })
+
+    const suggested = suggestedEnvForFramework(classification)
+
+    expect(suggested.APP_ENV).toBe("prod")
+    expect(suggested.APP_DEBUG).toBe("0")
+  })
 })

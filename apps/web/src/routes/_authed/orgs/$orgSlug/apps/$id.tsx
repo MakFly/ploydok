@@ -1,6 +1,12 @@
 // SPDX-License-Identifier: AGPL-3.0-only
 import * as React from "react"
-import { Outlet, createFileRoute, redirect, useParams, useRouterState } from "@tanstack/react-router"
+import {
+  Outlet,
+  createFileRoute,
+  redirect,
+  useParams,
+  useRouterState,
+} from "@tanstack/react-router"
 import { AppBar } from "../../../../../components/apps/AppBar"
 import { normalizeAppDetail, useApp } from "../../../../../lib/apps"
 import { useCurrentOrganizationSlug } from "../../../../../lib/organizations"
@@ -59,6 +65,9 @@ export const Route = createFileRoute("/_authed/orgs/$orgSlug/apps/$id")({
     const app = {
       ...normalizeAppDetail(appData.app),
       builds: appData.builds,
+    }
+    if (app.status === "deleting") {
+      throw redirect({ href: `/orgs/${params.orgSlug}/apps`, replace: true })
     }
     if (
       app.organizationId &&

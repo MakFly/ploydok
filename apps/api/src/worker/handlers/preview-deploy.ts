@@ -40,6 +40,7 @@ import { nixpacksBuild } from "../nixpacks"
 import { railpackBuild } from "../railpack"
 import { ensureProjectNetwork, networksForApp } from "../../services/projects"
 import { isNotFound, toAgentError } from "../../agent"
+import { isSymfonyFlexWorkspace } from "./deploy"
 
 const log = workerLog.child({ subsystem: "preview-deploy" })
 const STOP_TIMEOUT_S = 10
@@ -246,7 +247,21 @@ async function classifyWorkspaceStack(params: {
       probes[key] = await Bun.file(path.join(root, key)).exists()
     })
   )
-  return classifyStack(probes)
+  const base = classifyStack(probes)
+  if (base.stack !== "php" && base.stack !== "compose") return base
+  if (!(await isSymfonyFlexWorkspace(root))) return base
+  return {
+    ...base,
+    stack: "symfony",
+    framework: "Symfony",
+    confidence: "high",
+    suggestedEnvVars: {
+      NIXPACKS_PHP_ROOT_DIR: "/app/public",
+      NIXPACKS_PHP_FALLBACK_PATH: "/index.php",
+      NIXPACKS_INSTALL_CMD:
+        "mkdir -p /var/log/nginx /var/cache/nginx && COMPOSER_ALLOW_SUPERUSER=1 composer install --no-interaction --no-progress --prefer-dist --ignore-platform-reqs --optimize-autoloader",
+    },
+  }
 }
 
 function defaultRuntimePortForStack(

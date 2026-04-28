@@ -260,7 +260,7 @@ async function handleDeploy(job) {
 | Consumers      | `apps/api/src/worker/handlers/{deploy,delete-app,domain-verify,sync-provider-repos}.ts`                    |
 | Tests unit     | `deploy.test.ts` (étendu), nouveaux `delete-app.test.ts` + `domain-verify.test.ts`                         |
 | Tests e2e      | nouveau `apps/api/src/worker/queue-trust.e2e.test.ts`                                                      |
-| Roadmap        | ce fichier + `docs/sprints/README.md`                                                                      |
+| Roadmap        | ce fichier + `project-docs/roadmap/README.md`                                                                      |
 | Drizzle config | regen via `bun --cwd packages/db run generate`                                                             |
 
 ## Migration des jobs en flight

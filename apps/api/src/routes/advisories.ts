@@ -1,6 +1,6 @@
 // SPDX-License-Identifier: AGPL-3.0-only
 import { Hono } from "hono"
-import { and, desc, eq, inArray, isNull } from "drizzle-orm"
+import { and, desc, eq, isNotNull, isNull } from "drizzle-orm"
 import {
   apps,
   cve_advisories,
@@ -10,6 +10,8 @@ import {
 } from "@ploydok/db"
 import type { Db } from "@ploydok/db"
 import type { AuthUser } from "../auth/middleware"
+import { requireInstanceAdmin } from "../auth/instance-admin"
+import { requireScope } from "../auth/require-scope"
 import { cveRefreshQueue } from "../worker/queues"
 import { cveScanEnabled } from "../advisories/service"
 
@@ -19,15 +21,10 @@ function getUser(c: { get: (key: string) => unknown }): AuthUser {
   return c.get("user") as AuthUser
 }
 
-async function isAdmin(db: Db, userId: string): Promise<boolean> {
-  const rows = await db
-    .select({ id: memberships.id })
-    .from(memberships)
-    .where(
-      and(eq(memberships.user_id, userId), inArray(memberships.role, ["owner"]))
-    )
-    .limit(1)
-  return rows.length > 0
+function param(c: { req: { param: (key: string) => string | undefined } }, key: string): string {
+  const value = c.req.param(key)
+  if (!value) throw new Error(`Missing route parameter: ${key}`)
+  return value
 }
 
 async function canAccessOrgApp(
@@ -43,7 +40,8 @@ async function canAccessOrgApp(
       and(
         eq(projects.slug, params.orgSlug),
         eq(apps.id, params.appId),
-        eq(memberships.user_id, params.userId)
+        eq(memberships.user_id, params.userId),
+        isNotNull(memberships.accepted_at)
       )
     )
     .limit(1)
@@ -52,14 +50,10 @@ async function canAccessOrgApp(
 
 export function createAdvisoriesRouter(db: Db): Hono<AppEnv> {
   const router = new Hono<AppEnv>()
+  const adminScope = requireScope("admin:*")
+  const instanceAdmin = requireInstanceAdmin(db)
 
-  router.get("/admin/advisories", async (c) => {
-    const user = getUser(c)
-    if (!user) return c.json({ error: "Unauthorized" }, 401)
-    if (!(await isAdmin(db, user.id))) {
-      return c.json({ error: "admin_required" }, 403)
-    }
-
+  router.get("/admin/advisories", adminScope, instanceAdmin, async (c) => {
     if (!cveScanEnabled()) {
       return c.json({ disabled: true, matches: [] })
     }
@@ -91,12 +85,8 @@ export function createAdvisoriesRouter(db: Db): Hono<AppEnv> {
     return c.json({ disabled: false, matches: rows })
   })
 
-  router.post("/admin/advisories/refresh", async (c) => {
+  router.post("/admin/advisories/refresh", adminScope, instanceAdmin, async (c) => {
     const user = getUser(c)
-    if (!user) return c.json({ error: "Unauthorized" }, 401)
-    if (!(await isAdmin(db, user.id))) {
-      return c.json({ error: "admin_required" }, 403)
-    }
     if (!cveScanEnabled()) {
       return c.json({ disabled: true }, 202)
     }
@@ -108,33 +98,34 @@ export function createAdvisoriesRouter(db: Db): Hono<AppEnv> {
     return c.json({ queued: true, jobId: job.id }, 202)
   })
 
-  router.post("/admin/advisories/:matchId/acknowledge", async (c) => {
-    const user = getUser(c)
-    if (!user) return c.json({ error: "Unauthorized" }, 401)
-    if (!(await isAdmin(db, user.id))) {
-      return c.json({ error: "admin_required" }, 403)
+  router.post(
+    "/admin/advisories/:matchId/acknowledge",
+    adminScope,
+    instanceAdmin,
+    async (c) => {
+      const user = getUser(c)
+
+      const body = (await c.req.json().catch(() => ({}))) as { note?: string }
+      const [row] = await db
+        .update(cve_matches)
+        .set({
+          acknowledged_at: new Date(),
+          acknowledged_by: user.id,
+          acknowledged_note: body.note?.slice(0, 1000) ?? null,
+        })
+        .where(eq(cve_matches.id, param(c, "matchId")))
+        .returning()
+
+      if (!row) return c.json({ error: "not_found" }, 404)
+      return c.json({ match: row })
     }
-
-    const body = (await c.req.json().catch(() => ({}))) as { note?: string }
-    const [row] = await db
-      .update(cve_matches)
-      .set({
-        acknowledged_at: new Date(),
-        acknowledged_by: user.id,
-        acknowledged_note: body.note?.slice(0, 1000) ?? null,
-      })
-      .where(eq(cve_matches.id, c.req.param("matchId")))
-      .returning()
-
-    if (!row) return c.json({ error: "not_found" }, 404)
-    return c.json({ match: row })
-  })
+  )
 
   router.get("/organizations/:orgSlug/apps/:appId/advisories", async (c) => {
     const user = getUser(c)
     if (!user) return c.json({ error: "Unauthorized" }, 401)
-    const orgSlug = c.req.param("orgSlug")
-    const appId = c.req.param("appId")
+    const orgSlug = param(c, "orgSlug")
+    const appId = param(c, "appId")
 
     if (!(await canAccessOrgApp(db, { userId: user.id, orgSlug, appId }))) {
       return c.json({ error: "not_found" }, 404)

@@ -2,12 +2,14 @@
 import { useQuery } from "@tanstack/react-query";
 import {
   ALL_PROBE_KEYS,
+  ENV_FILE_PROBE_KEYS,
+  parseEnvFile,
 
 
   classifyStack
 } from "@ploydok/shared";
 import { apiFetch } from "./api";
-import type {ProbeResults, StackClassification} from "@ploydok/shared";
+import type {ParsedEnvVar, ProbeResults, StackClassification} from "@ploydok/shared";
 import type { ApiError } from "./api";
 
 type Source = "github" | "gitlab";
@@ -65,6 +67,48 @@ export async function runStackClassificationProbes(
   const probes = await runProbes(source, fullName, ref);
   const classification = classifyStack(probes);
   return { probes, classification };
+}
+
+export function detectedEnvFiles(
+  probes: ProbeResults | undefined,
+): Array<string> {
+  if (!probes) return [];
+  return ENV_FILE_PROBE_KEYS.filter((path) => probes[path] === true);
+}
+
+interface EnvFileResponse {
+  path: string;
+  content: string;
+}
+
+function buildEnvFileUrl(
+  source: Source,
+  fullName: string,
+  path: string,
+  ref: string,
+): string {
+  const params = new URLSearchParams({ path, ref });
+
+  if (source === "github") {
+    const [owner, repo] = fullName.split("/");
+    return `/github/repos/${encodeURIComponent(owner ?? "")}/${encodeURIComponent(
+      repo ?? "",
+    )}/env-file?${params.toString()}`;
+  }
+
+  return `/gitlab/repos/${encodeURIComponent(fullName)}/env-file?${params.toString()}`;
+}
+
+export async function importEnvFileVars(params: {
+  source: Source;
+  fullName: string;
+  path: string;
+  ref: string;
+}): Promise<Array<ParsedEnvVar>> {
+  const response = await apiFetch<EnvFileResponse>(
+    buildEnvFileUrl(params.source, params.fullName, params.path, params.ref),
+  );
+  return parseEnvFile(response.content);
 }
 
 export interface UseStackClassificationResult {

@@ -158,7 +158,12 @@ const workspaceNav: Array<NavItem> = [
   { label: "Services", icon: RiCodeBoxLine, orgPathSuffix: "services" },
   { label: "Deployments", icon: RiRocketLine, orgPathSuffix: "deployments" },
   { label: "Marketplace", icon: RiShapesLine, orgPathSuffix: "marketplace" },
-  { label: "Templates", icon: RiStackLine, orgPathSuffix: "templates" },
+  {
+    label: "Templates",
+    icon: RiStackLine,
+    comingSoon: true,
+    tooltip: "Templates Compose — coming soon.",
+  },
   { label: "Monitoring", icon: RiPulseLine, orgPathSuffix: "monitoring" },
 ]
 

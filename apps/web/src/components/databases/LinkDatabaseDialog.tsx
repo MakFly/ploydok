@@ -30,9 +30,14 @@ interface LinkDatabaseDialogProps {
 
 const PREFIX_REGEX = /^[A-Z0-9_]+$/
 
-export function LinkDatabaseDialog({ open, appId, projectId, onClose }: LinkDatabaseDialogProps): React.JSX.Element {
+export function LinkDatabaseDialog({
+  open,
+  appId,
+  projectId,
+  onClose,
+}: LinkDatabaseDialogProps): React.JSX.Element {
   const [selectedDbId, setSelectedDbId] = React.useState("")
-  const [envPrefix, setEnvPrefix] = React.useState("DATABASE")
+  const [envPrefix, setEnvPrefix] = React.useState("DB")
   const [prefixError, setPrefixError] = React.useState("")
 
   const { data: databases, isLoading } = useDatabases(projectId, {
@@ -40,11 +45,15 @@ export function LinkDatabaseDialog({ open, appId, projectId, onClose }: LinkData
   })
   const { mutate: linkDb, isPending } = useLinkDatabase()
 
-  const runningDbs = (databases ?? []).filter((db: Database) => db.status === "running")
+  const runningDbs = (databases ?? []).filter(
+    (db: Database) => db.status === "running"
+  )
 
   function validatePrefix(v: string): boolean {
     if (!PREFIX_REGEX.test(v)) {
-      setPrefixError("Must be UPPER_SNAKE_CASE (letters, numbers, underscores only)")
+      setPrefixError(
+        "Must be UPPER_SNAKE_CASE (letters, numbers, underscores only)"
+      )
       return false
     }
     setPrefixError("")
@@ -61,10 +70,10 @@ export function LinkDatabaseDialog({ open, appId, projectId, onClose }: LinkData
       {
         onSuccess: () => {
           setSelectedDbId("")
-          setEnvPrefix("DATABASE")
+          setEnvPrefix("DB")
           onClose()
         },
-      },
+      }
     )
   }
 
@@ -82,9 +91,13 @@ export function LinkDatabaseDialog({ open, appId, projectId, onClose }: LinkData
           <div className="flex flex-col gap-2">
             <Label htmlFor="db-select">Database</Label>
             {isLoading ? (
-              <div className="text-sm text-muted-foreground">Loading databases...</div>
+              <div className="text-sm text-muted-foreground">
+                Loading databases...
+              </div>
             ) : runningDbs.length === 0 ? (
-              <div className="text-sm text-muted-foreground">No running databases in this project.</div>
+              <div className="text-sm text-muted-foreground">
+                No running databases in this project.
+              </div>
             ) : (
               <Select value={selectedDbId} onValueChange={setSelectedDbId}>
                 <SelectTrigger id="db-select">
@@ -111,19 +124,31 @@ export function LinkDatabaseDialog({ open, appId, projectId, onClose }: LinkData
                 setEnvPrefix(v)
                 if (v) validatePrefix(v)
               }}
-              placeholder="DATABASE"
+              placeholder="DB"
             />
-            {prefixError && <span className="text-xs text-destructive">{prefixError}</span>}
+            {prefixError && (
+              <span className="text-xs text-destructive">{prefixError}</span>
+            )}
             <span className="text-xs text-muted-foreground">
-              Generates <code>{"${prefix}_URL"}</code>, <code>{"${prefix}_HOST"}</code>, etc.
+              Generates <code>{"${prefix}_URL"}</code>,{" "}
+              <code>{"${prefix}_HOST"}</code>, etc. Use <code>DATABASE</code>{" "}
+              only when the app should receive <code>DATABASE_URL</code>.
             </span>
           </div>
 
           <DialogFooter>
-            <Button type="button" variant="outline" onClick={onClose} disabled={isPending}>
+            <Button
+              type="button"
+              variant="outline"
+              onClick={onClose}
+              disabled={isPending}
+            >
               Cancel
             </Button>
-            <Button type="submit" disabled={isPending || !selectedDbId || runningDbs.length === 0}>
+            <Button
+              type="submit"
+              disabled={isPending || !selectedDbId || runningDbs.length === 0}
+            >
               {isPending ? "Linking..." : "Link"}
             </Button>
           </DialogFooter>

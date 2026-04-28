@@ -8,6 +8,8 @@ import { nanoid } from "nanoid"
 import { createDb } from "@ploydok/db"
 import {
   apps,
+  app_db_links,
+  databases,
   projects,
   memberships,
   builds,
@@ -24,6 +26,7 @@ import {
   classifyStack,
   ALL_PROBE_KEYS,
 } from "@ploydok/shared"
+import type { StackClassification } from "@ploydok/shared"
 import {
   getAppActivity,
   getAppForUser,
@@ -69,12 +72,41 @@ import { createRedis } from "@ploydok/db"
 import { ensureDefaultOrganizationForUser } from "../services/organizations"
 import { ensureFrameworkEnvVars } from "../services/framework-env"
 import { encryptSecret } from "../secrets/crypto"
+import { getConnectionString } from "../databases/spawner"
+import { parseConnectionString } from "./apps-databases-link"
 
 // ---------------------------------------------------------------------------
 // Validation schemas
 // ---------------------------------------------------------------------------
 
 const PlanSchema = z.enum(["nano", "small", "medium", "large", "custom"])
+
+function frameworkEnvClassificationForExplicitNixpacks(
+  classification: StackClassification,
+  probes: Record<string, boolean>
+): StackClassification {
+  if (classification.stack !== "compose") return classification
+  if (!probes["symfony.lock"] && !probes["bin/console"]) return classification
+  return {
+    ...classification,
+    stack: "symfony",
+    framework: "Symfony",
+    confidence: "high",
+    signals: [
+      ...classification.signals,
+      ...(probes["symfony.lock"] ? (["symfony.lock"] as const) : []),
+      ...(probes["bin/console"] ? (["bin/console"] as const) : []),
+    ],
+    suggestedEnvVars: {
+      APP_ENV: "prod",
+      APP_DEBUG: "0",
+      NIXPACKS_PHP_ROOT_DIR: "/app/public",
+      NIXPACKS_PHP_FALLBACK_PATH: "/index.php",
+      NIXPACKS_INSTALL_CMD:
+        "mkdir -p /var/log/nginx /var/cache/nginx && COMPOSER_ALLOW_SUPERUSER=1 composer install --no-interaction --no-progress --prefer-dist --ignore-platform-reqs --optimize-autoloader",
+    },
+  }
+}
 
 export async function enqueueAppDeleteJob(opts: {
   db: Db
@@ -122,7 +154,9 @@ export async function enqueueAppDeleteJob(opts: {
     )
     const jobId = job.id
     if (!jobId) {
-      throw new Error("Failed to get job ID from queue.add(app.delete.requested)")
+      throw new Error(
+        "Failed to get job ID from queue.add(app.delete.requested)"
+      )
     }
 
     auditEnqueued({
@@ -231,13 +265,28 @@ const CreateAppBodyBase = z.object({
   initialSecrets: z
     .array(
       z.object({
-        key: z.literal("PLOYDOK_LARAVEL_SEED"),
-        value: z.literal("true"),
-        scope: z.literal("shared").optional().default("shared"),
-        phase: z.literal("runtime").optional().default("runtime"),
+        key: z
+          .string()
+          .min(1)
+          .max(128)
+          .regex(/^[A-Z_][A-Z0-9_]*$/),
+        value: z.string().max(16_384),
+        scope: z.enum(["shared", "prod", "preview"]).optional().default("shared"),
+        phase: z.enum(["runtime", "build", "both"]).optional().default("runtime"),
       })
     )
-    .max(1)
+    .max(50)
+    .optional(),
+  initialDatabaseLink: z
+    .object({
+      databaseId: z.string().min(1),
+      envPrefix: z
+        .string()
+        .min(1)
+        .max(32)
+        .regex(/^[A-Z0-9_]+$/)
+        .default("DB"),
+    })
     .optional(),
   /** Per-app GC override. null clears the override (falls back to default 3). */
   keepPerRepo: z.number().int().min(0).max(50).nullable().optional(),
@@ -250,6 +299,8 @@ const PatchAppBody = CreateAppBodyBase.omit({
   name: true,
   organizationId: true,
   projectId: true,
+  initialSecrets: true,
+  initialDatabaseLink: true,
 })
   .extend({
     auto_deploy_enabled: z.boolean().optional(),
@@ -310,7 +361,26 @@ function buildPublicUrl(domain: string | null): string | null {
   return `${env.PLOYDOK_PUBLIC_SCHEME}://${domain}${port}`
 }
 
-function serializeApp(row: AppRow) {
+export function deriveCurrentBuildMetadata(
+  buildRows: Array<Pick<BuildRow, "id" | "status" | "commit_sha">>
+): { currentCommitSha?: string; latestBuildId?: string } {
+  const currentBuild = buildRows.find(
+    (build) =>
+      (build.status === "succeeded" ||
+        build.status === "succeeded_with_warning") &&
+      build.commit_sha
+  )
+
+  const metadata: { currentCommitSha?: string; latestBuildId?: string } = {}
+  if (currentBuild?.commit_sha) metadata.currentCommitSha = currentBuild.commit_sha
+  if (buildRows[0]?.id) metadata.latestBuildId = buildRows[0].id
+  return metadata
+}
+
+function serializeApp(
+  row: AppRow,
+  buildMetadata: { currentCommitSha?: string; latestBuildId?: string } = {}
+) {
   return {
     id: row.id,
     // organizationId and projectId are currently both projections of the same
@@ -346,6 +416,8 @@ function serializeApp(row: AppRow) {
     domain: row.domain,
     publicUrl: buildPublicUrl(row.domain),
     containerId: row.container_id,
+    currentCommitSha: buildMetadata.currentCommitSha,
+    latestBuildId: buildMetadata.latestBuildId,
     keepPerRepo: nullToUndefined(row.keep_per_repo),
     healthcheck: {
       path: row.healthcheck_path,
@@ -550,6 +622,73 @@ export function createAppsRouter(db: Db): Hono {
       projectId = organization.id
     }
 
+    let initialDatabaseVars: Record<string, string> | null = null
+    let initialDatabaseId: string | null = null
+    let initialDatabaseEnvPrefix: string | null = null
+    if (body.initialDatabaseLink) {
+      const dbRows = await db
+        .select({ db: databases })
+        .from(databases)
+        .innerJoin(projects, eq(databases.project_id, projects.id))
+        .innerJoin(
+          memberships,
+          and(
+            eq(memberships.org_id, projects.id),
+            eq(memberships.user_id, user.id),
+            isNotNull(memberships.accepted_at)
+          )
+        )
+        .where(eq(databases.id, body.initialDatabaseLink.databaseId))
+        .limit(1)
+      const dbRow = dbRows[0]?.db
+      if (!dbRow || dbRow.project_id !== projectId) {
+        return c.json(
+          { error: { code: "NOT_FOUND", message: "Database not found" } },
+          404
+        )
+      }
+      if (dbRow.status !== "running") {
+        return c.json(
+          {
+            error: {
+              code: "DATABASE_NOT_READY",
+              message: "Database must be running before linking",
+            },
+          },
+          409
+        )
+      }
+
+      let connString: string
+      try {
+        connString = await getConnectionString(dbRow)
+      } catch {
+        return c.json(
+          {
+            error: {
+              code: "DATABASE_UNAVAILABLE",
+              message: "Connection string not available",
+            },
+          },
+          503
+        )
+      }
+
+      initialDatabaseVars = parseConnectionString(
+        dbRow.kind as
+          | "postgres"
+          | "mysql"
+          | "mariadb"
+          | "redis"
+          | "mongo"
+          | "libsql",
+        connString,
+        body.initialDatabaseLink.envPrefix
+      )
+      initialDatabaseId = body.initialDatabaseLink.databaseId
+      initialDatabaseEnvPrefix = body.initialDatabaseLink.envPrefix
+    }
+
     // 2. Generate id + slug (unique within project)
     const id = nanoid()
     const baseSlug = slugify(body.name) || "app"
@@ -611,6 +750,56 @@ export function createAppsRouter(db: Db): Hono {
       healthcheck_start_period_s: hc.startPeriodS ?? 0,
     })
 
+    const initialSecretRows = initialDatabaseVars
+      ? (body.initialSecrets ?? []).filter(
+          (item) => !Object.hasOwn(initialDatabaseVars!, item.key)
+        )
+      : (body.initialSecrets ?? [])
+
+    if (initialSecretRows.length) {
+      const nowForSecrets = new Date()
+      for (const item of initialSecretRows) {
+        const { enc, nonce } = await encryptSecret(item.value)
+        await db.insert(secrets).values({
+          id: nanoid(),
+          app_id: id,
+          project_id: projectId,
+          scope: item.scope,
+          phase: item.phase,
+          key: item.key,
+          value_ciphertext: enc,
+          nonce,
+          created_at: nowForSecrets,
+        })
+      }
+    }
+
+    if (initialDatabaseVars && initialDatabaseId && initialDatabaseEnvPrefix) {
+      const nowForDatabaseLink = new Date()
+      for (const [key, value] of Object.entries(initialDatabaseVars)) {
+        const { enc, nonce } = await encryptSecret(value)
+        await db.insert(secrets).values({
+          id: nanoid(),
+          app_id: id,
+          project_id: projectId,
+          scope: "shared",
+          phase: "runtime",
+          key,
+          value_ciphertext: enc,
+          nonce,
+          linked_database_id: initialDatabaseId,
+          created_at: nowForDatabaseLink,
+        })
+      }
+      await db.insert(app_db_links).values({
+        id: nanoid(),
+        app_id: id,
+        database_id: initialDatabaseId,
+        env_prefix: initialDatabaseEnvPrefix,
+        created_at: nowForDatabaseLink,
+      })
+    }
+
     // Auto-inject framework-aware env vars (Nixpacks/Railpack only, git sources only).
     // Runs best-effort — failure must never block app creation.
     const resolvedBuildMethod =
@@ -642,7 +831,15 @@ export function createAppsRouter(db: Db): Hono {
             }
           })
         )
-        const classification = classifyStack(probeResults)
+        const baseClassification = classifyStack(probeResults)
+        const classification =
+          resolvedBuildMethod === "nixpacks" ||
+          resolvedBuildMethod === "railpack"
+            ? frameworkEnvClassificationForExplicitNixpacks(
+                baseClassification,
+                probeResults
+              )
+            : baseClassification
         const { injected, skipped } = await ensureFrameworkEnvVars({
           db,
           appId: id,
@@ -668,30 +865,18 @@ export function createAppsRouter(db: Db): Hono {
       }
     }
 
-    if (body.initialSecrets?.length) {
-      const nowForSecrets = new Date()
-      for (const item of body.initialSecrets) {
-        const { enc, nonce } = await encryptSecret(item.value)
-        await db.insert(secrets).values({
-          id: nanoid(),
-          app_id: id,
-          project_id: projectId,
-          scope: item.scope,
-          phase: item.phase,
-          key: item.key,
-          value_ciphertext: enc,
-          nonce,
-          created_at: nowForSecrets,
-        })
-      }
-    }
-
+    const queuedAt = new Date()
     await enqueueWithDbRow({
       db,
       queue: deployQueue,
       jobName: "deploy.requested",
-      insertRow: (tx) =>
-        tx
+      insertRow: async (tx) => {
+        await tx
+          .update(apps)
+          .set({ status: "pending", updated_at: queuedAt })
+          .where(eq(apps.id, id))
+
+        return tx
           .insert(builds)
           .values({
             id: nanoid(),
@@ -700,12 +885,31 @@ export function createAppsRouter(db: Db): Hono {
             source: "api",
           })
           .returning()
-          .then((r: any[]) => r[0]),
+          .then((r: any[]) => r[0])
+      },
       buildPayload: (row) => ({ buildId: row.id }),
       jobOptions: { attempts: 1 },
+      onQueueAddError: async (row) => {
+        await db.transaction(async (tx) => {
+          await tx.delete(builds).where(eq(builds.id, row.id))
+          await tx
+            .update(apps)
+            .set({ status: "created", updated_at: new Date() })
+            .where(eq(apps.id, id))
+        })
+      },
     })
 
-    return c.json({ app: serializeApp(newApp) }, 201)
+    return c.json(
+      {
+        app: serializeApp({
+          ...newApp,
+          status: "pending",
+          updated_at: queuedAt,
+        }),
+      },
+      201
+    )
   })
 
   // -------------------------------------------------------------------------
@@ -741,7 +945,7 @@ export function createAppsRouter(db: Db): Hono {
     const appBuilds = await listBuildsForApp(db, appId, 10)
 
     return c.json({
-      app: serializeApp(app),
+      app: serializeApp(app, deriveCurrentBuildMetadata(appBuilds)),
       builds: appBuilds.map(serializeBuild),
     })
   })
@@ -872,7 +1076,7 @@ export function createAppsRouter(db: Db): Hono {
   //   ?deleteCaddyRoutes=false   — leave the Caddy upstream wired
   // -------------------------------------------------------------------------
 
-const DeleteAppQuery = z.object({
+  const DeleteAppQuery = z.object({
     deleteImages: z
       .enum(["true", "false"])
       .optional()

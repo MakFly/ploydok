@@ -314,6 +314,7 @@ export function LogFilters({
           aria-label="Log level filter"
         >
           <option value="all">All</option>
+          <option value="debug">Debug</option>
           <option value="info">Info</option>
           <option value="warn">Warn</option>
           <option value="error">Error</option>

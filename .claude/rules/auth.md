@@ -1,6 +1,6 @@
 # Auth — invariants
 
-Passkey-only (WebAuthn). Aucun mot de passe dans le code. Source : `docs/adr/0002-auth-design.md`.
+Passkey-only (WebAuthn). Aucun mot de passe dans le code. Source : `project-docs/decisions/0002-auth-design.md`.
 
 ## Cookies
 

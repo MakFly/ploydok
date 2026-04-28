@@ -23,12 +23,12 @@ Règles d'usage :
 
 ## Roadmap — suivre le plan par sprint
 
-- La roadmap v1.0 est décrite dans `docs/sprints/README.md`. Elle est **la source de vérité** : toute décision de prio/scope passe par là.
+- La roadmap v1.0 est décrite dans `project-docs/roadmap/README.md`. Elle est **la source de vérité** : toute décision de prio/scope passe par là.
 - **Toujours travailler dans l'ordre des sprints**. Quand le sprint N est mergé (code + DoD validée e2e), attaquer N+1 ; ne pas piocher dans N+2 ou post-v1 "parce que c'est cool".
-- Avant de démarrer un sprint, relire son fichier `docs/sprints/sprint-<N>-*.md` (scope, DoD, risques) + le `PLAN-sprint-<N>.md` dans `docs/plans/` s'il existe.
+- Avant de démarrer un sprint, relire son fichier `project-docs/roadmap/sprint-<N>-*.md` (scope, DoD, risques) + le `PLAN-sprint-<N>.md` dans `project-docs/plans/` s'il existe.
 - Si un besoin utilisateur sort de la roadmap : proposer d'abord de l'insérer dans le sprint courant ou futur (avec mise à jour des .md), pas de travailler hors-plan silencieusement.
 - Hors-scope explicites (marqués "Non-couvert" dans un sprint) : ne pas les commencer sans que l'utilisateur déplace la feature dans un sprint actif.
-- Statuts possibles dans `docs/sprints/README.md` : `✅ Terminé`, `✅ Code · ⏳ e2e`, `⚠️ Partiel`, `⏳ À faire`. Mettre à jour la colonne Statut + le titre H1 du fichier sprint à chaque transition réelle (preuve concrète : test vert, commit mergé).
+- Statuts possibles dans `project-docs/roadmap/README.md` : `✅ Terminé`, `✅ Code · ⏳ e2e`, `⚠️ Partiel`, `⏳ À faire`. Mettre à jour la colonne Statut + le titre H1 du fichier sprint à chaque transition réelle (preuve concrète : test vert, commit mergé).
 
 ## Repository Shape
 
@@ -38,7 +38,7 @@ Règles d'usage :
   - `packages/*`: shared packages
   - `agent/*`: Rust agent / CLI
   - `infra/*`: local infra and deployment helpers
-  - `docs/*`: product, ADRs, plans, runbooks
+  - `project-docs/*`: product, roadmap, decisions, plans, operations docs
 - Frontend tests:
   - unit/light integration tests live in `apps/web/src/tests`
   - Playwright e2e tests live in `apps/web/e2e`
@@ -122,13 +122,13 @@ Règles d'usage :
 - If a schema object was added in a migration whose journal `when` is older than already-applied migrations, add a new idempotent drift-repair migration instead of editing history that may already be applied elsewhere.
 - For API routes that select whole tables, test at least one real query path after migration; missing columns should be caught before handing back UI work.
 
-## Sprint Tracking (docs/sprints/)
+## Sprint Tracking (project-docs/roadmap/)
 
 - **Toujours utiliser des checkboxes Markdown `- [ ]` / `- [x]`** pour chaque feature / item DoD d'un sprint. Pas de prose, pas de puces simples : le statut doit être scannable en un coup d'œil.
-- Quand un sprint est réellement terminé (code mergé + DoD validée bout-en-bout), ajouter `✅ Terminé` directement dans le titre H1 du fichier `docs/sprints/sprint-N-*.md` et dans la colonne Statut de `docs/sprints/README.md`.
+- Quand un sprint est réellement terminé (code mergé + DoD validée bout-en-bout), ajouter `✅ Terminé` directement dans le titre H1 du fichier `project-docs/roadmap/sprint-N-*.md` et dans la colonne Statut de `project-docs/roadmap/README.md`.
 - Statuts possibles dans le titre : `✅ Terminé`, `✅ Code · ⏳ e2e` (code mergé, e2e pas encore exécutés), `⚠️ Partiel`, `⏳ À faire`.
 - Cocher un item DoD uniquement quand preuve concrète existe (test vert, endpoint audité, commit référencé). Pas de coche par optimisme.
-- Maintenir le tableau `docs/sprints/README.md` à jour à chaque transition de statut — c'est la source de vérité roadmap.
+- Maintenir le tableau `project-docs/roadmap/README.md` à jour à chaque transition de statut — c'est la source de vérité roadmap.
 
 ## Git And Delivery Rules
 

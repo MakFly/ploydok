@@ -3,17 +3,16 @@ import * as React from "react"
 import { Link } from "@tanstack/react-router"
 import { AppStatusBadge } from "../apps/AppStatusBadge"
 import {
-
   resolveAppHealth,
   resolveRuntimeAppStatus,
-  selectAppSnapshot
+  selectAppSnapshot,
 } from "../../lib/app-runtime"
 import { useMonitoring } from "../../lib/monitoring"
 import {
   organizationPath,
   useCurrentOrganizationSlug,
 } from "../../lib/organizations"
-import type {AppHealth} from "../../lib/app-runtime";
+import type { AppHealth } from "../../lib/app-runtime"
 import type { AppListItem } from "../../lib/apps"
 
 // ---------------------------------------------------------------------------
@@ -82,15 +81,9 @@ function AppMiniCard({
   }
 }): React.JSX.Element {
   const orgSlug = useCurrentOrganizationSlug()
-  return (
-    <Link
-      to={
-        (orgSlug
-          ? organizationPath(orgSlug, `apps/${app.id}/settings`)
-          : `/apps/${app.id}/settings`) as never
-      }
-      className="block space-y-2 rounded-lg border border-border bg-card p-4 transition-colors hover:border-muted-foreground/30 hover:bg-accent/30 focus-visible:ring-2 focus-visible:ring-ring focus-visible:outline-none"
-    >
+  const isDeleting = app.status === "deleting"
+  const content = (
+    <>
       <div className="flex items-start justify-between gap-2">
         <div className="min-w-0 flex-1">
           <p className="truncate text-sm font-medium">{app.name}</p>
@@ -108,6 +101,33 @@ function AppMiniCard({
           <span className="truncate">{app.branch}</span>
         </div>
       )}
+      {isDeleting ? (
+        <p className="text-xs text-muted-foreground">Deletion in progress</p>
+      ) : null}
+    </>
+  )
+
+  if (isDeleting) {
+    return (
+      <div
+        className="block cursor-not-allowed space-y-2 rounded-lg border border-border bg-muted/30 p-4 opacity-60"
+        aria-disabled="true"
+      >
+        {content}
+      </div>
+    )
+  }
+
+  return (
+    <Link
+      to={
+        (orgSlug
+          ? organizationPath(orgSlug, `apps/${app.id}/settings`)
+          : `/apps/${app.id}/settings`) as never
+      }
+      className="block space-y-2 rounded-lg border border-border bg-card p-4 transition-colors hover:border-muted-foreground/30 hover:bg-accent/30 focus-visible:ring-2 focus-visible:ring-ring focus-visible:outline-none"
+    >
+      {content}
     </Link>
   )
 }

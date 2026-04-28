@@ -18,7 +18,6 @@ import {
   RiSettings3Line,
   RiShapesLine,
   RiShieldCheckLine,
-  RiStackLine,
   RiStopCircleLine,
   RiTeamLine,
   RiTerminalBoxLine,
@@ -115,13 +114,6 @@ const NAV_ITEMS: Array<NavEntry> = [
     icon: RiShapesLine,
     to: "/dashboard",
     orgPathSuffix: "marketplace",
-  },
-  {
-    id: "nav-templates",
-    label: "Templates",
-    icon: RiStackLine,
-    to: "/dashboard",
-    orgPathSuffix: "templates",
   },
   {
     id: "nav-monitoring",
@@ -309,7 +301,9 @@ function CommandPaletteContent({
             <CommandItem
               key={app.id}
               value={`app-${app.name}-${app.slug}`}
-              onSelect={() =>
+              disabled={app.status === "deleting"}
+              onSelect={() => {
+                if (app.status === "deleting") return
                 handleNavSelect(
                   currentOrgSlug
                     ? organizationPath(
@@ -319,7 +313,7 @@ function CommandPaletteContent({
                     : "/apps/$id/settings",
                   currentOrgSlug ? undefined : { id: app.id }
                 )
-              }
+              }}
             >
               <RiApps2Line className="size-4" />
               <span>Go to {app.name}</span>

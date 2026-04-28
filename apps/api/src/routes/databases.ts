@@ -2,6 +2,7 @@
 import { Hono } from "hono"
 import { z } from "zod"
 import { and, eq, isNotNull } from "drizzle-orm"
+import { nanoid } from "nanoid"
 import {
   apps,
   databases,
@@ -30,6 +31,8 @@ import { getSharedAgent } from "../debug/singletons"
 import { childLogger } from "../logger"
 import type { AuthUser } from "../auth/middleware"
 import { ensureDefaultOrganizationForUser } from "../services/organizations"
+import { encryptSecret } from "../secrets/crypto"
+import { normalizePostgresConnectionString } from "../databases/connection-strings"
 
 const log = childLogger("databases.routes")
 
@@ -88,6 +91,17 @@ const UpdateNetworkBody = z.object({
   publicEnabled: z.boolean().default(false),
 })
 
+const RegisterExternalPostgresBody = z.object({
+  organizationId: z.string().min(1).optional(),
+  projectId: z.string().min(1).optional(),
+  name: z
+    .string()
+    .min(1)
+    .max(64)
+    .regex(/^[a-z0-9-]+$/, "Name must be lowercase alphanumeric with dashes"),
+  connectionString: z.string().min(1).max(2_048),
+})
+
 function listShape(row: DatabaseRow) {
   return {
     id: row.id,
@@ -99,6 +113,7 @@ function listShape(row: DatabaseRow) {
     version: row.version,
     name: row.name,
     plan: row.plan,
+    management_mode: row.management_mode,
     status: row.status,
     health_status: row.health_status,
     host: row.host,
@@ -115,6 +130,48 @@ function listShape(row: DatabaseRow) {
     password_rotated_at: row.password_rotated_at,
     last_started_at: row.last_started_at,
     created_at: row.created_at,
+  }
+}
+
+function isExternalDatabase(row: DatabaseRow): boolean {
+  return row.management_mode === "external"
+}
+
+function parseExternalPostgresConnectionString(input: string): {
+  connectionString: string
+  host: string
+  port: number
+} {
+  let url: URL
+  try {
+    url = new URL(input)
+  } catch {
+    throw new Error("Connection string must be a valid PostgreSQL URL")
+  }
+
+  if (url.protocol !== "postgres:" && url.protocol !== "postgresql:") {
+    throw new Error("Only PostgreSQL connection strings are supported")
+  }
+  if (!url.hostname) {
+    throw new Error("Connection string must include a host")
+  }
+  if (!url.username) {
+    throw new Error("Connection string must include a user")
+  }
+  if (!url.pathname || url.pathname === "/") {
+    throw new Error("Connection string must include a database name")
+  }
+
+  const rawPort = url.port || "5432"
+  const port = Number(rawPort)
+  if (!Number.isInteger(port) || port < 1 || port > 65_535) {
+    throw new Error("Connection string port is invalid")
+  }
+
+  return {
+    connectionString: normalizePostgresConnectionString(input),
+    host: url.hostname,
+    port,
   }
 }
 
@@ -201,6 +258,91 @@ export function createDatabasesRouter(db: Db): Hono<any, any, any> {
         500
       )
     }
+  })
+
+  // POST /databases/external — register an existing PostgreSQL endpoint
+  router.post("/external", async (c) => {
+    const user = getUser(c)
+    const body = await c.req.json().catch(() => null)
+    const parsed = RegisterExternalPostgresBody.safeParse(body)
+    if (!parsed.success) {
+      return c.json(
+        { error: { code: "VALIDATION_ERROR", message: parsed.error.message } },
+        400
+      )
+    }
+
+    const requestedOrganizationId =
+      parsed.data.organizationId ?? parsed.data.projectId
+    const projectId = requestedOrganizationId
+      ? requestedOrganizationId
+      : (await ensureDefaultOrganizationForUser(db, user.id, user.display_name))
+          .id
+
+    const projectRows = await db
+      .select({ id: projects.id })
+      .from(projects)
+      .innerJoin(
+        memberships,
+        and(
+          eq(memberships.org_id, projects.id),
+          eq(memberships.user_id, user.id),
+          eq(memberships.role, "owner"),
+          isNotNull(memberships.accepted_at)
+        )
+      )
+      .where(eq(projects.id, projectId))
+      .limit(1)
+    if (!projectRows[0]) {
+      return c.json(
+        { error: { code: "NOT_FOUND", message: "Project not found" } },
+        404
+      )
+    }
+
+    let external: ReturnType<typeof parseExternalPostgresConnectionString>
+    try {
+      external = parseExternalPostgresConnectionString(
+        parsed.data.connectionString
+      )
+    } catch (err) {
+      const message =
+        err instanceof Error ? err.message : "Invalid connection string"
+      return c.json({ error: { code: "VALIDATION_ERROR", message } }, 400)
+    }
+
+    const id = nanoid()
+    const { enc, nonce } = await encryptSecret(external.connectionString)
+
+    await db.insert(databases).values({
+      id,
+      project_id: projectId,
+      kind: "postgres",
+      version: "external",
+      name: parsed.data.name,
+      plan: "small",
+      management_mode: "external",
+      volume_name: `external-${id}`,
+      connection_string_enc: enc,
+      connection_string_nonce: nonce,
+      status: "running",
+      health_status: "unknown",
+      host: external.host,
+      port: external.port,
+      exposure_mode: "internal",
+      public_enabled: false,
+      public_port: null,
+      public_host: null,
+      public_url: null,
+      last_started_at: null,
+    })
+
+    log.info(
+      { dbId: id, projectId, host: external.host, port: external.port },
+      "external postgres database registered"
+    )
+
+    return c.json({ id }, 201)
   })
 
   // GET /databases?projectId=... — list databases without connection strings
@@ -325,6 +467,17 @@ export function createDatabasesRouter(db: Db): Hono<any, any, any> {
         404
       )
     }
+    if (isExternalDatabase(row)) {
+      return c.json(
+        {
+          error: {
+            code: "UNSUPPORTED_DATABASE_MODE",
+            message: "External databases are not started by Ploydok",
+          },
+        },
+        400
+      )
+    }
     if (BUSY_STATUSES.has(row.status)) {
       return c.json(
         { error: { code: "CONFLICT", message: "Database is busy" } },
@@ -354,6 +507,17 @@ export function createDatabasesRouter(db: Db): Hono<any, any, any> {
         404
       )
     }
+    if (isExternalDatabase(row)) {
+      return c.json(
+        {
+          error: {
+            code: "UNSUPPORTED_DATABASE_MODE",
+            message: "External databases are not stopped by Ploydok",
+          },
+        },
+        400
+      )
+    }
     if (BUSY_STATUSES.has(row.status)) {
       return c.json(
         { error: { code: "CONFLICT", message: "Database is busy" } },
@@ -381,6 +545,17 @@ export function createDatabasesRouter(db: Db): Hono<any, any, any> {
       return c.json(
         { error: { code: "NOT_FOUND", message: "Database not found" } },
         404
+      )
+    }
+    if (isExternalDatabase(row)) {
+      return c.json(
+        {
+          error: {
+            code: "UNSUPPORTED_DATABASE_MODE",
+            message: "External databases are not restarted by Ploydok",
+          },
+        },
+        400
       )
     }
     if (BUSY_STATUSES.has(row.status)) {
@@ -417,6 +592,17 @@ export function createDatabasesRouter(db: Db): Hono<any, any, any> {
       return c.json(
         { error: { code: "NOT_FOUND", message: "Database not found" } },
         404
+      )
+    }
+    if (isExternalDatabase(row)) {
+      return c.json(
+        {
+          error: {
+            code: "UNSUPPORTED_DATABASE_MODE",
+            message: "External database network is managed outside Ploydok",
+          },
+        },
+        400
       )
     }
     if (BUSY_STATUSES.has(row.status)) {
@@ -562,6 +748,17 @@ export function createDatabasesRouter(db: Db): Hono<any, any, any> {
           error: {
             code: "UNSUPPORTED_DATABASE_KIND",
             message: "Password rotation is not supported for libSQL yet",
+          },
+        },
+        400
+      )
+    }
+    if (isExternalDatabase(row)) {
+      return c.json(
+        {
+          error: {
+            code: "UNSUPPORTED_DATABASE_MODE",
+            message: "External database passwords are managed outside Ploydok",
           },
         },
         400

@@ -46,5 +46,5 @@ bun run typecheck && bun run lint && bun test && bun run check:spdx
 
 - Titre = sujet du commit principal (≤ 70 chars).
 - Description : `## Summary` + `## Test plan` (checklist).
-- Référencer le sprint : `Refs docs/sprints/sprint-N-*.md`.
+- Référencer le sprint : `Refs project-docs/roadmap/sprint-N-*.md`.
 - CI doit être verte avant review : lint + typecheck + test + spdx + dco.

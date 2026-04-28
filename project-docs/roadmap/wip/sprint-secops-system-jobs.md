@@ -369,7 +369,7 @@ cron). `delete-app` reste direct + commenté.
 | Consumer   | `apps/api/src/worker/index.ts` (Worker `gc.registry`), `apps/api/src/worker/handlers/gc-registry.ts` (`runRegistryGc` signature)                                                           |
 | Tests unit | `apps/api/src/worker/handlers/gc-registry.test.ts`                                                                                                                                         |
 | Tests e2e  | `apps/api/src/worker/queue-trust.e2e.test.ts` (étendu)                                                                                                                                     |
-| Roadmap    | ce fichier + `docs/sprints/README.md` (slot 6ter)                                                                                                                                          |
+| Roadmap    | ce fichier + `project-docs/roadmap/README.md` (slot 6ter)                                                                                                                                          |
 
 ## Migration des jobs en flight
 

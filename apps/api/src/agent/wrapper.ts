@@ -598,6 +598,35 @@ export class Agent {
   }
 
   // -------------------------------------------------------------------------
+  // Audit signing
+  // -------------------------------------------------------------------------
+
+  signAuditEntry(
+    canonical: Uint8Array,
+    keyId: string = "",
+    timeoutMs?: number
+  ): Promise<{ signature: Uint8Array; keyId: string }> {
+    log.debug({ keyId }, "signAuditEntry")
+    return callUnary(
+      (r, m, opts, cb) => this.client.signAuditEntry(r, m, opts, cb),
+      { canonicalPayload: canonical, keyId },
+      timeoutMs
+    )
+  }
+
+  getAuditPubkey(
+    keyId: string = "",
+    timeoutMs?: number
+  ): Promise<{ pubkey: Uint8Array; keyId: string }> {
+    log.debug({ keyId }, "getAuditPubkey")
+    return callUnary(
+      (r, m, opts, cb) => this.client.getAuditPubkey(r, m, opts, cb),
+      { keyId },
+      timeoutMs
+    )
+  }
+
+  // -------------------------------------------------------------------------
   // Lifecycle
   // -------------------------------------------------------------------------
 

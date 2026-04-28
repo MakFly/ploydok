@@ -20,6 +20,7 @@ import type { NotificationChannel } from "../../lib/notification-channels"
 
 interface ChannelListProps {
   appId?: string
+  showHeader?: boolean
 }
 
 function KindBadge({ kind }: { kind: NotificationChannel["kind"] }) {
@@ -145,7 +146,10 @@ function ChannelRow({ channel, appId, onEdit }: ChannelRowProps) {
   )
 }
 
-export function ChannelList({ appId }: ChannelListProps): React.JSX.Element {
+export function ChannelList({
+  appId,
+  showHeader = true,
+}: ChannelListProps): React.JSX.Element {
   const { data: channels, isLoading } = useChannels(appId)
   const [dialogOpen, setDialogOpen] = React.useState(false)
   const [editingChannel, setEditingChannel] =
@@ -163,18 +167,30 @@ export function ChannelList({ appId }: ChannelListProps): React.JSX.Element {
 
   return (
     <div className="flex flex-col gap-4">
-      <div className="flex items-center justify-between">
-        <div>
-          <h2 className="font-heading text-lg font-semibold">Channels de notification</h2>
-          <p className="text-sm text-muted-foreground">
-            Recevez des alertes sur vos outils préférés quand un événement se produit.
-          </p>
+      {showHeader ? (
+        <div className="flex items-center justify-between">
+          <div>
+            <h2 className="font-heading text-lg font-semibold">
+              Channels de notification
+            </h2>
+            <p className="text-sm text-muted-foreground">
+              Recevez des alertes sur vos outils préférés quand un événement se
+              produit.
+            </p>
+          </div>
+          <Button type="button" size="sm" onClick={openCreate}>
+            <RiAddLine className="size-4" />
+            Ajouter
+          </Button>
         </div>
-        <Button type="button" size="sm" onClick={openCreate}>
-          <RiAddLine className="size-4" />
-          Ajouter
-        </Button>
-      </div>
+      ) : (
+        <div className="flex justify-end">
+          <Button type="button" size="sm" onClick={openCreate}>
+            <RiAddLine className="size-4" />
+            Ajouter
+          </Button>
+        </div>
+      )}
 
       {isLoading ? (
         <div className="flex flex-col gap-3">

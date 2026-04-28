@@ -3,6 +3,7 @@
 import { describe, expect, it } from "bun:test"
 import {
   classifyStack,
+  ENV_FILE_PROBE_KEYS,
   type ProbeResults,
   type Stack,
   type BuildMethodRecommendation,
@@ -176,6 +177,12 @@ describe("classifyStack — other languages", () => {
 })
 
 describe("classifyStack — static + unknown", () => {
+  it("exports common .env probe keys for create-app env detection", () => {
+    expect(ENV_FILE_PROBE_KEYS).toContain(".env")
+    expect(ENV_FILE_PROBE_KEYS).toContain(".env.example")
+    expect(ENV_FILE_PROBE_KEYS).toContain(".env.production")
+  })
+
   it("Static: index.html only", () => {
     const r = classifyStack(probes(["index.html"]))
     expect(r.stack).toBe("static")
@@ -215,9 +222,11 @@ describe("classifyStack — tie-breaking & edge cases", () => {
 })
 
 describe("classifyStack — suggestedEnvVars", () => {
-  it("Symfony: injects PHP root/fallback + composer allow-superuser (APP_ENV stays user-owned)", () => {
+  it("Symfony: injects runtime env + PHP root/fallback + composer allow-superuser", () => {
     const r = classifyStack(probes(["composer.json", "symfony.lock"]))
     expect(r.suggestedEnvVars).toEqual({
+      APP_ENV: "prod",
+      APP_DEBUG: "0",
       NIXPACKS_PHP_ROOT_DIR: "/app/public",
       NIXPACKS_PHP_FALLBACK_PATH: "/index.php",
       NIXPACKS_INSTALL_CMD:

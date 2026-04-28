@@ -256,6 +256,7 @@ export function createAuthRouter(db: Db): Hono {
       id: userId,
       email,
       display_name: displayName,
+      is_instance_admin: true,
       created_at: now,
       updated_at: now,
       recovery_token_hash: null,

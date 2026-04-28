@@ -219,6 +219,28 @@ function startMockServer(
           },
           null
         ),
+      signAuditEntry: (_call, cb) =>
+        cb(
+          {
+            code: grpc.status.UNIMPLEMENTED,
+            details: "non implémenté",
+            name: "Error",
+            message: "non implémenté",
+            metadata: new grpc.Metadata(),
+          },
+          null
+        ),
+      getAuditPubkey: (_call, cb) =>
+        cb(
+          {
+            code: grpc.status.UNIMPLEMENTED,
+            details: "non implémenté",
+            name: "Error",
+            message: "non implémenté",
+            metadata: new grpc.Metadata(),
+          },
+          null
+        ),
     }
 
     server.addService(AgentService, {

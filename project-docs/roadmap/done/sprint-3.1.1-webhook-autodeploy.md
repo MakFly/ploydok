@@ -144,7 +144,7 @@ Dokploy / Coolify traitent tout ça. C'est ce sprint.
 <!-- PR previews retirées du scope 3.1.1 — cf. 3.1.1.11 -->
 - [x] Notifications Discord + Slack + Telegram + email, opt-in par channel + événement. WhatsApp stub (`coming_soon`). (`apps/api/src/notify/`)
 - [x] `scripts/test-webhook-e2e.sh` + spec Playwright `apps/web/e2e/webhook/github-autodeploy.spec.ts` (happy path). <!-- Wave 6.B in_progress — couverture élargie skip_path, coalescing en cours -->
-- [x] Runbook `docs/runbooks/webhook-autodeploy.md` livré (Wave 6.C ✅).
+- [x] Runbook `project-docs/operations/runbooks/webhook-autodeploy.md` livré (Wave 6.C ✅).
 - [ ] `bun run typecheck && bun run lint && bun test && bun run check:spdx` verts. *(non re-exécutés en session DoD — requiert `make dev` up)*
 
 ---

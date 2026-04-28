@@ -1,7 +1,7 @@
 // SPDX-License-Identifier: AGPL-3.0-only
 import { Hono } from "hono"
 import { z } from "zod"
-import { and, eq, isNotNull } from "drizzle-orm"
+import { and, eq, inArray, isNotNull } from "drizzle-orm"
 import {
   apps,
   databases,
@@ -34,7 +34,7 @@ const LinkBody = z.object({
     .max(32)
     .regex(/^[A-Z0-9_]+$/)
     .optional()
-    .default("DATABASE"),
+    .default("DB"),
 })
 
 export function parseConnectionString(
@@ -86,6 +86,22 @@ export function parseConnectionString(
   }
 
   return vars
+}
+
+export function findLinkedEnvKeyConflicts(
+  existing: Array<{ key: string; linked_database_id: string | null }>,
+  dbId: string
+): Array<string> {
+  return [
+    ...new Set(
+      existing
+        .filter(
+          (row) =>
+            row.linked_database_id === null || row.linked_database_id !== dbId
+        )
+        .map((row) => row.key)
+    ),
+  ].sort()
 }
 
 // eslint-disable-next-line @typescript-eslint/no-explicit-any
@@ -176,6 +192,35 @@ export function createAppsDatabasesLinkRouter(db: Db): Hono<any, any, any> {
       connString,
       env_prefix
     )
+    const requestedKeys = Object.keys(vars)
+
+    const existingSecrets = await db
+      .select({
+        key: secrets.key,
+        linked_database_id: secrets.linked_database_id,
+      })
+      .from(secrets)
+      .where(
+        and(
+          eq(secrets.app_id, appId),
+          inArray(secrets.key, requestedKeys)
+        )
+      )
+
+    const conflictingKeys = findLinkedEnvKeyConflicts(existingSecrets, dbId)
+
+    if (conflictingKeys.length > 0) {
+      return c.json(
+        {
+          error: {
+            code: "ENV_KEY_CONFLICT",
+            message: `App already has env var(s): ${conflictingKeys.join(", ")}`,
+            keys: conflictingKeys,
+          },
+        },
+        409
+      )
+    }
 
     // Delete existing linked secrets for this (app, db) pair with same prefix
     await db
@@ -222,7 +267,10 @@ export function createAppsDatabasesLinkRouter(db: Db): Hono<any, any, any> {
       { appId, dbId, env_prefix, vars: Object.keys(vars) },
       "database linked to app"
     )
-    return c.json({ ok: true, vars: Object.keys(vars) }, 201)
+    return c.json(
+      { ok: true, vars: Object.keys(vars), requiresRedeploy: true },
+      201
+    )
   })
 
   // DELETE /apps/:id/databases/:dbId/link

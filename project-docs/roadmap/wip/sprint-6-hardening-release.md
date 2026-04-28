@@ -93,7 +93,7 @@ Checklist minimale :
 - [ ] Deserialization : zod sur toutes entrées, pas de `eval`
 - [ ] File upload : limites taille, types, scan malware (ClamAV optionnel)
 
-Rapport → `docs/security/pentest-v1.md` + fixes avant release.
+Rapport → `project-docs/operations/security/pentest-v1.md` + fixes avant release.
 
 ### 6.5-bis API tokens scopés
 
@@ -175,7 +175,7 @@ Rapport → `docs/security/pentest-v1.md` + fixes avant release.
 
 ## Deliverable démo
 
-1. Pentest checklist OWASP ASVS L2 verte (rapport `docs/security/pentest-v1.md`)
+1. Pentest checklist OWASP ASVS L2 verte (rapport `project-docs/operations/security/pentest-v1.md`)
 2. Création d'un API token scopé `apps:deploy` → `curl -H "Authorization: Bearer plk_live_..."` triggers un deploy
 3. Ouverture terminal web dans une app live (challenge passkey + session loggée audit)
 4. Dashboard « Server health » affiche CPU/RAM/disque/load du VPS, alerte disque > 85% configurable
@@ -186,7 +186,7 @@ Rapport → `docs/security/pentest-v1.md` + fixes avant release.
 
 ## Definition of Done
 
-- [x] **Pentest checklist OWASP ASVS L2 statique validée avec mitigations documentées** — rapport `docs/security/pentest-v1.md` mis à jour ; validations PG/e2e à compléter
+- [x] **Pentest checklist OWASP ASVS L2 statique validée avec mitigations documentées** — rapport `project-docs/operations/security/pentest-v1.md` mis à jour ; validations PG/e2e à compléter
 - [x] **API tokens — colonne `scopes[]` + middleware Bearer (legacy `ploy_` + nouveau `plk_live_`) + audit log par appel + helper `tokenHasScope` + middleware `requireScope`**
 - [x] **API tokens — bcrypt dual-hash non-destructif** (colonne `bcrypt_hash` nullable, lookup SHA-256 indexé + verify bcrypt si présent ; legacy `ploy_*` continuent à marcher)
 - [x] **API tokens — nouveaux tokens créés au format `plk_live_<base64url>` (pattern documenté DoD)**

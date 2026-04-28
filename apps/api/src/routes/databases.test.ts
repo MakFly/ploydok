@@ -192,6 +192,40 @@ describe("POST /databases validation", () => {
   })
 })
 
+describe("POST /databases/external", () => {
+  it("registers an external PostgreSQL database", async () => {
+    const db = buildDb({ dbRow: { id: "proj-1" } })
+    const app = wrapRouter(db)
+    const res = await app.fetch(
+      req("POST", "/external", {
+        projectId: "proj-1",
+        name: "host-postgres",
+        connectionString: "postgres://app:secret@10.0.0.5:5432/app",
+      })
+    )
+
+    expect(res.status).toBe(201)
+    const data = (await res.json()) as { id: string }
+    expect(typeof data.id).toBe("string")
+  })
+
+  it("rejects non-PostgreSQL external database URLs", async () => {
+    const db = buildDb({ dbRow: { id: "proj-1" } })
+    const app = wrapRouter(db)
+    const res = await app.fetch(
+      req("POST", "/external", {
+        projectId: "proj-1",
+        name: "mysql-host",
+        connectionString: "mysql://app:secret@10.0.0.5:3306/app",
+      })
+    )
+
+    expect(res.status).toBe(400)
+    const data = (await res.json()) as { error: { code: string } }
+    expect(data.error.code).toBe("VALIDATION_ERROR")
+  })
+})
+
 describe("DELETE /databases/:id", () => {
   const mockDatabaseRow = {
     id: "db-test-id",
@@ -394,5 +428,21 @@ describe("POST /databases/:id lifecycle", () => {
       })
     )
     expect(res.status).toBe(200)
+  })
+
+  it("rejects lifecycle actions for external databases", async () => {
+    const db = buildDb({
+      dbRow: {
+        ...mockDatabaseRow,
+        management_mode: "external",
+        container_id: null,
+      },
+    })
+    const app = wrapRouter(db)
+    const res = await app.fetch(req("POST", "/db-test-id/start"))
+
+    expect(res.status).toBe(400)
+    const data = (await res.json()) as { error: { code: string } }
+    expect(data.error.code).toBe("UNSUPPORTED_DATABASE_MODE")
   })
 })

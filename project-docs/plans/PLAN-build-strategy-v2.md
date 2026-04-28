@@ -47,7 +47,7 @@
 
 - Commit `7ec84a2` (recipe FrankenPHP TS) → reverted.
 - Commit `deb6a5e` : `packages/recipes/` supprimé, `buildMethod=recipe` retiré de l'API, migration DB `0018` convertit apps existantes en `nixpacks`.
-- `docs/fixtures/symfony-references/` : 4 fichiers de référence prod-grade créés (Dockerfile FrankenPHP + Caddyfile + entrypoint + nixpacks.toml + README).
+- `project-docs/fixtures/symfony-references/` : 4 fichiers de référence prod-grade créés (Dockerfile FrankenPHP + Caddyfile + entrypoint + nixpacks.toml + README).
 - Image `127.0.0.1:5000/fixture-symfony-frankenphp:latest` buildée et pushée au registry local.
 - 2 branches poussées sur `MakFly/fixture-symfony-api` :
   - `feat/frankenphp-deploy` (Dockerfile + Caddyfile + entrypoint) — **à garder**.
@@ -98,7 +98,7 @@ Différenciation réelle vs Dokploy/Coolify, sourcée, pas inventée.
   - `docker logs <container>` → zéro "child said into stderr" (car pas de php-fpm)
   - Benchmark léger : `hey -n 500 -c 10 http://…/api` — reporter p50/p99
 
-**T1.3 — Update `docs/fixtures/symfony-references/README.md`**
+**T1.3 — Update `project-docs/fixtures/symfony-references/README.md`**
 
 - Ce nouveau message : Ploydok auto-injecte les env vars Nixpacks pour Symfony (wave 2), donc le user a uniquement **deux** chemins réels :
   1. **Nixpacks géré par Ploydok** (par défaut) — classifier détecte Symfony, pose les env vars, ça marche.
@@ -163,7 +163,7 @@ Note : le classifier côté `packages/shared` est pure. On lui passe les probes 
 
 ### Wave 4 — ADR + docs + sprint tracking
 
-**T4.1 — ADR `docs/adr/0004-build-strategy.md`**
+**T4.1 — ADR `project-docs/decisions/0004-build-strategy.md`**
 Contenu obligatoire :
 
 - État avant : recipes TS hardcodées (sprint 3.2).
@@ -172,12 +172,12 @@ Contenu obligatoire :
 - Pourquoi pas Heroku buildpacks natifs (hors-scope MVP, surface Docker suffit).
 - Pourquoi pas fork Nixpacks (cost PR upstream > bénéfice).
 
-**T4.2 — Update `docs/sprints/sprint-3.2-stack-classifier-recipes.md`**
+**T4.2 — Update `project-docs/roadmap/sprint-3.2-stack-classifier-recipes.md`**
 
 - Statut titre : `⚠️ Partiel · pivoté vers Nixpacks/Railpack`.
 - Ajouter § "Post-mortem" pointant vers ce PLAN et l'ADR 0004.
 
-**T4.3 — Update `docs/sprints/README.md`**
+**T4.3 — Update `project-docs/roadmap/README.md`**
 
 - Tableau sprint : statut sprint 3.2 = `⚠️ Pivoté` avec référence au présent plan.
 
@@ -187,7 +187,7 @@ Contenu obligatoire :
 
 | Fichier                                                    | Wave | Action                                   |
 | ---------------------------------------------------------- | ---- | ---------------------------------------- |
-| `docs/fixtures/symfony-references/README.md`               | W1   | Rewrite — supprime path Nixpacks naïf    |
+| `project-docs/fixtures/symfony-references/README.md`               | W1   | Rewrite — supprime path Nixpacks naïf    |
 | (GitHub) `MakFly/fixture-symfony-api:feat/nixpacks-config` | W1   | Delete via `gh api`                      |
 | `packages/shared/src/stack-classifier.ts`                  | W2   | + `suggestedEnvVars` par stack           |
 | `packages/shared/src/stack-classifier.test.ts`             | W2   | + describe suggestedEnvVars              |
@@ -196,9 +196,9 @@ Contenu obligatoire :
 | `apps/api/src/worker/handlers/deploy.ts`                   | W3   | branche railpack + nixpacks plan pre-run |
 | `apps/api/src/worker/railpack.ts`                          | W3   | **nouveau** — wrapper Railpack           |
 | `apps/web/src/components/apps/CreateAppModal.tsx`          | W3   | afficher suggestedEnvVars                |
-| `docs/adr/0004-build-strategy.md`                          | W4   | **nouveau**                              |
-| `docs/sprints/sprint-3.2-stack-classifier-recipes.md`      | W4   | post-mortem                              |
-| `docs/sprints/README.md`                                   | W4   | statut                                   |
+| `project-docs/decisions/0004-build-strategy.md`                          | W4   | **nouveau**                              |
+| `project-docs/roadmap/sprint-3.2-stack-classifier-recipes.md`      | W4   | post-mortem                              |
+| `project-docs/roadmap/README.md`                                   | W4   | statut                                   |
 
 ---
 

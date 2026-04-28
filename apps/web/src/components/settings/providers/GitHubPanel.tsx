@@ -493,23 +493,23 @@ function GitHubAppUnconfiguredState({
           className="grid w-full gap-3 border-t border-border pt-4 md:grid-cols-2"
           onSubmit={(event) => void handleImport(event)}
         >
-          <label className="space-y-1 text-xs font-medium">
+          <label className="flex flex-col gap-1.5 text-xs font-medium">
             App ID
             <Input value={form.appId} onChange={updateField("appId")} inputMode="numeric" />
           </label>
-          <label className="space-y-1 text-xs font-medium">
+          <label className="flex flex-col gap-1.5 text-xs font-medium">
             Client ID
             <Input value={form.clientId} onChange={updateField("clientId")} />
           </label>
-          <label className="space-y-1 text-xs font-medium">
+          <label className="flex flex-col gap-1.5 text-xs font-medium">
             App slug
             <Input value={form.slug} onChange={updateField("slug")} placeholder="ploydok-local" />
           </label>
-          <label className="space-y-1 text-xs font-medium">
+          <label className="flex flex-col gap-1.5 text-xs font-medium">
             App name
             <Input value={form.name} onChange={updateField("name")} placeholder="Ploydok Local" />
           </label>
-          <label className="space-y-1 text-xs font-medium md:col-span-2">
+          <label className="flex flex-col gap-1.5 text-xs font-medium md:col-span-2">
             Client secret
             <Input
               value={form.clientSecret}
@@ -518,7 +518,7 @@ function GitHubAppUnconfiguredState({
               autoComplete="off"
             />
           </label>
-          <label className="space-y-1 text-xs font-medium md:col-span-2">
+          <label className="flex flex-col gap-1.5 text-xs font-medium md:col-span-2">
             Private key
             <Textarea
               value={form.privateKey}
@@ -528,7 +528,7 @@ function GitHubAppUnconfiguredState({
               placeholder="-----BEGIN RSA PRIVATE KEY-----"
             />
           </label>
-          <label className="space-y-1 text-xs font-medium md:col-span-2">
+          <label className="flex flex-col gap-1.5 text-xs font-medium md:col-span-2">
             Webhook secret
             <Input
               value={form.webhookSecret}

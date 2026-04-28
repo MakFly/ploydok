@@ -22,7 +22,6 @@ import { Route as PublicInvitationsAcceptRouteImport } from './routes/_public/in
 import { Route as AuthedSettingsSecurityRouteImport } from './routes/_authed/settings/security'
 import { Route as AuthedSettingsRegistryRouteImport } from './routes/_authed/settings/registry'
 import { Route as AuthedSettingsNotificationsRouteImport } from './routes/_authed/settings/notifications'
-import { Route as AuthedSettingsLicenseRouteImport } from './routes/_authed/settings/license'
 import { Route as AuthedOrgsOrgSlugRouteImport } from './routes/_authed/orgs/$orgSlug'
 import { Route as AuthedDatabasesSplatRouteImport } from './routes/_authed/databases.$'
 import { Route as AuthedAppsSplatRouteImport } from './routes/_authed/apps.$'
@@ -35,7 +34,6 @@ import { Route as AuthedSettingsSecurityPostureRouteImport } from './routes/_aut
 import { Route as AuthedSettingsSecurityPasskeysRouteImport } from './routes/_authed/settings/security/passkeys'
 import { Route as AuthedSettingsSecurityPasskeyRouteImport } from './routes/_authed/settings/security/passkey'
 import { Route as AuthedSettingsGitProvidersSlugRouteImport } from './routes/_authed/settings/git-providers/$slug'
-import { Route as AuthedOrgsOrgSlugTemplatesRouteImport } from './routes/_authed/orgs/$orgSlug/templates'
 import { Route as AuthedOrgsOrgSlugTagsRouteImport } from './routes/_authed/orgs/$orgSlug/tags'
 import { Route as AuthedOrgsOrgSlugSharedEnvRouteImport } from './routes/_authed/orgs/$orgSlug/shared-env'
 import { Route as AuthedOrgsOrgSlugSettingsRouteImport } from './routes/_authed/orgs/$orgSlug/settings'
@@ -135,11 +133,6 @@ const AuthedSettingsNotificationsRoute =
     path: '/settings/notifications',
     getParentRoute: () => AuthedRoute,
   } as any)
-const AuthedSettingsLicenseRoute = AuthedSettingsLicenseRouteImport.update({
-  id: '/settings/license',
-  path: '/settings/license',
-  getParentRoute: () => AuthedRoute,
-} as any)
 const AuthedOrgsOrgSlugRoute = AuthedOrgsOrgSlugRouteImport.update({
   id: '/orgs/$orgSlug',
   path: '/orgs/$orgSlug',
@@ -207,12 +200,6 @@ const AuthedSettingsGitProvidersSlugRoute =
     id: '/settings/git-providers/$slug',
     path: '/settings/git-providers/$slug',
     getParentRoute: () => AuthedRoute,
-  } as any)
-const AuthedOrgsOrgSlugTemplatesRoute =
-  AuthedOrgsOrgSlugTemplatesRouteImport.update({
-    id: '/templates',
-    path: '/templates',
-    getParentRoute: () => AuthedOrgsOrgSlugRoute,
   } as any)
 const AuthedOrgsOrgSlugTagsRoute = AuthedOrgsOrgSlugTagsRouteImport.update({
   id: '/tags',
@@ -426,7 +413,6 @@ export interface FileRoutesByFullPath {
   '/apps/$': typeof AuthedAppsSplatRoute
   '/databases/$': typeof AuthedDatabasesSplatRoute
   '/orgs/$orgSlug': typeof AuthedOrgsOrgSlugRouteWithChildren
-  '/settings/license': typeof AuthedSettingsLicenseRoute
   '/settings/notifications': typeof AuthedSettingsNotificationsRoute
   '/settings/registry': typeof AuthedSettingsRegistryRoute
   '/settings/security': typeof AuthedSettingsSecurityRouteWithChildren
@@ -445,7 +431,6 @@ export interface FileRoutesByFullPath {
   '/orgs/$orgSlug/settings': typeof AuthedOrgsOrgSlugSettingsRouteWithChildren
   '/orgs/$orgSlug/shared-env': typeof AuthedOrgsOrgSlugSharedEnvRoute
   '/orgs/$orgSlug/tags': typeof AuthedOrgsOrgSlugTagsRoute
-  '/orgs/$orgSlug/templates': typeof AuthedOrgsOrgSlugTemplatesRoute
   '/settings/git-providers/$slug': typeof AuthedSettingsGitProvidersSlugRoute
   '/settings/security/passkey': typeof AuthedSettingsSecurityPasskeyRoute
   '/settings/security/passkeys': typeof AuthedSettingsSecurityPasskeysRoute
@@ -486,7 +471,6 @@ export interface FileRoutesByTo {
   '/setup': typeof PublicSetupRoute
   '/apps/$': typeof AuthedAppsSplatRoute
   '/databases/$': typeof AuthedDatabasesSplatRoute
-  '/settings/license': typeof AuthedSettingsLicenseRoute
   '/settings/notifications': typeof AuthedSettingsNotificationsRoute
   '/settings/registry': typeof AuthedSettingsRegistryRoute
   '/invitations/accept': typeof PublicInvitationsAcceptRoute
@@ -503,7 +487,6 @@ export interface FileRoutesByTo {
   '/orgs/$orgSlug/scheduled-jobs': typeof AuthedOrgsOrgSlugScheduledJobsRoute
   '/orgs/$orgSlug/shared-env': typeof AuthedOrgsOrgSlugSharedEnvRoute
   '/orgs/$orgSlug/tags': typeof AuthedOrgsOrgSlugTagsRoute
-  '/orgs/$orgSlug/templates': typeof AuthedOrgsOrgSlugTemplatesRoute
   '/settings/git-providers/$slug': typeof AuthedSettingsGitProvidersSlugRoute
   '/settings/security/passkey': typeof AuthedSettingsSecurityPasskeyRoute
   '/settings/security/passkeys': typeof AuthedSettingsSecurityPasskeysRoute
@@ -547,7 +530,6 @@ export interface FileRoutesById {
   '/_authed/apps/$': typeof AuthedAppsSplatRoute
   '/_authed/databases/$': typeof AuthedDatabasesSplatRoute
   '/_authed/orgs/$orgSlug': typeof AuthedOrgsOrgSlugRouteWithChildren
-  '/_authed/settings/license': typeof AuthedSettingsLicenseRoute
   '/_authed/settings/notifications': typeof AuthedSettingsNotificationsRoute
   '/_authed/settings/registry': typeof AuthedSettingsRegistryRoute
   '/_authed/settings/security': typeof AuthedSettingsSecurityRouteWithChildren
@@ -566,7 +548,6 @@ export interface FileRoutesById {
   '/_authed/orgs/$orgSlug/settings': typeof AuthedOrgsOrgSlugSettingsRouteWithChildren
   '/_authed/orgs/$orgSlug/shared-env': typeof AuthedOrgsOrgSlugSharedEnvRoute
   '/_authed/orgs/$orgSlug/tags': typeof AuthedOrgsOrgSlugTagsRoute
-  '/_authed/orgs/$orgSlug/templates': typeof AuthedOrgsOrgSlugTemplatesRoute
   '/_authed/settings/git-providers/$slug': typeof AuthedSettingsGitProvidersSlugRoute
   '/_authed/settings/security/passkey': typeof AuthedSettingsSecurityPasskeyRoute
   '/_authed/settings/security/passkeys': typeof AuthedSettingsSecurityPasskeysRoute
@@ -610,7 +591,6 @@ export interface FileRouteTypes {
     | '/apps/$'
     | '/databases/$'
     | '/orgs/$orgSlug'
-    | '/settings/license'
     | '/settings/notifications'
     | '/settings/registry'
     | '/settings/security'
@@ -629,7 +609,6 @@ export interface FileRouteTypes {
     | '/orgs/$orgSlug/settings'
     | '/orgs/$orgSlug/shared-env'
     | '/orgs/$orgSlug/tags'
-    | '/orgs/$orgSlug/templates'
     | '/settings/git-providers/$slug'
     | '/settings/security/passkey'
     | '/settings/security/passkeys'
@@ -670,7 +649,6 @@ export interface FileRouteTypes {
     | '/setup'
     | '/apps/$'
     | '/databases/$'
-    | '/settings/license'
     | '/settings/notifications'
     | '/settings/registry'
     | '/invitations/accept'
@@ -687,7 +665,6 @@ export interface FileRouteTypes {
     | '/orgs/$orgSlug/scheduled-jobs'
     | '/orgs/$orgSlug/shared-env'
     | '/orgs/$orgSlug/tags'
-    | '/orgs/$orgSlug/templates'
     | '/settings/git-providers/$slug'
     | '/settings/security/passkey'
     | '/settings/security/passkeys'
@@ -730,7 +707,6 @@ export interface FileRouteTypes {
     | '/_authed/apps/$'
     | '/_authed/databases/$'
     | '/_authed/orgs/$orgSlug'
-    | '/_authed/settings/license'
     | '/_authed/settings/notifications'
     | '/_authed/settings/registry'
     | '/_authed/settings/security'
@@ -749,7 +725,6 @@ export interface FileRouteTypes {
     | '/_authed/orgs/$orgSlug/settings'
     | '/_authed/orgs/$orgSlug/shared-env'
     | '/_authed/orgs/$orgSlug/tags'
-    | '/_authed/orgs/$orgSlug/templates'
     | '/_authed/settings/git-providers/$slug'
     | '/_authed/settings/security/passkey'
     | '/_authed/settings/security/passkeys'
@@ -880,13 +855,6 @@ declare module '@tanstack/react-router' {
       preLoaderRoute: typeof AuthedSettingsNotificationsRouteImport
       parentRoute: typeof AuthedRoute
     }
-    '/_authed/settings/license': {
-      id: '/_authed/settings/license'
-      path: '/settings/license'
-      fullPath: '/settings/license'
-      preLoaderRoute: typeof AuthedSettingsLicenseRouteImport
-      parentRoute: typeof AuthedRoute
-    }
     '/_authed/orgs/$orgSlug': {
       id: '/_authed/orgs/$orgSlug'
       path: '/orgs/$orgSlug'
@@ -970,13 +938,6 @@ declare module '@tanstack/react-router' {
       fullPath: '/settings/git-providers/$slug'
       preLoaderRoute: typeof AuthedSettingsGitProvidersSlugRouteImport
       parentRoute: typeof AuthedRoute
-    }
-    '/_authed/orgs/$orgSlug/templates': {
-      id: '/_authed/orgs/$orgSlug/templates'
-      path: '/templates'
-      fullPath: '/orgs/$orgSlug/templates'
-      preLoaderRoute: typeof AuthedOrgsOrgSlugTemplatesRouteImport
-      parentRoute: typeof AuthedOrgsOrgSlugRoute
     }
     '/_authed/orgs/$orgSlug/tags': {
       id: '/_authed/orgs/$orgSlug/tags'
@@ -1289,7 +1250,6 @@ interface AuthedOrgsOrgSlugRouteChildren {
   AuthedOrgsOrgSlugSettingsRoute: typeof AuthedOrgsOrgSlugSettingsRouteWithChildren
   AuthedOrgsOrgSlugSharedEnvRoute: typeof AuthedOrgsOrgSlugSharedEnvRoute
   AuthedOrgsOrgSlugTagsRoute: typeof AuthedOrgsOrgSlugTagsRoute
-  AuthedOrgsOrgSlugTemplatesRoute: typeof AuthedOrgsOrgSlugTemplatesRoute
   AuthedOrgsOrgSlugIndexRoute: typeof AuthedOrgsOrgSlugIndexRoute
   AuthedOrgsOrgSlugAppsIdRoute: typeof AuthedOrgsOrgSlugAppsIdRouteWithChildren
   AuthedOrgsOrgSlugDatabasesIdRoute: typeof AuthedOrgsOrgSlugDatabasesIdRoute
@@ -1312,7 +1272,6 @@ const AuthedOrgsOrgSlugRouteChildren: AuthedOrgsOrgSlugRouteChildren = {
   AuthedOrgsOrgSlugSettingsRoute: AuthedOrgsOrgSlugSettingsRouteWithChildren,
   AuthedOrgsOrgSlugSharedEnvRoute: AuthedOrgsOrgSlugSharedEnvRoute,
   AuthedOrgsOrgSlugTagsRoute: AuthedOrgsOrgSlugTagsRoute,
-  AuthedOrgsOrgSlugTemplatesRoute: AuthedOrgsOrgSlugTemplatesRoute,
   AuthedOrgsOrgSlugIndexRoute: AuthedOrgsOrgSlugIndexRoute,
   AuthedOrgsOrgSlugAppsIdRoute: AuthedOrgsOrgSlugAppsIdRouteWithChildren,
   AuthedOrgsOrgSlugDatabasesIdRoute: AuthedOrgsOrgSlugDatabasesIdRoute,
@@ -1356,7 +1315,6 @@ interface AuthedRouteChildren {
   AuthedAppsSplatRoute: typeof AuthedAppsSplatRoute
   AuthedDatabasesSplatRoute: typeof AuthedDatabasesSplatRoute
   AuthedOrgsOrgSlugRoute: typeof AuthedOrgsOrgSlugRouteWithChildren
-  AuthedSettingsLicenseRoute: typeof AuthedSettingsLicenseRoute
   AuthedSettingsNotificationsRoute: typeof AuthedSettingsNotificationsRoute
   AuthedSettingsRegistryRoute: typeof AuthedSettingsRegistryRoute
   AuthedSettingsSecurityRoute: typeof AuthedSettingsSecurityRouteWithChildren
@@ -1373,7 +1331,6 @@ const AuthedRouteChildren: AuthedRouteChildren = {
   AuthedAppsSplatRoute: AuthedAppsSplatRoute,
   AuthedDatabasesSplatRoute: AuthedDatabasesSplatRoute,
   AuthedOrgsOrgSlugRoute: AuthedOrgsOrgSlugRouteWithChildren,
-  AuthedSettingsLicenseRoute: AuthedSettingsLicenseRoute,
   AuthedSettingsNotificationsRoute: AuthedSettingsNotificationsRoute,
   AuthedSettingsRegistryRoute: AuthedSettingsRegistryRoute,
   AuthedSettingsSecurityRoute: AuthedSettingsSecurityRouteWithChildren,

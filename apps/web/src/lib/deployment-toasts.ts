@@ -14,6 +14,7 @@ import { useQueryClient } from "@tanstack/react-query"
 import { useEventsSubscription } from "./events-provider"
 import { invalidateGetCache } from "./api"
 import {
+  markAppDeletingInListCaches,
   markAppStoppedInListCaches,
   removeAppFromListCaches,
 } from "./apps-mutations"
@@ -41,8 +42,9 @@ export function useDeploymentToasts(): void {
   const onAppDeleteQueued = React.useCallback((evt: NotificationEvent) => {
     if (evt.t < mountedAt.current) return
     if (!evt.appId) return
+    markAppDeletingInListCaches(qc, evt.appId)
     toast.loading(evt.message, { id: `delete-app:${evt.appId}` })
-  }, [])
+  }, [qc])
 
   const onAppDeleted = React.useCallback(
     (evt: NotificationEvent) => {
