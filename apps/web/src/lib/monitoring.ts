@@ -2,6 +2,11 @@
 import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query"
 
 import {
+  
+  ContainerSnapshotSchema
+  
+} from "@ploydok/shared"
+import {
   apiFetch,
   apiFetchAllowErrorBody,
   criticalRetryDelay,
@@ -9,12 +14,8 @@ import {
 } from "./api"
 import { useBackendUnavailable } from "./backend-status"
 import { useEventsSubscription } from "./events-provider"
+import type {ContainerSnapshot, MonitoringOverview} from "@ploydok/shared";
 import type { ApiError } from "./api"
-import {
-  ContainerSnapshotSchema,
-  type ContainerSnapshot,
-  type MonitoringOverview,
-} from "@ploydok/shared"
 
 interface ContainerHealthNotification {
   appId?: string

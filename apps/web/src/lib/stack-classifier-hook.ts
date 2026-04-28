@@ -3,10 +3,10 @@ import { useQuery } from "@tanstack/react-query";
 import {
   ALL_PROBE_KEYS,
   ENV_FILE_PROBE_KEYS,
-  parseEnvFile,
+  classifyStack,
 
 
-  classifyStack
+  parseEnvFile
 } from "@ploydok/shared";
 import { apiFetch } from "./api";
 import type {ParsedEnvVar, ProbeResults, StackClassification} from "@ploydok/shared";
