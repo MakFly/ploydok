@@ -10,8 +10,87 @@ import {
   getUser,
 } from "@ploydok/db/queries"
 import { childLogger } from "../logger"
+import type { AuthUser } from "./middleware"
 
 const log = childLogger("pat")
+
+export type PatAuthResult =
+  | { kind: "not_applicable" }
+  | { kind: "invalid" }
+  | { kind: "ok"; user: AuthUser }
+
+function readPatBearerToken(c: Context): string | null {
+  const authHeader = c.req.header("Authorization")
+  if (!authHeader?.startsWith("Bearer ")) return null
+
+  const token = authHeader.slice(7)
+  if (!token.startsWith("ploy_") && !token.startsWith("plk_live_")) {
+    return null
+  }
+
+  return token
+}
+
+export async function authenticatePat(
+  c: Context,
+  db: Db
+): Promise<PatAuthResult> {
+  const token = readPatBearerToken(c)
+  if (!token) return { kind: "not_applicable" }
+
+  const hash = createHash("sha256").update(token).digest("hex")
+  const activeToken = await getActiveToken(db, hash)
+
+  // Si bcrypt_hash présent (token créé Vague 2+), exige verify constant-time.
+  // Sinon (legacy), le lookup SHA-256 unique-index suffit.
+  let verified = !!activeToken
+  if (activeToken && activeToken.bcrypt_hash) {
+    verified = await bcrypt.compare(token, activeToken.bcrypt_hash)
+  }
+
+  if (!activeToken || !verified) {
+    return { kind: "invalid" }
+  }
+
+  const user = await getUser(db, activeToken.user_id)
+  if (!user) {
+    return { kind: "invalid" }
+  }
+
+  const authUser: AuthUser = {
+    id: user.id,
+    email: user.email,
+    display_name: user.display_name,
+    session_id: activeToken.id,
+    token_scopes: activeToken.scopes ?? ["admin:*"],
+    pat_id: activeToken.id,
+  }
+
+  await updateTokenLastUsed(db, activeToken.id, new Date())
+
+  // Audit log par appel — best-effort, ne bloque jamais la requête.
+  try {
+    await db.insert(audit_log).values({
+      user_id: user.id,
+      action: "api_token.used",
+      target_type: "api_token",
+      target_id: activeToken.id,
+      metadata: JSON.stringify({
+        method: c.req.method,
+        path: new URL(c.req.url).pathname,
+        scopes: activeToken.scopes ?? ["admin:*"],
+      }),
+      created_at: new Date(),
+    })
+  } catch (err) {
+    log.warn(
+      { err: (err as Error).message, token_id: activeToken.id },
+      "audit_log.insert_failed"
+    )
+  }
+
+  return { kind: "ok", user: authUser }
+}
 
 /**
  * Middleware Bearer pour Personal Access Tokens.
@@ -30,59 +109,9 @@ export async function patAuthMiddleware(
   next: Next,
   db: Db
 ): Promise<void> {
-  const authHeader = c.req.header("Authorization")
-
-  if (authHeader?.startsWith("Bearer ")) {
-    const token = authHeader.slice(7)
-
-    if (token.startsWith("ploy_") || token.startsWith("plk_live_")) {
-      const hash = createHash("sha256").update(token).digest("hex")
-      const activeToken = await getActiveToken(db, hash)
-
-      // Si bcrypt_hash présent (token créé Vague 2+), exige verify constant-time.
-      // Sinon (legacy), le lookup SHA-256 unique-index suffit.
-      let verified = !!activeToken
-      if (activeToken && activeToken.bcrypt_hash) {
-        verified = await bcrypt.compare(token, activeToken.bcrypt_hash)
-      }
-
-      if (activeToken && verified) {
-        const user = await getUser(db, activeToken.user_id)
-        if (user) {
-          c.set("user", {
-            id: user.id,
-            email: user.email,
-            display_name: user.display_name,
-            session_id: activeToken.id,
-            token_scopes: activeToken.scopes ?? ["admin:*"],
-            pat_id: activeToken.id,
-          })
-
-          await updateTokenLastUsed(db, activeToken.id, new Date())
-
-          // Audit log par appel — best-effort, ne bloque jamais la requête.
-          try {
-            await db.insert(audit_log).values({
-              user_id: user.id,
-              action: "api_token.used",
-              target_type: "api_token",
-              target_id: activeToken.id,
-              metadata: JSON.stringify({
-                method: c.req.method,
-                path: new URL(c.req.url).pathname,
-                scopes: activeToken.scopes ?? ["admin:*"],
-              }),
-              created_at: new Date(),
-            })
-          } catch (err) {
-            log.warn(
-              { err: (err as Error).message, token_id: activeToken.id },
-              "audit_log.insert_failed"
-            )
-          }
-        }
-      }
-    }
+  const result = await authenticatePat(c, db)
+  if (result.kind === "ok") {
+    c.set("user", result.user)
   }
 
   await next()

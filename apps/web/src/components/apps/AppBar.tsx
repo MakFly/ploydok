@@ -4,14 +4,14 @@ import { Link, useRouterState } from "@tanstack/react-router"
 import { Button } from "@workspace/ui/components/button"
 import { RiTerminalBoxLine } from "@remixicon/react"
 import { Tabs, TabsList, TabsTrigger } from "@workspace/ui/components/tabs"
-import { AppHeaderActions } from "./AppHeaderActions"
-import { DeleteAppButton } from "./DeleteAppButton"
 import { useTabShortcuts } from "../../lib/hooks/use-tab-shortcuts"
-import type { AppDetail } from "../../lib/apps"
 import {
   organizationPath,
   useCurrentOrganizationSlug,
 } from "../../lib/organizations"
+import { AppHeaderActions } from "./AppHeaderActions"
+import { DeleteAppButton } from "./DeleteAppButton"
+import type { AppDetail } from "../../lib/apps"
 
 interface NavItem {
   value: string
@@ -23,11 +23,13 @@ interface NavItem {
 
 const NAV_ITEMS: Array<NavItem> = [
   { value: "settings", label: "General", segment: "settings" },
+  { value: "deployments", label: "Deployments", segment: "deployments" },
+  { value: "logs", label: "Logs", segment: "logs", requiresRunning: true },
   { value: "env", label: "Env", segment: "env" },
   { value: "domains", label: "Domains", segment: "domains" },
-  { value: "deployments", label: "Deployments", segment: "deployments" },
+  { value: "storage", label: "Storage", segment: "storage" },
   { value: "previews", label: "Previews", segment: "previews" },
-  { value: "logs", label: "Logs", segment: "logs", requiresRunning: true },
+  { value: "security", label: "Security", segment: "security" },
   { value: "advanced", label: "Advanced", segment: "advanced" },
 ]
 

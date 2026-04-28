@@ -10,6 +10,10 @@ import {
 } from "@ploydok/db/queries";
 import { childLogger } from "../logger";
 import { handlePush } from "./webhook-handlers/push";
+import {
+  handlePullRequest,
+  type PullRequestPayload,
+} from "../webhook-handlers/pull-request";
 import { decryptField } from "./app-credentials";
 
 const log = childLogger("webhook");
@@ -401,8 +405,7 @@ export async function handleWebhook(
       break;
 
     case "pull_request":
-      // Future: trigger preview deployments
-      log.debug({ deliveryId }, "pull_request event — no-op");
+      await handlePullRequest(db, payload as PullRequestPayload, deliveryId);
       break;
 
     case "installation":

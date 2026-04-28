@@ -2,7 +2,6 @@
 import * as React from "react"
 import { RiLoader4Line, RiMoreLine } from "@remixicon/react"
 import { DataTable } from "@workspace/ui/components/data-table"
-import type { ColumnDef } from "@workspace/ui/components/data-table"
 import {
   DropdownMenu,
   DropdownMenuContent,
@@ -21,6 +20,7 @@ import {
   AlertDialogTitle,
   AlertDialogTrigger,
 } from "@workspace/ui/components/alert-dialog"
+import type { ColumnDef } from "@workspace/ui/components/data-table"
 import type { Build, BuildStatus } from "@ploydok/shared"
 
 // ---------------------------------------------------------------------------
@@ -268,22 +268,12 @@ function makeColumns(
       cell: ({ row }) => {
         const status = row.original.status
         const inProgress = IN_PROGRESS_STATUSES.has(status)
-        const isWarning = status === "succeeded_with_warning"
-        const postDeployError = row.original.postDeployError
-        const errorMessage = row.original.errorMessage
         return (
           <span
             className={[
-              "inline-flex items-center gap-1.5 rounded-full px-2 py-0.5 text-xs font-medium",
+              "inline-flex w-fit items-center gap-1.5 rounded-full px-2 py-0.5 text-xs font-medium",
               BUILD_STATUS_CLASS[status],
             ].join(" ")}
-            title={
-              status === "failed" && errorMessage
-                ? errorMessage
-                : isWarning && postDeployError
-                  ? `Post-deploy hook failed: ${postDeployError}`
-                  : undefined
-            }
           >
             {inProgress && (
               <RiLoader4Line
@@ -291,7 +281,7 @@ function makeColumns(
                 aria-hidden="true"
               />
             )}
-            {BUILD_STATUS_LABEL[status] ?? status}
+            {BUILD_STATUS_LABEL[status]}
           </span>
         )
       },
@@ -381,7 +371,7 @@ export function DeploymentsTable({
     return <DeploymentsTableSkeleton />
   }
 
-  if (!builds || builds.length === 0) {
+  if (builds.length === 0) {
     return (
       <div className="flex flex-col items-center justify-center rounded-lg border border-dashed border-border bg-muted/20 py-16 text-center">
         <p className="mb-1 text-sm font-medium">No deployments yet</p>

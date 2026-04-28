@@ -47,6 +47,6 @@
     "lint": "eslint",
     "format": "prettier --write \"**/*.{ts,tsx}\"",
     "typecheck": "tsc --noEmit",
-    "test": "bun test src/tests/"
+    "test": "bun test src/tests/lib/api-refresh.test.ts && bun test src/tests/lib/second-factor.test.ts && bun test src/tests/ --path-ignore-patterns='**/api-refresh.test.ts' --path-ignore-patterns='**/second-factor.test.ts'"
   }
 }

@@ -1,14 +1,14 @@
 // SPDX-License-Identifier: AGPL-3.0-only
 import {
-  useSuspenseQuery,
   useMutation,
   useQueryClient,
+  useSuspenseQuery,
 } from "@tanstack/react-query"
 import { apiFetch } from "./api"
 import type {
-  LicenseStatus,
   LicenseActivateRequest,
   LicenseActivateResponse,
+  LicenseStatus,
 } from "@ploydok/shared"
 
 const LICENSE_STATUS_QUERY_KEY = ["license", "status"]

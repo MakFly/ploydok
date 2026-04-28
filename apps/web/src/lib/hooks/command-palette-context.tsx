@@ -1,9 +1,10 @@
 // SPDX-License-Identifier: AGPL-3.0-only
 import * as React from "react"
 import {
-  useCommandPalette,
-  type UseCommandPaletteReturn,
+
+  useCommandPalette
 } from "./use-command-palette"
+import type {UseCommandPaletteReturn} from "./use-command-palette";
 
 const CommandPaletteContext =
   React.createContext<UseCommandPaletteReturn | null>(null)

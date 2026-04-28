@@ -29,7 +29,7 @@ export function useSystemHealth(): {
   return {
     data: q.data,
     isLoading: q.isLoading,
-    error: q.error as Error | null,
+    error: q.error,
     refetch: () => void q.refetch(),
   }
 }

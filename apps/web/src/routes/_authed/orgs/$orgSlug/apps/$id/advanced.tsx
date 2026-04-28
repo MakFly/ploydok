@@ -2,8 +2,8 @@
 import { createFileRoute } from "@tanstack/react-router"
 import { useState } from "react"
 import {
-  CaddyExtraHandlersSchema,
-  type CaddyExtraHandlers,
+
+  CaddyExtraHandlersSchema
 } from "@ploydok/shared"
 import { Button } from "@workspace/ui/components/button"
 import { Textarea } from "@workspace/ui/components/textarea"
@@ -13,6 +13,7 @@ import {
   useAppCaddyExtra,
   useUpdateAppCaddyExtra,
 } from "../../../../../../lib/apps"
+import type {CaddyExtraHandlers} from "@ploydok/shared";
 
 export const Route = createFileRoute(
   "/_authed/orgs/$orgSlug/apps/$id/advanced"

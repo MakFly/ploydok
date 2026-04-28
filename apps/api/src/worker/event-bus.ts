@@ -29,8 +29,12 @@ export type NotificationType =
   | "provider.sync.progress"
   | "provider.sync.completed"
   | "provider.sync.failed"
+  | "app.delete.queued"
   | "app.deleted"
   | "app.delete.failed"
+  | "app.stop.queued"
+  | "app.stopped"
+  | "app.stop.failed"
 
 export interface NotificationEvent {
   id: string

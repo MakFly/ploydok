@@ -1,4 +1,6 @@
 // SPDX-License-Identifier: AGPL-3.0-only
+import { lookup } from "node:dns/promises"
+import { isIP } from "node:net"
 import { nanoid } from "nanoid"
 import { Hono } from "hono"
 import type { Db } from "@ploydok/db"
@@ -18,6 +20,7 @@ import {
 } from "@ploydok/shared"
 import type { WebhookPayload } from "@ploydok/shared"
 import type { AuthUser } from "../auth/middleware"
+import { requireScope } from "../auth/require-scope"
 
 function getUser(c: { get: (key: string) => unknown }): AuthUser {
   return c.get("user") as AuthUser
@@ -31,13 +34,96 @@ async function generateSecret(): Promise<string> {
     .join("")
 }
 
+function normalizeHostname(hostname: string): string {
+  return hostname.toLowerCase().replace(/\.$/, "")
+}
+
+function isBlockedIpv4(hostname: string): boolean {
+  const parts = hostname.split(".").map((part) => Number(part))
+  if (parts.length !== 4 || parts.some((part) => !Number.isInteger(part))) {
+    return false
+  }
+
+  const [a = -1, b = -1] = parts
+  if (a === 127) return true
+  if (a === 10) return true
+  if (a === 169 && b === 254) return true
+  if (a === 192 && b === 168) return true
+  if (a === 172 && b >= 16 && b <= 31) return true
+  return false
+}
+
+function isBlockedIpv6(hostname: string): boolean {
+  const lower = hostname.toLowerCase()
+  if (lower === "::1" || lower === "::") return true
+
+  if (lower.startsWith("::ffff:")) {
+    const mapped = lower.slice("::ffff:".length)
+    return isBlockedIpv4(mapped)
+  }
+
+  if (lower.startsWith("fc") || lower.startsWith("fd")) return true
+  if (lower.startsWith("fe80:")) return true
+  return false
+}
+
+function isBlockedIpAddress(hostname: string): boolean {
+  const version = isIP(hostname)
+  if (version === 4) return isBlockedIpv4(hostname)
+  if (version === 6) return isBlockedIpv6(hostname)
+  return false
+}
+
+async function validateEventWebhookUrl(rawUrl: string): Promise<string | null> {
+  let parsed: URL
+  try {
+    parsed = new URL(rawUrl)
+  } catch {
+    return "Webhook URL is invalid"
+  }
+
+  if (parsed.protocol !== "http:" && parsed.protocol !== "https:") {
+    return "Webhook URL must use http or https"
+  }
+
+  if (parsed.username || parsed.password) {
+    return "Webhook URL must not include credentials"
+  }
+
+  const hostname = normalizeHostname(parsed.hostname)
+  if (hostname === "localhost" || hostname.endsWith(".localhost")) {
+    return "Webhook URL points to a blocked local address"
+  }
+
+  if (isBlockedIpAddress(hostname)) {
+    return "Webhook URL points to a blocked private address"
+  }
+
+  if (isIP(hostname) === 0) {
+    try {
+      const addresses = await lookup(hostname, { all: true, verbatim: true })
+      if (
+        addresses.length === 0 ||
+        addresses.some((address) => isBlockedIpAddress(address.address))
+      ) {
+        return "Webhook URL resolves to a blocked private address"
+      }
+    } catch {
+      return "Webhook URL host could not be resolved safely"
+    }
+  }
+
+  return null
+}
+
 export function createEventWebhooksRouter(db: Db): Hono {
   const router = new Hono()
+  const adminScope = requireScope("admin:*")
 
   // GET /orgs/:orgId/event-webhooks
-  router.get("/:orgId/event-webhooks", async (c) => {
+  router.get("/:orgId/event-webhooks", adminScope, async (c) => {
     const user = getUser(c)
-    const orgId = c.req.param("orgId")
+    const orgId = c.req.param("orgId")!
 
     const membership = await getMembership(db, orgId, user.id)
     if (!membership) {
@@ -64,9 +150,9 @@ export function createEventWebhooksRouter(db: Db): Hono {
   })
 
   // POST /orgs/:orgId/event-webhooks
-  router.post("/:orgId/event-webhooks", async (c) => {
+  router.post("/:orgId/event-webhooks", adminScope, async (c) => {
     const user = getUser(c)
-    const orgId = c.req.param("orgId")
+    const orgId = c.req.param("orgId")!
 
     const membership = await getMembership(db, orgId, user.id)
     if (!membership) {
@@ -84,6 +170,19 @@ export function createEventWebhooksRouter(db: Db): Hono {
           error: {
             code: "VALIDATION_ERROR",
             message: "Invalid webhook payload",
+          },
+        },
+        400
+      )
+    }
+
+    const urlError = await validateEventWebhookUrl(parsed.data.url)
+    if (urlError) {
+      return c.json(
+        {
+          error: {
+            code: "VALIDATION_ERROR",
+            message: urlError,
           },
         },
         400
@@ -128,10 +227,10 @@ export function createEventWebhooksRouter(db: Db): Hono {
   })
 
   // PATCH /orgs/:orgId/event-webhooks/:id
-  router.patch("/:orgId/event-webhooks/:id", async (c) => {
+  router.patch("/:orgId/event-webhooks/:id", adminScope, async (c) => {
     const user = getUser(c)
-    const orgId = c.req.param("orgId")
-    const webhookId = c.req.param("id")
+    const orgId = c.req.param("orgId")!
+    const webhookId = c.req.param("id")!
 
     const membership = await getMembership(db, orgId, user.id)
     if (!membership) {
@@ -161,6 +260,21 @@ export function createEventWebhooksRouter(db: Db): Hono {
         },
         400
       )
+    }
+
+    if (parsed.data.url !== undefined) {
+      const urlError = await validateEventWebhookUrl(parsed.data.url)
+      if (urlError) {
+        return c.json(
+          {
+            error: {
+              code: "VALIDATION_ERROR",
+              message: urlError,
+            },
+          },
+          400
+        )
+      }
     }
 
     const updates: any = {}
@@ -199,10 +313,10 @@ export function createEventWebhooksRouter(db: Db): Hono {
   })
 
   // DELETE /orgs/:orgId/event-webhooks/:id
-  router.delete("/:orgId/event-webhooks/:id", async (c) => {
+  router.delete("/:orgId/event-webhooks/:id", adminScope, async (c) => {
     const user = getUser(c)
-    const orgId = c.req.param("orgId")
-    const webhookId = c.req.param("id")
+    const orgId = c.req.param("orgId")!
+    const webhookId = c.req.param("id")!
 
     const membership = await getMembership(db, orgId, user.id)
     if (!membership) {
@@ -224,10 +338,10 @@ export function createEventWebhooksRouter(db: Db): Hono {
   })
 
   // POST /orgs/:orgId/event-webhooks/:id/test
-  router.post("/:orgId/event-webhooks/:id/test", async (c) => {
+  router.post("/:orgId/event-webhooks/:id/test", adminScope, async (c) => {
     const user = getUser(c)
-    const orgId = c.req.param("orgId")
-    const webhookId = c.req.param("id")
+    const orgId = c.req.param("orgId")!
+    const webhookId = c.req.param("id")!
 
     const membership = await getMembership(db, orgId, user.id)
     if (!membership) {
@@ -242,6 +356,19 @@ export function createEventWebhooksRouter(db: Db): Hono {
       return c.json(
         { error: { code: "NOT_FOUND", message: "Webhook not found" } },
         404
+      )
+    }
+
+    const urlError = await validateEventWebhookUrl(webhook.url)
+    if (urlError) {
+      return c.json(
+        {
+          error: {
+            code: "VALIDATION_ERROR",
+            message: urlError,
+          },
+        },
+        400
       )
     }
 

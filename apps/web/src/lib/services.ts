@@ -3,9 +3,9 @@ import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query"
 import { toast } from "sonner"
 import { apiFetch } from "./api"
 import type {
-  ServiceSummary,
-  ServiceDetail,
   CreateServiceFromTemplateBody,
+  ServiceDetail,
+  ServiceSummary,
 } from "@ploydok/shared"
 
 export type { ServiceSummary, ServiceDetail }
@@ -30,7 +30,7 @@ export function useServices(projectId?: string) {
     queryKey: servicesKeys.list(projectId),
     queryFn: async () => {
       const url = projectId ? `/services?projectId=${projectId}` : "/services"
-      const res = await apiFetch<{ services: ServiceSummary[] }>(url)
+      const res = await apiFetch<{ services: Array<ServiceSummary> }>(url)
       return res.services
     },
   })
@@ -118,7 +118,7 @@ export function useServiceLogs(id: string | undefined, tail = 200) {
   return useQuery({
     queryKey: servicesKeys.logs(id ?? ""),
     queryFn: async () =>
-      apiFetch<{ lines: ServiceLogLine[] }>(
+      apiFetch<{ lines: Array<ServiceLogLine> }>(
         `/services/${id}/logs?tail=${tail}`
       ),
     enabled: Boolean(id),

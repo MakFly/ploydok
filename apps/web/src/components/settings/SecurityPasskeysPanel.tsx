@@ -25,8 +25,8 @@ import {
 } from "@workspace/ui/components/alert-dialog"
 import { Button } from "@workspace/ui/components/button"
 import { cn } from "@workspace/ui/lib/utils"
-import type { PasskeyInfo } from "@ploydok/shared"
 import { usePasskeys, useRemovePasskey } from "../../lib/passkeys"
+import type { PasskeyInfo } from "@ploydok/shared"
 
 export function SecurityPasskeysPanel(): React.JSX.Element {
   const { data: passkeys, isLoading, error } = usePasskeys()

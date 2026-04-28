@@ -1,12 +1,16 @@
 // SPDX-License-Identifier: AGPL-3.0-only
 import * as React from "react"
-import { useParams, createFileRoute } from "@tanstack/react-router"
+import { createFileRoute, useParams } from "@tanstack/react-router"
+import { Skeleton } from "@workspace/ui/components/skeleton"
+import { Separator } from "@workspace/ui/components/separator"
+import { Button } from "@workspace/ui/components/button"
+import { RiBookOpenLine } from "@remixicon/react"
 import {
-  useDomains,
   useCreateDomain,
   useDeleteDomain,
-  useSwitchTlsMode,
+  useDomains,
   useRetryVerification,
+  useSwitchTlsMode,
 } from "../../../../../../lib/domains"
 import { DomainCard } from "../../../../../../components/domains/DomainCard"
 import { AddDomainDialog } from "../../../../../../components/domains/AddDomainDialog"
@@ -14,16 +18,13 @@ import { TlsModeSwitcher } from "../../../../../../components/domains/TlsModeSwi
 import { CdnSection } from "../../../../../../components/apps/CdnSection"
 import { ProtectionSection } from "../../../../../../components/apps/ProtectionSection"
 import { useMe } from "../../../../../../lib/auth"
-import { Skeleton } from "@workspace/ui/components/skeleton"
-import { Separator } from "@workspace/ui/components/separator"
-import { Button } from "@workspace/ui/components/button"
-import { RiBookOpenLine } from "@remixicon/react"
 import type { Domain } from "../../../../../../lib/domains"
 
 const DOCS_BASE_URL = import.meta.env.VITE_DOCS_URL ?? "http://localhost:4321"
 
 function AppDomainsTab(): React.JSX.Element {
-  const { id: appId } = useParams({ strict: false }) as { id: string }
+  const { id: routeAppId } = useParams({ strict: false })
+  const appId = routeAppId!
 
   const { data: domains, isLoading, isError } = useDomains(appId)
   const { mutate: createDomain, isPending: isAdding } = useCreateDomain(appId)
@@ -119,8 +120,8 @@ function AppDomainsTab(): React.JSX.Element {
               onDelete={(id) => deleteDomain({ domainId: id })}
               onRetry={(id) => retryVerification({ domainId: id })}
               onSwitchMode={(id) => {
-                const d = domains.find((d) => d.id === id)
-                if (d) setSwitchTarget(d)
+                const targetDomain = domains.find((item) => item.id === id)
+                if (targetDomain) setSwitchTarget(targetDomain)
               }}
               isDeleting={isDeleting}
               isRetrying={isRetrying}

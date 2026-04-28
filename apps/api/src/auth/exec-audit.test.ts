@@ -45,8 +45,10 @@ describe("ExecCommandAuditor", () => {
       enc: string
       nonce: string
       alg: string
+      stream: string
     }
     expect(meta.alg).toBe("aes-256-gcm")
+    expect(meta.stream).toBe("stdin")
     // Le mock encryptSecret encode plain en base64 directement
     expect(Buffer.from(meta.enc, "base64").toString("utf8")).toBe("ls -la")
   })
@@ -77,6 +79,28 @@ describe("ExecCommandAuditor", () => {
     await new Promise((r) => setTimeout(r, 10))
     // a, b, c → 3 lignes (le \r\n compte juste comme 2 séparateurs successifs)
     expect(db.inserts.length).toBe(3)
+  })
+
+  test("supporte l'audit chiffré de l'output avec action dédiée", async () => {
+    const db = fakeDb()
+    // eslint-disable-next-line @typescript-eslint/no-explicit-any
+    const a = new ExecCommandAuditor(db as any, ctx, {
+      action: "app.exec.output",
+      stream: "stdout",
+    })
+    a.feed(new TextEncoder().encode("hello from container\n"))
+    await new Promise((r) => setTimeout(r, 5))
+    expect(db.inserts.length).toBe(1)
+    const row = db.inserts[0] as Record<string, string>
+    expect(row.action).toBe("app.exec.output")
+    const meta = JSON.parse(row.metadata as string) as {
+      enc: string
+      stream: string
+    }
+    expect(meta.stream).toBe("stdout")
+    expect(Buffer.from(meta.enc, "base64").toString("utf8")).toBe(
+      "hello from container"
+    )
   })
 
   test("ligne > 4KB est dropée silencieusement", async () => {

@@ -6,7 +6,7 @@
   "scripts": {
     "dev": "bun run --watch src/index.ts",
     "start": "bun run src/index.ts",
-    "test": "bun test",
+    "test": "bun test src/routes/apps-exec.test.ts && bun test src/routes/github.test.ts && bun test src/worker/runner.test.ts && bun test src/worker/runner-volumes.test.ts && bun test src/cloudflare/purge.test.ts && bun test src/worker/handlers/sync-provider-repos.test.ts && bun test src/worker/handlers/preview-deploy.test.ts && bun test src --path-ignore-patterns='**/routes/apps-exec.test.ts' --path-ignore-patterns='**/routes/github.test.ts' --path-ignore-patterns='**/worker/runner.test.ts' --path-ignore-patterns='**/worker/runner-volumes.test.ts' --path-ignore-patterns='**/cloudflare/purge.test.ts' --path-ignore-patterns='**/worker/handlers/sync-provider-repos.test.ts' --path-ignore-patterns='**/worker/handlers/preview-deploy.test.ts'",
     "typecheck": "tsc --noEmit"
   },
   "devDependencies": {
@@ -20,6 +20,7 @@
     "@aws-sdk/lib-storage": "^3.1034.0",
     "@grpc/grpc-js": "^1.14.3",
     "@ploydok/agent-proto": "workspace:*",
+    "@ploydok/app-auditor": "workspace:*",
     "@ploydok/db": "workspace:*",
     "@ploydok/shared": "workspace:*",
     "@simplewebauthn/server": "^13.3.0",

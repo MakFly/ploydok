@@ -35,7 +35,7 @@ import { CaddyClient } from "../caddy/client.js"
 import { logBus } from "./log-bus.js"
 import { eventBus } from "./event-bus.js"
 import { workerLog } from "./logger.js"
-import { isNotFound, toAgentError } from "../agent/errors.js"
+import { isAlreadyExists, isNotFound, toAgentError } from "../agent/errors.js"
 import {
   inferContainerColor,
   runtimeContainerName,
@@ -47,6 +47,8 @@ import { getSharedAgent } from "../debug/singletons.js"
 import { PLANS } from "@ploydok/shared"
 import type { PlanName } from "@ploydok/shared"
 import { buildEnvForDeploy } from "../secrets/resolver.js"
+import { purgeCloudflareForApp } from "../cloudflare/purge.js"
+import { listRuntimeAppVolumeMounts } from "../services/app-volumes.js"
 
 // ---------------------------------------------------------------------------
 // Constants
@@ -566,6 +568,67 @@ async function stopContainerCandidates(
   }
 }
 
+export async function createContainerWithStaleSlotRecovery(opts: {
+  agent: InstanceType<typeof AgentClient>
+  caddyClient: CaddyClient
+  appId: string
+  containerName: string
+  channel: string
+  request: unknown
+}): Promise<ContainerCreateResponse> {
+  try {
+    return await grpcUnary<ContainerCreateResponse>(
+      opts.agent.containerCreate.bind(opts.agent),
+      opts.request
+    )
+  } catch (err) {
+    const agentErr = toAgentError(err)
+    if (!isAlreadyExists(agentErr)) throw err
+
+    let upstream: { host: string; port: number } | null
+    try {
+      upstream = await opts.caddyClient.getUpstream(opts.appId)
+    } catch (upstreamErr) {
+      workerLog.warn(
+        {
+          appId: opts.appId,
+          containerName: opts.containerName,
+          err: errMsg(upstreamErr),
+        },
+        "runner: cannot verify Caddy upstream before stale slot cleanup"
+      )
+      throw err
+    }
+
+    if (upstream?.host === opts.containerName) {
+      logBus.publish(
+        opts.channel,
+        `[runner] container ${opts.containerName} already exists and is still the active Caddy upstream`
+      )
+      throw err
+    }
+
+    workerLog.warn(
+      {
+        appId: opts.appId,
+        containerName: opts.containerName,
+        upstreamHost: upstream?.host ?? null,
+      },
+      "runner: removing stale target slot before retrying container create"
+    )
+    logBus.publish(
+      opts.channel,
+      `[runner] stale target container ${opts.containerName} already exists; removing it before retry`
+    )
+    await stopContainer(opts.agent, opts.containerName)
+
+    return await grpcUnary<ContainerCreateResponse>(
+      opts.agent.containerCreate.bind(opts.agent),
+      opts.request
+    )
+  }
+}
+
 // ---------------------------------------------------------------------------
 // Public API
 // ---------------------------------------------------------------------------
@@ -606,6 +669,13 @@ export async function runBlueGreen(
       cpu_limit: apps.cpu_limit,
       mem_limit_bytes: apps.mem_limit_bytes,
       pids_limit: apps.pids_limit,
+      cdn_mode: apps.cdn_mode,
+      cdn_cache_ttl_s: apps.cdn_cache_ttl_s,
+      cdn_cache_paths: apps.cdn_cache_paths,
+      cdn_compression: apps.cdn_compression,
+      cdn_image_optim: apps.cdn_image_optim,
+      cdn_headers: apps.cdn_headers,
+      cdn_external_provider: apps.cdn_external_provider,
       project_id: apps.project_id,
       owner_id: projects.owner_id,
     })
@@ -668,11 +738,18 @@ export async function runBlueGreen(
     await ensureCaddyOnProjectNetwork(getSharedAgent(), projectNetwork)
     const networks = networksForApp(projectNetwork)
     const resourceLimits = resolveResourceLimits(appRow)
+    const volumes = await listRuntimeAppVolumeMounts(db, appId, {
+      ensureDirectories: true,
+    })
 
     // 1. Create container.
-    const createResp = await grpcUnary<ContainerCreateResponse>(
-      agent.containerCreate.bind(agent),
-      {
+    const createResp = await createContainerWithStaleSlotRecovery({
+      agent,
+      caddyClient,
+      appId,
+      containerName: newName,
+      channel,
+      request: {
         name: newName,
         image: imageRef,
         env: containerEnv,
@@ -686,7 +763,11 @@ export async function runBlueGreen(
         // so legacy single-string path is inert.
         network: "",
         networks,
-        volumes: [],
+        volumes: volumes.map((volume) => ({
+          hostPath: volume.hostPath,
+          containerPath: volume.mountPath,
+          readOnly: volume.readOnly,
+        })),
         ports: [],
         restartPolicy: appRow.restart_policy,
         resourceLimits,
@@ -734,8 +815,8 @@ export async function runBlueGreen(
           retries: hcRetries,
           startPeriodSeconds: hcStartPeriodS,
         },
-      }
-    )
+      },
+    })
 
     newContainerId = createResp.containerId
     logBus.publish(channel, `[runner] container created: ${newContainerId}`)
@@ -778,10 +859,16 @@ export async function runBlueGreen(
     )
 
     // 4. Switch Caddy upstream.
-    await caddyClient.setUpstream(appId, domain, {
-      host: newName,
-      port: runtimePort,
-    })
+    await caddyClient.setUpstream(
+      appId,
+      domain,
+      {
+        host: newName,
+        port: runtimePort,
+      },
+      { cdn: appRow }
+    )
+    await purgeCloudflareForApp(db, appId)
     logBus.publish(channel, `[runner] Caddy upstream updated`)
 
     // 5. Mark app live immediately — new container serves traffic from this
@@ -962,6 +1049,13 @@ export async function rollbackApp(
       cpu_limit: apps.cpu_limit,
       mem_limit_bytes: apps.mem_limit_bytes,
       pids_limit: apps.pids_limit,
+      cdn_mode: apps.cdn_mode,
+      cdn_cache_ttl_s: apps.cdn_cache_ttl_s,
+      cdn_cache_paths: apps.cdn_cache_paths,
+      cdn_compression: apps.cdn_compression,
+      cdn_image_optim: apps.cdn_image_optim,
+      cdn_headers: apps.cdn_headers,
+      cdn_external_provider: apps.cdn_external_provider,
       project_id: apps.project_id,
       owner_id: projects.owner_id,
     })
@@ -999,11 +1093,18 @@ export async function rollbackApp(
     await ensureCaddyOnProjectNetwork(getSharedAgent(), projectNetwork)
     const networks = networksForApp(projectNetwork)
     const resourceLimits = resolveResourceLimits(appRow)
+    const volumes = await listRuntimeAppVolumeMounts(db, appId, {
+      ensureDirectories: true,
+    })
 
     // Create + start rollback container.
-    const createResp = await grpcUnary<ContainerCreateResponse>(
-      agent.containerCreate.bind(agent),
-      {
+    const createResp = await createContainerWithStaleSlotRecovery({
+      agent,
+      caddyClient,
+      appId,
+      containerName: rollbackName,
+      channel,
+      request: {
         name: rollbackName,
         image: previousBuild.image_tag,
         env: containerEnv,
@@ -1016,7 +1117,11 @@ export async function rollbackApp(
         },
         network: "",
         networks,
-        volumes: [],
+        volumes: volumes.map((volume) => ({
+          hostPath: volume.hostPath,
+          containerPath: volume.mountPath,
+          readOnly: volume.readOnly,
+        })),
         ports: [],
         restartPolicy: appRow.restart_policy,
         resourceLimits,
@@ -1039,8 +1144,8 @@ export async function rollbackApp(
           retries: hcRetries,
           startPeriodSeconds: hcStartPeriodS,
         },
-      }
-    )
+      },
+    })
 
     logBus.publish(
       channel,
@@ -1053,10 +1158,16 @@ export async function rollbackApp(
     logBus.publish(channel, `[runner] rollback container started`)
 
     // Switch Caddy immediately (no grace — rollback must be fast).
-    await caddyClient.setUpstream(appId, domain, {
-      host: rollbackName,
-      port: runtimePort,
-    })
+    await caddyClient.setUpstream(
+      appId,
+      domain,
+      {
+        host: rollbackName,
+        port: runtimePort,
+      },
+      { cdn: appRow }
+    )
+    await purgeCloudflareForApp(db, appId)
     logBus.publish(channel, `[runner] Caddy switched to rollback container`)
 
     // Stop old container.

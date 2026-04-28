@@ -77,8 +77,14 @@ export interface CaddyRoute {
 
 export interface CaddyMatch {
   host?: string[]
+  path?: string[]
+  query?: Record<string, string[]>
   remote_ip?: {
     ranges: string[]
+  }
+  file?: {
+    root: string
+    try_files: string[]
   }
 }
 
@@ -88,6 +94,8 @@ export type CaddyHandler =
   | CaddyAuthenticationHandler
   | CaddySubrouteHandler
   | CaddyRateLimitHandler
+  | CaddyFileServerHandler
+  | CaddyRewriteHandler
   | Record<string, unknown>
 
 export interface CaddyReverseProxyHandler {
@@ -126,6 +134,16 @@ export interface CaddyRateLimitHandler {
   }
 }
 
+export interface CaddyFileServerHandler {
+  handler: "file_server"
+  root: string
+}
+
+export interface CaddyRewriteHandler {
+  handler: "rewrite"
+  uri: string
+}
+
 /** Middlewares per-app to inject before reverse_proxy */
 export interface CaddyMiddlewares {
   basicAuth?: {
@@ -138,4 +156,13 @@ export interface CaddyMiddlewares {
     rps: number
   }
   extraHandlers?: unknown[]
+  cdn?: {
+    cdn_mode: "off" | "internal" | "external"
+    cdn_cache_ttl_s: number | null
+    cdn_cache_paths: string[] | null
+    cdn_compression: boolean | null
+    cdn_image_optim: boolean | null
+    cdn_headers: string | null
+    cdn_external_provider: string | null
+  }
 }

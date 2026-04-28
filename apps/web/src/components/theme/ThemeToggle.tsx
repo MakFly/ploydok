@@ -13,7 +13,7 @@ function readCookie(): ThemeMode {
   const match = document.cookie.match(
     new RegExp("(?:^|; )" + THEME_COOKIE + "=([^;]+)")
   )
-  const value = match ? decodeURIComponent(match[1]!) : null
+  const value = match ? decodeURIComponent(match[1]) : null
   if (value === "light" || value === "dark" || value === "system") return value
   return "system"
 }

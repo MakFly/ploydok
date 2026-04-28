@@ -4,6 +4,11 @@
  * logic without importing React hooks (avoids module resolution issues).
  */
 import { describe, expect, it } from "bun:test"
+import { QueryClient } from "@tanstack/react-query"
+import {
+  markAppDeletingInListCaches,
+  markAppStoppedInListCaches,
+} from "../../lib/apps-mutations"
 
 // ---------------------------------------------------------------------------
 // Pure helpers that mirror mutation logic from apps-mutations.ts
@@ -53,7 +58,7 @@ function buildHealthcheckPayload(
   if (restartPolicy !== undefined) payload.restartPolicy = restartPolicy
   if (healthcheckPath !== undefined || healthcheckPort !== undefined) {
     const healthcheck: Record<string, unknown> = {}
-    if (healthcheckPath !== undefined) healthcheck.path = healthcheckPath ?? undefined
+  if (healthcheckPath !== undefined) healthcheck.path = healthcheckPath
     if (healthcheckPort !== undefined) healthcheck.port = healthcheckPort ?? undefined
     payload.healthcheck = healthcheck
   }
@@ -107,7 +112,15 @@ describe("apps-mutations — deploy body construction", () => {
 // Optimistic update logic — mirrors onMutate from useStopApp / useRestartApp
 // ---------------------------------------------------------------------------
 
-type AppStatus = "created" | "pending" | "building" | "running" | "restarting" | "failed" | "stopped"
+type AppStatus =
+  | "created"
+  | "pending"
+  | "building"
+  | "running"
+  | "restarting"
+  | "failed"
+  | "stopped"
+  | "deleting"
 
 interface AppSnapshot {
   id: string
@@ -152,6 +165,28 @@ describe("apps-mutations — optimistic update logic", () => {
     const { patched, snapshot } = applyOptimisticStatus(undefined, "restarting")
     expect(patched).toBeNull()
     expect(snapshot).toBeUndefined()
+  })
+
+  it("useDeleteApp: marks apps list entries as deleting until cascade finishes", () => {
+    const qc = new QueryClient()
+    qc.setQueryData(["apps", "org-1"], [app])
+
+    markAppDeletingInListCaches(qc, "app-1")
+
+    expect(
+      qc.getQueryData<Array<AppSnapshot>>(["apps", "org-1"])?.[0]?.status
+    ).toBe("deleting")
+  })
+
+  it("useStopApp: marks apps list entries as stopped while SSE confirms", () => {
+    const qc = new QueryClient()
+    qc.setQueryData(["apps", "org-1"], [app])
+
+    markAppStoppedInListCaches(qc, "app-1")
+
+    expect(
+      qc.getQueryData<Array<AppSnapshot>>(["apps", "org-1"])?.[0]?.status
+    ).toBe("stopped")
   })
 })
 

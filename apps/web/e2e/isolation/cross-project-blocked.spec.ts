@@ -39,7 +39,7 @@ interface CreatedApp {
   containerName: string;
 }
 
-function docker(args: string[]): { stdout: string; stderr: string; status: number | null } {
+function docker(args: Array<string>): { stdout: string; stderr: string; status: number | null } {
   const res = spawnSync("docker", args, { encoding: "utf8" });
   return {
     stdout: res.stdout ?? "",

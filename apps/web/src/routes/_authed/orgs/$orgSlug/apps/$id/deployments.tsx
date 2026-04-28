@@ -1,22 +1,23 @@
 // SPDX-License-Identifier: AGPL-3.0-only
 import * as React from "react"
+import { RiErrorWarningLine } from "@remixicon/react"
 import {
+  createFileRoute,
   useNavigate,
   useParams,
   useRouterState,
   useSearch,
-  createFileRoute,
 } from "@tanstack/react-router"
+import { Separator } from "@workspace/ui/components/separator"
 import { DeploymentsTable } from "../../../../../../components/apps/DeploymentsTable"
 import { BuildLogDrawer } from "../../../../../../components/apps/BuildLogDrawer"
 import { DeploymentTriggers } from "../../../../../../components/apps/DeploymentTriggers"
 import { WebhooksPanel } from "../../../../../../components/apps/WebhooksPanel"
 import { AppBuildRuntimeSettings } from "../../../../../../components/apps/AppBuildRuntimeSettings"
-import { Separator } from "@workspace/ui/components/separator"
 import { useApp, useBuilds } from "../../../../../../lib/apps"
 import {
-  useRollbackApp,
   useCancelBuild,
+  useRollbackApp,
 } from "../../../../../../lib/apps-mutations"
 import type { Build } from "@ploydok/shared"
 
@@ -33,24 +34,38 @@ function validateDeploymentsSearch(
 }
 
 function AppDeploymentsTab(): React.JSX.Element {
-  const { id } = useParams({ strict: false }) as { id: string }
+  const { id: routeAppId } = useParams({ strict: false })
+  const appId = routeAppId!
   const { build: selectedBuildId } = useSearch({
     strict: false,
-  }) as DeploymentsSearch
+  })
   const navigate = useNavigate()
   const pathname = useRouterState({
     select: (state) => state.location.pathname,
   })
 
-  const { data: builds, isLoading, error } = useBuilds(id)
-  const { data: app } = useApp(id)
-  const rollback = useRollbackApp(id)
-  const cancelBuild = useCancelBuild(id)
+  const { data: builds, isLoading, error } = useBuilds(appId)
+  const { data: app } = useApp(appId)
+  const rollback = useRollbackApp(appId)
+  const cancelBuild = useCancelBuild(appId)
 
   const selectedBuild = React.useMemo(
     () => builds?.find((b) => b.id === selectedBuildId),
     [builds, selectedBuildId]
   )
+  const selectedFailure =
+    selectedBuild?.status === "failed" && selectedBuild.errorMessage
+      ? {
+          label: "Build failed",
+          message: selectedBuild.errorMessage,
+        }
+      : selectedBuild?.status === "succeeded_with_warning" &&
+          selectedBuild.postDeployError
+        ? {
+            label: "Post-deploy hook failed",
+            message: selectedBuild.postDeployError,
+          }
+        : null
 
   const handleSelectBuild = React.useCallback(
     (buildId: string) => {
@@ -91,6 +106,25 @@ function AppDeploymentsTab(): React.JSX.Element {
 
   return (
     <div className="w-full space-y-4 px-4 py-6 md:px-8 md:py-8">
+      {selectedFailure ? (
+        <div className="rounded-lg border border-destructive/25 bg-destructive/10 p-4">
+          <div className="flex items-start gap-3">
+            <RiErrorWarningLine
+              className="mt-0.5 size-4 shrink-0 text-destructive"
+              aria-hidden="true"
+            />
+            <div className="min-w-0 flex-1">
+              <p className="text-sm font-semibold text-destructive">
+                {selectedFailure.label}
+              </p>
+              <pre className="mt-2 max-h-36 overflow-auto whitespace-pre-wrap break-words rounded-md bg-background/70 p-3 font-mono text-xs text-foreground">
+                {selectedFailure.message}
+              </pre>
+            </div>
+          </div>
+        </div>
+      ) : null}
+
       <DeploymentsTable
         builds={builds ?? []}
         isLoading={isLoading}
@@ -100,7 +134,7 @@ function AppDeploymentsTab(): React.JSX.Element {
       />
 
       <BuildLogDrawer
-        appId={id}
+        appId={appId}
         buildId={selectedBuildId}
         build={selectedBuild}
         appName={app?.name}
@@ -134,7 +168,7 @@ function AppDeploymentsTab(): React.JSX.Element {
             How a push or a webhook becomes a deploy.
           </p>
         </header>
-        <DeploymentTriggers appId={id} />
+        <DeploymentTriggers appId={appId} />
       </section>
 
       <Separator />
@@ -146,7 +180,7 @@ function AppDeploymentsTab(): React.JSX.Element {
             Inbound provider deliveries and signing secret.
           </p>
         </header>
-        <WebhooksPanel appId={id} />
+        <WebhooksPanel appId={appId} />
       </section>
     </div>
   )

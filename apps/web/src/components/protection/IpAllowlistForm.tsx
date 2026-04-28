@@ -11,7 +11,7 @@ interface IpAllowlistFormProps {
 
 const CIDR_RE = /^((\d{1,3}\.){3}\d{1,3}(\/\d{1,2})?|[0-9a-fA-F:]+(\/\d{1,3})?)$/
 
-function validateLines(lines: string[]): string[] {
+function validateLines(lines: Array<string>): Array<string> {
   return lines.filter((l) => l && !CIDR_RE.test(l))
 }
 
@@ -19,7 +19,7 @@ export function IpAllowlistForm({ appId }: IpAllowlistFormProps): React.JSX.Elem
   const { data: protection } = useProtection(appId)
   const update = useUpdateProtection(appId)
   const [value, setValue] = React.useState("")
-  const [invalid, setInvalid] = React.useState<string[]>([])
+  const [invalid, setInvalid] = React.useState<Array<string>>([])
 
   React.useEffect(() => {
     if (protection) {

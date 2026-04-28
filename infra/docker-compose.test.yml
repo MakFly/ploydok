@@ -1,0 +1,32 @@
+name: ploydok-test
+
+volumes:
+  s3-test-data:
+  gitea-test-data:
+
+services:
+  s3-test:
+    image: dxflrs/garage:v1.0.1
+    command: ["server"]
+    ports:
+      - "127.0.0.1:3900:3900"
+      - "127.0.0.1:3901:3901"
+      - "127.0.0.1:3902:3902"
+    volumes:
+      - ./garage/garage.toml:/etc/garage.toml:ro
+      - s3-test-data:/var/lib/garage
+
+  gitea-test:
+    image: gitea/gitea:1
+    ports:
+      - "127.0.0.1:3300:3000"
+      - "127.0.0.1:2222:22"
+    environment:
+      USER_UID: "1000"
+      USER_GID: "1000"
+      GITEA__server__ROOT_URL: "http://localhost:3300/"
+      GITEA__server__SSH_PORT: "2222"
+      GITEA__security__INSTALL_LOCK: "true"
+      GITEA__service__DISABLE_REGISTRATION: "false"
+    volumes:
+      - gitea-test-data:/data

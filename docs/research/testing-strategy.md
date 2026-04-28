@@ -43,8 +43,7 @@
   5. Créer Postgres → link app → connection OK
   6. Webhook push → auto-deploy
   7. Rollback app à N-1
-  8. Copilot : diagnostic app cassée → génération Dockerfile
-  9. Backup DB → restore → data présente
+  8. Backup DB → restore → data présente
 - **Fréquence** : CI sur `main`, bloquant release
 
 ---
@@ -74,7 +73,6 @@ Exécutée Sprint 6, documentée dans `docs/security/pentest-v1.md`.
   - 100 apps créées en parallèle → API reste < 500ms p95
   - 1000 deploys séquentiels sur 24h → pas de leak mémoire api/agent
   - 50 WS logs stream simultanés → pas de drop
-  - Copilot : 20 conversations concurrentes → pas de crash
 - **Budget** :
   - API p95 < 300ms (hors build)
   - Agent RPC p95 < 50ms
@@ -93,7 +91,6 @@ Scénarios à jouer sur staging, checklist pre-release :
 - [ ] Disque plein à 95% → alerte + refus nouveaux builds, apps existantes continuent
 - [ ] Master key perdue → message clair : restore depuis `age` backup obligatoire
 - [ ] Coupure réseau vers GitHub → builds en cours échouent proprement, webhook retry
-- [ ] Coupure réseau vers Anthropic → copilot indisponible mais reste du produit OK
 - [ ] Reboot VPS → tout remonte < 60s
 - [ ] Upgrade v1.0 → v1.1 → DB migrée, aucune app user cassée
 

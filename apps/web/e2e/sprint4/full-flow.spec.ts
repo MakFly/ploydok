@@ -27,7 +27,7 @@
  */
 import { execFileSync } from "node:child_process"
 import { expect, test } from "@playwright/test"
-import { API_URL, loginWithBackupCode, apiLoginWithCsrf } from "../helpers/auth"
+import { API_URL, apiLoginWithCsrf, loginWithBackupCode } from "../helpers/auth"
 
 // ---------------------------------------------------------------------------
 // Gate
@@ -90,19 +90,19 @@ async function fetchDb(dbId: string, cookie: string): Promise<DbRow> {
   return body.database
 }
 
-async function fetchBuilds(appId: string, cookie: string): Promise<BuildRow[]> {
+async function fetchBuilds(appId: string, cookie: string): Promise<Array<BuildRow>> {
   const res = await fetch(`${API_URL}/apps/${appId}/builds`, { headers: { cookie } })
   expect(res.ok, `GET /apps/${appId}/builds → ${res.status}`).toBe(true)
-  const body = (await res.json()) as { builds: BuildRow[] }
+  const body = (await res.json()) as { builds: Array<BuildRow> }
   return body.builds ?? []
 }
 
-async function fetchBackups(dbId: string, cookie: string): Promise<BackupRow[]> {
+async function fetchBackups(dbId: string, cookie: string): Promise<Array<BackupRow>> {
   const res = await fetch(`${API_URL}/databases/${dbId}/backups`, {
     headers: { cookie },
   })
   expect(res.ok, `GET /databases/${dbId}/backups → ${res.status}`).toBe(true)
-  const body = (await res.json()) as { backups: BackupRow[] }
+  const body = (await res.json()) as { backups: Array<BackupRow> }
   return body.backups ?? []
 }
 
@@ -588,7 +588,7 @@ test.describe("Sprint 4 — full integration flow", () => {
       // Step 8 backup did not complete — skip restore check.
       return
     }
-    const latestBackup = backups[0]!
+    const latestBackup = backups[0]
 
     // Attempt restore without a valid age private key.
     // The API should return a 4xx (validation error), NOT a 500.

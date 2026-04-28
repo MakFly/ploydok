@@ -7,6 +7,7 @@ import { and, eq, isNotNull } from "drizzle-orm"
 import { nanoid } from "nanoid"
 import { createDb } from "@ploydok/db"
 import {
+  apps,
   projects,
   memberships,
   builds,
@@ -33,7 +34,6 @@ import {
   insertApp,
   listAppsForUser,
   listBuildsForApp,
-  markAppDeleting,
   rotateAppWebhookSecret,
   uniqueSlug,
   updateApp,
@@ -48,11 +48,14 @@ import {
 import { env } from "../env"
 import { deployQueue, appDeleteQueue, gcQueue } from "../worker/queues"
 import { enqueueWithDbRow } from "../worker/queue-enqueue"
+import { auditEnqueued } from "../worker/queue-audit"
+import { eventBus } from "../worker/event-bus"
 import { childLogger } from "../logger"
 import type { Db } from "@ploydok/db"
 import type { AuthUser } from "../auth/middleware"
 import { requireSecondFactor } from "../auth/middleware"
 import { requireTotpVerified } from "../auth/second-factor"
+import { requireScope } from "../auth/require-scope"
 import { encryptField, decryptField } from "../github/app-credentials"
 import { ghProvider } from "./github"
 import { getSharedAgent } from "../debug/singletons"
@@ -72,6 +75,76 @@ import { encryptSecret } from "../secrets/crypto"
 // ---------------------------------------------------------------------------
 
 const PlanSchema = z.enum(["nano", "small", "medium", "large", "custom"])
+
+export async function enqueueAppDeleteJob(opts: {
+  db: Db
+  appId: string
+  requestedByUserId: string
+  previousStatus: string
+  flags: {
+    deleteImages: boolean
+    dockerCleanup: boolean
+    deleteBuildArtifacts: boolean
+    deleteCaddyRoutes: boolean
+  }
+  queue?: {
+    add(
+      name: string,
+      payload: { jobId: string },
+      opts?: { jobId?: string }
+    ): Promise<{ id?: string | null }>
+  }
+}) {
+  const rowId = nanoid()
+
+  await opts.db.transaction(async (tx) => {
+    await tx
+      .update(apps)
+      .set({ status: "deleting", updated_at: new Date() })
+      .where(eq(apps.id, opts.appId))
+
+    await tx.insert(app_delete_jobs).values({
+      id: rowId,
+      app_id: opts.appId,
+      requested_by_user_id: opts.requestedByUserId,
+      source: "api",
+      options: opts.flags,
+    })
+  })
+
+  const queue = opts.queue ?? appDeleteQueue
+
+  try {
+    const job = await queue.add(
+      "app.delete.requested",
+      { jobId: rowId },
+      { jobId: rowId }
+    )
+    const jobId = job.id
+    if (!jobId) {
+      throw new Error("Failed to get job ID from queue.add(app.delete.requested)")
+    }
+
+    auditEnqueued({
+      jobName: "app.delete.requested",
+      jobId,
+      rowId,
+      actor: opts.requestedByUserId,
+      source: "api",
+    })
+
+    return { jobId }
+  } catch (err) {
+    await opts.db.transaction(async (tx) => {
+      await tx.delete(app_delete_jobs).where(eq(app_delete_jobs.id, rowId))
+      await tx
+        .update(apps)
+        .set({ status: opts.previousStatus as any, updated_at: new Date() })
+        .where(eq(apps.id, opts.appId))
+    })
+    throw err
+  }
+}
 
 // nixpacks_config_path is joined with workspacePath at build time and fed to
 // nixpacks --config. An attacker controlling this field could point to any
@@ -95,6 +168,26 @@ const NodeVersionSchema = z
   .min(1)
   .max(16)
   .regex(/^v?\d+(\.\d+){0,2}$/, "must look like '20', '20.10', or '20.10.0'")
+
+const RelativeWorkspacePathSchema = z
+  .string()
+  .min(1)
+  .max(256)
+  .refine(
+    (value) => {
+      if (value.includes("\0") || value.includes("\\")) return false
+      if (value.startsWith("/")) return false
+
+      const segments = value.split("/")
+      return !segments.some((segment) => segment === "" || segment === "..")
+    },
+    {
+      message:
+        "must be a safe relative path inside the workspace (no absolute paths, '..', empty segments, or backslashes)",
+    }
+  )
+
+const StaticOutputDirSchema = RelativeWorkspacePathSchema.default("dist")
 
 // Base object schema (no .refine so it stays composable with .omit/.extend).
 const CreateAppBodyBase = z.object({
@@ -120,8 +213,8 @@ const CreateAppBodyBase = z.object({
   cpuLimit: z.number().positive().optional(),
   memLimitMB: z.number().int().positive().optional(),
   pidsLimit: z.number().int().positive().optional(),
-  rootDir: z.string().optional(),
-  dockerfilePath: z.string().optional(),
+  rootDir: RelativeWorkspacePathSchema.optional(),
+  dockerfilePath: RelativeWorkspacePathSchema.optional(),
   nixpacksConfigPath: NixpacksConfigPathSchema.optional(),
   nodeVersion: NodeVersionSchema.optional(),
   installCommand: z.string().optional(),
@@ -129,6 +222,8 @@ const CreateAppBodyBase = z.object({
   startCommand: z.string().optional(),
   watchPaths: z.array(z.string()).optional(),
   buildMethod: BuildMethodSchema.optional(),
+  staticOutputDir: StaticOutputDirSchema.optional(),
+  staticSpaFallback: z.boolean().optional(),
   runtimePort: z.number().int().positive().optional(),
   restartPolicy: RestartPolicySchema.optional(),
   healthcheck: HealthcheckConfigSchema.partial().optional(),
@@ -244,6 +339,8 @@ function serializeApp(row: AppRow) {
       ? (JSON.parse(row.watch_paths) as string[])
       : undefined,
     buildMethod: row.build_method,
+    staticOutputDir: row.static_output_dir,
+    staticSpaFallback: row.static_spa_fallback,
     runtimePort: row.runtime_port,
     restartPolicy: row.restart_policy,
     domain: row.domain,
@@ -370,12 +467,15 @@ export function createAppsRouter(db: Db): Hono {
   // Second-factor enforcement middleware (must be called after requireAuth).
   // Applied on all state-mutating endpoints except POST /apps (creation).
   const sf = requireSecondFactor(db)
+  const appsRead = requireScope("apps:read")
+  const appsWrite = requireScope("apps:write")
+  const appsDeploy = requireScope("apps:deploy")
 
   // -------------------------------------------------------------------------
   // POST /apps — Create a new app
   // -------------------------------------------------------------------------
 
-  router.post("/", async (c) => {
+  router.post("/", appsWrite, appsDeploy, async (c) => {
     const user = getUser(c)
 
     let body: z.infer<typeof CreateAppBody>
@@ -498,6 +598,8 @@ export function createAppsRouter(db: Db): Hono {
         body.buildMethod === "docker"
           ? "dockerfile"
           : (body.buildMethod ?? "auto"),
+      static_output_dir: body.staticOutputDir ?? "dist",
+      static_spa_fallback: body.staticSpaFallback ?? true,
       runtime_port: resolvedRuntimePort,
       restart_policy: body.restartPolicy ?? "unless-stopped",
       domain,
@@ -610,7 +712,7 @@ export function createAppsRouter(db: Db): Hono {
   // GET /apps — List apps for the authenticated user
   // -------------------------------------------------------------------------
 
-  router.get("/", async (c) => {
+  router.get("/", appsRead, async (c) => {
     const user = getUser(c)
     const organizationId =
       c.req.query("organizationId") ?? c.req.query("projectId") ?? undefined
@@ -623,9 +725,9 @@ export function createAppsRouter(db: Db): Hono {
   // GET /apps/:id — App details + last 10 builds
   // -------------------------------------------------------------------------
 
-  router.get("/:id", async (c) => {
+  router.get("/:id", appsRead, async (c) => {
     const user = getUser(c)
-    const appId = c.req.param("id")
+    const appId = c.req.param("id")!
 
     const found = await getAppForUser(db, appId, user.id)
     if (!found) {
@@ -648,7 +750,7 @@ export function createAppsRouter(db: Db): Hono {
   // PATCH /apps/:id — Update app config
   // -------------------------------------------------------------------------
 
-  router.patch("/:id", sf, async (c) => {
+  router.patch("/:id", appsWrite, sf, async (c) => {
     const user = getUser(c)
     const appId = c.req.param("id")!
 
@@ -699,6 +801,10 @@ export function createAppsRouter(db: Db): Hono {
       patch.build_method =
         body.buildMethod === "docker" ? "dockerfile" : body.buildMethod
     }
+    if (body.staticOutputDir !== undefined)
+      patch.static_output_dir = body.staticOutputDir
+    if (body.staticSpaFallback !== undefined)
+      patch.static_spa_fallback = body.staticSpaFallback
     if (body.runtimePort !== undefined) patch.runtime_port = body.runtimePort
     if (body.restartPolicy !== undefined)
       patch.restart_policy = body.restartPolicy
@@ -766,7 +872,7 @@ export function createAppsRouter(db: Db): Hono {
   //   ?deleteCaddyRoutes=false   — leave the Caddy upstream wired
   // -------------------------------------------------------------------------
 
-  const DeleteAppQuery = z.object({
+const DeleteAppQuery = z.object({
     deleteImages: z
       .enum(["true", "false"])
       .optional()
@@ -785,7 +891,7 @@ export function createAppsRouter(db: Db): Hono {
       .transform((v) => (v === undefined ? undefined : v === "true")),
   })
 
-  router.delete("/:id", sf, async (c) => {
+  router.delete("/:id", appsWrite, sf, async (c) => {
     const user = getUser(c)
     const appId = c.req.param("id")!
 
@@ -812,36 +918,39 @@ export function createAppsRouter(db: Db): Hono {
       )
     }
 
-    await markAppDeleting(db, appId)
+    const normalizedFlags = {
+      deleteImages: flags.deleteImages ?? true,
+      dockerCleanup: flags.dockerCleanup ?? true,
+      deleteBuildArtifacts: flags.deleteBuildArtifacts ?? true,
+      deleteCaddyRoutes: flags.deleteCaddyRoutes ?? true,
+    }
 
-    const { jobId } = await enqueueWithDbRow({
+    const { jobId } = await enqueueAppDeleteJob({
       db,
-      queue: appDeleteQueue,
-      jobName: "app.delete.requested",
-      insertRow: (tx) =>
-        tx
-          .insert(app_delete_jobs)
-          .values({
-            id: nanoid(),
-            app_id: appId,
-            requested_by_user_id: user.id,
-            source: "api",
-            options: {
-              deleteImages: flags.deleteImages ?? true,
-              dockerCleanup: flags.dockerCleanup ?? true,
-              deleteBuildArtifacts: flags.deleteBuildArtifacts ?? true,
-              deleteCaddyRoutes: flags.deleteCaddyRoutes ?? true,
-            },
-          })
-          .returning()
-          .then((r: any[]) => r[0]),
-      buildPayload: (row) => ({ jobId: row.id }),
+      appId,
+      requestedByUserId: user.id,
+      previousStatus: existing.status,
+      flags: normalizedFlags,
     })
 
     childLogger("apps-delete").info(
       { appId, jobId, flags },
       "delete cascade enqueued"
     )
+
+    try {
+      eventBus.publish(`user:${user.id}`, {
+        type: "app.delete.queued",
+        appId,
+        message: `${existing.name} suppression en file`,
+        data: { jobId },
+      })
+    } catch (err) {
+      childLogger("apps-delete").warn(
+        { appId, jobId, err },
+        "eventBus publish app.delete.queued failed (non-fatal)"
+      )
+    }
 
     return c.json({ ok: true, jobId, status: "deleting" }, 202)
   })
@@ -850,7 +959,7 @@ export function createAppsRouter(db: Db): Hono {
   // Stubs for endpoints owned by other milestones
   // -------------------------------------------------------------------------
 
-  router.post("/:id/deploy", sf, async (c) => {
+  router.post("/:id/deploy", appsDeploy, sf, async (c) => {
     const user = getUser(c)
     const appId = c.req.param("id")!
 
@@ -884,9 +993,9 @@ export function createAppsRouter(db: Db): Hono {
     return c.json({ ok: true, jobId, buildId: null }, 202)
   })
   // stop / restart / rollback are implemented in the [M3.3 lifecycle] block below.
-  router.get("/:id/builds", async (c) => {
+  router.get("/:id/builds", appsRead, async (c) => {
     const user = getUser(c)
-    const appId = c.req.param("id")
+    const appId = c.req.param("id")!
 
     const app = await getAppForUser(db, appId, user.id)
     if (!app) {
@@ -900,16 +1009,16 @@ export function createAppsRouter(db: Db): Hono {
     const appBuilds = await listBuildsForApp(db, appId, limit)
     return c.json({ builds: appBuilds.map(serializeBuild) })
   })
-  router.get("/:id/stats", (c) =>
+  router.get("/:id/stats", appsRead, (c) =>
     c.json({ error: "not_implemented_m3_4" }, 501)
   )
 
   // GET /apps/:id/activity — historical activity timeline derived from builds.
   // Front-end seeds the SSE-driven feed with this so users see recent builds
   // even when the in-memory event ring buffer is cold (e.g. after API restart).
-  router.get("/:id/activity", async (c) => {
+  router.get("/:id/activity", appsRead, async (c) => {
     const user = getUser(c)
-    const appId = c.req.param("id")
+    const appId = c.req.param("id")!
 
     const app = await getAppForUser(db, appId, user.id)
     if (!app) {
@@ -930,9 +1039,9 @@ export function createAppsRouter(db: Db): Hono {
   // Downloads the archived log file for a build.
   // The file path is stored in builds.log_path (set by the build worker).
   // Returns the raw log as text/plain.
-  router.get("/:id/logs", async (c) => {
+  router.get("/:id/logs", appsRead, async (c) => {
     const user = getUser(c)
-    const appId = c.req.param("id")
+    const appId = c.req.param("id")!
     const buildId = c.req.query("buildId")
 
     if (!buildId) {
@@ -996,9 +1105,9 @@ export function createAppsRouter(db: Db): Hono {
     })
   })
 
-  router.get("/:id/runtime-logs", async (c) => {
+  router.get("/:id/runtime-logs", appsRead, async (c) => {
     const user = getUser(c)
-    const appId = c.req.param("id")
+    const appId = c.req.param("id")!
     const tailRaw = Number(c.req.query("tail") ?? 200)
     const tail = Number.isFinite(tailRaw)
       ? Math.max(1, Math.min(Math.floor(tailRaw), 1_000))
@@ -1054,7 +1163,7 @@ export function createAppsRouter(db: Db): Hono {
 
   // Also replace the former stub for /:id/builds/:buildId/logs with a redirect
   // to the canonical log download endpoint above.
-  router.get("/:id/builds/:buildId/logs", (c) => {
+  router.get("/:id/builds/:buildId/logs", appsRead, (c) => {
     const appId = c.req.param("id") ?? ""
     const buildId = c.req.param("buildId") ?? ""
     return c.redirect(`/apps/${appId}/logs?buildId=${buildId}`, 302)
@@ -1066,7 +1175,7 @@ export function createAppsRouter(db: Db): Hono {
   // worker will finish that phase and its final updateBuildStatus(succeeded)
   // will lose the race with our cancel write (the build row will flip
   // back to succeeded). For mid-flight builds, this is best-effort.
-  router.post("/:id/builds/:buildId/cancel", sf, async (c) => {
+  router.post("/:id/builds/:buildId/cancel", appsDeploy, sf, async (c) => {
     const user = getUser(c)
     const appId = c.req.param("id")!
     const buildId = c.req.param("buildId")!
@@ -1150,7 +1259,7 @@ export function createAppsRouter(db: Db): Hono {
     buildId: z.string().optional(),
   })
 
-  router.post("/:id/rollback", sf, async (c) => {
+  router.post("/:id/rollback", appsDeploy, sf, async (c) => {
     const user = getUser(c)
     const appId = c.req.param("id")!
 
@@ -1215,7 +1324,7 @@ export function createAppsRouter(db: Db): Hono {
     }
   })
 
-  router.post("/:id/stop", sf, async (c) => {
+  router.post("/:id/stop", appsDeploy, sf, async (c) => {
     const user = getUser(c)
     const appId = c.req.param("id")!
 
@@ -1229,15 +1338,77 @@ export function createAppsRouter(db: Db): Hono {
 
     try {
       const { stopApp } = await import("../worker/runner.js")
-      await stopApp(appId, db)
-      return c.json({ ok: true })
+      try {
+        eventBus.publish(`user:${user.id}`, {
+          type: "app.stop.queued",
+          appId,
+          message: "Arrêt de l'app en cours",
+          data: { status: app.status },
+        })
+      } catch (pubErr) {
+        childLogger("apps-stop").warn(
+          { pubErr, appId, userId: user.id },
+          "eventBus publish app.stop.queued failed (non-fatal)"
+        )
+      }
+
+      void stopApp(appId, db)
+        .then(() => {
+          try {
+            eventBus.publish(`user:${user.id}`, {
+              type: "deploy.status_change",
+              appId,
+              message: "App arrêtée",
+              data: { status: "stopped" },
+            })
+            eventBus.publish(`user:${user.id}`, {
+              type: "app.stopped",
+              appId,
+              message: "App arrêtée",
+              data: { status: "stopped" },
+            })
+          } catch (pubErr) {
+            childLogger("apps-stop").warn(
+              { pubErr, appId, userId: user.id },
+              "eventBus publish app.stopped failed (non-fatal)"
+            )
+          }
+        })
+        .catch((err) => {
+          const message = err instanceof Error ? err.message : String(err)
+          childLogger("apps-stop").error(
+            { err, appId, userId: user.id },
+            "background app stop failed"
+          )
+          try {
+            eventBus.publish(`user:${user.id}`, {
+              type: "deploy.status_change",
+              appId,
+              message: `Arrêt échoué: ${message}`,
+              data: { status: "failed" },
+            })
+            eventBus.publish(`user:${user.id}`, {
+              type: "app.stop.failed",
+              appId,
+              message: `Arrêt échoué: ${message}`,
+              data: { status: "failed" },
+            })
+          } catch (pubErr) {
+            childLogger("apps-stop").warn(
+              { pubErr, appId, userId: user.id },
+              "eventBus publish app.stop.failed failed (non-fatal)"
+            )
+          }
+        })
+
+      return c.json({ ok: true }, 202)
     } catch (err) {
       const message = err instanceof Error ? err.message : String(err)
       return c.json({ error: { code: "STOP_FAILED", message } }, 500)
     }
   })
 
-  router.post("/:id/restart", sf, async (c) => {
+  router.post("/:id/restart", appsDeploy, sf, async (c) => {
     const user = getUser(c)
     const appId = c.req.param("id")!
 
@@ -1269,9 +1440,9 @@ export function createAppsRouter(db: Db): Hono {
   // GET  /apps/:id/registry-usage  — per-app registry stats (requires auth + ownership).
   // POST /apps/:id/registry-gc     — trigger an immediate GC prune for this app (owner only).
 
-  router.get("/:id/registry-usage", async (c) => {
+  router.get("/:id/registry-usage", appsRead, async (c) => {
     const user = getUser(c)
-    const appId = c.req.param("id")
+    const appId = c.req.param("id")!
 
     const app = await getAppForUser(db, appId, user.id)
     if (!app) {
@@ -1292,7 +1463,7 @@ export function createAppsRouter(db: Db): Hono {
     }
   })
 
-  router.post("/:id/registry-gc", sf, async (c) => {
+  router.post("/:id/registry-gc", appsDeploy, sf, async (c) => {
     const user = getUser(c)
     const appId = c.req.param("id")!
 
@@ -1340,9 +1511,9 @@ export function createAppsRouter(db: Db): Hono {
   // GET /apps/:id/webhook-deliveries — list deliveries (cursor pagination)
   // -------------------------------------------------------------------------
 
-  router.get("/:id/webhook-deliveries", async (c) => {
+  router.get("/:id/webhook-deliveries", appsRead, async (c) => {
     const user = getUser(c)
-    const appId = c.req.param("id")
+    const appId = c.req.param("id")!
 
     const limitRaw = Math.min(Number(c.req.query("limit") ?? 50), 200)
     const limit = Number.isFinite(limitRaw) && limitRaw > 0 ? limitRaw : 50
@@ -1363,10 +1534,10 @@ export function createAppsRouter(db: Db): Hono {
   // GET /apps/:id/webhook-deliveries/:deliveryId — single delivery detail
   // -------------------------------------------------------------------------
 
-  router.get("/:id/webhook-deliveries/:deliveryId", async (c) => {
+  router.get("/:id/webhook-deliveries/:deliveryId", appsRead, async (c) => {
     const user = getUser(c)
-    const appId = c.req.param("id")
-    const deliveryId = c.req.param("deliveryId")
+    const appId = c.req.param("id")!
+    const deliveryId = c.req.param("deliveryId")!
 
     const delivery = await getDeliveryById(db, appId, deliveryId, user.id)
     if (delivery === null) {
@@ -1386,7 +1557,7 @@ export function createAppsRouter(db: Db): Hono {
 
   const totpMw = requireTotpVerified(db)
 
-  router.post("/:id/webhook-secret/rotate", totpMw, async (c) => {
+  router.post("/:id/webhook-secret/rotate", appsWrite, totpMw, async (c) => {
     const user = getUser(c)
     const appId = c.req.param("id")!
 
@@ -1472,6 +1643,7 @@ export function createAppsRouter(db: Db): Hono {
 
   router.post(
     "/:id/webhook-deliveries/:deliveryId/replay",
+    appsDeploy,
     totpMw,
     async (c) => {
       const user = getUser(c)

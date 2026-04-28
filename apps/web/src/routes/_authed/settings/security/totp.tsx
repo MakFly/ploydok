@@ -25,13 +25,14 @@ import { Switch } from "@workspace/ui/components/switch"
 import { QRCodeSVG } from "qrcode.react"
 import { toast } from "sonner"
 import {
+
   useDeleteTotp,
   useEnrollTotp,
   useTotpStatus,
   useUpdateTotpPreferences,
-  useVerifyTotp,
-  type TotpEnrollResponse,
+  useVerifyTotp
 } from "../../../../lib/totp"
+import type {TotpEnrollResponse} from "../../../../lib/totp";
 
 export const Route = createFileRoute("/_authed/settings/security/totp")({
   component: TotpPage,

@@ -156,6 +156,26 @@ describe.skipIf(skip)("requireTotpVerified middleware", () => {
     expect(setCookie).toContain(SECOND_FACTOR_COOKIE)
   })
 
+  it("403 if the same TOTP code is replayed within the same 30s window", async () => {
+    const { userId, token } = await makeUser(db)
+    const secret = await enrollTotp(db, userId)
+    const app = await makeApp(db)
+
+    const code = computeCode(secret, Math.floor(Date.now() / 1000))
+
+    const first = await app.request("/secure", {
+      headers: authHeaders(token, { "X-TOTP-Code": code }),
+    })
+    expect(first.status).toBe(200)
+
+    const replay = await app.request("/secure", {
+      headers: authHeaders(token, { "X-TOTP-Code": code }),
+    })
+    expect(replay.status).toBe(403)
+    const body = await replay.json() as { code: string }
+    expect(body.code).toBe("totp_replayed")
+  })
+
   it("403 if X-TOTP-Code is invalid", async () => {
     const { userId, token } = await makeUser(db)
     await enrollTotp(db, userId)

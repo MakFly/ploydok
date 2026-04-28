@@ -2,11 +2,12 @@
 import { useQuery } from "@tanstack/react-query";
 import {
   ALL_PROBE_KEYS,
-  classifyStack,
-  type ProbeResults,
-  type StackClassification,
+
+
+  classifyStack
 } from "@ploydok/shared";
 import { apiFetch } from "./api";
+import type {ProbeResults, StackClassification} from "@ploydok/shared";
 import type { ApiError } from "./api";
 
 type Source = "github" | "gitlab";

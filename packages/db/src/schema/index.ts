@@ -1,5 +1,9 @@
 // SPDX-License-Identifier: AGPL-3.0-only
 export { apps } from "./apps"
+export { app_volumes } from "./app-volumes"
+export type { AppVolumeRow, AppVolumeInsert } from "./app-volumes"
+export { app_manifests } from "./app-manifests"
+export type { AppManifestRow, AppManifestInsert } from "./app-manifests"
 export { api_tokens } from "./api-tokens"
 export type { ApiTokenRow, ApiTokenInsert } from "./api-tokens"
 export { app_db_links } from "./app_db_links"
@@ -48,6 +52,13 @@ export { backup_configs } from "./backup_configs"
 export type { BackupConfigRow, BackupConfigInsert } from "./backup_configs"
 export { backups } from "./backups"
 export type { BackupRow, BackupInsert } from "./backups"
+export { volume_backup_configs } from "./volume_backup_configs"
+export type {
+  VolumeBackupConfigRow,
+  VolumeBackupConfigInsert,
+} from "./volume_backup_configs"
+export { volume_backups } from "./volume_backups"
+export type { VolumeBackupRow, VolumeBackupInsert } from "./volume_backups"
 export * from "./provider_repos"
 export { notification_read_state } from "./notification-read-state"
 export { services } from "./services"
@@ -72,8 +83,20 @@ export type {
   ScheduledJobRunRow,
   ScheduledJobRunInsert,
 } from "./scheduled-job-runs"
+export { preview_deployments } from "./preview-deployments"
+export type {
+  PreviewDeploymentInsert,
+  PreviewDeploymentRow,
+} from "./preview-deployments"
 export { app_delete_jobs } from "./app-delete-jobs"
 export type { AppDeleteJobRow, AppDeleteJobInsert } from "./app-delete-jobs"
+export { app_cloudflare_cdn, cloudflare_connections } from "./cloudflare-cdn"
+export type {
+  AppCloudflareCdnInsert,
+  AppCloudflareCdnRow,
+  CloudflareConnectionInsert,
+  CloudflareConnectionRow,
+} from "./cloudflare-cdn"
 export { provider_credentials } from "./provider-credentials"
 export type {
   ProviderCredentialRow,
@@ -81,3 +104,7 @@ export type {
 } from "./provider-credentials"
 export { system_jobs } from "./system-jobs"
 export type { SystemJobRow, SystemJobInsert } from "./system-jobs"
+export { cve_advisories } from "./cve-advisories"
+export type { CveAdvisoryRow, CveAdvisoryInsert } from "./cve-advisories"
+export { cve_matches } from "./cve-matches"
+export type { CveMatchRow, CveMatchInsert } from "./cve-matches"

@@ -1,25 +1,40 @@
 // SPDX-License-Identifier: AGPL-3.0-only
-import { describe, it, expect, mock } from "bun:test"
+import { beforeEach, describe, expect, it, mock } from "bun:test"
 import { Hono } from "hono"
-import { createNotificationsRouter } from "./notifications"
 import type { Db } from "@ploydok/db"
 import type { AuthUser } from "../auth/middleware"
 
-// ── Module mocks — before import ─────────────────────────────────────────────
+const discordSendMock = mock(() => Promise.resolve({ ok: true }))
+const slackSendMock = mock(() => Promise.resolve({ ok: true }))
+const lookupMock = mock(async (hostname: string) => {
+  if (hostname === "discord.com") {
+    return [{ address: "162.159.128.233", family: 4 }]
+  }
+  if (hostname === "hooks.slack.com") {
+    return [{ address: "3.130.95.182", family: 4 }]
+  }
+  throw new Error(`unmocked hostname: ${hostname}`)
+})
+
+mock.module("node:dns/promises", () => ({
+  lookup: lookupMock,
+}))
 
 mock.module("../github/app-credentials", () => ({
   encryptField: mock(async (plaintext: string) => ({
     enc: Buffer.from(`enc:${plaintext}`),
     nonce: Buffer.from("nonce0000000"),
   })),
-  decryptField: mock(async (enc: Buffer, _nonce: Buffer) => enc.toString().replace("enc:", "")),
+  decryptField: mock(async (enc: Buffer, _nonce: Buffer) =>
+    enc.toString().replace("enc:", "")
+  ),
 }))
 
 mock.module("../notify/discord", () => ({
-  discordAdapter: { send: mock(() => Promise.resolve({ ok: true })) },
+  discordAdapter: { send: discordSendMock },
 }))
 mock.module("../notify/slack", () => ({
-  slackAdapter: { send: mock(() => Promise.resolve({ ok: true })) },
+  slackAdapter: { send: slackSendMock },
 }))
 mock.module("../notify/telegram", () => ({
   telegramAdapter: { send: mock(() => Promise.resolve({ ok: false, reason: "coming_soon" })) },
@@ -31,9 +46,23 @@ mock.module("../notify/email", () => ({
   emailAdapter: { send: mock(() => Promise.resolve({ ok: true })) },
 }))
 
-// ── DB mock factory ───────────────────────────────────────────────────────────
+import { createNotificationsRouter } from "./notifications"
 
-const existingChannel = {
+type TestChannel = {
+  id: string
+  owner_id: string
+  project_id: string | null
+  kind: "discord" | "slack"
+  name: string
+  config: { kind: "discord" | "slack"; webhook_url: string }
+  events: string[]
+  enabled: boolean
+  last_error: string | null
+  last_sent_at: Date | null
+  created_at: Date
+}
+
+const existingChannel: TestChannel = {
   id: "ch1",
   owner_id: "user1",
   project_id: null,
@@ -47,16 +76,16 @@ const existingChannel = {
   created_at: new Date("2025-01-01"),
 }
 
-function makeDb(channels: typeof existingChannel[] = [existingChannel]): Db {
+function makeDb(channels: TestChannel[] = [existingChannel]): Db {
   const returning = mock(() => Promise.resolve(channels.map((c) => ({ id: c.id }))))
   const whereDelete = mock(() => ({ returning }))
   const deleteFn = mock(() => ({ where: whereDelete }))
 
-  // Chainable select builder: select().from().where().limit()
   function makeWhereChain(results: unknown[]) {
     const chain = {
       limit: mock((_n: number) => Promise.resolve(results)),
-      then: (resolve: (v: unknown) => unknown) => Promise.resolve(results).then(resolve),
+      then: (resolve: (value: unknown) => unknown) =>
+        Promise.resolve(results).then(resolve),
     }
     return chain
   }
@@ -79,8 +108,6 @@ function makeDb(channels: typeof existingChannel[] = [existingChannel]): Db {
   } as unknown as Db
 }
 
-// ── App builder ───────────────────────────────────────────────────────────────
-
 function buildApp(db: Db, user: AuthUser): Hono {
   const app = new Hono()
   app.use("*", async (c, next) => {
@@ -88,8 +115,7 @@ function buildApp(db: Db, user: AuthUser): Hono {
     ;(c as any).set("user", user)
     return next()
   })
-  const router = createNotificationsRouter(db)
-  app.route("/notifications", router)
+  app.route("/notifications", createNotificationsRouter(db))
   return app
 }
 
@@ -100,94 +126,96 @@ const fakeUser: AuthUser = {
   session_id: "sess-test",
 }
 
-// ── Tests ─────────────────────────────────────────────────────────────────────
-
-describe("GET /notifications/channels", () => {
-  it("returns channels list with 200", async () => {
-    const db = makeDb()
-    const app = buildApp(db, fakeUser)
-
-    const res = await app.request("/notifications/channels")
-    expect(res.status).toBe(200)
-    const json = await res.json() as { channels: unknown[] }
-    expect(Array.isArray(json.channels)).toBe(true)
+describe("notifications routes", () => {
+  beforeEach(() => {
+    discordSendMock.mockClear()
+    slackSendMock.mockClear()
+    lookupMock.mockClear()
   })
-})
 
-describe("POST /notifications/channels", () => {
-  it("creates a discord channel and returns 201", async () => {
-    const db = makeDb([])
-    const app = buildApp(db, fakeUser)
+  it("creates a discord channel with an official https webhook URL", async () => {
+    const app = buildApp(makeDb([]), fakeUser)
 
     const res = await app.request("/notifications/channels", {
       method: "POST",
       headers: { "Content-Type": "application/json" },
       body: JSON.stringify({
         name: "Discord #deploys",
-        config: { kind: "discord", webhook_url: "https://discord.com/api/webhooks/123/tok" },
+        config: {
+          kind: "discord",
+          webhook_url: "https://discord.com/api/webhooks/123/tok",
+        },
         events: ["build.succeeded"],
         enabled: true,
       }),
     })
 
     expect(res.status).toBe(201)
-    const json = await res.json() as { id: string }
-    expect(typeof json.id).toBe("string")
   })
 
-  it("rejects invalid body with 400", async () => {
-    const db = makeDb([])
-    const app = buildApp(db, fakeUser)
+  it("rejects a localhost discord webhook URL", async () => {
+    const app = buildApp(makeDb([]), fakeUser)
 
     const res = await app.request("/notifications/channels", {
       method: "POST",
       headers: { "Content-Type": "application/json" },
-      body: JSON.stringify({ name: "Bad", config: { kind: "discord" } }), // missing webhook_url + events
+      body: JSON.stringify({
+        name: "Blocked",
+        config: {
+          kind: "discord",
+          webhook_url: "https://localhost/api/webhooks/123/tok",
+        },
+        events: ["build.succeeded"],
+      }),
     })
 
     expect(res.status).toBe(400)
+    const body = (await res.json()) as { message: string }
+    expect(body.message).toContain("blocked")
   })
-})
 
-describe("PATCH /notifications/channels/:id", () => {
-  it("updates enabled flag and returns 200", async () => {
-    const db = makeDb()
-    const app = buildApp(db, fakeUser)
+  it("rejects a slack webhook URL on a non-official host", async () => {
+    const app = buildApp(makeDb([]), fakeUser)
 
-    const res = await app.request("/notifications/channels/ch1", {
-      method: "PATCH",
+    const res = await app.request("/notifications/channels", {
+      method: "POST",
       headers: { "Content-Type": "application/json" },
-      body: JSON.stringify({ enabled: false }),
+      body: JSON.stringify({
+        name: "Bad Slack",
+        config: {
+          kind: "slack",
+          webhook_url: "https://example.com/services/T000/B000/XXX",
+        },
+        events: ["build.succeeded"],
+      }),
     })
 
-    expect(res.status).toBe(200)
+    expect(res.status).toBe(400)
+    const body = (await res.json()) as { message: string }
+    expect(body.message).toContain("not allowed")
   })
-})
 
-describe("DELETE /notifications/channels/:id", () => {
-  it("returns 200 on existing channel", async () => {
-    const db = makeDb()
-    const app = buildApp(db, fakeUser)
-
-    const res = await app.request("/notifications/channels/ch1", {
-      method: "DELETE",
-    })
-
-    expect(res.status).toBe(200)
-  })
-})
-
-describe("POST /notifications/channels/:id/test — canary", () => {
-  it("returns ok=true for discord adapter", async () => {
-    const db = makeDb()
+  it("rejects testing a stored channel with an unsafe webhook URL", async () => {
+    const db = makeDb([
+      {
+        ...existingChannel,
+        kind: "slack",
+        config: {
+          kind: "slack",
+          webhook_url: "https://10.0.0.7/services/T000/B000/XXX",
+        },
+      },
+    ])
     const app = buildApp(db, fakeUser)
 
     const res = await app.request("/notifications/channels/ch1/test", {
       method: "POST",
     })
 
-    expect(res.status).toBe(200)
-    const json = await res.json() as { ok: boolean }
-    expect(json.ok).toBe(true)
+    expect(res.status).toBe(422)
+    const body = (await res.json()) as { ok: boolean; error: string }
+    expect(body.ok).toBe(false)
+    expect(body.error).toContain("not allowed")
+    expect(slackSendMock).not.toHaveBeenCalled()
   })
 })

@@ -23,18 +23,18 @@ import {
   RiMenuLine,
   RiMoonLine,
   RiNotificationLine,
-  RiSearchLine,
   RiPlugLine,
   RiPriceTagLine,
   RiPulseLine,
   RiRocketLine,
+  RiSearchLine,
   RiSendPlane2Line,
   RiSettings3Line,
   RiShapesLine,
   RiShieldCheckLine,
   RiSidebarFoldLine,
-  RiSunLine,
   RiStackLine,
+  RiSunLine,
   RiTeamLine,
   RiTimerLine,
 } from "@remixicon/react"
@@ -65,13 +65,25 @@ import {
   SelectValue,
 } from "@workspace/ui/components/select"
 import { Skeleton } from "@workspace/ui/components/skeleton"
-import type { OrganizationSummary } from "@ploydok/shared"
+import { resolveDisplayedAppState } from "../../lib/app-runtime"
+import { useApp } from "../../lib/apps"
 import { useLogout, useMe } from "../../lib/auth"
 import {
   CommandPaletteProvider,
   useCommandPaletteContext,
 } from "../../lib/hooks/command-palette-context"
 import { useUnseenRelease } from "../../lib/hooks/use-unseen-release"
+import { useMonitoring } from "../../lib/monitoring"
+import {
+  organizationDashboardPath,
+  organizationPath,
+  replaceOrganizationInPath,
+  useCreateOrganization,
+  useCurrentOrganization,
+  useCurrentOrganizationSlug,
+  useOrganizations,
+} from "../../lib/organizations"
+import { AppStatusBadge } from "../apps/AppStatusBadge"
 import { useTheme } from "../theme/ThemeToggle"
 import { CommandBar } from "./CommandBar"
 import { CommandPaletteRoot } from "./CommandPalette"
@@ -82,18 +94,7 @@ import {
   extractAppStatus,
   resolveTopbarBreadcrumb,
 } from "./topbar-breadcrumb"
-import { AppStatusBadge } from "../apps/AppStatusBadge"
-import type { AppStatus } from "@ploydok/shared"
-import { useApp } from "../../lib/apps"
-import {
-  organizationDashboardPath,
-  organizationPath,
-  replaceOrganizationInPath,
-  useCreateOrganization,
-  useCurrentOrganization,
-  useCurrentOrganizationSlug,
-  useOrganizations,
-} from "../../lib/organizations"
+import type { AppStatus, OrganizationSummary } from "@ploydok/shared"
 
 interface AppShellProps {
   children: React.ReactNode
@@ -209,7 +210,8 @@ const integrationsNav: Array<NavItem> = [
   {
     label: "API tokens",
     icon: RiKey2Line,
-    rootSettingsPathSuffix: "api-tokens",
+    comingSoon: true,
+    tooltip: "Personal Access Tokens — coming soon.",
   },
 ]
 
@@ -1090,8 +1092,10 @@ function TopbarBreadcrumb(): React.JSX.Element | null {
 
   const appId = extractAppId(matches)
   const { data: liveApp } = useApp(appId ?? "", { subscribeToEvents: false })
+  const { data: monitoring } = useMonitoring({ enabled: Boolean(appId && liveApp) })
   const appName = liveApp?.name ?? extractAppName(matches)
-  const appStatus = liveApp?.status ?? extractAppStatus(matches)
+  const appRuntime = resolveDisplayedAppState(liveApp, monitoring?.containers)
+  const appStatus = appRuntime.status ?? extractAppStatus(matches)
   const items = resolveTopbarBreadcrumb(pathname, appName, orgSlug)
   if (items.length === 0) return null
 
@@ -1124,7 +1128,11 @@ function TopbarBreadcrumb(): React.JSX.Element | null {
         )
       })}
       {appStatus ? (
-        <AppStatusBadge status={appStatus as AppStatus} className="ml-1.5" />
+        <AppStatusBadge
+          status={appStatus as AppStatus}
+          health={appRuntime.health}
+          className="ml-1.5"
+        />
       ) : null}
     </nav>
   )

@@ -8,6 +8,7 @@ import { EventEmitter } from "node:events"
 import { ContainerHealthStatus } from "@ploydok/agent-proto"
 import type { InspectContainerHealthResponse } from "@ploydok/agent-proto"
 import {
+  createContainerWithStaleSlotRecovery,
   DeployFailedError,
   pollHealthcheck,
   publishContainerLogTail,
@@ -780,5 +781,130 @@ describe("stopContainer rollback logs", () => {
     } finally {
       cap.restore()
     }
+  })
+})
+
+describe("createContainerWithStaleSlotRecovery", () => {
+  function grpcErr(code: number, details: string): Error {
+    return Object.assign(new Error(details), { code, details, metadata: {} })
+  }
+
+  function unaryOk(res: unknown) {
+    return (_req: unknown, cb: (err: null, res: unknown) => void) => {
+      cb(null, res)
+      return {} as ReturnType<
+        import("@grpc/grpc-js").Client["makeUnaryRequest"]
+      >
+    }
+  }
+
+  test("removes a stale target slot and retries when Caddy points elsewhere", async () => {
+    const calls: string[] = []
+    let createAttempts = 0
+    const agent = {
+      containerCreate(
+        _req: unknown,
+        cb: (err: Error | null, res: unknown) => void
+      ) {
+        calls.push("create")
+        createAttempts++
+        if (createAttempts === 1) {
+          cb(
+            grpcErr(
+              6,
+              'create_container: Conflict. The container name "/ploydok-app-test-green" is already in use'
+            ),
+            null
+          )
+          return {} as ReturnType<
+            import("@grpc/grpc-js").Client["makeUnaryRequest"]
+          >
+        }
+        cb(null, { containerId: "new-container-id" })
+        return {} as ReturnType<
+          import("@grpc/grpc-js").Client["makeUnaryRequest"]
+        >
+      },
+      containerStop: (_req: unknown, cb: (err: null, res: unknown) => void) => {
+        calls.push("stop")
+        cb(null, {})
+        return {} as ReturnType<
+          import("@grpc/grpc-js").Client["makeUnaryRequest"]
+        >
+      },
+      containerRemove: unaryOk({}),
+      close() {},
+    }
+    const caddyClient = {
+      getUpstream: async () => ({
+        host: "ploydok-app-test-blue",
+        port: 3000,
+      }),
+    }
+
+    const result = await createContainerWithStaleSlotRecovery({
+      // eslint-disable-next-line @typescript-eslint/no-explicit-any
+      agent: agent as any,
+      // eslint-disable-next-line @typescript-eslint/no-explicit-any
+      caddyClient: caddyClient as any,
+      appId: "app-1",
+      containerName: "ploydok-app-test-green",
+      channel: "runtime:app-1",
+      request: { name: "ploydok-app-test-green" },
+    })
+
+    expect(result.containerId).toBe("new-container-id")
+    expect(calls.filter((call) => call === "create")).toHaveLength(2)
+    expect(calls).toContain("stop")
+  })
+
+  test("does not remove a slot that is still the active Caddy upstream", async () => {
+    const calls: string[] = []
+    const conflict = grpcErr(
+      6,
+      'create_container: Conflict. The container name "/ploydok-app-test-green" is already in use'
+    )
+    const agent = {
+      containerCreate(
+        _req: unknown,
+        cb: (err: Error | null, res: unknown) => void
+      ) {
+        calls.push("create")
+        cb(conflict, null)
+        return {} as ReturnType<
+          import("@grpc/grpc-js").Client["makeUnaryRequest"]
+        >
+      },
+      containerStop: (_req: unknown, cb: (err: null, res: unknown) => void) => {
+        calls.push("stop")
+        cb(null, {})
+        return {} as ReturnType<
+          import("@grpc/grpc-js").Client["makeUnaryRequest"]
+        >
+      },
+      containerRemove: unaryOk({}),
+      close() {},
+    }
+    const caddyClient = {
+      getUpstream: async () => ({
+        host: "ploydok-app-test-green",
+        port: 3000,
+      }),
+    }
+
+    await expect(
+      createContainerWithStaleSlotRecovery({
+        // eslint-disable-next-line @typescript-eslint/no-explicit-any
+        agent: agent as any,
+        // eslint-disable-next-line @typescript-eslint/no-explicit-any
+        caddyClient: caddyClient as any,
+        appId: "app-1",
+        containerName: "ploydok-app-test-green",
+        channel: "runtime:app-1",
+        request: { name: "ploydok-app-test-green" },
+      })
+    ).rejects.toThrow("already in use")
+
+    expect(calls).toEqual(["create"])
   })
 })

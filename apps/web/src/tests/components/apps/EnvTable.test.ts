@@ -4,7 +4,7 @@
  * Covers: key validation, diff detection, secret masking logic.
  */
 import { describe, expect, it } from "bun:test"
-import { validateKey, hasDiff, shouldOfferMultilineEdit } from "../../../components/apps/EnvTable"
+import { hasDiff, shouldOfferMultilineEdit, validateKey } from "../../../components/apps/EnvTable"
 import type { EnvVar, EnvVarPatch } from "../../../lib/apps-env"
 
 // ---------------------------------------------------------------------------
@@ -74,14 +74,14 @@ describe("hasDiff", () => {
   })
 
   it("returns true when a var is added", () => {
-    const server: EnvVar[] = []
+    const server: Array<EnvVar> = []
     const local = [makePatch("FOO", "bar")]
     expect(hasDiff(local, server)).toBe(true)
   })
 
   it("returns true when a var is removed", () => {
     const server = [makeServer("FOO", "bar")]
-    const local: EnvVarPatch[] = []
+    const local: Array<EnvVarPatch> = []
     expect(hasDiff(local, server)).toBe(true)
   })
 

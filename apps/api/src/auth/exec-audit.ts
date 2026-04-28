@@ -1,11 +1,11 @@
 // SPDX-License-Identifier: AGPL-3.0-only
 //
-// Exec session audit (Sprint 6.5-ter — chiffrement frames stdin).
+// Exec session audit (Sprint 6.5-ter — chiffrement des flux terminal).
 //
-// Buffer les bytes stdin reçus sur la WS terminal et flush ligne par ligne
-// (séparateurs CR/LF). Chaque ligne est chiffrée AES-256-GCM via la même
-// primitive `encryptField` que les secrets (clé MASTER_KEY) puis insérée dans
-// `audit_log` avec action `app.exec.command`.
+// Buffer les bytes stdin/stdout/stderr reçus sur la WS terminal et flush ligne
+// par ligne (séparateurs CR/LF). Chaque ligne est chiffrée AES-256-GCM via la
+// même primitive `encryptField` que les secrets (clé MASTER_KEY) puis insérée
+// dans `audit_log`.
 //
 // Garde-fous :
 //  - taille max d'une ligne : 4 KB (drop silencieux au-delà — évite OOM si
@@ -32,17 +32,23 @@ export interface ExecAuditContext {
   sessionId: string
 }
 
+export interface ExecAuditOptions {
+  action?: "app.exec.command" | "app.exec.output"
+  stream?: "stdin" | "stdout" | "stderr"
+}
+
 export class ExecCommandAuditor {
   private buf: number[] = []
   private dropped = 0
 
   constructor(
     private readonly db: Db,
-    private readonly ctx: ExecAuditContext
+    private readonly ctx: ExecAuditContext,
+    private readonly opts: ExecAuditOptions = {}
   ) {}
 
   /**
-   * Feed un chunk de bytes stdin. Flush immédiat de chaque ligne complète.
+   * Feed un chunk de bytes terminal. Flush immédiat de chaque ligne complète.
    * Best-effort : ne throw jamais, log warn si chiffrement/insert échoue.
    */
   feed(chunk: Uint8Array): void {
@@ -94,14 +100,17 @@ export class ExecCommandAuditor {
     this.buf = []
     try {
       const { enc, nonce } = await encryptSecret(line)
+      const action = this.opts.action ?? "app.exec.command"
+      const stream = this.opts.stream ?? "stdin"
       await this.db.insert(audit_log).values({
         user_id: this.ctx.userId,
-        action: "app.exec.command",
+        action,
         target_type: "app",
         target_id: this.ctx.appId,
         metadata: JSON.stringify({
           container_id: this.ctx.containerId,
           session_id: this.ctx.sessionId,
+          stream,
           enc: enc.toString("base64"),
           nonce: nonce.toString("base64"),
           alg: "aes-256-gcm",

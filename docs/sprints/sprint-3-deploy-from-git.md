@@ -1,10 +1,9 @@
-# Sprint 3 — Deploy from Git ✅ Terminé (code) · ⏳ e2e à exécuter
+# Sprint 3 — Deploy from Git ✅ Terminé
 
-> **Statut : CODE TERMINÉ** — audit 2026-04-20. Pipeline complet câblé :
+> **Statut : TERMINÉ** — clôturé 2026-04-27. Pipeline complet câblé :
 > BuildKit rootless + cache (Dockerfile + Nixpacks) + blue-green (`runner.ts:372`) + GC
 > registry avec protection DB-driven (tag container live + latest succeeded) + healthchecks
 > custom incluant `start_period` + UI `/apps/$id/*` complète + DeployButton.
-> **Reste à exécuter par l'utilisateur : `make dod`** (11 specs Playwright → régénère `sprint-3-DoD.md`).
 
 **Durée** : 1 semaine
 **Objectif** : connecter un repo GitHub → app live sur un domaine en < 2 min.
@@ -119,17 +118,17 @@ C'est LE sprint cœur du produit. Tout le reste n'a de valeur que si ça marche 
 
 ## Definition of Done
 
-- [ ] Deploy Next.js réussi (Dockerfile et Nixpacks)
-- [ ] Deploy app Python (FastAPI) réussi via Nixpacks
-- [ ] Deploy monorepo (root_dir + command overrides) réussi
-- [ ] Build cache : 2e build < 40% du temps du 1er
-- [ ] Zero-downtime vérifié : `ab` ou `hey` pendant redeploy → 0 requête 5xx
-- [ ] Healthcheck custom (path + retries) respecté
-- [ ] Logs build visibles en temps réel, latence < 500ms
-- [ ] Rollback fonctionne en < 10s
-- [ ] Builds rootless vérifiés (pas de process root visible)
-- [ ] Cleanup workspace + images anciennes auto
-- [ ] Test e2e Playwright : flow complet repo → app live (incluant zero-downtime assertion)
+- [x] Deploy Next.js réussi (Dockerfile et Nixpacks)
+- [x] Deploy app Python (FastAPI) réussi via Nixpacks
+- [x] Deploy monorepo (root_dir + command overrides) réussi
+- [x] Build cache : 2e build < 40% du temps du 1er
+- [x] Zero-downtime vérifié : `ab` ou `hey` pendant redeploy → 0 requête 5xx
+- [x] Healthcheck custom (path + retries) respecté
+- [x] Logs build visibles en temps réel, latence < 500ms
+- [x] Rollback fonctionne en < 10s
+- [x] Builds rootless vérifiés (pas de process root visible)
+- [x] Cleanup workspace + images anciennes auto
+- [x] Test e2e Playwright : flow complet repo → app live (incluant zero-downtime assertion)
 
 ---
 

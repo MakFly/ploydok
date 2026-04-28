@@ -1,8 +1,8 @@
 // SPDX-License-Identifier: AGPL-3.0-only
 import { useQuery } from "@tanstack/react-query"
 import { AuditListResponseSchema } from "@ploydok/shared"
-import type { AuditListResponse } from "@ploydok/shared"
 import { apiFetch } from "./api"
+import type { AuditListResponse } from "@ploydok/shared"
 
 export interface UseAuditEventsOptions {
   limit?: number

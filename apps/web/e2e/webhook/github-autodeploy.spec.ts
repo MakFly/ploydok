@@ -46,11 +46,11 @@
  */
 import { createHmac } from "node:crypto";
 import { execFileSync } from "node:child_process";
-import { mkdtempSync, writeFileSync, rmSync } from "node:fs";
+import { mkdtempSync, rmSync, writeFileSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { expect, test } from "@playwright/test";
-import { API_URL, loginWithBackupCode, apiLoginWithCsrf } from "../helpers/auth";
+import { API_URL, apiLoginWithCsrf, loginWithBackupCode } from "../helpers/auth";
 
 const FULL_INFRA = process.env.PLOYDOK_FULL_INFRA === "1";
 const WEBHOOK_GATE = process.env.E2E_WEBHOOK === "1";
@@ -75,21 +75,21 @@ type DeliveryRow = { id: string; decision: string; commit_sha?: string | null };
 // Helpers — auth & API wrappers
 // ---------------------------------------------------------------------------
 
-async function fetchBuilds(cookies: string): Promise<BuildRow[]> {
+async function fetchBuilds(cookies: string): Promise<Array<BuildRow>> {
   const res = await fetch(`${API_URL}/apps/${APP_ID}/builds`, {
     headers: { cookie: cookies },
   });
   expect(res.ok, `GET /apps/${APP_ID}/builds failed: ${res.status}`).toBe(true);
-  const body = (await res.json()) as { builds?: BuildRow[] };
+  const body = (await res.json()) as { builds?: Array<BuildRow> };
   return body.builds ?? [];
 }
 
-async function fetchDeliveries(cookies: string): Promise<DeliveryRow[]> {
+async function fetchDeliveries(cookies: string): Promise<Array<DeliveryRow>> {
   const res = await fetch(`${API_URL}/apps/${APP_ID}/webhook-deliveries?limit=20`, {
     headers: { cookie: cookies },
   });
   expect(res.ok, `GET /apps/${APP_ID}/webhook-deliveries failed: ${res.status}`).toBe(true);
-  const body = (await res.json()) as { deliveries?: DeliveryRow[] };
+  const body = (await res.json()) as { deliveries?: Array<DeliveryRow> };
   return body.deliveries ?? [];
 }
 
@@ -157,7 +157,7 @@ async function simulateWebhookPush(opts: {
   branch: string;
   commitSha: string;
   commitMessage: string;
-  changedFiles?: string[];
+  changedFiles?: Array<string>;
   deliveryId?: string;
 }): Promise<Response> {
   if (!WEBHOOK_SECRET) throw new Error("E2E_WEBHOOK_SECRET must be set for simulated webhook push");

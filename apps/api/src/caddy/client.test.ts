@@ -163,6 +163,139 @@ describe("CaddyClient", () => {
     expect(post).toBeUndefined()
   })
 
+  test("upsertStaticRoute writes a file_server route with SPA fallback", async () => {
+    const calls: MockRequest[] = []
+    const existingConfig: CaddyConfig = {
+      apps: { http: { servers: { srv0: { listen: [":80"], routes: [] } } } },
+    }
+
+    handler = (req) => {
+      calls.push(req)
+      if (req.method === "GET") return { status: 200, body: existingConfig }
+      if (req.method === "PATCH")
+        return { status: 404, body: { error: "not found" } }
+      if (req.method === "POST") return { status: 200, body: null }
+      return { status: 405, body: null }
+    }
+
+    await client.upsertStaticRoute({
+      host: "static.localhost",
+      root: "/var/lib/ploydok/static/app1/current",
+      appId: "app1",
+      spaFallback: true,
+    })
+
+    const post = calls.find((c) => c.method === "POST")
+    const posted = post?.body as {
+      handle?: Array<{ handler?: string; routes?: unknown[] }>
+    }
+    expect(posted.handle?.[0]?.handler).toBe("subroute")
+    expect(posted.handle?.[0]?.routes).toHaveLength(2)
+  })
+
+  test("upsertStaticRoute can disable SPA fallback and expose a direct file_server", async () => {
+    const calls: MockRequest[] = []
+    const existingConfig: CaddyConfig = {
+      apps: { http: { servers: { srv0: { listen: [":80"], routes: [] } } } },
+    }
+
+    handler = (req) => {
+      calls.push(req)
+      if (req.method === "GET") return { status: 200, body: existingConfig }
+      if (req.method === "PATCH")
+        return { status: 404, body: { error: "not found" } }
+      if (req.method === "POST") return { status: 200, body: null }
+      return { status: 405, body: null }
+    }
+
+    await client.upsertStaticRoute({
+      host: "static.localhost",
+      root: "/var/lib/ploydok/static/app1/current",
+      appId: "app1",
+      spaFallback: false,
+    })
+
+    const post = calls.find((c) => c.method === "POST")
+    const posted = post?.body as {
+      handle?: Array<{ handler?: string; root?: string }>
+    }
+    expect(posted.handle).toEqual([
+      {
+        handler: "file_server",
+        root: "/var/lib/ploydok/static/app1/current",
+      },
+    ])
+  })
+
+  test("upsertStaticRoute injects CDN handlers ahead of the static file_server", async () => {
+    const calls: MockRequest[] = []
+    const existingConfig: CaddyConfig = {
+      apps: { http: { servers: { srv0: { listen: [":80"], routes: [] } } } },
+    }
+
+    handler = (req) => {
+      calls.push(req)
+      if (req.method === "GET") return { status: 200, body: existingConfig }
+      if (req.method === "PATCH")
+        return { status: 404, body: { error: "not found" } }
+      if (req.method === "POST") return { status: 200, body: null }
+      return { status: 405, body: null }
+    }
+
+    await client.upsertStaticRoute({
+      host: "static.localhost",
+      root: "/var/lib/ploydok/static/app1/current",
+      appId: "app1",
+      spaFallback: false,
+      cdn: {
+        cdn_mode: "internal",
+        cdn_cache_ttl_s: 900,
+        cdn_cache_paths: ["/assets/*"],
+        cdn_compression: true,
+        cdn_image_optim: true,
+        cdn_headers: '{"Cache-Control":"public, max-age=900"}',
+        cdn_external_provider: null,
+      },
+    })
+
+    const post = calls.find((c) => c.method === "POST")
+    const posted = post?.body as {
+      handle?: Array<{
+        handler?: string
+        routes?: Array<{
+          handle?: Array<{ handler?: string }>
+        }>
+        response?: { set?: Record<string, string[]> }
+      }>
+    }
+    const handlers = posted.handle ?? []
+
+    expect(handlers.map((handler) => handler.handler)).toEqual([
+      "subroute",
+      "encode",
+      "subroute",
+      "headers",
+      "file_server",
+    ])
+    expect(handlers[0]?.routes?.[0]?.handle?.[0]?.handler).toBe("image_filter")
+    expect(handlers[1]).toMatchObject({
+      handler: "encode",
+      encodings: { br: {}, zstd: {}, gzip: {} },
+    })
+    expect(handlers[2]?.routes?.[0]?.handle?.[0]).toMatchObject({
+      handler: "cache",
+      ttl: "900s",
+      default_cache_control: "public, max-age=900",
+    })
+    expect(handlers[3]?.response?.set).toEqual({
+      "Cache-Control": ["public, max-age=900"],
+    })
+    expect(handlers[4]).toMatchObject({
+      handler: "file_server",
+      root: "/var/lib/ploydok/static/app1/current",
+    })
+  })
+
   test("upsertRoute throws when PATCH returns unexpected error", async () => {
     const existingConfig: CaddyConfig = {
       apps: { http: { servers: { srv0: { listen: [":80"], routes: [] } } } },

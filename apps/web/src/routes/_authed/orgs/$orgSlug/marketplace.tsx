@@ -35,7 +35,7 @@ interface TemplateMetadata {
   description: string
   version: string
   logo: string
-  tags: string[]
+  tags: Array<string>
   links: {
     github: string
     website?: string
@@ -137,7 +137,7 @@ function MarketplacePage(): React.JSX.Element {
             role="alert"
             className="rounded-md border border-destructive/30 bg-destructive/10 px-4 py-3 text-sm text-destructive"
           >
-            Impossible de charger le catalogue ({(error as Error).message}).
+            Impossible de charger le catalogue ({(error).message}).
           </p>
         ) : filtered.length === 0 ? (
           <EmptyState query={query} />
@@ -363,7 +363,7 @@ function TemplateDialog({
                     className="rounded-md border border-destructive/30 bg-destructive/10 px-3 py-2 text-xs text-destructive"
                   >
                     Impossible de charger les fichiers du template (
-                    {(error as Error).message}).
+                    {(error).message}).
                   </p>
                 ) : (
                   <pre className="max-h-80 overflow-auto rounded-md bg-muted p-3 text-[11px] leading-relaxed text-muted-foreground">

@@ -2,7 +2,6 @@
 import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query"
 
 import {
-  ApiError,
   apiFetch,
   apiFetchAllowErrorBody,
   criticalRetryDelay,
@@ -10,6 +9,8 @@ import {
 } from "./api"
 import { useBackendUnavailable } from "./backend-status"
 import { useEventsSubscription } from "./events-provider"
+import type {
+  ApiError} from "./api";
 import type {
   ContainerSnapshot,
   MonitoringEvent,

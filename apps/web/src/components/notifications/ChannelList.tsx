@@ -1,22 +1,22 @@
 // SPDX-License-Identifier: AGPL-3.0-only
 import * as React from "react"
 import { toast } from "sonner"
-import { RiAddLine, RiDeleteBinLine, RiEditLine, RiFlashlightLine, RiBellLine } from "@remixicon/react"
+import { RiAddLine, RiBellLine, RiDeleteBinLine, RiEditLine, RiFlashlightLine } from "@remixicon/react"
 import { Button } from "@workspace/ui/components/button"
 import { Badge } from "@workspace/ui/components/badge"
 import { Switch } from "@workspace/ui/components/switch"
 import { Skeleton } from "@workspace/ui/components/skeleton"
-import type { NotificationChannel } from "../../lib/notification-channels"
 import {
+  EVENT_LABELS,
+  FUNCTIONAL_KINDS,
+  KIND_LABELS,
   useChannels,
   useDeleteChannel,
   useTestChannel,
   useToggleChannel,
-  KIND_LABELS,
-  EVENT_LABELS,
-  FUNCTIONAL_KINDS,
 } from "../../lib/notification-channels"
 import { ChannelDialog } from "./ChannelDialog"
+import type { NotificationChannel } from "../../lib/notification-channels"
 
 interface ChannelListProps {
   appId?: string

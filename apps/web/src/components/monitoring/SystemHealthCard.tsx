@@ -7,7 +7,8 @@ import {
   RiQuestionLine,
 } from "@remixicon/react"
 import { cn } from "@workspace/ui/lib/utils"
-import { useSystemHealth, type ComponentStatus } from "../../lib/system-health"
+import {  useSystemHealth } from "../../lib/system-health"
+import type {ComponentStatus} from "../../lib/system-health";
 
 const STATUS_STYLES: Record<
   ComponentStatus,

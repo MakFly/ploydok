@@ -54,13 +54,13 @@ interface EnvVarPatch {
   secret: boolean
 }
 
-function buildPatchBody(vars: EnvVarPatch[]): { vars: EnvVarPatch[] } {
+function buildPatchBody(vars: Array<EnvVarPatch>): { vars: Array<EnvVarPatch> } {
   return { vars }
 }
 
 describe("apps-env — patch body", () => {
   it("wraps vars in an object", () => {
-    const vars: EnvVarPatch[] = [{ key: "FOO", value: "bar", secret: false }]
+    const vars: Array<EnvVarPatch> = [{ key: "FOO", value: "bar", secret: false }]
     const body = buildPatchBody(vars)
     expect(body).toEqual({ vars })
   })
@@ -71,12 +71,12 @@ describe("apps-env — patch body", () => {
   })
 
   it("secret flag defaults propagate correctly", () => {
-    const vars: EnvVarPatch[] = [
+    const vars: Array<EnvVarPatch> = [
       { key: "PLAIN", value: "val", secret: false },
       { key: "HIDDEN", value: "secret", secret: true },
     ]
     const body = buildPatchBody(vars)
-    expect(body.vars[0]!.secret).toBe(false)
-    expect(body.vars[1]!.secret).toBe(true)
+    expect(body.vars[0].secret).toBe(false)
+    expect(body.vars[1].secret).toBe(true)
   })
 })

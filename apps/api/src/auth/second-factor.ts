@@ -1,12 +1,12 @@
 // SPDX-License-Identifier: AGPL-3.0-only
 import { createHmac, timingSafeEqual } from "node:crypto"
 import type { Context, Next } from "hono"
-import { eq } from "drizzle-orm"
+import { and, desc, eq, sql } from "drizzle-orm"
 import { totp_secrets, audit_log } from "@ploydok/db"
 import type { Db } from "@ploydok/db"
 import { env } from "../env"
 import { getTotpSecret } from "./totp-storage"
-import { verifyCode } from "./totp"
+import { verifyCodeDetailed } from "./totp"
 import type { AuthUser } from "./middleware"
 
 // ---------------------------------------------------------------------------
@@ -112,24 +112,84 @@ function parseCookies(cookieHeader: string): Record<string, string> {
 // Audit log helper
 // ---------------------------------------------------------------------------
 
-async function logAudit(db: Db, userId: string): Promise<void> {
-  try {
-    await db.insert(audit_log).values({
+async function consumeTotpStep(
+  db: Db,
+  userId: string,
+  step: number,
+): Promise<"ok" | "replayed"> {
+  return db.transaction(async (tx) => {
+    await tx.execute(
+      sql`select pg_advisory_xact_lock(hashtext(${`totp:${userId}`}), ${step})`
+    )
+
+    const rows = await tx
+      .select({
+        metadata: audit_log.metadata,
+      })
+      .from(audit_log)
+      .where(
+        and(
+          eq(audit_log.user_id, userId),
+          eq(audit_log.action, "2fa.verified"),
+          eq(audit_log.target_type, "user"),
+          eq(audit_log.target_id, userId)
+        )
+      )
+      .orderBy(desc(audit_log.created_at))
+      .limit(8)
+
+    for (const row of rows) {
+      try {
+        const parsed = JSON.parse(row.metadata) as { totp_step?: number }
+        if (parsed.totp_step === step) {
+          return "replayed"
+        }
+      } catch {
+        continue
+      }
+    }
+
+    await tx.insert(audit_log).values({
       user_id: userId,
       action: "2fa.verified",
       target_type: "user",
       target_id: userId,
-      metadata: "{}",
+      metadata: JSON.stringify({ totp_step: step }),
       created_at: new Date(),
     })
-  } catch {
-    // Audit failures must not block the request
-  }
+
+    return "ok"
+  })
 }
 
-// ---------------------------------------------------------------------------
-// Middleware
-// ---------------------------------------------------------------------------
+function buildReplayResponse(c: Context) {
+  return c.json(
+    {
+      code: "totp_replayed",
+      message: "TOTP code already used for this time window",
+    },
+    403
+  )
+}
+
+function buildUnavailableResponse(c: Context) {
+  return c.json(
+    {
+      error: {
+        code: "SECOND_FACTOR_UNAVAILABLE",
+        message: "Unable to persist TOTP verification",
+      },
+    },
+    503
+  )
+}
+
+function buildTotpRequiredResponse(c: Context) {
+  return c.json(
+    { code: "totp_required", message: "Second factor required" },
+    403
+  )
+}
 
 /**
  * Hono middleware that enforces a fresh TOTP second-factor check.
@@ -138,11 +198,9 @@ async function logAudit(db: Db, userId: string): Promise<void> {
  *
  * Check order:
  *  1. Cookie `ploydok_2fa_verified` — fresh (≤ 15 min) + signed + matching user → pass.
- *  2. Header `X-TOTP-Code` — verifies against stored TOTP secret → sets cookie + pass.
+ *  2. Header `X-TOTP-Code` — verifies against stored TOTP secret, consumes the accepted
+ *     30s step exactly once via audit_log + advisory lock, sets cookie + pass.
  *  3. Otherwise → 403 { code: "totp_required" }.
- *
- * TODO(anti-replay): totp_secrets has no last_used_step column yet. Add it in a future
- * migration to reject TOTP code reuse within the same 30s window.
  */
 export function requireTotpVerified(db: Db) {
   return async (c: Context, next: Next) => {
@@ -177,9 +235,21 @@ export function requireTotpVerified(db: Db) {
       // User must have TOTP enrolled and verified
       const totpRow = await getTotpSecret(db, user.id)
       if (totpRow && totpRow.verifiedAt !== null) {
-        const valid = verifyCode(totpRow.secret, totpCode)
-        if (valid) {
-          await logAudit(db, user.id)
+        const verification = verifyCodeDetailed(totpRow.secret, totpCode)
+        if (verification.ok && verification.matchedStep !== undefined) {
+          try {
+            const result = await consumeTotpStep(
+              db,
+              user.id,
+              verification.matchedStep
+            )
+            if (result === "replayed") {
+              return buildReplayResponse(c)
+            }
+          } catch {
+            return buildUnavailableResponse(c)
+          }
+
           const cookieStr = buildSecondFactorCookie(user.id)
           c.header("Set-Cookie", cookieStr)
           return next()
@@ -188,6 +258,6 @@ export function requireTotpVerified(db: Db) {
     }
 
     // 3. Reject
-    return c.json({ code: "totp_required", message: "Second factor required" }, 403)
+    return buildTotpRequiredResponse(c)
   }
 }

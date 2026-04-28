@@ -1,6 +1,6 @@
 // SPDX-License-Identifier: AGPL-3.0-only
 import { eq } from "drizzle-orm"
-import { domains } from "@ploydok/db"
+import { apps, domains } from "@ploydok/db"
 import type { Db } from "@ploydok/db"
 import { getAppForUser } from "@ploydok/db/queries"
 import { verifyDomain } from "../../domains/verifier.js"
@@ -47,6 +47,27 @@ export async function handleDomainVerify(
     )
   }
 
+  if (!claimed.requested_by_user_id || !claimed.verify_source) {
+    const reason =
+      "Domain row is not claimable: missing requested_by_user_id or verify_source"
+    await db
+      .update(domains)
+      .set({
+        tls_status: "failed",
+        verify_error: reason,
+        updated_at: new Date(),
+      })
+      .where(eq(domains.id, domainId))
+
+    auditUnauthorized({
+      jobName: "domain.verify",
+      jobId: `verify-${domainId}`,
+      payload,
+      reason,
+    })
+    throw new Error(reason)
+  }
+
   // Update verify_claimed_at manually
   await db
     .update(domains)
@@ -62,13 +83,14 @@ export async function handleDomainVerify(
   })
 
   // Verify ownership: ensure requester still has access to parent app
+  let parentApp: typeof apps.$inferSelect | null = null
   if (claimed.requested_by_user_id) {
-    const hasAccess = await getAppForUser(
+    parentApp = await getAppForUser(
       db,
       claimed.app_id,
       claimed.requested_by_user_id
     )
-    if (!hasAccess) {
+    if (!parentApp) {
       auditUnauthorized({
         jobName: "domain.verify",
         jobId: `verify-${domainId}`,
@@ -121,6 +143,7 @@ export async function handleDomainVerify(
         upstream: `${upstream.host}:${upstream.port}`,
         appId: `domain-${domainId}`,
         ...(tls ? { tls } : {}),
+        ...(parentApp ? { middlewares: { cdn: parentApp } } : {}),
       })
       logger.info(
         { domainId, hostname: claimed.hostname },

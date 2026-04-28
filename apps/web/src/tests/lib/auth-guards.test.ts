@@ -2,8 +2,8 @@
 import { describe, expect, it } from "bun:test"
 import { ApiError, SessionExpiredError } from "../../lib/api"
 import { redirectIfAuthenticated, requireMe } from "../../lib/auth-guards"
-import type { Me } from "@ploydok/shared"
 import { organizationDashboardPath } from "../../lib/organizations"
+import type { Me } from "@ploydok/shared"
 
 const fakeMe: Me = {
   id: "user-1",

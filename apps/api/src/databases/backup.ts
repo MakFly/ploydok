@@ -11,18 +11,20 @@
  *  6. Delete backups older than retention_days.
  *  7. Update backup_configs.last_run_at + last_error.
  */
-import { mkdir, open } from "node:fs/promises"
 import path from "node:path"
-import { PassThrough, Readable } from "node:stream"
+import { Readable } from "node:stream"
 import { nanoid } from "nanoid"
 import { and, eq, lt } from "drizzle-orm"
-import { databases, backup_configs, backups, secrets } from "@ploydok/db"
+import { databases, backup_configs, backups } from "@ploydok/db"
 import type { Db } from "@ploydok/db"
-import { decryptSecret } from "../secrets/crypto"
 import { getSharedAgent } from "../debug/singletons"
-import { createS3Client, uploadStream, deleteObject, listObjects } from "../storage/s3"
 import { childLogger } from "../logger"
 import { env } from "../env"
+import {
+  buildBackupFilename,
+  deleteBackupArtifact,
+  writeBackupStream,
+} from "../backups/storage"
 
 const log = childLogger("databases.backup")
 
@@ -68,8 +70,7 @@ export async function runBackupOnce(db: Db, databaseId: string): Promise<BackupR
   const ageEncrypted = Boolean(config.age_recipient_public_key)
 
   // Determine location
-  const ts = startedAt.toISOString().replace(/[:.]/g, "-")
-  const filename = `${ts}.dump${ageEncrypted ? ".age" : ""}`
+  const filename = buildBackupFilename(startedAt, "dump", ageEncrypted)
   let location: string
   if (config.destination_kind === "s3") {
     const prefix = config.s3_prefix ? `${config.s3_prefix.replace(/\/$/, "")}/` : ""
@@ -100,47 +101,19 @@ export async function runBackupOnce(db: Db, databaseId: string): Promise<BackupR
       kind: dbRow.kind,
       ageRecipient: config.age_recipient_public_key ?? "",
     })
-
-    // Build a Node.js Readable from the async iterable of DumpChunks
-    const passThrough = new PassThrough()
-
-    // Pipe chunks asynchronously
-    const feedPromise = (async () => {
-      for await (const chunk of dumpStream) {
-        if (chunk.data.length > 0) {
-          sizeBytes += chunk.data.length
-          passThrough.push(Buffer.from(chunk.data))
+    const source = Readable.from(
+      (async function* () {
+        for await (const chunk of dumpStream) {
+          if (chunk.data.length > 0) {
+            yield Buffer.from(chunk.data)
+          }
         }
-      }
-      passThrough.push(null)
-    })()
+      })()
+    )
 
     // 4. Upload or write
-    if (config.destination_kind === "s3") {
-      const s3Creds = await resolveS3Credentials(db, config)
-      const client = createS3Client({
-        ...(config.s3_endpoint ? { endpoint: config.s3_endpoint } : {}),
-        region: config.s3_region ?? "auto",
-        accessKeyId: s3Creds.accessKeyId,
-        secretAccessKey: s3Creds.secretAccessKey,
-      })
-      const prefix = config.s3_prefix ? `${config.s3_prefix.replace(/\/$/, "")}/` : ""
-      const key = `${prefix}${databaseId}/${filename}`
-      await uploadStream(client, config.s3_bucket!, key, passThrough)
-      await feedPromise
-    } else {
-      // Local write
-      const dir = path.dirname(location)
-      await mkdir(dir, { recursive: true })
-      const fh = await open(location, "w")
-      await feedPromise
-      const readableForFile = Readable.from(passThrough)
-      await new Promise<void>((resolve, reject) => {
-        readableForFile.pipe(fh.createWriteStream())
-        readableForFile.on("end", () => fh.close().then(resolve).catch(reject))
-        readableForFile.on("error", reject)
-      })
-    }
+    const stored = await writeBackupStream(db, config, location, source)
+    sizeBytes = stored.sizeBytes
 
     bkLog.info({ backupId, location, sizeBytes }, "backup completed")
   } catch (err) {
@@ -194,23 +167,7 @@ async function purgeOldBackups(
 
   for (const backup of old) {
     try {
-      if (kind === "s3" && backup.location.startsWith("s3://")) {
-        const creds = await resolveS3Credentials(db, config)
-        const client = createS3Client({
-          ...(config.s3_endpoint ? { endpoint: config.s3_endpoint } : {}),
-          region: config.s3_region ?? "auto",
-          accessKeyId: creds.accessKeyId,
-          secretAccessKey: creds.secretAccessKey,
-        })
-        // Parse s3://bucket/key
-        const url = new URL(backup.location)
-        const bucket = url.hostname
-        const key = url.pathname.replace(/^\//, "")
-        await deleteObject(client, bucket, key)
-      } else if (kind === "local") {
-        const { unlink } = await import("node:fs/promises")
-        await unlink(backup.location).catch(() => {})
-      }
+      await deleteBackupArtifact(db, backup.location, kind === "s3" ? config : null)
     } catch (err) {
       log.warn({ err, backupId: backup.id }, "failed to delete old backup object (non-fatal)")
     }
@@ -221,41 +178,4 @@ async function purgeOldBackups(
   if (old.length > 0) {
     log.info({ databaseId, purged: old.length, cutoff }, "old backups purged")
   }
-}
-
-// ---------------------------------------------------------------------------
-// Helpers
-// ---------------------------------------------------------------------------
-
-interface S3Credentials {
-  accessKeyId: string
-  secretAccessKey: string
-}
-
-async function resolveS3Credentials(db: Db, config: typeof backup_configs.$inferSelect): Promise<S3Credentials> {
-  if (!config.s3_credentials_secret_id) {
-    throw new Error("S3 backup config is missing s3_credentials_secret_id")
-  }
-
-  const secretRows = await db
-    .select()
-    .from(secrets)
-    .where(eq(secrets.id, config.s3_credentials_secret_id))
-    .limit(1)
-  const secret = secretRows[0]
-  if (!secret || !secret.value_ciphertext || !secret.nonce) {
-    throw new Error("S3 credentials secret not found or missing ciphertext")
-  }
-
-  const plaintext = await decryptSecret(
-    secret.value_ciphertext as Buffer,
-    secret.nonce as Buffer,
-  )
-
-  // Expected format: JSON { accessKeyId, secretAccessKey }
-  const creds = JSON.parse(plaintext) as S3Credentials
-  if (!creds.accessKeyId || !creds.secretAccessKey) {
-    throw new Error("S3 credentials secret has unexpected format (expected { accessKeyId, secretAccessKey })")
-  }
-  return creds
 }

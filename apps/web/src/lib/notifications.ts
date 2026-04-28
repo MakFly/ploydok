@@ -18,6 +18,12 @@ export type NotificationType =
   | "provider.sync.started"
   | "provider.sync.completed"
   | "provider.sync.failed"
+  | "app.delete.queued"
+  | "app.deleted"
+  | "app.delete.failed"
+  | "app.stop.queued"
+  | "app.stopped"
+  | "app.stop.failed"
 
 export interface NotificationEvent {
   id: string
@@ -182,6 +188,12 @@ export function useNotifications(): {
   useEventsSubscription<NotificationEvent>("provider.sync.started", push)
   useEventsSubscription<NotificationEvent>("provider.sync.completed", push)
   useEventsSubscription<NotificationEvent>("provider.sync.failed", push)
+  useEventsSubscription<NotificationEvent>("app.delete.queued", push)
+  useEventsSubscription<NotificationEvent>("app.deleted", push)
+  useEventsSubscription<NotificationEvent>("app.delete.failed", push)
+  useEventsSubscription<NotificationEvent>("app.stop.queued", push)
+  useEventsSubscription<NotificationEvent>("app.stopped", push)
+  useEventsSubscription<NotificationEvent>("app.stop.failed", push)
 
   const markAllRead = () => {
     const previousLastReadAt = state.lastReadAt

@@ -12,8 +12,7 @@ import {
 } from "../../../../../components/layout/AppShell"
 import { ServiceStatusBadge } from "../../../../../components/services/ServiceStatusBadge"
 import { useServices } from "../../../../../lib/services"
-import { useCurrentOrganization } from "../../../../../lib/organizations"
-import { organizationPath } from "../../../../../lib/organizations"
+import { organizationPath, useCurrentOrganization  } from "../../../../../lib/organizations"
 import type { ServiceSummary } from "../../../../../lib/services"
 
 export const Route = createFileRoute("/_authed/orgs/$orgSlug/services/")({

@@ -5,7 +5,15 @@
  * All external dependencies (registry client, DB) are mocked in-process.
  * No real registry or SQLite database is required.
  */
-import { afterEach, beforeEach, describe, expect, it, mock } from "bun:test"
+import {
+  afterEach,
+  beforeEach,
+  describe,
+  expect,
+  it,
+  mock,
+  spyOn,
+} from "bun:test"
 import {
   getRegistryUsageForApp,
   runRegistryGc,
@@ -14,6 +22,10 @@ import {
   GcRegistryOptionsSchema,
 } from "./gc-registry"
 import type { GcOptions, RegistryClient } from "./gc-registry"
+import * as queueAuditMod from "../queue-audit"
+import * as queueClaimMod from "../queue-claim"
+import * as registryMod from "./gc-registry"
+import { handleGcRegistryJob } from "../index"
 
 // ---------------------------------------------------------------------------
 // Mock helpers
@@ -90,9 +102,158 @@ function mockQueue(): any {
   }
 }
 
+function mockWorkerDb() {
+  const whereSpy = mock(async () => [])
+  const setSpy = mock(() => ({ where: whereSpy }))
+  const updateSpy = mock(() => ({ set: setSpy }))
+  return {
+    db: {
+      update: updateSpy,
+    } as any,
+    updateSpy,
+    setSpy,
+    whereSpy,
+  }
+}
+
 // ---------------------------------------------------------------------------
 // runRegistryGc
 // ---------------------------------------------------------------------------
+
+describe("gc.registry worker", () => {
+  beforeEach(() => {
+    mock.restore()
+  })
+
+  it("ignores legacy payload and audits when jobId is missing", async () => {
+    const db = mockWorkerDb()
+    const auditUnauthorizedSpy = spyOn(queueAuditMod, "auditUnauthorized")
+    spyOn(queueClaimMod, "claimQueuedRow").mockResolvedValue(null)
+    const runRegistrySpy = spyOn(registryMod, "runRegistryGc")
+
+    await handleGcRegistryJob(db.db, {
+      id: "bull-legacy",
+      data: { appId: "app-1", keepPerRepo: 0 },
+    })
+
+    expect(auditUnauthorizedSpy).toHaveBeenCalledWith(
+      expect.objectContaining({
+        reason: "legacy payload (no jobId) — drop after queue drain",
+      })
+    )
+    expect(queueClaimMod.claimQueuedRow).not.toHaveBeenCalled()
+    expect(runRegistrySpy).not.toHaveBeenCalled()
+  })
+
+  it("claims jobId row, runs runRegistryGc with options from system_jobs", async () => {
+    const db = mockWorkerDb()
+    const auditUnauthorizedSpy = spyOn(queueAuditMod, "auditUnauthorized")
+    spyOn(queueClaimMod, "claimQueuedRow").mockResolvedValue({
+      id: "sys-job-1",
+      options: { appId: "app-1", keepPerRepo: 5 },
+      requested_by_user_id: "user-1",
+      source: "api",
+    } as any)
+    const runRegistrySpy = spyOn(registryMod, "runRegistryGc").mockResolvedValue({
+      reposScanned: 1,
+      tagsDeleted: 0,
+      bytesFreed: 0,
+    })
+
+    await handleGcRegistryJob(db.db, {
+      id: "bull-42",
+      data: { jobId: "sys-job-1" },
+    })
+
+    expect(auditUnauthorizedSpy).not.toHaveBeenCalled()
+    expect(runRegistrySpy).toHaveBeenCalledWith(
+      expect.objectContaining({
+        appFilter: "app-1",
+        keepPerRepo: 5,
+      })
+    )
+    expect(db.setSpy).toHaveBeenCalledWith({ status: "succeeded", finished_at: expect.any(Date) })
+  })
+
+  it("drops missing row after queue drain and logs unauthorized", async () => {
+    const db = mockWorkerDb()
+    const auditUnauthorizedSpy = spyOn(queueAuditMod, "auditUnauthorized")
+    spyOn(queueClaimMod, "claimQueuedRow").mockResolvedValue(null)
+    const runRegistrySpy = spyOn(registryMod, "runRegistryGc")
+
+    await handleGcRegistryJob(db.db, {
+      id: "bull-missing",
+      data: { jobId: "sys-missing" },
+    })
+
+    expect(auditUnauthorizedSpy).toHaveBeenCalledWith(
+      expect.objectContaining({
+        reason: "no matching pending system_jobs row",
+      })
+    )
+    expect(runRegistrySpy).not.toHaveBeenCalled()
+    expect(db.setSpy).not.toHaveBeenCalled()
+  })
+
+  it("drops replayed job when row is already claimed/consumed", async () => {
+    const db = mockWorkerDb()
+    const auditUnauthorizedSpy = spyOn(queueAuditMod, "auditUnauthorized")
+    spyOn(queueClaimMod, "claimQueuedRow")
+      .mockResolvedValueOnce({
+        id: "sys-job-2",
+        options: { appId: null, keepPerRepo: 3 },
+        requested_by_user_id: null,
+        source: "cron:gc",
+      } as any)
+      .mockResolvedValueOnce(null)
+    const runRegistrySpy = spyOn(registryMod, "runRegistryGc").mockResolvedValue({
+      reposScanned: 0,
+      tagsDeleted: 0,
+      bytesFreed: 0,
+    })
+
+    await handleGcRegistryJob(db.db, { id: "bull-replay-1", data: { jobId: "sys-job-2" } })
+    await handleGcRegistryJob(db.db, { id: "bull-replay-2", data: { jobId: "sys-job-2" } })
+
+    expect(runRegistrySpy).toHaveBeenCalledTimes(1)
+    expect(queueClaimMod.claimQueuedRow).toHaveBeenCalledTimes(2)
+    expect(auditUnauthorizedSpy).toHaveBeenCalledTimes(1)
+    expect(db.setSpy).toHaveBeenCalledWith({
+      status: "succeeded",
+      finished_at: expect.any(Date),
+    })
+  })
+
+  it("marks job failed when system_jobs.options fails Zod validation", async () => {
+    const db = mockWorkerDb()
+    spyOn(queueClaimMod, "claimQueuedRow").mockResolvedValue({
+      id: "sys-job-3",
+      options: { appId: "app-1", keepPerRepo: 99 },
+      requested_by_user_id: "user-2",
+      source: "api",
+    } as any)
+    const runRegistrySpy = spyOn(registryMod, "runRegistryGc")
+    const auditUnauthorizedSpy = spyOn(queueAuditMod, "auditUnauthorized")
+
+    await handleGcRegistryJob(db.db, {
+      id: "bull-invalid",
+      data: { jobId: "sys-job-3" },
+    })
+
+    expect(auditUnauthorizedSpy).toHaveBeenCalledWith(
+      expect.objectContaining({
+        reason: "invalid system_jobs.options schema",
+      })
+    )
+    expect(runRegistrySpy).not.toHaveBeenCalled()
+    expect(db.setSpy).toHaveBeenCalledWith(
+      expect.objectContaining({
+        status: "failed",
+        finished_at: expect.any(Date),
+      })
+    )
+  })
+})
 
 describe("runRegistryGc", () => {
   it("returns zeros when no apps exist", async () => {

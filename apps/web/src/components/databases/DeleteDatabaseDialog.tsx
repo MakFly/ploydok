@@ -11,8 +11,8 @@ import {
 import { Button } from "@workspace/ui/components/button"
 import { Input } from "@workspace/ui/components/input"
 import { Label } from "@workspace/ui/components/label"
-import type { Database } from "../../lib/databases"
 import { useDeleteDatabase } from "../../lib/databases"
+import type { Database } from "../../lib/databases"
 
 interface DeleteDatabaseDialogProps {
   database: Database | null

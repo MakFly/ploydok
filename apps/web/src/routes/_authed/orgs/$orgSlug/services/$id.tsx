@@ -25,11 +25,11 @@ import {
 } from "../../../../../components/layout/AppShell"
 import { ServiceStatusBadge } from "../../../../../components/services/ServiceStatusBadge"
 import {
+  useDeleteService,
   useService,
+  useServiceLogs,
   useStartService,
   useStopService,
-  useDeleteService,
-  useServiceLogs,
 } from "../../../../../lib/services"
 import { useCurrentOrganization } from "../../../../../lib/organizations"
 

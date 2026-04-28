@@ -87,10 +87,10 @@ describe("applyCdnHandlers", () => {
     const handlers = result.handle as Array<Record<string, unknown>>
     const encodeHandler = handlers.find((h) => h.handler === "encode")
     expect(encodeHandler).toBeDefined()
-    expect(encodeHandler?.encodings).toEqual({ gzip: {} })
+    expect(encodeHandler?.encodings).toEqual({ br: {}, zstd: {}, gzip: {} })
   })
 
-  test("image_optim adds image_optim handler", () => {
+  test("image_optim adds image_filter handler for static routes", () => {
     const config: CdnAppConfig = {
       cdn_mode: "internal",
       cdn_cache_ttl_s: 300,
@@ -102,14 +102,22 @@ describe("applyCdnHandlers", () => {
     }
 
     const route = createTestRoute()
-    const result = applyCdnHandlers(config, route)
+    const result = applyCdnHandlers(config, route, {
+      staticRoot: "/var/lib/ploydok/static/app/current",
+    })
 
     const handlers = result.handle as Array<Record<string, unknown>>
-    const imageOptimHandler = handlers.find((h) => h.handler === "image_optim")
-    expect(imageOptimHandler).toBeDefined()
+    const imageFilterSubroute = handlers.find((h) => {
+      if (h.handler !== "subroute") return false
+      const routes = h.routes as Array<{ handle?: Array<{ handler?: string }> }>
+      return routes.some((r) =>
+        r.handle?.some((handler) => handler.handler === "image_filter")
+      )
+    })
+    expect(imageFilterSubroute).toBeDefined()
   })
 
-  test("image_optim + compression adds both with proper order", () => {
+  test("image_optim + compression adds both with proper order for static routes", () => {
     const config: CdnAppConfig = {
       cdn_mode: "internal",
       cdn_cache_ttl_s: 300,
@@ -121,12 +129,12 @@ describe("applyCdnHandlers", () => {
     }
 
     const route = createTestRoute()
-    const result = applyCdnHandlers(config, route)
+    const result = applyCdnHandlers(config, route, {
+      staticRoot: "/var/lib/ploydok/static/app/current",
+    })
 
     const handlers = result.handle as Array<Record<string, unknown>>
-    const imageOptimIndex = handlers.findIndex(
-      (h) => h.handler === "image_optim"
-    )
+    const imageOptimIndex = handlers.findIndex((h) => h.handler === "subroute")
     const encodeIndex = handlers.findIndex((h) => h.handler === "encode")
 
     expect(imageOptimIndex).toBeGreaterThan(-1)
@@ -151,8 +159,8 @@ describe("applyCdnHandlers", () => {
     const handlers = result.handle as Array<Record<string, unknown>>
     const headersHandler = handlers.find((h) => h.handler === "headers")
     expect(headersHandler).toBeDefined()
-    expect(headersHandler?.request).toEqual({
-      set: { "X-Custom": "value", "Cache-Control": "public" },
+    expect(headersHandler?.response).toEqual({
+      set: { "X-Custom": ["value"], "Cache-Control": ["public"] },
     })
   })
 

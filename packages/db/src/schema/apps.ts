@@ -31,6 +31,7 @@ export const apps = pgTable("apps", {
       "pending",
       "building",
       "running",
+      "serving",
       "restarting",
       "stopped",
       "failed",
@@ -67,8 +68,32 @@ export const apps = pgTable("apps", {
   start_command: text("start_command"),
   watch_paths: text("watch_paths"), // JSON array
   build_method: text("build_method", {
-    enum: ["auto", "docker", "dockerfile", "compose", "nixpacks", "railpack"],
+    enum: [
+      "auto",
+      "docker",
+      "dockerfile",
+      "compose",
+      "nixpacks",
+      "railpack",
+      "static",
+    ],
   }),
+  static_output_dir: text("static_output_dir").notNull().default("dist"),
+  static_spa_fallback: boolean("static_spa_fallback").notNull().default(true),
+  // CDN / edge delivery controls (Sprint 7 MF1).
+  cdn_mode: text("cdn_mode", { enum: ["off", "internal", "external"] })
+    .notNull()
+    .default("off"),
+  cdn_cache_ttl_s: integer("cdn_cache_ttl_s").default(300),
+  cdn_cache_paths: text("cdn_cache_paths").array(),
+  cdn_compression: boolean("cdn_compression").notNull().default(false),
+  cdn_image_optim: boolean("cdn_image_optim").notNull().default(false),
+  cdn_headers: text("cdn_headers"),
+  cdn_external_provider: text("cdn_external_provider"),
+  // Preview deployments (Sprint 7 MF2).
+  preview_enabled: boolean("preview_enabled").notNull().default(false),
+  preview_wildcard: text("preview_wildcard"),
+  preview_ttl_days: integer("preview_ttl_days").notNull().default(7),
   // Runtime
   container_id: text("container_id"),
   runtime_port: integer("runtime_port"),

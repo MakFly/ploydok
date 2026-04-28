@@ -1,11 +1,11 @@
 // SPDX-License-Identifier: AGPL-3.0-only
 import * as React from "react"
 import {
+  RiArrowRightSLine,
   RiCheckLine,
+  RiCloseLine,
   RiGithubFill,
   RiGitlabFill,
-  RiCloseLine,
-  RiArrowRightSLine,
   RiInformationLine,
 } from "@remixicon/react"
 import { Button } from "@workspace/ui/components/button"
@@ -15,18 +15,17 @@ import { useGitHubBranches } from "../../lib/github"
 import { useGitLabBranches } from "../../lib/gitlab"
 import { useStackClassification } from "../../lib/stack-classifier-hook"
 import { useRegistryCredentials } from "../../lib/registry-credentials"
-import type { StackClassification } from "@ploydok/shared"
 import { RepoSelector } from "./RepoSelector"
 import { GitLabRepoSelector } from "./GitLabRepoSelector"
-import { PlanSelector, type PlanSelectorValue } from "./PlanSelector"
-import type {
-  AppConfig,
+import { PlanSelector  } from "./PlanSelector"
+import type {PlanSelectorValue} from "./PlanSelector";
+import type { AppConfig,
   BuildMethod,
   GitBranch,
   GitProviderKind,
   GitRepo,
   ImagePullPolicy,
-} from "@ploydok/shared"
+  StackClassification } from "@ploydok/shared"
 
 // ---------------------------------------------------------------------------
 // Types
@@ -56,6 +55,8 @@ interface FormState {
   installCommand: string
   buildCommand: string
   startCommand: string
+  staticOutputDir: string
+  staticSpaFallback: boolean
   watchPaths: string
   healthcheckPath: string
   healthcheckPort: string
@@ -78,6 +79,8 @@ const INITIAL_FORM: FormState = {
   installCommand: "",
   buildCommand: "",
   startCommand: "",
+  staticOutputDir: "dist",
+  staticSpaFallback: true,
   watchPaths: "",
   healthcheckPath: "/",
   healthcheckPort: "",
@@ -473,9 +476,18 @@ function SummaryCard({ form }: { form: FormState }): React.JSX.Element {
                 ? "auto"
                 : form.buildMethod === "docker"
                   ? "Dockerfile"
+                  : form.buildMethod === "static"
+                    ? "Static site"
                   : "Nixpacks"
             }
           />
+          {form.buildMethod === "static" && (
+            <SummaryRow
+              label="Output"
+              value={form.staticOutputDir || "dist"}
+              mono
+            />
+          )}
           {form.laravelSeedOnFirstDeploy && (
             <SummaryRow label="Laravel seed" value="first deploy" />
           )}
@@ -891,6 +903,8 @@ function BuildStep({
     setField("buildMethodTouched", true)
   }
 
+  const isStaticBuild = form.buildMethod === "static"
+
   const nixpacksHint = ((): string => {
     if (hasDockerfile !== false) return "Force auto-pack (ignore le Dockerfile)"
     if (!classification)
@@ -964,6 +978,13 @@ function BuildStep({
             detected={hasDockerfile === false}
             onSelect={() => selectMethod("nixpacks")}
           />
+          <BuildMethodCard
+            label="Static site"
+            hint="Build un dossier statique puis sert l'output via Caddy, sans container runtime"
+            active={form.buildMethod === "static"}
+            detected={classification?.stack === "static"}
+            onSelect={() => selectMethod("static")}
+          />
         </div>
       </section>
 
@@ -983,6 +1004,33 @@ function BuildStep({
           onChange={(v) => setField("dockerfilePath", v)}
         />
       </div>
+
+      {isStaticBuild && (
+        <section className="space-y-3">
+          <ConfigField
+            id="static-output-dir"
+            label="Output directory"
+            placeholder="dist"
+            value={form.staticOutputDir}
+            onChange={(v) => setField("staticOutputDir", v)}
+          />
+          <label className="flex cursor-pointer items-start gap-3 rounded-md border border-border bg-background p-3 transition-colors hover:bg-muted/30">
+            <input
+              type="checkbox"
+              checked={form.staticSpaFallback}
+              onChange={(e) => setField("staticSpaFallback", e.target.checked)}
+              className="mt-0.5 size-4 rounded border-input text-primary focus:ring-2 focus:ring-ring"
+            />
+            <span className="min-w-0">
+              <span className="block text-sm font-medium">SPA fallback</span>
+              <span className="mt-0.5 block text-xs text-muted-foreground">
+                Sert <code className="font-mono">index.html</code> pour les routes
+                client-side.
+              </span>
+            </span>
+          </label>
+        </section>
+      )}
 
       <button
         type="button"
@@ -1015,13 +1063,15 @@ function BuildStep({
               value={form.buildCommand}
               onChange={(v) => setField("buildCommand", v)}
             />
-            <ConfigField
-              id="start-cmd"
-              label="Commande start"
-              placeholder="node dist/index.js"
-              value={form.startCommand}
-              onChange={(v) => setField("startCommand", v)}
-            />
+            {!isStaticBuild && (
+              <ConfigField
+                id="start-cmd"
+                label="Commande start"
+                placeholder="node dist/index.js"
+                value={form.startCommand}
+                onChange={(v) => setField("startCommand", v)}
+              />
+            )}
             <ConfigField
               id="watch-paths"
               label="Watch paths (séparés par virgule)"
@@ -1031,38 +1081,42 @@ function BuildStep({
             />
           </div>
 
-          <div className="space-y-2 border-t border-border/60 pt-3">
-            <p className="text-[10px] font-semibold tracking-wider text-muted-foreground uppercase">
-              Healthcheck
-            </p>
-            <div className="grid gap-3 sm:grid-cols-2">
-              <ConfigField
-                id="healthcheck-path"
-                label="Path"
-                placeholder="/health"
-                value={form.healthcheckPath}
-                onChange={(v) => setField("healthcheckPath", v)}
-              />
-              <div className="space-y-1">
-                <label
-                  htmlFor="healthcheck-port"
-                  className="block text-xs font-medium"
-                >
-                  Port
-                </label>
-                <input
-                  id="healthcheck-port"
-                  type="number"
-                  min={1}
-                  max={65535}
-                  placeholder="3000"
-                  value={form.healthcheckPort}
-                  onChange={(e) => setField("healthcheckPort", e.target.value)}
-                  className="w-full rounded-md border border-input bg-background px-3 py-1.5 text-sm shadow-sm focus:ring-2 focus:ring-ring focus:outline-none"
+          {!isStaticBuild && (
+            <div className="space-y-2 border-t border-border/60 pt-3">
+              <p className="text-[10px] font-semibold tracking-wider text-muted-foreground uppercase">
+                Healthcheck
+              </p>
+              <div className="grid gap-3 sm:grid-cols-2">
+                <ConfigField
+                  id="healthcheck-path"
+                  label="Path"
+                  placeholder="/health"
+                  value={form.healthcheckPath}
+                  onChange={(v) => setField("healthcheckPath", v)}
                 />
+                <div className="space-y-1">
+                  <label
+                    htmlFor="healthcheck-port"
+                    className="block text-xs font-medium"
+                  >
+                    Port
+                  </label>
+                  <input
+                    id="healthcheck-port"
+                    type="number"
+                    min={1}
+                    max={65535}
+                    placeholder="3000"
+                    value={form.healthcheckPort}
+                    onChange={(e) =>
+                      setField("healthcheckPort", e.target.value)
+                    }
+                    className="w-full rounded-md border border-input bg-background px-3 py-1.5 text-sm shadow-sm focus:ring-2 focus:ring-ring focus:outline-none"
+                  />
+                </div>
               </div>
             </div>
-          </div>
+          )}
         </div>
       )}
     </div>
@@ -1343,6 +1397,10 @@ function buildCreateAppBody(
     if (form.installCommand) body.installCommand = form.installCommand
     if (form.buildCommand) body.buildCommand = form.buildCommand
     if (form.startCommand) body.startCommand = form.startCommand
+    if (form.buildMethod === "static") {
+      body.staticOutputDir = form.staticOutputDir.trim() || "dist"
+      body.staticSpaFallback = form.staticSpaFallback
+    }
 
     const watchPaths = form.watchPaths
       ? form.watchPaths
@@ -1364,7 +1422,7 @@ function buildCreateAppBody(
         ? parsedPort
         : undefined
 
-    if (form.healthcheckPath) {
+    if (form.buildMethod !== "static" && form.healthcheckPath) {
       body.healthcheck = {
         path: form.healthcheckPath,
         port: validPort,

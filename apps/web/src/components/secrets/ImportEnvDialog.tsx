@@ -13,8 +13,8 @@ import { Button } from "@workspace/ui/components/button"
 import {
   Field,
   FieldContent,
-  FieldLabel,
   FieldDescription,
+  FieldLabel,
 } from "@workspace/ui/components/field"
 import { useImportEnv } from "../../lib/secrets"
 import type { SecretPhase, SecretScope } from "../../lib/secrets"
@@ -26,8 +26,8 @@ interface ImportEnvDialogProps {
   onOpenChange: (open: boolean) => void
 }
 
-const SCOPES: SecretScope[] = ["shared", "prod", "preview", "dev"]
-const PHASES: SecretPhase[] = ["runtime", "build", "both"]
+const SCOPES: Array<SecretScope> = ["shared", "prod", "preview", "dev"]
+const PHASES: Array<SecretPhase> = ["runtime", "build", "both"]
 
 export function ImportEnvDialog({
   appId,

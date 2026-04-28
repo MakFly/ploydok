@@ -13,7 +13,8 @@ import { Input } from "@workspace/ui/components/input"
 import { Label } from "@workspace/ui/components/label"
 import { Textarea } from "@workspace/ui/components/textarea"
 import { Alert, AlertDescription } from "@workspace/ui/components/alert"
-import { useRestoreBackup, type Backup } from "../../lib/backups"
+import {  useRestoreBackup } from "../../lib/backups"
+import type {Backup} from "../../lib/backups";
 
 interface RestoreDialogProps {
   backup: Backup

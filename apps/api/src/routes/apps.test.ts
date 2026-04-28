@@ -3,14 +3,23 @@ import { describe, it, expect, beforeEach, mock, spyOn } from "bun:test"
 import { Hono } from "hono"
 import { nanoid } from "nanoid"
 import { eq } from "drizzle-orm"
-import { users, projects, apps, builds, secrets } from "@ploydok/db"
+import {
+  users,
+  projects,
+  memberships,
+  passkeys,
+  apps,
+  builds,
+  secrets,
+  app_delete_jobs,
+} from "@ploydok/db"
 import type { Db } from "@ploydok/db"
 import { makeTestDb as makePgTestDb, TEST_PG_URL } from "../test/db-helpers"
-import { createAppsRouter } from "./apps"
+import { createAppsRouter, enqueueAppDeleteJob } from "./apps"
 import type { AuthUser } from "../auth/middleware"
 import * as singletons from "../debug/singletons"
 import * as githubModule from "./github"
-import { listEnvForApp } from "@ploydok/db/queries"
+import { decryptSecret } from "../secrets/crypto"
 
 // ---------------------------------------------------------------------------
 // Test DB helper — in-memory SQLite with all required tables
@@ -45,6 +54,30 @@ async function createTestUser(
     recovery_token_hash: null,
     recovery_expires_at: null,
   })
+  await db.insert(passkeys).values([
+    {
+      id: nanoid(),
+      user_id: id,
+      credential_id: `cred-${id}-1`,
+      public_key: Buffer.from("test-public-key-1"),
+      counter: 0,
+      transports: "[]",
+      device_name: "Test passkey 1",
+      created_at: now,
+      last_used_at: now,
+    },
+    {
+      id: nanoid(),
+      user_id: id,
+      credential_id: `cred-${id}-2`,
+      public_key: Buffer.from("test-public-key-2"),
+      counter: 0,
+      transports: "[]",
+      device_name: "Test passkey 2",
+      created_at: now,
+      last_used_at: now,
+    },
+  ])
   return { id, email: overrides.email ?? `user-${id}@test.com` }
 }
 
@@ -57,6 +90,15 @@ async function createTestProject(db: TestDb, ownerId: string) {
     name: `Project ${id}`,
     slug: `proj-${id}`,
     created_at: now,
+  })
+  await db.insert(memberships).values({
+    id: nanoid(),
+    org_id: id,
+    user_id: ownerId,
+    role: "owner",
+    invited_by: null,
+    invited_at: now,
+    accepted_at: now,
   })
   return { id }
 }
@@ -132,6 +174,154 @@ function buildTestApp(db: TestDb, authedUser?: AuthUser): Hono {
 function fakeUser(id: string, email: string): AuthUser {
   return { id, email, display_name: "Test User", session_id: "sess-test" }
 }
+
+describe("enqueueAppDeleteJob", () => {
+  it("commits app_delete_jobs before queue.add claims the job", async () => {
+    const calls: string[] = []
+    let activeTransactions = 0
+
+    const makeTx = (phase: number) => ({
+      update: mock((_table: unknown) => ({
+        set: mock((values: unknown) => ({
+          where: mock(async () => {
+            calls.push(`tx${phase}:update:${(values as { status?: string }).status ?? "unknown"}`)
+            return []
+          }),
+        })),
+      })),
+      insert: mock((_table: unknown) => ({
+        values: mock(async (values: unknown) => {
+          calls.push(
+            `tx${phase}:insert:${(values as { id?: string }).id ?? "unknown"}`
+          )
+          return []
+        }),
+      })),
+      delete: mock((_table: unknown) => ({
+        where: mock(async () => {
+          calls.push(`tx${phase}:delete`)
+          return []
+        }),
+      })),
+    })
+
+    const db = {
+      transaction: mock(async (callback) => {
+        const phase = calls.filter((c) => c.endsWith(":start")).length + 1
+        calls.push(`tx${phase}:start`)
+        activeTransactions++
+        try {
+          const result = await callback(makeTx(phase) as unknown as Db)
+          calls.push(`tx${phase}:commit`)
+          return result
+        } finally {
+          activeTransactions--
+        }
+      }),
+    } as unknown as Db
+
+    const queue = {
+      add: mock(async (_name: string, payload: { jobId: string }, opts?: { jobId?: string }) => {
+        calls.push(`queue:add:${activeTransactions}`)
+        const jobId = opts?.jobId ?? "missing-job-id"
+        expect(payload.jobId).toBe(jobId)
+        return { id: jobId }
+      }),
+    }
+
+    const result = await enqueueAppDeleteJob({
+      db,
+      appId: "app-1",
+      requestedByUserId: "user-1",
+      previousStatus: "running",
+      flags: {
+        deleteImages: true,
+        dockerCleanup: true,
+        deleteBuildArtifacts: true,
+        deleteCaddyRoutes: true,
+      },
+      queue,
+    })
+
+    expect(result.jobId).toBeString()
+    expect(calls[0]).toBe("tx1:start")
+    expect(calls[1]).toBe("tx1:update:deleting")
+    expect(calls[2]?.startsWith("tx1:insert:")).toBe(true)
+    expect(calls[3]).toBe("tx1:commit")
+    expect(calls[4]).toBe("queue:add:0")
+  })
+
+  it("restores the app row when queue.add fails after commit", async () => {
+    const calls: string[] = []
+    const appUpdates: Array<{ phase: number; values: Record<string, unknown> }> = []
+
+    const makeTx = (phase: number) => ({
+      update: mock((table: unknown) => ({
+        set: mock((values: Record<string, unknown>) => ({
+          where: mock(async () => {
+            if (table === apps) appUpdates.push({ phase, values })
+            calls.push(`tx${phase}:update:${String(values.status ?? "unknown")}`)
+            return []
+          }),
+        })),
+      })),
+      insert: mock((_table: unknown) => ({
+        values: mock(async (values: unknown) => {
+          calls.push(
+            `tx${phase}:insert:${(values as { id?: string }).id ?? "unknown"}`
+          )
+          return []
+        }),
+      })),
+      delete: mock((_table: unknown) => ({
+        where: mock(async () => {
+          calls.push(`tx${phase}:delete`)
+          return []
+        }),
+      })),
+    })
+
+    const db = {
+      transaction: mock(async (callback) => {
+        const phase = calls.filter((c) => c.endsWith(":start")).length + 1
+        calls.push(`tx${phase}:start`)
+        const result = await callback(makeTx(phase) as unknown as Db)
+        calls.push(`tx${phase}:commit`)
+        return result
+      }),
+    } as unknown as Db
+
+    const queue = {
+      add: mock(async () => {
+        calls.push("queue:add")
+        throw new Error("queue down")
+      }),
+    }
+
+    await expect(
+      enqueueAppDeleteJob({
+        db,
+        appId: "app-1",
+        requestedByUserId: "user-1",
+        previousStatus: "running",
+        flags: {
+          deleteImages: true,
+          dockerCleanup: true,
+          deleteBuildArtifacts: true,
+          deleteCaddyRoutes: true,
+        },
+        queue,
+      })
+    ).rejects.toThrow("queue down")
+
+    expect(calls).toContain("tx2:delete")
+    expect(calls).toContain("tx2:update:running")
+    expect(appUpdates).toEqual([
+      expect.objectContaining({ phase: 1, values: expect.objectContaining({ status: "deleting" }) }),
+      expect.objectContaining({ phase: 2, values: expect.objectContaining({ status: "running" }) }),
+    ])
+  })
+})
 
 // ---------------------------------------------------------------------------
 // POST /apps
@@ -231,6 +421,27 @@ describe.skipIf(skip)("POST /apps", () => {
     expect(body.app.runtimePort).toBe(4321)
     expect(body.app.nixpacksConfigPath).toBe("nixpacks.toml")
     expect(body.app.nodeVersion).toBe("22")
+  })
+
+  it("rejects rootDir traversal at creation time", async () => {
+    const app = buildTestApp(db, fakeUser(userId, `u@t.com`))
+    const res = await app.request("/apps", {
+      method: "POST",
+      headers: { "content-type": "application/json" },
+      body: JSON.stringify({
+        name: "Traversal App",
+        projectId,
+        gitProvider: "github",
+        repoFullName: "owner/repo",
+        branch: "main",
+        rootDir: "../..",
+      }),
+    })
+
+    expect(res.status).toBe(400)
+    const body = (await res.json()) as { error: { code: string; message: string } }
+    expect(body.error.code).toBe("VALIDATION_ERROR")
+    expect(body.error.message).toContain("safe relative path")
   })
 
   it("creates controlled initial secrets before first deploy enqueue", async () => {
@@ -640,6 +851,50 @@ describe.skipIf(skip)("PATCH /apps/:id", () => {
     expect(body.app.buildMethod).toBe("nixpacks")
     expect(body.app.branch).toBe("main") // unchanged
   })
+
+  it("rejects dockerfilePath traversal on patch", async () => {
+    const { id: appId } = await createTestApp(db, {
+      userId,
+      projectId,
+      branch: "main",
+    })
+
+    const honoApp = buildTestApp(db, fakeUser(userId, `u@t.com`))
+    const res = await honoApp.request(`/apps/${appId}`, {
+      method: "PATCH",
+      headers: { "content-type": "application/json" },
+      body: JSON.stringify({ dockerfilePath: "/etc/passwd" }),
+    })
+
+    expect(res.status).toBe(400)
+    const body = (await res.json()) as { error: { code: string; message: string } }
+    expect(body.error.code).toBe("VALIDATION_ERROR")
+    expect(body.error.message).toContain("safe relative path")
+  })
+
+  it("blocks patch when PAT-style scopes only grant apps:read", async () => {
+    const { id: appId } = await createTestApp(db, {
+      userId,
+      projectId,
+      branch: "main",
+    })
+
+    const scopedUser: AuthUser = {
+      ...fakeUser(userId, `u@t.com`),
+      token_scopes: ["apps:read"],
+      pat_id: "pat-readonly",
+    }
+    const honoApp = buildTestApp(db, scopedUser)
+    const res = await honoApp.request(`/apps/${appId}`, {
+      method: "PATCH",
+      headers: { "content-type": "application/json" },
+      body: JSON.stringify({ branch: "develop" }),
+    })
+
+    expect(res.status).toBe(403)
+    const body = (await res.json()) as { error: { code: string } }
+    expect(body.error.code).toBe("FORBIDDEN")
+  })
 })
 
 // ---------------------------------------------------------------------------
@@ -659,19 +914,30 @@ describe.skipIf(skip)("DELETE /apps/:id", () => {
     projectId = project.id
   })
 
-  it("soft-deletes (status=stopped) and returns 204", async () => {
+  it("marks app deleting and enqueues an async delete job", async () => {
     const { id: appId } = await createTestApp(db, { userId, projectId })
 
     const honoApp = buildTestApp(db, fakeUser(userId, `u@t.com`))
     const res = await honoApp.request(`/apps/${appId}`, { method: "DELETE" })
 
-    expect(res.status).toBe(204)
+    expect(res.status).toBe(202)
+    const body = (await res.json()) as { ok: boolean; jobId: string; status: string }
+    expect(body.ok).toBe(true)
+    expect(body.status).toBe("deleting")
 
-    // Verify still in DB with status=stopped (hard delete would leave nothing)
+    // Verify still in DB until the worker performs the cascade delete.
     const rows = await db.select().from(apps)
     const found = rows.find((r) => r.id === appId)
     expect(found).toBeDefined()
-    expect(found!.status).toBe("stopped")
+    expect(found!.status).toBe("deleting")
+
+    const jobs = await db
+      .select()
+      .from(app_delete_jobs)
+      .where(eq(app_delete_jobs.app_id, appId))
+    expect(jobs).toHaveLength(1)
+    expect(jobs[0]!.app_id).toBe(appId)
+    expect(jobs[0]!.status).toBe("pending")
   })
 
   it("returns 404 for an app belonging to another user", async () => {
@@ -958,6 +1224,19 @@ describe.skipIf(skip)("POST /apps/:id/rollback", () => {
 
     expect(res.status).toBe(404)
   })
+
+  it("stop returns 202 while runtime cleanup continues in background", async () => {
+    const { id: appId } = await createTestApp(db, { userId, projectId })
+
+    const honoApp = buildTestApp(db, fakeUser(userId, `u@t.com`))
+    const res = await honoApp.request(`/apps/${appId}/stop`, {
+      method: "POST",
+    })
+
+    expect(res.status).toBe(202)
+    const body = (await res.json()) as { ok: boolean }
+    expect(body.ok).toBe(true)
+  })
 })
 
 // ---------------------------------------------------------------------------
@@ -1101,7 +1380,7 @@ describe.skipIf(skip)("POST /apps — auto-inject suggestedEnvVars", () => {
     projectId = project.id
   })
 
-  it("Symfony repo: injects NIXPACKS_PHP_ROOT_DIR, NIXPACKS_PHP_FALLBACK_PATH, APP_ENV", async () => {
+  it("Symfony repo: injects PHP root/fallback and composer allow-superuser", async () => {
     // Mock ghProvider.fileExists: symfony.lock + composer.json present, everything else absent
     using _spy = spyOn(
       githubModule.ghProvider,
@@ -1130,18 +1409,32 @@ describe.skipIf(skip)("POST /apps — auto-inject suggestedEnvVars", () => {
     expect(res.status).toBe(201)
     const { app: created } = (await res.json()) as { app: { id: string } }
 
-    const envVars = await listEnvForApp(db, created.id)
+    const envVars = await db
+      .select()
+      .from(secrets)
+      .where(eq(secrets.app_id, created.id))
     const keys = envVars.map((v) => v.key)
     expect(keys).toContain("NIXPACKS_PHP_ROOT_DIR")
     expect(keys).toContain("NIXPACKS_PHP_FALLBACK_PATH")
-    expect(keys).toContain("APP_ENV")
+    expect(keys).toContain("NIXPACKS_INSTALL_CMD")
 
     const rootDir = envVars.find((v) => v.key === "NIXPACKS_PHP_ROOT_DIR")
-    expect(rootDir?.value).toBe("/app/public")
+    expect(rootDir?.phase).toBe("build")
+    expect(await decryptSecret(rootDir!.value_ciphertext, rootDir!.nonce)).toBe(
+      "/app/public"
+    )
     const fallback = envVars.find((v) => v.key === "NIXPACKS_PHP_FALLBACK_PATH")
-    expect(fallback?.value).toBe("/index.php")
-    const appEnv = envVars.find((v) => v.key === "APP_ENV")
-    expect(appEnv?.value).toBe("prod")
+    expect(fallback?.phase).toBe("build")
+    expect(await decryptSecret(fallback!.value_ciphertext, fallback!.nonce)).toBe(
+      "/index.php"
+    )
+    const installCmd = envVars.find((v) => v.key === "NIXPACKS_INSTALL_CMD")
+    expect(installCmd?.phase).toBe("build")
+    expect(
+      await decryptSecret(installCmd!.value_ciphertext, installCmd!.nonce)
+    ).toContain(
+      "COMPOSER_ALLOW_SUPERUSER=1 composer install --no-interaction"
+    )
   })
 
   it("Laravel repo: injects runtime-safe defaults including APP_KEY", async () => {
@@ -1171,8 +1464,18 @@ describe.skipIf(skip)("POST /apps — auto-inject suggestedEnvVars", () => {
 
     expect(res.status).toBe(201)
     const { app: created } = (await res.json()) as { app: { id: string } }
-    const envVars = await listEnvForApp(db, created.id)
-    const byKey = new Map(envVars.map((v) => [v.key, v.value]))
+    const envVars = await db
+      .select()
+      .from(secrets)
+      .where(eq(secrets.app_id, created.id))
+    const byKey = new Map(
+      await Promise.all(
+        envVars.map(async (v) => [
+          v.key,
+          await decryptSecret(v.value_ciphertext, v.nonce),
+        ] as const)
+      )
+    )
     expect(byKey.get("SESSION_DRIVER")).toBe("file")
     expect(byKey.get("CACHE_STORE")).toBe("file")
     expect(byKey.get("APP_KEY")).toMatch(/^base64:[A-Za-z0-9+/]+=*$/)

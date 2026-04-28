@@ -10,6 +10,7 @@
     "typecheck": "turbo typecheck",
     "test": "turbo test",
     "check:spdx": "bun run scripts/check-spdx.ts",
+    "openapi:docs": "NODE_ENV=test bun run scripts/generate-openapi.ts",
     "db:migrate": "bun run --cwd packages/db drizzle-kit migrate",
     "db:generate": "bun run --cwd packages/db drizzle-kit generate",
     "audit:rootless": "bash scripts/audit-rootless.sh"
@@ -27,7 +28,8 @@
     "node": ">=22"
   },
   "workspaces": [
-    "apps/*",
+    "apps/api",
+    "apps/web",
     "packages/*"
   ]
 }

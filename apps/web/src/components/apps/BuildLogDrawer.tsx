@@ -21,8 +21,8 @@ import {
 } from "@workspace/ui/components/sheet"
 import { Button } from "@workspace/ui/components/button"
 import { cn } from "@workspace/ui/lib/utils"
-import type { Build, BuildStatus } from "@ploydok/shared"
 import { BuildLogViewer } from "./BuildLogViewer"
+import type { Build, BuildStatus } from "@ploydok/shared"
 
 // ---------------------------------------------------------------------------
 // Status presentation
@@ -274,6 +274,20 @@ export function BuildLogDrawer({
   }, [appId, buildId])
 
   const shortId = buildId ? buildId.slice(0, 8) : ""
+  const failureDetails =
+    build?.status === "failed" && build.errorMessage
+      ? {
+          title: "Build failed",
+          tone: "red" as const,
+          message: build.errorMessage,
+        }
+      : build?.status === "succeeded_with_warning" && build.postDeployError
+        ? {
+            title: "Post-deploy hook failed",
+            tone: "amber" as const,
+            message: build.postDeployError,
+          }
+        : null
 
   return (
     <Sheet
@@ -389,6 +403,51 @@ export function BuildLogDrawer({
             </Button>
           </div>
         </SheetHeader>
+
+        {failureDetails ? (
+          <div
+            className={cn(
+              "shrink-0 border-b px-4 py-3",
+              failureDetails.tone === "red"
+                ? "border-red-500/25 bg-red-500/10"
+                : "border-amber-500/25 bg-amber-500/10"
+            )}
+          >
+            <div className="flex items-start gap-2">
+              <RiErrorWarningLine
+                className={cn(
+                  "mt-0.5 size-4 shrink-0",
+                  failureDetails.tone === "red"
+                    ? "text-red-300"
+                    : "text-amber-300"
+                )}
+                aria-hidden="true"
+              />
+              <div className="min-w-0 flex-1">
+                <p
+                  className={cn(
+                    "text-xs font-semibold",
+                    failureDetails.tone === "red"
+                      ? "text-red-200"
+                      : "text-amber-200"
+                  )}
+                >
+                  {failureDetails.title}
+                </p>
+                <pre
+                  className={cn(
+                    "mt-1 max-h-28 overflow-auto whitespace-pre-wrap break-words font-mono text-[11px] leading-relaxed",
+                    failureDetails.tone === "red"
+                      ? "text-red-100/90"
+                      : "text-amber-100/90"
+                  )}
+                >
+                  {failureDetails.message}
+                </pre>
+              </div>
+            </div>
+          </div>
+        ) : null}
 
         {/* ───────── Body ───────── */}
         <div className="flex-1 overflow-hidden p-3">

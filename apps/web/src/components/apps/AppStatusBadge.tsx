@@ -20,6 +20,11 @@ const STATUS_CONFIG: Record<
     className: "bg-green-500/10 text-green-600 dark:text-green-400",
     pulse: false,
   },
+  serving: {
+    label: "Serving",
+    className: "bg-emerald-500/10 text-emerald-600 dark:text-emerald-400",
+    pulse: false,
+  },
   building: {
     label: "Building",
     className: "bg-blue-500/10 text-blue-600 dark:text-blue-400",
@@ -28,6 +33,11 @@ const STATUS_CONFIG: Record<
   restarting: {
     label: "Restarting",
     className: "bg-yellow-500/10 text-yellow-600 dark:text-yellow-400",
+    pulse: true,
+  },
+  deleting: {
+    label: "Deleting",
+    className: "bg-orange-500/10 text-orange-600 dark:text-orange-400",
     pulse: true,
   },
   failed: {

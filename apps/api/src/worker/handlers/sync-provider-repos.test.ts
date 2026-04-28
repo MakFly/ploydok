@@ -11,6 +11,7 @@ import {
 import * as installTokensMod from "../../github/installation-tokens"
 import * as providerReposQueries from "@ploydok/db/queries"
 import * as queues from "../queues"
+import * as queueAuditMod from "../queue-audit"
 
 // ---------------------------------------------------------------------------
 // Minimal mock DB
@@ -47,7 +48,7 @@ function makeSelectChain(rows: unknown[]): SelectChain {
   return chain
 }
 
-function mockDb(opts: { gitlabTokenRows?: unknown[] } = {}) {
+function mockDb(opts: { gitlabTokenRows?: unknown[]; updateRow?: unknown } = {}) {
   return {
     select: (_fields?: unknown) => ({
       from: (_table: unknown) => makeSelectChain(opts.gitlabTokenRows ?? []),
@@ -55,7 +56,14 @@ function mockDb(opts: { gitlabTokenRows?: unknown[] } = {}) {
     update: (_table: unknown) => ({
       set: (_values: unknown) => ({
         where: (_condition: unknown) => ({
-          returning: () => Promise.resolve([{ id: "test" }]),
+          returning: () =>
+            Promise.resolve([
+              opts.updateRow ??
+                ({
+                  id: "test",
+                  last_sync_source: "system",
+                } as unknown),
+            ]),
         }),
       }),
     }),
@@ -271,6 +279,30 @@ describe("handleSyncProviderRepos — GitHub per-installation", () => {
 
     // replaceInstallationRepos called with empty array (no rows accumulated)
     expect(replaceReposSpy).toHaveBeenCalledWith(db, "github:999", [])
+  })
+
+  it("rejects an unclaimable GitHub credential (missing trust source)", async () => {
+    const { handleSyncProviderRepos } = await import("./sync-provider-repos")
+    const { ghProvider } = await import("../../routes/github")
+    const listReposSpy = spyOn(ghProvider, "listRepos")
+    const auditUnauthorizedSpy = spyOn(queueAuditMod, "auditUnauthorized")
+
+    const db = mockDb({
+      updateRow: {
+        id: "github:999",
+        last_sync_source: null,
+      },
+    })
+
+    await expect(
+      handleSyncProviderRepos(db as never, {
+        provider: "github",
+        installationId: "999",
+      })
+    ).rejects.toThrow("not claimable")
+
+    expect(listReposSpy).not.toHaveBeenCalled()
+    expect(auditUnauthorizedSpy).toHaveBeenCalled()
   })
 })
 

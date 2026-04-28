@@ -17,20 +17,25 @@ function buildWsUrl(
   appId: string,
   cols: number,
   rows: number,
+  mode: "ro" | "rw" = "ro",
 ): string {
   const wsProtocol = protocol === "https:" ? "wss:" : "ws:"
-  return `${wsProtocol}//${host}/ws/apps/${appId}/exec?cols=${cols}&rows=${rows}`
+  return `${wsProtocol}//${host}/ws/apps/${appId}/exec?cols=${cols}&rows=${rows}&mode=${mode}`
 }
 
 describe("Shell — WebSocket URL", () => {
   it("uses ws: when page is http:", () => {
     const url = buildWsUrl("localhost:5173", "http:", "abc", 80, 24)
-    expect(url).toBe("ws://localhost:5173/ws/apps/abc/exec?cols=80&rows=24")
+    expect(url).toBe(
+      "ws://localhost:5173/ws/apps/abc/exec?cols=80&rows=24&mode=ro"
+    )
   })
 
   it("uses wss: when page is https:", () => {
     const url = buildWsUrl("app.example.com", "https:", "abc", 120, 30)
-    expect(url).toBe("wss://app.example.com/ws/apps/abc/exec?cols=120&rows=30")
+    expect(url).toBe(
+      "wss://app.example.com/ws/apps/abc/exec?cols=120&rows=30&mode=ro"
+    )
   })
 
   it("includes the appId in the path", () => {
@@ -43,6 +48,11 @@ describe("Shell — WebSocket URL", () => {
     expect(url).toContain("cols=132")
     expect(url).toContain("rows=50")
   })
+
+  it("forwards rw mode when write access is enabled", () => {
+    const url = buildWsUrl("localhost:5173", "http:", "abc", 80, 24, "rw")
+    expect(url).toContain("mode=rw")
+  })
 })
 
 // ---------------------------------------------------------------------------
@@ -53,6 +63,8 @@ function closeReason(code: number): string {
   switch (code) {
     case 4001:
       return "Unauthorized"
+    case 4003:
+      return "Write access requires a fresh second-factor check"
     case 4004:
       return "App not found or no running container"
     case 1001:
@@ -71,6 +83,12 @@ describe("Shell — close reason mapping", () => {
 
   it("maps 4004 to app not found message", () => {
     expect(closeReason(4004)).toBe("App not found or no running container")
+  })
+
+  it("maps 4003 to write proof required message", () => {
+    expect(closeReason(4003)).toBe(
+      "Write access requires a fresh second-factor check"
+    )
   })
 
   it("maps 1001 to idle timeout message", () => {

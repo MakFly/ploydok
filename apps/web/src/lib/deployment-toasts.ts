@@ -13,6 +13,10 @@ import { toast } from "sonner"
 import { useQueryClient } from "@tanstack/react-query"
 import { useEventsSubscription } from "./events-provider"
 import { invalidateGetCache } from "./api"
+import {
+  markAppStoppedInListCaches,
+  removeAppFromListCaches,
+} from "./apps-mutations"
 import type { NotificationEvent } from "./notifications"
 
 export function useDeploymentToasts(): void {
@@ -34,11 +38,18 @@ export function useDeploymentToasts(): void {
   // row are wiped. We upgrade the loading toast posted by useDeleteApp and
   // bust the apps caches here, mounted once at the _authed layout — robust
   // to the user navigating away from the detail page before completion.
+  const onAppDeleteQueued = React.useCallback((evt: NotificationEvent) => {
+    if (evt.t < mountedAt.current) return
+    if (!evt.appId) return
+    toast.loading(evt.message, { id: `delete-app:${evt.appId}` })
+  }, [])
+
   const onAppDeleted = React.useCallback(
     (evt: NotificationEvent) => {
       if (evt.t < mountedAt.current) return
       if (!evt.appId) return
       invalidateGetCache()
+      removeAppFromListCaches(qc, evt.appId)
       qc.removeQueries({ queryKey: ["apps", evt.appId] })
       void qc.invalidateQueries({ queryKey: ["apps"] })
       toast.success(evt.message, { id: `delete-app:${evt.appId}` })
@@ -57,11 +68,46 @@ export function useDeploymentToasts(): void {
     [qc]
   )
 
+  const onAppStopQueued = React.useCallback((evt: NotificationEvent) => {
+    if (evt.t < mountedAt.current) return
+    if (!evt.appId) return
+    toast.loading(evt.message, { id: `stop-app:${evt.appId}` })
+  }, [])
+
+  const onAppStopped = React.useCallback(
+    (evt: NotificationEvent) => {
+      if (evt.t < mountedAt.current) return
+      if (!evt.appId) return
+      invalidateGetCache()
+      markAppStoppedInListCaches(qc, evt.appId)
+      void qc.invalidateQueries({ queryKey: ["apps", evt.appId] })
+      void qc.invalidateQueries({ queryKey: ["apps"] })
+      toast.success(evt.message, { id: `stop-app:${evt.appId}` })
+    },
+    [qc]
+  )
+
+  const onAppStopFailed = React.useCallback(
+    (evt: NotificationEvent) => {
+      if (evt.t < mountedAt.current) return
+      if (!evt.appId) return
+      invalidateGetCache()
+      void qc.invalidateQueries({ queryKey: ["apps", evt.appId] })
+      void qc.invalidateQueries({ queryKey: ["apps"] })
+      toast.error(evt.message, { id: `stop-app:${evt.appId}` })
+    },
+    [qc]
+  )
+
   useEventsSubscription<NotificationEvent>("build.succeeded", onSucceeded)
   useEventsSubscription<NotificationEvent>("build.failed", onFailed)
+  useEventsSubscription<NotificationEvent>("app.delete.queued", onAppDeleteQueued)
   useEventsSubscription<NotificationEvent>("app.deleted", onAppDeleted)
   useEventsSubscription<NotificationEvent>(
     "app.delete.failed",
     onAppDeleteFailed
   )
+  useEventsSubscription<NotificationEvent>("app.stop.queued", onAppStopQueued)
+  useEventsSubscription<NotificationEvent>("app.stopped", onAppStopped)
+  useEventsSubscription<NotificationEvent>("app.stop.failed", onAppStopFailed)
 }

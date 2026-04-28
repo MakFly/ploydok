@@ -306,7 +306,16 @@ async function resolvePhpAwareNixpacksPlan(opts: {
     opts.ctx,
     opts.runtimeEnv ?? {}
   )
-  if (!resolution && !shouldBootstrapSqlite) return null
+  const shouldSuppressLaravelPrestartWarnings = existsSync(
+    path.join(opts.ctx, "artisan")
+  )
+  if (
+    !resolution &&
+    !shouldBootstrapSqlite &&
+    !shouldSuppressLaravelPrestartWarnings
+  ) {
+    return null
+  }
 
   const plan = await loadRawNixpacksPlan(opts)
   if (!plan) return null
@@ -329,6 +338,16 @@ async function resolvePhpAwareNixpacksPlan(opts: {
     changed = true
     opts.onLog?.(
       "[nixpacks] Laravel SQLite bootstrap enabled: create database file and run migrations before start; seeders are opt-in"
+    )
+  }
+
+  if (
+    shouldSuppressLaravelPrestartWarnings &&
+    suppressLaravelPrestartEnvWarnings(plan)
+  ) {
+    changed = true
+    opts.onLog?.(
+      "[nixpacks] Laravel prestart env reference warnings disabled; Ploydok injects runtime defaults separately"
     )
   }
 
@@ -442,6 +461,23 @@ function injectLaravelSqliteStartBootstrap(plan: JsonObject): boolean {
   if (cmd.includes("PLOYDOK_LARAVEL_SQLITE_BOOTSTRAP")) return false
 
   start["cmd"] = `${LARAVEL_SQLITE_BOOTSTRAP_CMD}; ${cmd}`
+  return true
+}
+
+function suppressLaravelPrestartEnvWarnings(plan: JsonObject): boolean {
+  const start = plan["start"]
+  if (!isJsonObject(start)) return false
+  const cmd = start["cmd"]
+  if (typeof cmd !== "string" || cmd.trim().length === 0) return false
+  if (cmd.includes("IS_LARAVEL= node /assets/scripts/prestart.mjs")) {
+    return false
+  }
+  if (!cmd.includes("node /assets/scripts/prestart.mjs")) return false
+
+  start["cmd"] = cmd.replace(
+    "node /assets/scripts/prestart.mjs",
+    "IS_LARAVEL= node /assets/scripts/prestart.mjs"
+  )
   return true
 }
 

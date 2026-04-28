@@ -1,11 +1,11 @@
 // SPDX-License-Identifier: AGPL-3.0-only
-import { useSuspenseQuery, useMutation } from "@tanstack/react-query"
+import { useMutation, useSuspenseQuery } from "@tanstack/react-query"
+import { apiFetchAllowErrorBody } from "./api"
 import type {
   CheckoutResponse,
   CurrentPlanResponse,
   PortalResponse,
 } from "@ploydok/shared"
-import { apiFetchAllowErrorBody } from "./api"
 
 export function useCurrentPlan(orgSlug: string) {
   return useSuspenseQuery({

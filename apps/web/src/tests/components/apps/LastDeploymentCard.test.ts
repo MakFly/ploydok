@@ -4,12 +4,12 @@
  * No DOM rendering.
  */
 import { describe, expect, it } from "bun:test"
-import type { Build } from "@ploydok/shared"
 import {
+  buildStatusToAppStatus,
   formatDuration,
   truncateSha,
-  buildStatusToAppStatus,
 } from "../../../components/apps/LastDeploymentCard"
+import type { Build } from "@ploydok/shared"
 
 // ---------------------------------------------------------------------------
 // formatDuration

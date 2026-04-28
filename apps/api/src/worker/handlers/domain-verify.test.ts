@@ -123,6 +123,31 @@ describe("handleDomainVerify", () => {
     await handleDomainVerify(fakeDb, { domainId: "dom-1" })
   })
 
+  it("rejects non-claimable domain rows missing trust metadata", async () => {
+    const { handleDomainVerify } = await import("./domain-verify.js")
+    const fakeDb = createMockDb()
+
+    spyOn(queueClaimMod, "claimQueuedRow").mockResolvedValue({
+      ...MOCK_DOMAIN,
+      requested_by_user_id: null,
+      verify_source: null,
+    })
+    const auditUnauthorizedSpy = spyOn(queueAuditMod, "auditUnauthorized")
+    const verifyDomainSpy = spyOn(verifierMod, "verifyDomain").mockResolvedValue({
+      ok: true,
+    })
+
+    try {
+      await handleDomainVerify(fakeDb, { domainId: "dom-1" })
+      expect.unreachable("should have thrown")
+    } catch (err) {
+      expect((err as Error).message).toContain("not claimable")
+    }
+
+    expect(auditUnauthorizedSpy).toHaveBeenCalled()
+    expect(verifyDomainSpy).not.toHaveBeenCalled()
+  })
+
   it("claim drops if domain status is verified (no double-verify)", async () => {
     const { handleDomainVerify } = await import("./domain-verify.js")
     const fakeDb = createMockDb()

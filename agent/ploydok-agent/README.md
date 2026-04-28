@@ -57,6 +57,6 @@ Le `PermissiveValidator` actuel autorise tout. Task 2.3 le remplace par
 
 - Noms containers/networks préfixés `ploydok-`
 - Images depuis registries whitelist
-- Bind-mounts limités à `/var/lib/ploydok/volumes/`
+- Bind-mounts limités à `/var/lib/ploydok/volumes/` et `/var/lib/ploydok/app-volumes/`
 - Refus `privileged`, `pid=host`, `cap-add` non whitelistés
 - mTLS sur le Unix socket

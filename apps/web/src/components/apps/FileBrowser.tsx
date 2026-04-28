@@ -10,15 +10,16 @@ import {
   RiLoader4Line,
   RiRefreshLine,
 } from "@remixicon/react"
-import { listContainerFiles, type FileEntry } from "../../lib/container-files"
+import {  listContainerFiles } from "../../lib/container-files"
 import { FileViewer } from "./FileViewer"
+import type {FileEntry} from "../../lib/container-files";
 
 interface FileBrowserProps {
   appId: string
 }
 
 interface DirState {
-  entries: FileEntry[] | null
+  entries: Array<FileEntry> | null
   loading: boolean
   error: string | null
   expanded: boolean

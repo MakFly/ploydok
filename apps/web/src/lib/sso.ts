@@ -1,8 +1,8 @@
 // SPDX-License-Identifier: AGPL-3.0-only
 import { apiFetch } from "./api/client"
 import type {
-  SSOConfigSummary,
   SSOConfigCreateBody,
+  SSOConfigSummary,
   SSOConfigUpdateBody,
   SSOTestResponse,
 } from "@ploydok/shared"

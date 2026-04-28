@@ -1,8 +1,8 @@
 // SPDX-License-Identifier: AGPL-3.0-only
 import * as React from "react"
-import type { BuildStatus } from "@ploydok/shared"
 import { useEventsSubscription } from "../events-provider"
 import { useApp } from "../apps"
+import type { BuildStatus } from "@ploydok/shared"
 
 // ---------------------------------------------------------------------------
 // Types

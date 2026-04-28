@@ -16,6 +16,8 @@
 import { describe, it, expect } from "bun:test";
 import { wsRouter } from "./ws";
 
+const wsEnv = { server: { upgrade: () => false } };
+
 // ---------------------------------------------------------------------------
 // Smoke: router is a Hono instance with the right shape
 // ---------------------------------------------------------------------------
@@ -26,7 +28,10 @@ describe("wsRouter shape", () => {
   });
 
   it("responds to unknown routes with 404", async () => {
-    const res = await wsRouter.fetch(new Request("http://localhost/apps/x/unknown-route"));
+    const res = await wsRouter.fetch(
+      new Request("http://localhost/apps/x/unknown-route"),
+      wsEnv,
+    );
     expect(res.status).toBe(404);
   });
 });
@@ -43,6 +48,7 @@ describe("wsRouter auth", () => {
   it("/apps/:id/build/:buildId — plain GET without cookie returns non-200", async () => {
     const res = await wsRouter.fetch(
       new Request("http://localhost/apps/app-1/build/build-1"),
+      wsEnv,
     );
     // Without a valid JWT cookie the endpoint should either 401 or
     // perform a WebSocket upgrade (101).  Since there is no live Bun
@@ -56,6 +62,7 @@ describe("wsRouter auth", () => {
   it("/apps/:id/logs — plain GET without cookie returns non-200", async () => {
     const res = await wsRouter.fetch(
       new Request("http://localhost/apps/app-1/logs"),
+      wsEnv,
     );
     expect(res.status).not.toBe(200);
   });

@@ -1,8 +1,8 @@
 // SPDX-License-Identifier: AGPL-3.0-only
 import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query"
 import { apiFetch } from "./api"
-import type { ApiError } from "./api"
 import { notifyMutationError } from "./second-factor-toast"
+import type { ApiError } from "./api"
 
 // ---------------------------------------------------------------------------
 // Types

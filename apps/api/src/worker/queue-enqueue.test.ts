@@ -1,7 +1,8 @@
 // SPDX-License-Identifier: AGPL-3.0-only
-import { describe, it, expect, mock } from "bun:test"
+import { describe, it, expect, mock, spyOn } from "bun:test"
 import type { Queue } from "bullmq"
 import type { Db } from "@ploydok/db"
+import * as queueAudit from "./queue-audit"
 import { enqueueWithDbRow } from "./queue-enqueue"
 
 describe("enqueueWithDbRow", () => {
@@ -123,6 +124,100 @@ describe("enqueueWithDbRow", () => {
 
     expect(result.jobId).toBe("job-789")
     expect(result.row).toEqual(fakeRow)
+  })
+
+  it("emits enqueue audit payload with actor and source inferred from row", async () => {
+    const auditSpy = spyOn(queueAudit, "auditEnqueued")
+
+    const fakeRow = {
+      id: "row-123",
+      requested_by_user_id: "user-456",
+      source: "github",
+    }
+
+    const mockDb = {
+      transaction: mock(async (callback) => {
+        const mockTx = {}
+        await callback(mockTx as Db)
+      }),
+    } as unknown as Db
+
+    const mockQueue = {
+      add: mock(async () => ({
+        id: "job-456",
+      })),
+    } as unknown as Queue
+
+    await enqueueWithDbRow({
+      db: mockDb,
+      queue: mockQueue,
+      jobName: "test.job",
+      insertRow: mock(async () => fakeRow),
+      buildPayload: (row) => ({ rowId: row.id }),
+    })
+
+    const [lastCall] = auditSpy.mock.calls.at(-1)! as [
+      {
+        jobName: string
+        jobId: string
+        rowId: string
+        actor: string | null
+        source: string
+      },
+    ]
+    expect(auditSpy).toHaveBeenCalled()
+    expect(lastCall).toMatchObject({
+      jobName: "test.job",
+      jobId: "job-456",
+      rowId: "row-123",
+      actor: "user-456",
+      source: "github",
+    })
+  })
+
+  it("emits enqueue audit payload with defaults when metadata is absent", async () => {
+    const auditSpy = spyOn(queueAudit, "auditEnqueued")
+
+    const fakeRow = { id: "row-123" }
+
+    const mockDb = {
+      transaction: mock(async (callback) => {
+        const mockTx = {}
+        await callback(mockTx as Db)
+      }),
+    } as unknown as Db
+
+    const mockQueue = {
+      add: mock(async () => ({
+        id: "job-456",
+      })),
+    } as unknown as Queue
+
+    await enqueueWithDbRow({
+      db: mockDb,
+      queue: mockQueue,
+      jobName: "test.job",
+      insertRow: mock(async () => fakeRow),
+      buildPayload: (row) => ({ rowId: row.id }),
+    })
+
+    const [lastCall] = auditSpy.mock.calls.at(-1)! as [
+      {
+        jobName: string
+        jobId: string
+        rowId: string
+        actor: string | null
+        source: string
+      },
+    ]
+    expect(auditSpy).toHaveBeenCalled()
+    expect(lastCall).toMatchObject({
+      jobName: "test.job",
+      jobId: "job-456",
+      rowId: "row-123",
+      actor: null,
+      source: "system",
+    })
   })
 
   it("respects jobOptions", async () => {

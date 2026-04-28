@@ -7,7 +7,8 @@ import {
   RiServerLine,
 } from "@remixicon/react"
 import { cn } from "@workspace/ui/lib/utils"
-import { useHostStats, type HostStats } from "../../lib/host-stats"
+import {  useHostStats } from "../../lib/host-stats"
+import type {HostStats} from "../../lib/host-stats";
 
 function formatBytes(b: number): string {
   if (b < 1024) return `${b} B`

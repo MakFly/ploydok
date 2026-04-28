@@ -208,7 +208,7 @@
     {
       "idx": 30,
       "version": "7",
-      "when": 1777591700000,
+      "when": 1777215800000,
       "tag": "0030_queue_trust_drift_repair",
       "breakpoints": true
     },
@@ -224,6 +224,76 @@
       "version": "7",
       "when": 1777245189968,
       "tag": "0032_outstanding_earthquake",
+      "breakpoints": true
+    },
+    {
+      "idx": 33,
+      "version": "7",
+      "when": 1777271227000,
+      "tag": "0033_app_delete_jobs_keep_trace",
+      "breakpoints": true
+    },
+    {
+      "idx": 34,
+      "version": "7",
+      "when": 1777271800000,
+      "tag": "0034_static_sites",
+      "breakpoints": true
+    },
+    {
+      "idx": 35,
+      "version": "7",
+      "when": 1777319100000,
+      "tag": "0035_app_cdn",
+      "breakpoints": true
+    },
+    {
+      "idx": 36,
+      "version": "7",
+      "when": 1777323000000,
+      "tag": "0036_cloudflare_cdn",
+      "breakpoints": true
+    },
+    {
+      "idx": 37,
+      "version": "7",
+      "when": 1777366200000,
+      "tag": "0037_preview_deployments",
+      "breakpoints": true
+    },
+    {
+      "idx": 38,
+      "version": "7",
+      "when": 1777417200000,
+      "tag": "0038_app_volumes",
+      "breakpoints": true
+    },
+    {
+      "idx": 39,
+      "version": "7",
+      "when": 1777420800000,
+      "tag": "0039_volume_backups",
+      "breakpoints": true
+    },
+    {
+      "idx": 40,
+      "version": "7",
+      "when": 1777505200000,
+      "tag": "0040_sprint7_drift_repair",
+      "breakpoints": true
+    },
+    {
+      "idx": 41,
+      "version": "7",
+      "when": 1777505300000,
+      "tag": "0041_cloudflare_cdn_drift_repair",
+      "breakpoints": true
+    },
+    {
+      "idx": 42,
+      "version": "7",
+      "when": 1777505400000,
+      "tag": "0042_cve_advisories",
       "breakpoints": true
     }
   ]

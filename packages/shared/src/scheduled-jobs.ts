@@ -19,6 +19,7 @@ export const ScheduledJobCreateSchema = z.object({
   command: z.array(z.string()).optional(),
   env: z.record(z.string(), z.string()).optional(),
   timeout_seconds: z.number().int().positive().default(300),
+  enabled: z.boolean().default(true),
 })
 
 export type ScheduledJobCreateInput = z.infer<typeof ScheduledJobCreateSchema>

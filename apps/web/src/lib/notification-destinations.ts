@@ -8,6 +8,13 @@ const BUILD_NOTIFICATION_TYPES = new Set<NotificationEvent["type"]>([
   "deploy.status_change",
 ])
 
+const ACTIVE_APP_NOTIFICATION_TYPES = new Set<NotificationEvent["type"]>([
+  "app.delete.queued",
+  "app.stop.queued",
+  "app.stopped",
+  "app.stop.failed",
+])
+
 const PROVIDER_SYNC_TYPES = new Set<NotificationEvent["type"]>([
   "provider.sync.started",
   "provider.sync.completed",
@@ -31,6 +38,10 @@ export function resolveNotificationHref(
 
   if (item.type === "container.health") {
     return `/orgs/${orgSlug}/apps/${item.appId}/overview`
+  }
+
+  if (ACTIVE_APP_NOTIFICATION_TYPES.has(item.type)) {
+    return `/orgs/${orgSlug}/apps/${item.appId}/settings`
   }
 
   return null

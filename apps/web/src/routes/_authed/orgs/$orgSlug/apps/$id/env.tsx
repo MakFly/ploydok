@@ -1,6 +1,6 @@
 // SPDX-License-Identifier: AGPL-3.0-only
 import * as React from "react"
-import { useParams, createFileRoute } from "@tanstack/react-router"
+import { createFileRoute, useParams } from "@tanstack/react-router"
 import {
   RiAddLine,
   RiDatabase2Line,
@@ -37,8 +37,8 @@ import type {
   SecretScope,
 } from "../../../../../../lib/secrets"
 
-const SCOPES: SecretScope[] = ["shared", "prod", "preview", "dev"]
-const PHASES: SecretPhase[] = ["runtime", "build", "both"]
+const SCOPES: Array<SecretScope> = ["shared", "prod", "preview", "dev"]
+const PHASES: Array<SecretPhase> = ["runtime", "build", "both"]
 
 const SCOPE_LABELS: Record<SecretScope, { label: string; hint: string }> = {
   shared: {
@@ -60,7 +60,8 @@ const SCOPE_LABELS: Record<SecretScope, { label: string; hint: string }> = {
 }
 
 function AppEnvTab(): React.JSX.Element {
-  const { id: appId } = useParams({ strict: false }) as { id: string }
+  const { id: routeAppId } = useParams({ strict: false })
+  const appId = routeAppId!
   const [activeScope, setActiveScope] = React.useState<SecretScope>("shared")
   const [showAdd, setShowAdd] = React.useState(false)
   const [showImport, setShowImport] = React.useState(false)
@@ -232,7 +233,7 @@ function DeveloperEnvEditor({
 }: {
   appId: string
   scope: SecretScope
-  secrets: SecretMeta[]
+  secrets: Array<SecretMeta>
 }): React.JSX.Element {
   const [content, setContent] = React.useState("")
   const [phase, setPhase] = React.useState<SecretPhase>("runtime")

@@ -27,6 +27,37 @@ function SelectValue(
   return <SelectPrimitive.Value data-slot="select-value" {...props} />
 }
 
+function SelectLabel({
+  className,
+  ...props
+}: React.ComponentProps<typeof SelectPrimitive.Label>) {
+  return (
+    <SelectPrimitive.Label
+      data-slot="select-label"
+      className={cn("px-2 py-1.5 text-sm font-medium", className)}
+      {...props}
+    />
+  )
+}
+
+function SelectScroll({
+  className,
+  ...props
+}: React.ComponentProps<typeof SelectPrimitive.ScrollDownButton>) {
+  return (
+    <SelectPrimitive.ScrollDownButton
+      data-slot="select-scroll"
+      className={cn(
+        "flex cursor-default items-center justify-center py-1",
+        className,
+      )}
+      {...props}
+    >
+      <RiArrowDownSLine aria-hidden="true" />
+    </SelectPrimitive.ScrollDownButton>
+  )
+}
+
 function SelectTrigger({
   className,
   children,
@@ -117,6 +148,8 @@ export {
   SelectContent,
   SelectGroup,
   SelectItem,
+  SelectLabel,
+  SelectScroll,
   SelectTrigger,
   SelectValue,
 }

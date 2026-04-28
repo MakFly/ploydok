@@ -26,16 +26,11 @@ import {
   SelectTrigger,
   SelectValue,
 } from "@workspace/ui/components/select"
-import type {
-  NotificationChannel,
-  NotificationKind,
-  ChannelEvent,
-} from "../../lib/notification-channels"
 import {
   ALL_EVENTS,
   EVENT_LABELS,
-  KIND_LABELS,
   FUNCTIONAL_KINDS,
+  KIND_LABELS,
   isComingSoon,
   useCreateChannel,
   useUpdateChannel,
@@ -45,6 +40,11 @@ import { SlackForm } from "./SlackForm"
 import { TelegramForm } from "./TelegramForm"
 import { WhatsAppForm } from "./WhatsAppForm"
 import { EmailForm } from "./EmailForm"
+import type {
+  ChannelEvent,
+  NotificationChannel,
+  NotificationKind,
+} from "../../lib/notification-channels"
 import type { WhatsAppProvider } from "./WhatsAppForm"
 
 const ALL_KINDS: ReadonlyArray<NotificationKind> = [

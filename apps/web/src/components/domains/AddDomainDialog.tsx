@@ -112,7 +112,7 @@ export function AddDomainDialog({ onAdd, isAdding, lockReason }: AddDomainDialog
           <div className="space-y-1.5">
             <Label>TLS mode</Label>
             <div className="flex gap-2">
-              {(["http01", "dns01"] as TlsMode[]).map((mode) => (
+              {(["http01", "dns01"] as Array<TlsMode>).map((mode) => (
                 <button
                   key={mode}
                   type="button"

@@ -1,0 +1,11 @@
+{
+  "name": "ploydok-e2e-node-hono",
+  "version": "0.0.1",
+  "type": "module",
+  "scripts": {
+    "start": "bun run src/index.js"
+  },
+  "dependencies": {
+    "hono": "^4.12.14"
+  }
+}

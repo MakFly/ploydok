@@ -2,8 +2,9 @@
 import * as React from "react"
 import { useQuery } from "@tanstack/react-query"
 import { RiApps2Line, RiCpuLine, RiDatabase2Line, RiGitBranchLine } from "@remixicon/react"
-import { apiFetch, type ApiError } from "../../lib/api"
 import { cn } from "@workspace/ui/lib/utils"
+import {  apiFetch } from "../../lib/api"
+import type {ApiError} from "../../lib/api";
 
 // ---------------------------------------------------------------------------
 // Types

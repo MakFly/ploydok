@@ -1,6 +1,18 @@
-# Sprint — Queue trust boundary ⏳ À faire
+# Sprint — Queue trust boundary ✅ Code · ⏳ e2e
 
 > Hardening sécu : fermer le bypass auth via Redis. Estimation **2 jours focus**.
+>
+> **Suivi 2026-04-27** : code + tests ciblés verts. Le sprint reste en
+> `✅ Code · ⏳ e2e` car `bun run lint` échoue encore sur des erreurs
+> préexistantes côté `apps/web` hors périmètre secops.
+>
+> - [x] `bunx tsc -p apps/api/tsconfig.json --noEmit`
+> - [x] `bun test` ciblé helpers/handlers queue-trust
+> - [x] `PLOYDOK_TEST_PG_URL=... bun test apps/api/src/worker/queue-trust.e2e.test.ts`
+> - [x] `PLOYDOK_TEST_PG_URL=... bun test apps/api/src/worker/handlers/deploy.test.ts`
+> - [x] `bun run check:spdx`
+> - [x] `git diff --check`
+> - [ ] `bun run lint` root — bloqué par erreurs existantes `apps/web`
 
 ## Contexte
 
@@ -82,21 +94,21 @@ audit. Pas de secret HMAC à propager.
 
 ## DoD
 
-- [ ] Push direct BullMQ avec un payload sans row DB correspondante → job
+- [x] Push direct BullMQ avec un payload sans row DB correspondante → job
       rejeté avec audit log `queue.unauthorized`. Test e2e vert.
-- [ ] Toute insertion en queue depuis l'API porte `requested_by_user_id`
+- [x] Toute insertion en queue depuis l'API porte `requested_by_user_id`
       (ou `NULL` + `source` non-utilisateur) traçable jusqu'au consumer.
-- [ ] Le worker logue à la consommation : `{ jobName, jobId, entityId,
+- [x] Le worker logue à la consommation : `{ jobName, jobId, entityId,
     actor, source, claimed_at }` — pino niveau `info` sur le logger
       `queue.audit`.
-- [ ] CAS atomique sur le claim : aucun job ne peut être consommé deux
+- [x] CAS atomique sur le claim : aucun job ne peut être consommé deux
       fois (replay protection).
-- [ ] Les triggers internes (cron, webhook GitHub, auto-deploy) écrivent
+- [x] Les triggers internes (cron, webhook GitHub, auto-deploy) écrivent
       une row DB avec `requested_by_user_id=NULL` et `source ∈ {webhook:gh,
     cron:gc, auto:push, …}`.
-- [ ] Les 4 queues high-priority migrées : `deploy`, `app.delete`,
+- [x] Les 4 queues high-priority migrées : `deploy`, `app.delete`,
       `domain.verify`, `provider.repos.sync`.
-- [ ] Test unit + e2e par queue : (a) producer écrit la row, (b) consumer
+- [x] Test unit + e2e par queue : (a) producer écrit la row, (b) consumer
       CAS-claim, (c) drop sur push raw.
 - [ ] `bun run typecheck && bun run lint && bun test && bun run check:spdx`
       verts.

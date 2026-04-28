@@ -1,7 +1,7 @@
 // SPDX-License-Identifier: AGPL-3.0-only
 import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query"
-import { apiFetch } from "./api"
 import { toast } from "sonner"
+import { apiFetch } from "./api"
 import { notifyMutationError } from "./second-factor-toast"
 
 // ── Types ─────────────────────────────────────────────────────────────────────
@@ -119,7 +119,7 @@ export function useDatabases(
     queryKey: databaseKeys.list(projectId),
     queryFn: async () => {
       const url = projectId ? `/databases?projectId=${projectId}` : "/databases"
-      return apiFetch<Database[]>(url)
+      return apiFetch<Array<Database>>(url)
     },
     enabled,
   })
@@ -199,7 +199,7 @@ export function useLinkDatabase() {
       databaseId: string
       env_prefix?: string
     }) => {
-      return apiFetch<{ ok: boolean; vars: string[] }>(
+      return apiFetch<{ ok: boolean; vars: Array<string> }>(
         `/apps/${appId}/databases/${databaseId}/link`,
         {
           method: "POST",
@@ -226,7 +226,7 @@ export function useRotateDatabase() {
       return apiFetch<{
         ok: boolean
         rotatedAt: string
-        appsRedeployed: string[]
+        appsRedeployed: Array<string>
       }>(`/databases/${id}/rotate`, {
         method: "POST",
         headers: { "X-TOTP-Code": totpCode },
@@ -341,7 +341,7 @@ export function useDatabaseLogs(id: string, tail = 200) {
   return useQuery({
     queryKey: ["databases", "logs", id, tail],
     queryFn: async () =>
-      apiFetch<{ lines: DatabaseLogLine[]; containerFound: boolean }>(
+      apiFetch<{ lines: Array<DatabaseLogLine>; containerFound: boolean }>(
         `/databases/${id}/logs?tail=${tail}`
       ),
     enabled: Boolean(id),

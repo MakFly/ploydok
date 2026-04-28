@@ -15,8 +15,21 @@
 //   the exported pure helpers and verify the route shape.
 
 import { describe, it, expect } from "bun:test"
-import { buildStartFrame, getUserIdFromRequest } from "./apps-exec"
+import { createHmac } from "node:crypto"
+import {
+  buildSecondFactorCookie,
+  SECOND_FACTOR_COOKIE,
+} from "../auth/second-factor"
+import { env } from "../env"
+import {
+  buildStartFrame,
+  getRequestedExecMode,
+  getUserIdFromRequest,
+  hasFreshSecondFactorCookie,
+} from "./apps-exec"
 import type { ExecFrame } from "@ploydok/agent-proto"
+
+const wsEnv = { server: { upgrade: () => false } }
 
 // ---------------------------------------------------------------------------
 // buildStartFrame — pure unit tests
@@ -78,6 +91,66 @@ describe("getUserIdFromRequest", () => {
 })
 
 // ---------------------------------------------------------------------------
+// Exec mode + write proof helpers
+// ---------------------------------------------------------------------------
+
+describe("getRequestedExecMode", () => {
+  it("defaults to ro when mode is absent", () => {
+    const req = new Request("http://localhost/ws/apps/app-1/exec")
+    expect(getRequestedExecMode(req)).toBe("ro")
+  })
+
+  it("returns rw only for explicit mode=rw", () => {
+    const req = new Request("http://localhost/ws/apps/app-1/exec?mode=rw")
+    expect(getRequestedExecMode(req)).toBe("rw")
+  })
+
+  it("falls back to ro for unknown mode", () => {
+    const req = new Request("http://localhost/ws/apps/app-1/exec?mode=write")
+    expect(getRequestedExecMode(req)).toBe("ro")
+  })
+})
+
+describe("hasFreshSecondFactorCookie", () => {
+  it("returns false when cookie is absent", () => {
+    const req = new Request("http://localhost/ws/apps/app-1/exec")
+    expect(hasFreshSecondFactorCookie(req, "u1")).toBe(false)
+  })
+
+  it("returns true for a fresh signed cookie matching the user", () => {
+    const rawCookie = buildSecondFactorCookie("u1").split(";")[0]!
+    const req = new Request("http://localhost/ws/apps/app-1/exec", {
+      headers: { cookie: rawCookie },
+    })
+    expect(hasFreshSecondFactorCookie(req, "u1")).toBe(true)
+  })
+
+  it("returns false when the signed cookie belongs to another user", () => {
+    const rawCookie = buildSecondFactorCookie("u2").split(";")[0]!
+    const req = new Request("http://localhost/ws/apps/app-1/exec", {
+      headers: { cookie: rawCookie },
+    })
+    expect(hasFreshSecondFactorCookie(req, "u1")).toBe(false)
+  })
+
+  it("returns false when the signed cookie is expired", () => {
+    const expiredAt = Date.now() - 16 * 60 * 1000
+    const payload = Buffer.from(
+      JSON.stringify({ user_id: "u1", verified_at: expiredAt }),
+      "utf8"
+    ).toString("base64url")
+    const hmac = createHmac("sha256", env.SESSION_SECRET)
+      .update(payload)
+      .digest("hex")
+    const cookie = `${SECOND_FACTOR_COOKIE}=${encodeURIComponent(`${payload}.${hmac}`)}`
+    const req = new Request("http://localhost/ws/apps/app-1/exec", {
+      headers: { cookie },
+    })
+    expect(hasFreshSecondFactorCookie(req, "u1")).toBe(false)
+  })
+})
+
+// ---------------------------------------------------------------------------
 // wsExecRouter shape
 // ---------------------------------------------------------------------------
 
@@ -91,6 +164,7 @@ describe("wsExecRouter shape", () => {
     const { wsExecRouter } = await import("./apps-exec")
     const res = await wsExecRouter.fetch(
       new Request("http://localhost/apps/x/unknown"),
+      wsEnv
     )
     expect(res.status).toBe(404)
   })
@@ -107,6 +181,7 @@ describe("wsExecRouter HTTP smoke", () => {
     const { wsExecRouter } = await import("./apps-exec")
     const res = await wsExecRouter.fetch(
       new Request("http://localhost/apps/app-1/exec"),
+      wsEnv
     )
     expect(res.status).not.toBe(200)
   })
@@ -115,6 +190,16 @@ describe("wsExecRouter HTTP smoke", () => {
     const { wsExecRouter } = await import("./apps-exec")
     const res = await wsExecRouter.fetch(
       new Request("http://localhost/apps/app-1/exec?cols=120&rows=40"),
+      wsEnv
+    )
+    expect(res.status).not.toBe(200)
+  })
+
+  it("/apps/:id/exec?mode=rw — plain GET still does not bypass the WS gate", async () => {
+    const { wsExecRouter } = await import("./apps-exec")
+    const res = await wsExecRouter.fetch(
+      new Request("http://localhost/apps/app-1/exec?mode=rw"),
+      wsEnv
     )
     expect(res.status).not.toBe(200)
   })

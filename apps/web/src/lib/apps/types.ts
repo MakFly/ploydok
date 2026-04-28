@@ -29,6 +29,8 @@ export interface AppDetail extends AppListItem {
   buildCommand?: string
   startCommand?: string
   buildMethod?: string
+  staticOutputDir?: string
+  staticSpaFallback?: boolean
   runtimePort?: number | null
   restartPolicy?: RestartPolicy
   currentCommitSha?: string
@@ -97,6 +99,8 @@ export type AppSettingsPatch = Partial<
     | "buildCommand"
     | "startCommand"
     | "buildMethod"
+    | "staticOutputDir"
+    | "staticSpaFallback"
     | "runtimePort"
     | "restartPolicy"
     | "healthcheckPath"

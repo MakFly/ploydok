@@ -7,11 +7,11 @@ import {
   RiDatabase2Line,
   RiPlugLine,
 } from "@remixicon/react"
-import type { Database } from "../../lib/databases"
 import {
   organizationPath,
   useCurrentOrganizationSlug,
 } from "../../lib/organizations"
+import type { Database } from "../../lib/databases"
 
 const KIND_LABELS: Record<string, string> = {
   postgres: "PostgreSQL 16",

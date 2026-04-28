@@ -5,12 +5,12 @@
  */
 import { describe, expect, it } from "bun:test"
 import {
-  eventBelongsToApp,
-  buildAppEvent,
-  mergeHistory,
-  prependEvent,
   SUBSCRIBED_TYPES,
   SUPPORTED_TYPES,
+  buildAppEvent,
+  eventBelongsToApp,
+  mergeHistory,
+  prependEvent,
 } from "../../../lib/hooks/use-app-events"
 import type { AppEvent, AppEventType } from "../../../lib/hooks/use-app-events"
 

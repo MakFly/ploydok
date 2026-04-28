@@ -5,16 +5,28 @@ import { Input } from "@workspace/ui/components/input"
 import { Label } from "@workspace/ui/components/label"
 import { Switch } from "@workspace/ui/components/switch"
 import { Textarea } from "@workspace/ui/components/textarea"
-import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "@workspace/ui/components/select"
-import { useBackupConfig, useUpdateBackupConfig, type UpdateBackupConfigInput } from "../../lib/backups"
+import {
+  Select,
+  SelectContent,
+  SelectItem,
+  SelectTrigger,
+  SelectValue,
+} from "@workspace/ui/components/select"
+import {
+  useTargetBackupConfig,
+  useUpdateTargetBackupConfig,
+} from "../../lib/backups"
+import type { BackupTarget, UpdateBackupConfigInput } from "../../lib/backups"
 
 interface BackupConfigPanelProps {
-  databaseId: string
+  target: BackupTarget
 }
 
-export function BackupConfigPanel({ databaseId }: BackupConfigPanelProps): React.JSX.Element {
-  const { data: config, isLoading } = useBackupConfig(databaseId)
-  const update = useUpdateBackupConfig(databaseId)
+export function BackupConfigPanel({
+  target,
+}: BackupConfigPanelProps): React.JSX.Element {
+  const { data: config, isLoading } = useTargetBackupConfig(target)
+  const update = useUpdateTargetBackupConfig(target)
 
   const [destination, setDestination] = React.useState<"s3" | "local">("local")
   const [s3Endpoint, setS3Endpoint] = React.useState("")
@@ -30,16 +42,16 @@ export function BackupConfigPanel({ databaseId }: BackupConfigPanelProps): React
   // Sync form state when config loads
   React.useEffect(() => {
     if (!config) return
-    setDestination(config.destinationKind ?? "local")
+    setDestination(config.destinationKind)
     setS3Endpoint(config.s3Endpoint ?? "")
     setS3Bucket(config.s3Bucket ?? "")
     setS3Prefix(config.s3Prefix ?? "")
     setS3Region(config.s3Region ?? "")
     setS3CredentialsSecretId(config.s3CredentialsSecretId ?? "")
-    setScheduleCron(config.scheduleCron ?? "0 3 * * *")
-    setRetentionDays(config.retentionDays ?? 7)
+    setScheduleCron(config.scheduleCron)
+    setRetentionDays(config.retentionDays)
     setAgePublicKey(config.ageRecipientPublicKey ?? "")
-    setEnabled(config.enabled ?? true)
+    setEnabled(config.enabled)
   }, [config])
 
   function handleSave(e: React.FormEvent) {
@@ -64,11 +76,15 @@ export function BackupConfigPanel({ databaseId }: BackupConfigPanelProps): React
   }
 
   if (isLoading) {
-    return <p className="text-sm text-muted-foreground">Loading backup configuration…</p>
+    return (
+      <p className="text-sm text-muted-foreground">
+        Loading backup configuration…
+      </p>
+    )
   }
 
   return (
-    <form onSubmit={handleSave} className="space-y-5 max-w-lg">
+    <form onSubmit={handleSave} className="max-w-xl space-y-5">
       {/* Enabled toggle */}
       <div className="flex items-center gap-3">
         <Switch checked={enabled} onCheckedChange={setEnabled} id="backup-enabled" />
@@ -78,13 +94,18 @@ export function BackupConfigPanel({ databaseId }: BackupConfigPanelProps): React
       {/* Destination */}
       <div className="space-y-1.5">
         <Label>Destination</Label>
-        <Select value={destination} onValueChange={(v) => setDestination(v as "s3" | "local")}>
+        <Select
+          value={destination}
+          onValueChange={(value) => setDestination(value as "s3" | "local")}
+        >
           <SelectTrigger>
             <SelectValue />
           </SelectTrigger>
           <SelectContent>
             <SelectItem value="local">Local filesystem</SelectItem>
-            <SelectItem value="s3">S3 / R2 / MinIO</SelectItem>
+            <SelectItem value="s3">
+              S3-compatible · R2 / AWS / Scaleway / OVH
+            </SelectItem>
           </SelectContent>
         </Select>
       </div>
@@ -93,12 +114,16 @@ export function BackupConfigPanel({ databaseId }: BackupConfigPanelProps): React
       {destination === "s3" && (
         <div className="space-y-3 rounded-md border p-4">
           <div className="space-y-1.5">
-            <Label>S3 endpoint (optional — for R2/MinIO)</Label>
+            <Label>S3 endpoint</Label>
             <Input
-              placeholder="https://s3.us-east-1.amazonaws.com"
+              placeholder="https://<account>.r2.cloudflarestorage.com"
               value={s3Endpoint}
               onChange={(e) => setS3Endpoint(e.target.value)}
             />
+            <p className="text-xs text-muted-foreground">
+              Leave empty for AWS default, or use a provider endpoint for R2,
+              Scaleway, OVH, Backblaze, Wasabi, or any S3-compatible storage.
+            </p>
           </div>
           <div className="space-y-1.5">
             <Label>Bucket</Label>
@@ -106,7 +131,7 @@ export function BackupConfigPanel({ databaseId }: BackupConfigPanelProps): React
               placeholder="my-ploydok-backups"
               value={s3Bucket}
               onChange={(e) => setS3Bucket(e.target.value)}
-              required={destination === "s3"}
+              required
             />
           </div>
           <div className="grid grid-cols-2 gap-3">
@@ -136,7 +161,9 @@ export function BackupConfigPanel({ databaseId }: BackupConfigPanelProps): React
             />
             <p className="text-xs text-muted-foreground">
               Create a secret in your app with JSON value{" "}
-              <code className="font-mono bg-muted px-1 rounded">{"{ \"accessKeyId\": \"...\", \"secretAccessKey\": \"...\" }"}</code>
+              <code className="rounded bg-muted px-1 font-mono">
+                {'{ "accessKeyId": "...", "secretAccessKey": "..." }'}
+              </code>
             </p>
           </div>
         </div>
@@ -150,7 +177,9 @@ export function BackupConfigPanel({ databaseId }: BackupConfigPanelProps): React
           value={scheduleCron}
           onChange={(e) => setScheduleCron(e.target.value)}
         />
-        <p className="text-xs text-muted-foreground">Default: daily at 03:00 UTC</p>
+        <p className="text-xs text-muted-foreground">
+          Default: daily at 03:00 UTC
+        </p>
       </div>
 
       {/* Retention */}
@@ -176,8 +205,9 @@ export function BackupConfigPanel({ databaseId }: BackupConfigPanelProps): React
           className="font-mono text-xs"
         />
         <p className="text-xs text-muted-foreground">
-          When set, each dump is encrypted with <code className="font-mono">age</code> before upload.
-          The private key is only needed at restore time — it is never stored by Ploydok.
+          When set, each backup is encrypted with{" "}
+          <code className="font-mono">age</code> before upload. The private key
+          is only needed at restore time and is never stored by Ploydok.
         </p>
       </div>
 

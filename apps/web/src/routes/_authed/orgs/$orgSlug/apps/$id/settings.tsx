@@ -1,6 +1,6 @@
 // SPDX-License-Identifier: AGPL-3.0-only
 import * as React from "react"
-import { useParams, createFileRoute } from "@tanstack/react-router"
+import { createFileRoute, useParams } from "@tanstack/react-router"
 import {
   RiExternalLinkLine,
   RiGitBranchLine,
@@ -28,8 +28,9 @@ import { useApp } from "../../../../../../lib/apps"
 import type { AppDetail } from "../../../../../../lib/apps"
 
 function AppSettingsGeneral(): React.JSX.Element {
-  const { id } = useParams({ strict: false }) as { id: string }
-  const { data: app, isLoading, error } = useApp(id)
+  const { id: routeAppId } = useParams({ strict: false })
+  const appId = routeAppId!
+  const { data: app, isLoading, error } = useApp(appId)
 
   if (isLoading) {
     return (
@@ -58,7 +59,7 @@ function AppSettingsGeneral(): React.JSX.Element {
         <SourceCard app={app} />
 
         <div className="sm:col-span-2 xl:col-span-3">
-          <ChannelList appId={id} />
+          <ChannelList appId={appId} />
         </div>
       </div>
     </div>

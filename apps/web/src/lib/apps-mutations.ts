@@ -1,18 +1,22 @@
 // SPDX-License-Identifier: AGPL-3.0-only
 import * as React from "react"
-import { useMutation, useQueryClient } from "@tanstack/react-query"
+import {
+  useMutation,
+  useQueryClient,
+} from "@tanstack/react-query"
+import { toast } from "sonner"
 import { apiFetch, invalidateGetCache } from "./api"
-import type { ApiError } from "./api"
+import { normalizeAppDetail } from "./apps"
+import { notifyMutationError } from "./second-factor-toast"
+import { useEventsSubscribeFn } from "./events-provider"
 import type {
   AppDetail,
   AppListItem,
   AppSettingsPatch,
   RawAppDetail,
 } from "./apps"
-import { normalizeAppDetail } from "./apps"
-import { notifyMutationError } from "./second-factor-toast"
-import { toast } from "sonner"
-import { useEventsSubscribeFn } from "./events-provider"
+import type { ApiError } from "./api"
+import type { QueryClient } from "@tanstack/react-query"
 
 // ---------------------------------------------------------------------------
 // useTrackAppRestart
@@ -60,6 +64,112 @@ function useTrackAppRestart(appId: string): () => void {
         finish()
         toast.error("Redémarrage interrompu", { id: toastId })
       }
+    })
+  }, [appId, subscribe])
+}
+
+const DELETE_APP_TOAST_TIMEOUT_MS = 10 * 60 * 1000
+const STOP_APP_TOAST_TIMEOUT_MS = 3 * 60 * 1000
+
+function useTrackAppDelete(appId: string): () => void {
+  const subscribe = useEventsSubscribeFn()
+  return React.useCallback(() => {
+    const toastId = `delete-app:${appId}`
+
+    if (!subscribe || typeof window === "undefined") {
+      toast.loading("Suppression en file…", { id: toastId })
+      return
+    }
+
+    let cleanup = () => {}
+    const completion = new Promise<string>((resolve, reject) => {
+      let unsubDeleted: (() => void) | null = null
+      let unsubFailed: (() => void) | null = null
+      const timer = window.setTimeout(() => {
+        cleanup()
+        reject(new Error("Suppression toujours en cours"))
+      }, DELETE_APP_TOAST_TIMEOUT_MS)
+
+      cleanup = () => {
+        window.clearTimeout(timer)
+        unsubDeleted?.()
+        unsubDeleted = null
+        unsubFailed?.()
+        unsubFailed = null
+      }
+
+      unsubDeleted = subscribe("app.deleted", (data) => {
+        const evt = data as { appId?: string; message?: string }
+        if (evt.appId !== appId) return
+        cleanup()
+        resolve(evt.message ?? "App supprimée")
+      })
+
+      unsubFailed = subscribe("app.delete.failed", (data) => {
+        const evt = data as { appId?: string; message?: string }
+        if (evt.appId !== appId) return
+        cleanup()
+        reject(new Error(evt.message ?? "Suppression échouée"))
+      })
+    })
+
+    toast.promise(completion, {
+      id: toastId,
+      loading: "Suppression en file…",
+      success: (message) => message,
+      error: (err) =>
+        err instanceof Error ? err.message : "Suppression échouée",
+    })
+  }, [appId, subscribe])
+}
+
+function useTrackAppStop(appId: string): () => void {
+  const subscribe = useEventsSubscribeFn()
+  return React.useCallback(() => {
+    const toastId = `stop-app:${appId}`
+
+    if (!subscribe || typeof window === "undefined") {
+      toast.loading("Arrêt en cours…", { id: toastId })
+      return
+    }
+
+    let cleanup = () => {}
+    const completion = new Promise<string>((resolve, reject) => {
+      let unsubStopped: (() => void) | null = null
+      let unsubFailed: (() => void) | null = null
+      const timer = window.setTimeout(() => {
+        cleanup()
+        reject(new Error("Arrêt toujours en cours"))
+      }, STOP_APP_TOAST_TIMEOUT_MS)
+
+      cleanup = () => {
+        window.clearTimeout(timer)
+        unsubStopped?.()
+        unsubStopped = null
+        unsubFailed?.()
+        unsubFailed = null
+      }
+
+      unsubStopped = subscribe("app.stopped", (data) => {
+        const evt = data as { appId?: string; message?: string }
+        if (evt.appId !== appId) return
+        cleanup()
+        resolve(evt.message ?? "App arrêtée")
+      })
+
+      unsubFailed = subscribe("app.stop.failed", (data) => {
+        const evt = data as { appId?: string; message?: string }
+        if (evt.appId !== appId) return
+        cleanup()
+        reject(new Error(evt.message ?? "Arrêt échoué"))
+      })
+    })
+
+    toast.promise(completion, {
+      id: toastId,
+      loading: "Arrêt en cours…",
+      success: (message) => message,
+      error: (err) => (err instanceof Error ? err.message : "Arrêt échoué"),
     })
   }, [appId, subscribe])
 }
@@ -170,8 +280,10 @@ export function useCancelBuild(appId: string) {
 
 export function useStopApp(appId: string) {
   const qc = useQueryClient()
-  return useMutation<void, ApiError, void>({
-    mutationFn: () => apiFetch<void>(`/apps/${appId}/stop`, { method: "POST" }),
+  const trackStop = useTrackAppStop(appId)
+  return useMutation<{ ok: boolean }, ApiError, void>({
+    mutationFn: () =>
+      apiFetch<{ ok: boolean }>(`/apps/${appId}/stop`, { method: "POST" }),
     onMutate: async () => {
       await qc.cancelQueries({ queryKey: ["apps", appId] })
       const snapshot = qc.getQueryData<AppDetail>(["apps", appId])
@@ -181,21 +293,19 @@ export function useStopApp(appId: string) {
           status: "stopped",
         })
       }
+      markAppStoppedInListCaches(qc, appId)
+      trackStop()
       return { snapshot }
     },
     onError: (err, _vars, context) => {
+      toast.dismiss(`stop-app:${appId}`)
       notifyMutationError(err, "Stop failed")
       const ctx = context as { snapshot?: AppDetail } | undefined
       if (ctx?.snapshot) {
         qc.setQueryData(["apps", appId], ctx.snapshot)
       }
     },
-    onSuccess: () => {
-      toast.success("App stopped")
-      void qc.invalidateQueries({ queryKey: ["apps", appId] })
-      void qc.invalidateQueries({ queryKey: ["apps", appId, "builds"] })
-      void qc.invalidateQueries({ queryKey: ["apps"] })
-    },
+    onSuccess: () => {},
     onSettled: () => {
       void qc.invalidateQueries({ queryKey: ["apps", appId] })
     },
@@ -261,15 +371,47 @@ export interface DeleteAppFlags {
   deleteCaddyRoutes?: boolean
 }
 
+export function markAppDeletingInListCaches(
+  qc: QueryClient,
+  appId: string
+): void {
+  qc.setQueriesData<Array<AppListItem>>({ queryKey: ["apps"] }, (current) => {
+    if (!Array.isArray(current)) return current
+    return current.map((app) =>
+      app.id === appId ? { ...app, status: "deleting" } : app
+    )
+  })
+}
+
+export function removeAppFromListCaches(
+  qc: QueryClient,
+  appId: string
+): void {
+  qc.setQueriesData<Array<AppListItem>>({ queryKey: ["apps"] }, (current) => {
+    if (!Array.isArray(current)) return current
+    return current.filter((app) => app.id !== appId)
+  })
+}
+
+export function markAppStoppedInListCaches(
+  qc: QueryClient,
+  appId: string
+): void {
+  qc.setQueriesData<Array<AppListItem>>({ queryKey: ["apps"] }, (current) => {
+    if (!Array.isArray(current)) return current
+    return current.map((app) =>
+      app.id === appId ? { ...app, status: "stopped" } : app
+    )
+  })
+}
+
 export function useDeleteApp(appId: string) {
   const qc = useQueryClient()
+  const trackDelete = useTrackAppDelete(appId)
   return useMutation<
     { ok: boolean; jobId: string; status: string },
     ApiError,
-    DeleteAppFlags | void,
-    {
-      snapshots: Array<[ReadonlyArray<unknown>, Array<AppListItem> | undefined]>
-    }
+    DeleteAppFlags | void
   >({
     mutationFn: (flags) => {
       const params = new URLSearchParams()
@@ -284,47 +426,21 @@ export function useDeleteApp(appId: string) {
         { method: "DELETE" }
       )
     },
-    // Optimistic UI: remove the app from every cached ["apps", *] list right
-    // away so the user sees it disappear instantly. The toast id matches the
-    // SSE listener in useApps so the loading toast is upgraded to success on
-    // app.deleted (or rolled back on app.delete.failed).
     onMutate: () => {
-      const snapshots = qc
-        .getQueriesData<Array<AppListItem>>({ queryKey: ["apps"] })
-        .map(
-          ([key, data]) =>
-            [key as ReadonlyArray<unknown>, data] as [
-              ReadonlyArray<unknown>,
-              Array<AppListItem> | undefined,
-            ]
-        )
-      for (const [key, data] of snapshots) {
-        if (!Array.isArray(data)) continue
-        qc.setQueryData<Array<AppListItem>>(
-          key as Parameters<typeof qc.setQueryData>[0],
-          data.filter((a) => a.id !== appId)
-        )
-      }
-      toast.loading("Deleting app…", { id: `delete-app:${appId}` })
-      return { snapshots }
+      markAppDeletingInListCaches(qc, appId)
+      trackDelete()
     },
     onSuccess: () => {
       // Bust apiFetch's module-level GET cache for the apps list — without
       // this, the in-memory Promise from a previous /apps?organizationId=…
       // fetch is replayed and the deleted app reappears until hard refresh.
-      // Note: the cascade is async on the server (job queue) — final cache
-      // eviction + success toast happen on the SSE app.deleted event handled
-      // by useApps below.
+      // Note: the cascade is async on the server (job queue). Keep the app in
+      // the list and keep the promise toast loading until the SSE app.deleted
+      // / app.delete.failed confirmation.
       invalidateGetCache()
-      qc.removeQueries({ queryKey: ["apps", appId] })
+      void qc.invalidateQueries({ queryKey: ["apps"] })
     },
-    onError: (error, _vars, ctx) => {
-      // Rollback the optimistic remove.
-      if (ctx?.snapshots) {
-        for (const [key, data] of ctx.snapshots) {
-          qc.setQueryData(key as Parameters<typeof qc.setQueryData>[0], data)
-        }
-      }
+    onError: (error) => {
       toast.dismiss(`delete-app:${appId}`)
       notifyMutationError(error, "Delete failed")
     },
@@ -375,8 +491,7 @@ export function useUpdateAppSettings(appId: string) {
       if (restartPolicy !== undefined) payload.restartPolicy = restartPolicy
       if (healthcheckPath !== undefined || healthcheckPort !== undefined) {
         const healthcheck: Record<string, unknown> = {}
-        if (healthcheckPath !== undefined)
-          healthcheck.path = healthcheckPath ?? undefined
+        if (healthcheckPath !== undefined) healthcheck.path = healthcheckPath
         if (healthcheckPort !== undefined)
           healthcheck.port = healthcheckPort ?? undefined
         payload.healthcheck = healthcheck

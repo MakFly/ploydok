@@ -8,7 +8,7 @@ export const CdnConfigSchema = z.object({
   compression: z.boolean().default(false),
   image_optim: z.boolean().default(false),
   headers: z.record(z.string().regex(/^[A-Za-z-]+$/), z.string()).default({}),
-  external_provider: z.string().optional(),
+  external_provider: z.literal("cloudflare").nullable().default(null),
 })
 
 export type CdnConfig = z.infer<typeof CdnConfigSchema>

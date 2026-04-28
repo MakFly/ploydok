@@ -9,10 +9,10 @@ import {
   SelectTrigger,
   SelectValue,
 } from "@workspace/ui/components/select"
-import { apiFetch } from "../../lib/api"
 import { toast } from "sonner"
-import type { Database } from "../../lib/databases"
+import { apiFetch } from "../../lib/api"
 import { RotateNowDialog } from "./RotateNowDialog"
+import type { Database } from "../../lib/databases"
 
 interface RotationPanelProps {
   db: Database

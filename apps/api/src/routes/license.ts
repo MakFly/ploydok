@@ -1,6 +1,6 @@
 // SPDX-License-Identifier: AGPL-3.0-only
 import { Hono } from "hono"
-import { eq, count } from "drizzle-orm"
+import { and, eq, count, isNotNull } from "drizzle-orm"
 import type { Db } from "@ploydok/db"
 import { memberships } from "@ploydok/db"
 import { activateLicense, getActiveLicense } from "@ploydok/db/queries"
@@ -9,6 +9,7 @@ import {
   LicenseActivateResponseSchema,
   LicenseStatusSchema,
 } from "@ploydok/shared"
+import { requireScope } from "../auth/require-scope"
 import { verifyLicenseJwt, InvalidLicenseError } from "../license/verify"
 import { requireAuth, type AuthUser } from "../auth/middleware"
 import { childLogger } from "../logger"
@@ -24,7 +25,13 @@ async function isAdmin(db: Db, userId: string): Promise<boolean> {
   const ownerCount = await db
     .select({ count: count() })
     .from(memberships)
-    .where(eq(memberships.user_id, userId) && eq(memberships.role, "owner"))
+    .where(
+      and(
+        eq(memberships.user_id, userId),
+        eq(memberships.role, "owner"),
+        isNotNull(memberships.accepted_at)
+      )
+    )
 
   const cnt = ownerCount[0]?.count ?? 0
   return Number(cnt) > 0
@@ -75,7 +82,7 @@ export function createLicenseRouter(db: Db): Hono<LicenseRouterEnv> {
    * Activate a license via JWT.
    * Requires auth — user must be admin (owner of at least one org).
    */
-  router.post("/activate", requireAuth(db), async (c) => {
+  router.post("/activate", requireAuth(db), requireScope("admin:*"), async (c) => {
     try {
       const user = c.get("user") as AuthUser | undefined
       if (!user) {

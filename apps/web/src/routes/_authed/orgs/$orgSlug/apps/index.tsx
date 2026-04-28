@@ -15,10 +15,10 @@ import {
 } from "../../../../../components/layout/AppShell"
 import { AppStatusBadge } from "../../../../../components/apps/AppStatusBadge"
 import {
+
   resolveAppHealth,
   resolveRuntimeAppStatus,
-  selectAppSnapshot,
-  type AppHealth,
+  selectAppSnapshot
 } from "../../../../../lib/app-runtime"
 import { useApps } from "../../../../../lib/apps"
 import { useGitHubAppConfig } from "../../../../../lib/github"
@@ -28,6 +28,7 @@ import {
   useCurrentOrganization,
   useCurrentOrganizationSlug,
 } from "../../../../../lib/organizations"
+import type {AppHealth} from "../../../../../lib/app-runtime";
 import type { AppListItem } from "../../../../../lib/apps"
 
 function AppsPage(): React.JSX.Element {

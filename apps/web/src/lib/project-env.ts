@@ -11,8 +11,8 @@ export function useProjectEnv(projectId: string | null) {
   return useSuspenseQuery({
     queryKey: ["projectEnv", projectId],
     queryFn: async () => {
-      if (!projectId) return { vars: [] as ProjectEnvVarDisplay[] }
-      const data = await apiFetch<{ vars: ProjectEnvVarDisplay[] }>(
+      if (!projectId) return { vars: [] as Array<ProjectEnvVarDisplay> }
+      const data = await apiFetch<{ vars: Array<ProjectEnvVarDisplay> }>(
         `/projects/${projectId}/env`
       )
       return data
@@ -32,9 +32,9 @@ export async function revealProjectEnvVar(
 
 export async function upsertProjectEnvVars(
   projectId: string,
-  vars: ProjectEnvVar[]
-): Promise<ProjectEnvVarDisplay[]> {
-  const data = await apiFetch<{ vars: ProjectEnvVarDisplay[] }>(
+  vars: Array<ProjectEnvVar>
+): Promise<Array<ProjectEnvVarDisplay>> {
+  const data = await apiFetch<{ vars: Array<ProjectEnvVarDisplay> }>(
     `/projects/${projectId}/env`,
     {
       method: "PUT",

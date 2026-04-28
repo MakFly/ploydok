@@ -1,7 +1,7 @@
 // SPDX-License-Identifier: AGPL-3.0-only
 import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query"
-import { apiFetch } from "./api"
 import { toast } from "sonner"
+import { apiFetch } from "./api"
 import type { OrgBranding, UpdateOrgBranding } from "@ploydok/shared"
 
 export function useOrgBranding(orgSlug: string | undefined) {

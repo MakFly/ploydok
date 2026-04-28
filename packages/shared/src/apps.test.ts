@@ -3,6 +3,9 @@ import { describe, expect, it } from "bun:test";
 
 import {
   AppConfigSchema,
+  AppVolumeMountPathSchema,
+  AppVolumeNameSchema,
+  AppVolumeSchema,
   AppStatusSchema,
   BuildMethodSchema,
   BuildSchema,
@@ -20,7 +23,7 @@ import {
 
 describe("AppStatusSchema", () => {
   it("accepts all valid values", () => {
-    for (const v of ['created', 'pending', 'building', 'running', 'restarting', 'failed', 'stopped'] as const) {
+    for (const v of ['created', 'pending', 'building', 'running', 'serving', 'restarting', 'failed', 'stopped', 'deleting'] as const) {
       expect(AppStatusSchema.parse(v)).toBe(v);
     }
   });
@@ -40,7 +43,7 @@ describe("BuildStatusSchema", () => {
 
 describe("BuildMethodSchema", () => {
   it("accepts all valid values", () => {
-    for (const v of ['docker', 'nixpacks', 'auto'] as const) {
+    for (const v of ['docker', 'nixpacks', 'auto', 'static'] as const) {
       expect(BuildMethodSchema.parse(v)).toBe(v);
     }
   });
@@ -144,6 +147,40 @@ describe("AppConfigSchema", () => {
 
   it("rejects missing required fields", () => {
     expect(() => AppConfigSchema.parse({ name: "x" })).toThrow();
+  });
+});
+
+describe("AppVolumeNameSchema", () => {
+  it("accepts a valid app volume name", () => {
+    expect(AppVolumeNameSchema.parse("data-cache")).toBe("data-cache");
+  });
+
+  it("rejects uppercase characters", () => {
+    expect(() => AppVolumeNameSchema.parse("Data")).toThrow();
+  });
+});
+
+describe("AppVolumeMountPathSchema", () => {
+  it("accepts an absolute mount path", () => {
+    expect(AppVolumeMountPathSchema.parse("/var/lib/data")).toBe("/var/lib/data");
+  });
+
+  it("rejects path traversal segments", () => {
+    expect(() => AppVolumeMountPathSchema.parse("/var/../data")).toThrow();
+  });
+});
+
+describe("AppVolumeSchema", () => {
+  it("applies null default for sizeLimitBytes", () => {
+    const result = AppVolumeSchema.parse({
+      id: "vol-1",
+      name: "data",
+      mountPath: "/data",
+      hostPath: "/var/lib/ploydok/app-volumes/app-1/vol-1",
+      createdAt: new Date().toISOString(),
+    });
+
+    expect(result.sizeLimitBytes).toBeNull();
   });
 });
 

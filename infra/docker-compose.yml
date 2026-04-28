@@ -40,6 +40,7 @@ services:
       - ./caddy/data:/data
       - ./caddy/config:/config
       - ./caddy/Caddyfile:/etc/caddy/Caddyfile:ro
+      - /var/lib/ploydok/static:/var/lib/ploydok/static:ro
     environment:
       PLOYDOK_DOMAIN: ${PLOYDOK_DOMAIN:-localhost}
     healthcheck:

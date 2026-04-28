@@ -4,9 +4,9 @@ import { createFileRoute, useSearch } from "@tanstack/react-router"
 import { Suspense } from "react"
 import { ShellPage } from "../../../../../components/layout/AppShell"
 import {
-  useCurrentPlan,
-  useCheckoutSession,
   useBillingPortal,
+  useCheckoutSession,
+  useCurrentPlan,
 } from "../../../../../lib/billing"
 
 export const Route = createFileRoute("/_authed/orgs/$orgSlug/settings/billing")(

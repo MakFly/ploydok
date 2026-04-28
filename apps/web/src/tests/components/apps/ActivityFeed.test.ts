@@ -5,8 +5,8 @@
  */
 import { describe, expect, it } from "bun:test"
 import {
-  formatEventType,
   eventIcon,
+  formatEventType,
   formatRelativeTime,
 } from "../../../components/apps/ActivityFeed"
 import type { AppEventType } from "../../../lib/hooks/use-app-events"

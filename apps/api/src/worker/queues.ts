@@ -62,6 +62,16 @@ export const previewTeardown = new Queue("preview.teardown", {
   defaultJobOptions: previewDefaults,
 })
 
+export const cveRefreshQueue = new Queue("cve.refresh", {
+  connection,
+  defaultJobOptions: {
+    removeOnComplete: 50,
+    removeOnFail: 100,
+    attempts: 3,
+    backoff: { type: "exponential" as const, delay: 30_000 },
+  },
+})
+
 export type QueueName =
   | "deploy"
   | "gc.registry"
@@ -71,3 +81,4 @@ export type QueueName =
   | "provider.repos.sync"
   | "preview.deploy"
   | "preview.teardown"
+  | "cve.refresh"

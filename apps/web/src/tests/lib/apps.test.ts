@@ -10,6 +10,7 @@ import {
   normalizeAppDetail,
 } from "../../lib/apps"
 import {
+  resolveDisplayedAppState,
   resolveRuntimeAppStatus,
   selectAppSnapshot,
 } from "../../lib/app-runtime"
@@ -309,11 +310,59 @@ describe("app runtime status helpers", () => {
     ).toBe("restarting")
   })
 
+  it("lets the canonical running snapshot override a stale failed app status", () => {
+    expect(
+      resolveRuntimeAppStatus("failed", makeSnapshot({ status: "running" }))
+    ).toBe("running")
+  })
+
   it("keeps build-phase statuses untouched", () => {
     expect(resolveRuntimeAppStatus("building", null)).toBe("building")
     expect(
       resolveRuntimeAppStatus("pending", makeSnapshot({ status: "running" }))
     ).toBe("pending")
+  })
+
+  it("keeps deleting status untouched while cleanup runs", () => {
+    expect(
+      resolveRuntimeAppStatus("deleting", makeSnapshot({ status: "running" }))
+    ).toBe("deleting")
+  })
+
+  it("keeps static sites serving even if monitoring reports a container", () => {
+    expect(
+      resolveRuntimeAppStatus("serving", makeSnapshot({ status: "running" }))
+    ).toBe("serving")
+  })
+
+  it("falls back to the raw app status until monitoring containers are loaded", () => {
+    expect(
+      resolveDisplayedAppState(
+        { id: "app-1", status: "failed", containerId: "ploydok-app-x-green" },
+        undefined
+      )
+    ).toEqual({ status: "failed", health: null })
+  })
+
+  it("derives running + healthy from the canonical snapshot on app pages", () => {
+    expect(
+      resolveDisplayedAppState(
+        { id: "app-1", status: "failed", containerId: "ploydok-app-x-green" },
+        [
+          makeSnapshot({
+            id: "ctr-green",
+            name: "ploydok-app-x-green",
+            status: "running",
+          }),
+          makeSnapshot({
+            id: "ctr-blue",
+            name: "ploydok-app-x-blue",
+            status: "running",
+            last_seen_ms: 3000,
+          }),
+        ]
+      )
+    ).toEqual({ status: "running", health: "healthy" })
   })
 })
 
