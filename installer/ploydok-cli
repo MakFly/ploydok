@@ -1,0 +1,144 @@
+#!/usr/bin/env bash
+# SPDX-License-Identifier: AGPL-3.0-only
+set -Eeuo pipefail
+
+DATA_DIR="/var/lib/ploydok"
+RESTORE_PROXY=0
+DRY_RUN="${PLOYDOK_INSTALL_DRY_RUN:-0}"
+ROOT_PREFIX="${PLOYDOK_INSTALL_ROOT:-}"
+
+real_path() {
+  if [[ -n "$ROOT_PREFIX" ]]; then printf '%s%s\n' "$ROOT_PREFIX" "$1"; else printf '%s\n' "$1"; fi
+}
+
+run() {
+  if [[ "$DRY_RUN" == "1" ]]; then echo "[ploydok-cli] dry-run: $*"; else "$@"; fi
+}
+
+verify_image() {
+  local image="$1"
+  if command -v cosign >/dev/null 2>&1; then
+    run cosign verify "$image"
+  elif [[ "$DRY_RUN" == "1" || "${PLOYDOK_INSTALL_SKIP_COSIGN:-0}" == "1" ]]; then
+    echo "[ploydok-cli] WARN: cosign not installed; image signature verification skipped for $image" >&2
+  else
+    echo "cosign is required to verify $image (set PLOYDOK_INSTALL_SKIP_COSIGN=1 only for controlled test upgrades)" >&2
+    exit 3
+  fi
+}
+
+compose_healthcheck() {
+  [[ "$DRY_RUN" == "1" ]] && return 0
+  for _ in $(seq 1 60); do
+    if curl -fsS http://127.0.0.1:3335/health >/dev/null 2>&1; then
+      return 0
+    fi
+    sleep 1
+  done
+  return 1
+}
+
+usage() {
+  cat <<'USAGE'
+Usage: ploydok-cli <command> [options]
+
+Commands:
+  uninstall [--restore-previous-proxy] [--data-dir=/var/lib/ploydok] [--yes]
+  upgrade [--version=<tag>] [--image-registry=<registry>] [--data-dir=/var/lib/ploydok]
+USAGE
+}
+
+cmd="${1:-}"
+[[ -n "$cmd" ]] || { usage >&2; exit 1; }
+shift || true
+
+case "$cmd" in
+  uninstall)
+    YES=0
+    for arg in "$@"; do
+      case "$arg" in
+        --restore-previous-proxy) RESTORE_PROXY=1 ;;
+        --data-dir=*) DATA_DIR="${arg#*=}" ;;
+        --yes) YES=1 ;;
+        *) echo "Unknown option: $arg" >&2; exit 1 ;;
+      esac
+    done
+    if [[ "$YES" != "1" && "$DRY_RUN" != "1" ]]; then
+      echo "This will stop Ploydok. Re-run with --yes to confirm." >&2
+      exit 2
+    fi
+    run systemctl disable --now ploydok.target
+    if [[ -f "$(real_path "$DATA_DIR/docker-compose.yml")" ]]; then
+      run docker compose --env-file "$(real_path "$DATA_DIR/.env")" -f "$(real_path "$DATA_DIR/docker-compose.yml")" down
+    fi
+    backup="/var/backups/ploydok-data-$(date -u +%Y%m%dT%H%M%SZ).tar.gz"
+    if [[ -d "$(real_path "$DATA_DIR")" ]]; then
+      run tar -czf "$(real_path "$backup")" -C "$(dirname "$(real_path "$DATA_DIR")")" "$(basename "$DATA_DIR")"
+    fi
+    if [[ "$RESTORE_PROXY" == "1" ]]; then
+      latest="$(find "$(real_path /var/backups/ploydok-install)" -name 'nginx-*.tar.gz' -o -name 'apache2-*.tar.gz' 2>/dev/null | sort | tail -n1 || true)"
+      if [[ -n "$latest" ]]; then
+        run tar -xzf "$latest" -C "$(real_path /etc)"
+        case "$latest" in
+          *nginx-*) run systemctl enable --now nginx ;;
+          *apache2-*) run systemctl enable --now apache2 ;;
+        esac
+      fi
+    fi
+    ;;
+  upgrade)
+    VERSION=""
+    REGISTRY=""
+    for arg in "$@"; do
+      case "$arg" in
+        --version=*) VERSION="${arg#*=}" ;;
+        --image-registry=*) REGISTRY="${arg#*=}" ;;
+        --data-dir=*) DATA_DIR="${arg#*=}" ;;
+        *) echo "Unknown option: $arg" >&2; exit 1 ;;
+      esac
+    done
+    [[ -n "$VERSION" ]] || { echo "--version is required" >&2; exit 1; }
+    compose_file="$(real_path "$DATA_DIR/docker-compose.yml")"
+    env_file="$(real_path "$DATA_DIR/.env")"
+    [[ -f "$compose_file" ]] || { echo "missing compose file: $compose_file" >&2; exit 1; }
+    [[ -f "$env_file" ]] || { echo "missing env file: $env_file" >&2; exit 1; }
+
+    if [[ -z "$REGISTRY" ]]; then
+      REGISTRY="$(grep -E 'image: .*/ploydok-api:' "$compose_file" | head -n1 | sed -E 's/^.*image: (.*)\/ploydok-api:.*$/\1/')"
+    fi
+    [[ -n "$REGISTRY" ]] || { echo "could not infer image registry; pass --image-registry=<registry>" >&2; exit 1; }
+
+    verify_image "$REGISTRY/ploydok-api:$VERSION"
+    verify_image "$REGISTRY/ploydok-agent:$VERSION"
+    verify_image "$REGISTRY/ploydok-caddy:$VERSION"
+
+    backup_compose="$(real_path "$DATA_DIR/backups/docker-compose.pre-upgrade-$VERSION.yml")"
+    snapshot="$(real_path "$DATA_DIR/backups/pre-upgrade-$VERSION.sql")"
+    install -d -m 0750 "$(dirname "$snapshot")"
+    run cp "$compose_file" "$backup_compose"
+
+    if [[ "$DRY_RUN" == "1" ]]; then
+      echo "[ploydok-cli] dry-run: docker compose --env-file $env_file -f $compose_file exec -T postgres pg_dump -U ploydok ploydok > $snapshot"
+    else
+      docker compose --env-file "$env_file" -f "$compose_file" exec -T postgres pg_dump -U ploydok ploydok >"$snapshot"
+    fi
+
+    if [[ "$DRY_RUN" == "1" ]]; then
+      echo "[ploydok-cli] dry-run: update $compose_file images to $VERSION"
+    else
+      sed -E -i "s#(image: .*/ploydok-(api|agent|caddy):).*#\\1$VERSION#" "$compose_file"
+    fi
+    run docker compose --env-file "$env_file" -f "$compose_file" pull
+    run docker compose --env-file "$env_file" -f "$compose_file" up -d
+    if ! compose_healthcheck; then
+      echo "post-upgrade healthcheck failed; restoring previous compose file" >&2
+      run cp "$backup_compose" "$compose_file"
+      run docker compose --env-file "$env_file" -f "$compose_file" up -d
+      exit 1
+    fi
+    ;;
+  *)
+    usage >&2
+    exit 1
+    ;;
+esac

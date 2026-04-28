@@ -1,4 +1,4 @@
-# Sprint 9 — Installer production (one-liner + uninstall + upgrade) ⏳ À faire
+# Sprint 9 — Installer production (one-liner + uninstall + upgrade) ⚠️ Partiel
 
 **Durée estimée** : 1 semaine (installer + tests matrice).
 **Objectif** : `curl -fsSL https://install.ploydok.dev | bash` pose Ploydok sur un VPS — vierge **ou** avec nginx/apache2 déjà en prod — sans jamais casser l'existant sans consentement explicite.
@@ -217,37 +217,37 @@ Pour chaque scénario, assertions minimales :
 ### Installer
 
 - [ ] Script `install.sh` publié (signé) sur `https://install.ploydok.dev`.
-- [ ] Preflight implémente les 6 checks durs (kernel, userns, Docker, arch, RAM/disque, systemd).
-- [ ] 3 modes (`takeover` / `coexist` / `abort`) implémentés et testés.
-- [ ] Tous les flags CLI (`--mode`, `--http-port`, `--https-port`, `--data-dir`, `--skip-docker-install`, `--manage-firewall`, `--yes`, `--unattended`) câblés.
-- [ ] Exit codes `0/1/2/3/4` respectés.
-- [ ] Idempotent : ré-exécution = no-op ou upgrade.
-- [ ] Snippets reverse-proxy générés pour nginx + apache2.
+- [x] Preflight implémente les 6 checks durs (kernel, userns, Docker, arch, RAM/disque, systemd).
+- [x] 3 modes (`takeover` / `coexist` / `abort`) implémentés et testés.
+- [x] Tous les flags CLI (`--mode`, `--http-port`, `--https-port`, `--data-dir`, `--skip-docker-install`, `--manage-firewall`, `--yes`, `--unattended`) câblés.
+- [x] Exit codes `0/1/2/3/4` respectés.
+- [x] Idempotent : ré-exécution = no-op ou upgrade.
+- [x] Snippets reverse-proxy générés pour nginx + apache2.
 
 ### CLI ops
 
-- [ ] `ploydok-cli uninstall` (avec `--restore-previous-proxy`) implémenté.
+- [x] `ploydok-cli uninstall` (avec `--restore-previous-proxy`) implémenté.
 - [ ] `ploydok-cli upgrade` (snapshot DB + migrations + rollback auto).
 
 ### Sécurité
 
-- [ ] Pull images vérifié via `cosign verify`.
+- [x] Pull images vérifié via `cosign verify`.
 - [ ] Master key générée via OS keyring (fallback fichier `0400`).
-- [ ] mTLS agent ↔ api auto-provisionné.
+- [x] mTLS agent ↔ api auto-provisionné.
 - [ ] Enrollment passkey admin one-shot (token 15 min).
 
 ### Tests
 
 - [ ] Matrice 8 scénarios verte sur Ubuntu 22.04, 24.04, Debian 12 (3 modes × {nginx, apache2}).
 - [ ] Rocky 9 exécuté en CI, échecs notés mais non-bloquants.
-- [ ] Suite tests installer ajoutée à la CI release (workflow GHA dédié).
+- [x] Suite tests installer ajoutée à la CI release (workflow GHA dédié).
 
 ### Docs
 
-- [ ] `docs/install/getting-started.md` (one-liner + 3 modes expliqués).
-- [ ] `docs/install/coexist.md` (snippets nginx/apache2 + TLS frontal).
-- [ ] `docs/install/firewall.md` (ufw/firewalld/nftables).
-- [ ] Section « Install » de `apps/docs/` (Astro + shadcn) à jour avec les 3 modes.
+- [x] `docs/install/getting-started.md` (one-liner + 3 modes expliqués).
+- [x] `docs/install/coexist.md` (snippets nginx/apache2 + TLS frontal).
+- [x] `docs/install/firewall.md` (ufw/firewalld/nftables).
+- [x] Section « Install » de `apps/docs/` (Astro + shadcn) à jour avec les 3 modes.
 
 ### Release
 

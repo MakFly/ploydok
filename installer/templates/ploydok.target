@@ -1,0 +1,7 @@
+[Unit]
+Description=Ploydok
+Requires=ploydok.service
+After=ploydok.service
+
+[Install]
+WantedBy=multi-user.target
