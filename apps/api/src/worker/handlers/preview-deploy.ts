@@ -40,7 +40,7 @@ import { nixpacksBuild } from "../nixpacks"
 import { railpackBuild } from "../railpack"
 import { ensureProjectNetwork, networksForApp } from "../../services/projects"
 import { isNotFound, toAgentError } from "../../agent"
-import { isSymfonyFlexWorkspace } from "./deploy"
+import { isSymfonyFlexWorkspace } from "./symfony-detect"
 
 const log = workerLog.child({ subsystem: "preview-deploy" })
 const STOP_TIMEOUT_S = 10

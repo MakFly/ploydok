@@ -149,7 +149,7 @@ describe("handleDeploy", () => {
 
 describe("isSymfonyFlexWorkspace", () => {
   it("detects Symfony Flex via composer auto-scripts", async () => {
-    const { isSymfonyFlexWorkspace } = await import("./deploy")
+    const { isSymfonyFlexWorkspace } = await import("./symfony-detect")
     const dir = await mkdtemp(path.join(os.tmpdir(), "ploydok-symfony-flex-"))
     try {
       await writeFile(
@@ -169,7 +169,7 @@ describe("isSymfonyFlexWorkspace", () => {
   })
 
   it("does not mark generic PHP repos as Symfony", async () => {
-    const { isSymfonyFlexWorkspace } = await import("./deploy")
+    const { isSymfonyFlexWorkspace } = await import("./symfony-detect")
     const dir = await mkdtemp(path.join(os.tmpdir(), "ploydok-generic-php-"))
     try {
       await writeFile(
