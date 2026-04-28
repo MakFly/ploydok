@@ -1,8 +1,19 @@
 // SPDX-License-Identifier: AGPL-3.0-only
-import { describe, expect, test, mock, beforeEach } from "bun:test"
+import { describe, expect, test, mock } from "bun:test"
 import { Hono } from "hono"
-import { createAppsProtectionRouter } from "./apps-protection.js"
 import type { Db } from "@ploydok/db"
+
+mock.module("../caddy/client", () => ({
+  CaddyClient: class {
+    async getUpstream() {
+      return { host: "app", port: 3000 }
+    }
+
+    async upsertRoute() {}
+  },
+}))
+
+const { createAppsProtectionRouter } = await import("./apps-protection.js")
 
 // ---------------------------------------------------------------------------
 // Minimal stubs

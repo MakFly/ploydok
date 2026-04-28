@@ -55,6 +55,49 @@ mock.module("../github/app-credentials", () => ({
   }),
 }))
 
+mock.module("./index", () => ({
+  getProvider: (
+    kind: "github" | "gitlab",
+    ctx: { gitlabInstanceUrl?: string } = {},
+  ) => ({
+    postCommitStatus: mock(
+      async (input: {
+        owner: string
+        repo: string
+        sha: string
+        state: string
+        context: string
+        description?: string
+        token: string
+      }) => {
+        if (kind === "github") {
+          await fetch(
+            `https://api.github.com/repos/${input.owner}/${input.repo}/statuses/${input.sha}`,
+            {
+              method: "POST",
+              body: JSON.stringify({
+                state: input.state,
+                context: input.context,
+                ...(input.description !== undefined && {
+                  description: input.description,
+                }),
+              }),
+            },
+          )
+          return
+        }
+
+        const state = input.state === "failure" ? "failed" : input.state
+        const baseUrl = ctx.gitlabInstanceUrl ?? "https://gitlab.com"
+        await fetch(
+          `${baseUrl}/api/v4/projects/${encodeURIComponent(`${input.owner}/${input.repo}`)}/statuses/${input.sha}?state=${state}`,
+          { method: "POST" },
+        )
+      },
+    ),
+  }),
+}))
+
 mock.module("@ploydok/db/queries", () => ({
   getGitLabConfig: mock(async () => ({
     instance_url: "https://gitlab.example.com",

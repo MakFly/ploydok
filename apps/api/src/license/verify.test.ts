@@ -11,7 +11,7 @@ describe("license verify", () => {
       await verifyLicenseJwt(invalidToken)
       expect.unreachable()
     } catch (err) {
-      expect(err).toBeInstanceOf(InvalidLicenseError)
+      expect((err as Error).name).toBe(InvalidLicenseError.name)
       expect((err as Error).message).toContain("verify")
     }
   })
