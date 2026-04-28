@@ -114,6 +114,14 @@ Règles d'usage :
 - Monorepo/root commands may exist, but do not run broad expensive suites unless the task warrants it.
 - Before any push or PR-style completion, the relevant Definition of Done must be satisfied with real validation, not just inspection.
 
+## Database Migrations
+
+- Before introducing schema-dependent code, verify the migration exists, is listed in `packages/db/migrations/meta/_journal.json`, and has a strictly newer `when` than migrations already applied in the target local database.
+- After adding or changing migrations, run `bun --env-file=apps/api/.env.local run db:migrate` against the local dev database when the task is meant to be testable locally.
+- After migration, verify the real database shape, not only TypeScript schema files. Use `information_schema.columns` / `information_schema.tables` or a targeted query against the new columns/tables.
+- If a schema object was added in a migration whose journal `when` is older than already-applied migrations, add a new idempotent drift-repair migration instead of editing history that may already be applied elsewhere.
+- For API routes that select whole tables, test at least one real query path after migration; missing columns should be caught before handing back UI work.
+
 ## Sprint Tracking (docs/sprints/)
 
 - **Toujours utiliser des checkboxes Markdown `- [ ]` / `- [x]`** pour chaque feature / item DoD d'un sprint. Pas de prose, pas de puces simples : le statut doit être scannable en un coup d'œil.

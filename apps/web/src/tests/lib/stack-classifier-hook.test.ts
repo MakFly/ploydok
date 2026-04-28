@@ -6,7 +6,7 @@ interface ApiCall {
   path: string
 }
 
-const calls: ApiCall[] = []
+const calls: Array<ApiCall> = []
 
 mock.module("../../lib/api", () => ({
   apiFetch: async (path: string) => {
@@ -43,7 +43,7 @@ describe("runStackClassificationProbes", () => {
       )
     ).toBe(true)
 
-    const url = new URL(calls[0]!.path, "http://localhost")
+    const url = new URL(calls[0].path, "http://localhost")
     expect(url.searchParams.get("ref")).toBe("main")
     expect(url.searchParams.getAll("path")).toEqual([...ALL_PROBE_KEYS])
     expect(result.probes).toEqual({

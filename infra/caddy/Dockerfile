@@ -8,6 +8,9 @@ FROM caddy:2.10-builder AS builder
 RUN xcaddy build \
   --with github.com/mholt/caddy-l4 \
   --with github.com/mholt/caddy-ratelimit \
+  --with github.com/caddyserver/cache-handler \
+  --with github.com/ueffel/caddy-brotli \
+  --with github.com/ueffel/caddy-imagefilter/resize \
   --with github.com/caddy-dns/cloudflare \
   --with github.com/caddy-dns/route53 \
   --with github.com/caddy-dns/ovh \

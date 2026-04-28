@@ -1,9 +1,9 @@
 // SPDX-License-Identifier: AGPL-3.0-only
 import * as React from "react"
 import { Button } from "@workspace/ui/components/button"
-import { DeliveryDetailsDialog } from "./DeliveryDetailsDialog"
 import { listDeliveries } from "../../lib/webhooks"
-import type { WebhookDelivery, DeliveryDecision } from "../../lib/webhooks"
+import { DeliveryDetailsDialog } from "./DeliveryDetailsDialog"
+import type { DeliveryDecision, WebhookDelivery } from "../../lib/webhooks"
 
 // ---------------------------------------------------------------------------
 // Decision badge

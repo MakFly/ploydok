@@ -16,6 +16,7 @@ const EVENT_COLORS: Record<NotificationEvent, number> = {
   "db.rotated": 0x5865f2,
   "backup.succeeded": 0x57f287,
   "backup.failed": 0xed4245,
+  "cve.detected": 0xed4245,
 }
 
 function buildEmbed(event: NotificationEvent, payload: NotificationPayload) {
@@ -35,6 +36,20 @@ function buildEmbed(event: NotificationEvent, payload: NotificationPayload) {
   }
   if (payload.appDomain) {
     fields.push({ name: "URL", value: `https://${payload.appDomain}` })
+  }
+  if (payload.advisoryId) {
+    fields.push({ name: "Advisory", value: payload.advisoryId, inline: true })
+    fields.push({
+      name: "Sévérité",
+      value: payload.advisorySeverity ?? "UNKNOWN",
+      inline: true,
+    })
+  }
+  if (payload.packageName) {
+    fields.push({
+      name: "Package",
+      value: `${payload.packageName}@${payload.currentVersion ?? "unknown"}`,
+    })
   }
 
   return {

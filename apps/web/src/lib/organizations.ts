@@ -96,14 +96,8 @@ export function useOrganizationBySlug(orgSlug: string) {
   })
 }
 
-type MatchWithLoader = {
-  routeId?: string
-  params?: Record<string, string>
-  loaderData?: unknown
-}
-
 export function useCurrentOrganization(): OrganizationSummary | null {
-  const matches = useMatches() as ReadonlyArray<MatchWithLoader>
+  const matches = useMatches()
   const { data: me } = useMe()
 
   const orgMatch = matches.find(
@@ -116,7 +110,7 @@ export function useCurrentOrganization(): OrganizationSummary | null {
 }
 
 export function useCurrentOrganizationSlug(): string | null {
-  const matches = useMatches() as ReadonlyArray<MatchWithLoader>
+  const matches = useMatches()
   const { data: me } = useMe()
 
   const orgMatch = matches.find(

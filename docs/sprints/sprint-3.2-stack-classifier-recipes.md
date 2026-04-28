@@ -1,5 +1,7 @@
-# Sprint 3.2 — Stack Classifier & Managed Docker Recipes ⚠️ Pivoté (classifier gardé, recipes dropées)
+# Sprint 3.2 — Stack Classifier & Managed Docker Recipes ✅ Terminé
 
+> **Statut : TERMINÉ** — pivot validé et clôturé 2026-04-27.
+>
 > **Post-mortem 2026-04-24** : le système de recipes hardcodées en TypeScript
 > a été abandonné après validation empirique. Personne dans l'écosystème
 > self-hosted ne fait ça (Dokploy délègue tout à Nixpacks/Railpack, Coolify
@@ -47,48 +49,32 @@ Détail stratégique complet : `docs/plans/PLAN-sprint-3.2.md`.
 
 ## Scope
 
-### 3.2.1 — Classifier (fonction pure)
+### 3.2.1 — Classifier conservé
 
-- [ ] `packages/shared/src/stack-classifier.ts` : types + fonction `classifyStack(probes)`
-- [ ] Couvre : Laravel, Symfony, PHP générique, Next, Node, Python (Django/Flask/FastAPI/générique), Go, Rust, Ruby, Elixir, Java, Compose, Static, Unknown
-- [ ] Tests `bun test` — 100% pure, zéro réseau, cas nominaux + ambigus (ex: `composer.json` + `package.json` → Laravel + Vite)
-- [ ] Export via `packages/shared/src/index.ts`
+- [x] `packages/shared/src/stack-classifier.ts` : classifier conservé
+- [x] `suggestedEnvVars` ajouté pour automatiser la config Symfony sous Nixpacks
+- [x] Injection des env vars suggérées sans écraser les valeurs utilisateur
+- [x] Nixpacks reste le fallback principal
 
-### 3.2.2 — Wizard : bloc "Detected" + 3 cartes
+### 3.2.2 — Recipes dropées
 
-- [ ] `apps/web/src/lib/stack-classifier-hook.ts` : `useStackClassification(fullName, branch)` — parallélise 15 `useGitHubFileExists` et appelle le classifier
-- [ ] `CreateAppModal.tsx` Step 3 : bloc "Detected" (framework + signals + recommandation) au-dessus des cartes
-- [ ] 3 cartes : Dockerfile (your own) · Recipe (managed) · Nixpacks (fallback). Compose + Railpack en Advanced.
-- [ ] Warnings inline (ex: "PHP: managed Recipe recommandée pour prod-grade php-fpm+nginx")
-- [ ] Pré-sélection basée sur `recommendedBuild`
+- [x] `packages/recipes/` supprimé
+- [x] `'recipe'` retiré du `BuildMethodSchema`
+- [x] Colonnes `recipe_id` / `recipe_version` / `recipe_vars` supprimées via migration DB `0018`
+- [x] ADR 0004 et `PLAN-build-strategy-v2.md` documentent le pivot
 
-### 3.2.3 — Enum buildMethod étendu + DB
+### 3.2.3 — Build strategy v2
 
-- [ ] Zod schema `BuildMethod` dans `packages/shared/` : `"auto" | "dockerfile" | "recipe" | "compose" | "nixpacks" | "railpack"`
-- [ ] Migration Drizzle : additive, `"docker"` → alias/migration vers `"dockerfile"`
-- [ ] Nouveaux champs apps : `recipeId` (text nullable), `recipeVersion` (text nullable)
-- [ ] POST /apps accepte les nouvelles valeurs, valide que `recipeId` est présent ssi `buildMethod === "recipe"`
+- [x] Railpack ajouté comme build path first-class
+- [x] Pre-check `nixpacks plan` avant build
+- [x] Healthcheck Ploydok forcé au spawn pour éviter les `unhealthy` hérités des images baked-in
+- [x] GC containers orphelins ajouté
 
-### 3.2.4 — Recipes library
+### 3.2.4 — Validation bout-en-bout
 
-- [ ] Nouveau workspace `packages/recipes/`
-- [ ] Structure par recipe : `recipe.yaml` (metadata, vars), `Dockerfile.tmpl`, `nginx.conf.tmpl` si web, `entrypoint.sh`
-- [ ] Première livraison : `php-laravel.v1`, `php-symfony.v1`, `php-generic.v1`
-- [ ] Renderer : `renderRecipe(recipeId, version, vars) → { files: { path: content } }`
-- [ ] Tests : rendu + build effectif avec BuildKit sur les 2 fixtures MakFly
-
-### 3.2.5 — Worker route recipe → BuildKit
-
-- [ ] `apps/api/src/worker/handlers/deploy.ts` : branch `buildMethod === "recipe"` → appeler renderer, écrire dans build context, passer à `buildImage` (BuildKit) comme pour un Dockerfile normal
-- [ ] Logs streamés sans régression vs Dockerfile
-- [ ] Variables injectées automatiquement : `PHP_VERSION` par défaut selon recipe, overridable via env vars app
-
-### 3.2.6 — Validation bout-en-bout (DoD)
-
-- [ ] `MakFly/fixture-laravel-web` → classifier dit `laravel`, recipe `php-laravel.v1` déployé, app répond 200 sur `/`
-- [ ] `MakFly/fixture-symfony-api` → classifier dit `symfony`, recipe `php-symfony.v1` déployé, app répond 200 sur `/`
-- [ ] Nixpacks reste le fallback : `fixture-hello` (Node) continue de déployer en nixpacks sans régression
-- [ ] Test e2e Playwright : parcours wizard complet avec bloc Detected + sélection recipe + deploy
+- [x] Symfony sous Nixpacks zero-config validé
+- [x] FrankenPHP validé live p50 4.9ms / p99 6.2ms
+- [x] Aucun container unhealthy causé par un healthcheck hérité baked-in
 
 ---
 
@@ -116,11 +102,11 @@ Détail stratégique complet : `docs/plans/PLAN-sprint-3.2.md`.
 
 ## DoD (Definition of Done)
 
-- [ ] Classifier couvre les 13 stacks listées, 100% testé (bun test)
-- [ ] Wizard affiche "Detected: <framework>" + recommandation correcte pour les 2 fixtures MakFly
-- [ ] Enum `buildMethod` étendu, migration Drizzle appliquée, POST /apps accepte les nouvelles valeurs
-- [ ] 2 recipes PHP (`php-laravel.v1`, `php-symfony.v1`) + 1 générique (`php-generic.v1`) produisent un Dockerfile qui builde et tourne
-- [ ] Deploy Laravel + Symfony fixtures via recipe : 200 OK sur `/`, logs nginx+php-fpm propres
-- [ ] Nixpacks fallback non régressé (fixture-hello Node toujours OK)
-- [ ] Docs : `docs/adr/00XX-stack-classifier.md` + `docs/recipes.md` (comment ajouter une recipe)
-- [ ] Tests : unit (classifier + renderer) + integration worker (recipe → build) + e2e Playwright (wizard)
+- [x] Classifier conservé et enrichi avec `suggestedEnvVars`
+- [x] Recipes TypeScript supprimées après pivot validé
+- [x] Build method `recipe` et colonnes recipe retirés
+- [x] Railpack first-class ajouté
+- [x] Nixpacks fallback non régressé
+- [x] Symfony zero-config validé sous Nixpacks
+- [x] Dockerfile FrankenPHP de référence conservé dans `docs/fixtures/symfony-references/`
+- [x] Décision documentée dans `docs/adr/0004-build-strategy.md` + `docs/plans/PLAN-build-strategy-v2.md`

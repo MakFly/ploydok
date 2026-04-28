@@ -8,6 +8,7 @@ import type {
   CaddyRoute,
   CaddyTlsOptions,
 } from "./types.js"
+import { applyCdnHandlers } from "./cdn.js"
 
 export class CaddyClient {
   private readonly baseUrl: string
@@ -141,12 +142,15 @@ export class CaddyClient {
       handle: this.buildHandlers(upstream, middlewares),
       terminal: true,
     }
+    const routeWithCdn = middlewares?.cdn
+      ? applyCdnHandlers(middlewares.cdn, route)
+      : route
 
     // Try to PATCH an existing route first
     const patchRes = await fetch(`${this.baseUrl}/id/${routeId}`, {
       method: "PATCH",
       headers: { "Content-Type": "application/json" },
-      body: JSON.stringify(route),
+      body: JSON.stringify(routeWithCdn),
     })
 
     if (patchRes.ok) {
@@ -160,7 +164,7 @@ export class CaddyClient {
         {
           method: "POST",
           headers: { "Content-Type": "application/json" },
-          body: JSON.stringify(route),
+          body: JSON.stringify(routeWithCdn),
         }
       )
       if (!postRes.ok) {
@@ -173,6 +177,98 @@ export class CaddyClient {
 
     throw new Error(
       `CaddyClient.upsertRoute PATCH failed: ${patchRes.status} ${await patchRes.text()}`
+    )
+  }
+
+  buildStaticHandlers(root: string, spaFallback: boolean): CaddyHandler[] {
+    if (!spaFallback) {
+      return [{ handler: "file_server", root }]
+    }
+
+    return [
+      {
+        handler: "subroute",
+        routes: [
+          {
+            match: [
+              {
+                file: {
+                  root,
+                  try_files: ["{http.request.uri.path}", "/index.html"],
+                },
+              },
+            ],
+            handle: [
+              {
+                handler: "rewrite",
+                uri: "{http.matchers.file.relative}",
+              },
+            ],
+          },
+          {
+            handle: [{ handler: "file_server", root }],
+          },
+        ],
+      },
+    ]
+  }
+
+  async upsertStaticRoute({
+    host,
+    root,
+    appId,
+    spaFallback = true,
+    cdn,
+  }: {
+    host: string
+    root: string
+    appId: string
+    spaFallback?: boolean
+    cdn?: CaddyMiddlewares["cdn"]
+  }): Promise<void> {
+    const routeId = `ploydok-${appId}`
+
+    await this.ensureBootstrap()
+
+    const route: CaddyRoute = {
+      "@id": routeId,
+      match: [{ host: [host] }],
+      handle: this.buildStaticHandlers(root, spaFallback),
+      terminal: true,
+    }
+    const routeWithCdn = cdn
+      ? applyCdnHandlers(cdn, route, { staticRoot: root })
+      : route
+
+    const patchRes = await fetch(`${this.baseUrl}/id/${routeId}`, {
+      method: "PATCH",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify(routeWithCdn),
+    })
+
+    if (patchRes.ok) {
+      return
+    }
+
+    if (patchRes.status === 404) {
+      const postRes = await fetch(
+        `${this.baseUrl}/config/apps/http/servers/srv0/routes`,
+        {
+          method: "POST",
+          headers: { "Content-Type": "application/json" },
+          body: JSON.stringify(routeWithCdn),
+        }
+      )
+      if (!postRes.ok) {
+        throw new Error(
+          `CaddyClient.upsertStaticRoute POST failed: ${postRes.status} ${await postRes.text()}`
+        )
+      }
+      return
+    }
+
+    throw new Error(
+      `CaddyClient.upsertStaticRoute PATCH failed: ${patchRes.status} ${await patchRes.text()}`
     )
   }
 
@@ -210,10 +306,16 @@ export class CaddyClient {
   async setUpstream(
     appId: string,
     host: string,
-    upstream: { host: string; port: number }
+    upstream: { host: string; port: number },
+    opts?: { cdn?: CaddyMiddlewares["cdn"] }
   ): Promise<void> {
     const dial = `${upstream.host}:${upstream.port}`
-    await this.upsertRoute({ host, upstream: dial, appId })
+    await this.upsertRoute({
+      host,
+      upstream: dial,
+      appId,
+      ...(opts?.cdn ? { middlewares: { cdn: opts.cdn } } : {}),
+    })
   }
 
   /**

@@ -12,9 +12,11 @@ export const AppStatusSchema = z.enum([
   "pending",
   "building",
   "running",
+  "serving",
   "restarting",
   "failed",
   "stopped",
+  "deleting",
 ])
 export type AppStatus = z.infer<typeof AppStatusSchema>
 
@@ -40,6 +42,7 @@ export const BuildMethodSchema = z.enum([
   "compose",
   "nixpacks",
   "railpack",
+  "static",
 ])
 export type BuildMethod = z.infer<typeof BuildMethodSchema>
 
@@ -89,6 +92,58 @@ export type ImagePullPolicy = z.infer<typeof ImagePullPolicySchema>
 export const SecretPhaseSchema = z.enum(["build", "runtime", "both"])
 export type SecretPhase = z.infer<typeof SecretPhaseSchema>
 
+const APP_VOLUME_NAME_REGEX = /^[a-z0-9][a-z0-9._-]{0,63}$/
+
+export function isValidAppVolumeMountPath(value: string): boolean {
+  if (value.length < 2 || value.length > 512) return false
+  if (!value.startsWith("/")) return false
+  if (value === "/" || value.includes("\0") || value.includes("\\")) return false
+
+  const segments = value.slice(1).split("/")
+  return segments.every(
+    (segment) => segment.length > 0 && segment !== "." && segment !== ".."
+  )
+}
+
+export const AppVolumeNameSchema = z
+  .string()
+  .min(1)
+  .max(64)
+  .regex(
+    APP_VOLUME_NAME_REGEX,
+    "must be lowercase alphanumeric and may contain '.', '_' or '-'"
+  )
+
+export const AppVolumeMountPathSchema = z
+  .string()
+  .refine(isValidAppVolumeMountPath, {
+    message:
+      "must be an absolute Unix path inside the container without empty segments, '.' or '..'",
+  })
+
+export const AppVolumeSchema = z.object({
+  id: z.string().min(1),
+  name: AppVolumeNameSchema,
+  mountPath: AppVolumeMountPathSchema,
+  hostPath: z.string().min(1),
+  sizeLimitBytes: z.number().int().positive().nullable().default(null),
+  createdAt: z.string(),
+})
+export type AppVolume = z.infer<typeof AppVolumeSchema>
+
+export const CreateAppVolumeSchema = z.object({
+  name: AppVolumeNameSchema,
+  mountPath: AppVolumeMountPathSchema,
+  sizeLimitBytes: z.number().int().positive().nullable().optional(),
+})
+export type CreateAppVolumeInput = z.infer<typeof CreateAppVolumeSchema>
+
+export const UpdateAppVolumeSchema = CreateAppVolumeSchema.partial().refine(
+  (value) => Object.keys(value).length > 0,
+  { message: "at least one field must be provided" }
+)
+export type UpdateAppVolumeInput = z.infer<typeof UpdateAppVolumeSchema>
+
 // ---------------------------------------------------------------------------
 // AppConfig
 // ---------------------------------------------------------------------------
@@ -111,6 +166,8 @@ export const AppConfigSchema = z
     startCommand: z.string().optional(),
     watchPaths: z.array(z.string()).optional(),
     buildMethod: BuildMethodSchema.optional(),
+    staticOutputDir: z.string().optional(),
+    staticSpaFallback: z.boolean().optional(),
     runtimePort: z.number().int().positive().optional(),
     restartPolicy: RestartPolicySchema.optional(),
     healthcheck: HealthcheckConfigSchema.optional(),

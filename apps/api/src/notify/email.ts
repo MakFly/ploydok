@@ -14,6 +14,10 @@ function renderHtml(event: NotificationEvent, payload: NotificationPayload): str
   if (payload.durationMs != null) rows.push(`<tr><td><b>Durée</b></td><td>${Math.round(payload.durationMs / 1000)}s</td></tr>`)
   if (payload.errorMessage) rows.push(`<tr><td><b>Erreur</b></td><td>${payload.errorMessage.slice(0, 500)}</td></tr>`)
   if (payload.appDomain) rows.push(`<tr><td><b>URL</b></td><td><a href="https://${payload.appDomain}">${payload.appDomain}</a></td></tr>`)
+  if (payload.advisoryId) rows.push(`<tr><td><b>Advisory</b></td><td>${payload.advisoryId}</td></tr>`)
+  if (payload.advisorySeverity) rows.push(`<tr><td><b>Sévérité</b></td><td>${payload.advisorySeverity}</td></tr>`)
+  if (payload.packageName) rows.push(`<tr><td><b>Package</b></td><td>${payload.packageName}@${payload.currentVersion ?? "unknown"}</td></tr>`)
+  if (payload.advisoryUrl) rows.push(`<tr><td><b>Détail</b></td><td><a href="${payload.advisoryUrl}">${payload.advisoryUrl}</a></td></tr>`)
 
   return `<html><body>
 <h2>[Ploydok] ${event}</h2>
@@ -33,7 +37,15 @@ export const emailAdapter: NotificationAdapter = {
       await sendMail({
         to,
         subject: `[Ploydok] ${event} — ${payload.appName}`,
-        text: `Event: ${event}\nApp: ${payload.appName}\nSHA: ${payload.commitSha ?? "N/A"}\nDurée: ${payload.durationMs != null ? `${Math.round(payload.durationMs / 1000)}s` : "N/A"}`,
+        text:
+          `Event: ${event}\nApp: ${payload.appName}\nSHA: ${payload.commitSha ?? "N/A"}\nDurée: ${
+            payload.durationMs != null
+              ? `${Math.round(payload.durationMs / 1000)}s`
+              : "N/A"
+          }` +
+          (payload.advisoryId
+            ? `\nAdvisory: ${payload.advisoryId}\nPackage: ${payload.packageName ?? "unknown"}@${payload.currentVersion ?? "unknown"}\nSeverity: ${payload.advisorySeverity ?? "UNKNOWN"}`
+            : ""),
         html: renderHtml(event, payload),
       })
       return { ok: true }

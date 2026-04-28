@@ -231,7 +231,7 @@ test.describe("DoD #10 — workspace + registry cleanup", () => {
     // directly because the API endpoint is gated by app ownership (404 now).
     const catalogRes = await fetch("http://127.0.0.1:5000/v2/_catalog")
     if (catalogRes.ok) {
-      const catalog = (await catalogRes.json()) as { repositories?: string[] }
+      const catalog = (await catalogRes.json()) as { repositories?: Array<string> }
       const repo = `app-${appId.toLowerCase()}`
       expect(
         catalog.repositories ?? [],

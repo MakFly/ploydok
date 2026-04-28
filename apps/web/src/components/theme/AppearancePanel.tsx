@@ -2,7 +2,8 @@
 import * as React from "react"
 import { RiComputerLine, RiMoonLine, RiSunLine } from "@remixicon/react"
 import { cn } from "@workspace/ui/lib/utils"
-import { useTheme, type ThemeMode } from "./ThemeToggle"
+import {  useTheme } from "./ThemeToggle"
+import type {ThemeMode} from "./ThemeToggle";
 
 const THEME_OPTIONS: ReadonlyArray<{
   value: ThemeMode

@@ -78,6 +78,7 @@ async function syncProtectionToCaddy(
   const middlewares: Parameters<
     typeof caddyClient.upsertRoute
   >[0]["middlewares"] = {}
+  middlewares.cdn = app
 
   if (
     app.protection_basic_auth_enabled &&

@@ -1,6 +1,6 @@
 // SPDX-License-Identifier: AGPL-3.0-only
 import * as React from "react"
-import type { DbStatus, DbHealthStatus } from "../../lib/databases"
+import type { DbHealthStatus, DbStatus } from "../../lib/databases"
 
 const STATUS_CONFIG: Record<
   DbStatus,

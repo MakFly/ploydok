@@ -71,13 +71,14 @@ export function resolveRuntimeAppStatus(
   if (
     appStatus === "building" ||
     appStatus === "pending" ||
-    appStatus === "created"
+    appStatus === "created" ||
+    appStatus === "deleting"
   ) {
     return appStatus
   }
 
-  if (appStatus === "failed") return "failed"
   if (appStatus === "restarting") return "restarting"
+  if (appStatus === "serving") return "serving"
 
   if (!snapshot) {
     return appStatus === "running" ? "stopped" : appStatus
@@ -102,6 +103,12 @@ export function resolveRuntimeAppStatus(
 
 export type AppHealth = "healthy" | "unhealthy"
 
+export interface RuntimeAppSource {
+  id: string
+  status: AppStatus
+  containerId?: string | null
+}
+
 /**
  * Health check status indépendant du lifecycle (Sprint 7 fix). Renvoie
  * `null` si aucune info santé n'est dispo (snapshot absent, container
@@ -114,4 +121,18 @@ export function resolveAppHealth(
   if (snapshot.status === "running") return "healthy"
   if (snapshot.status === "unhealthy") return "unhealthy"
   return null
+}
+
+export function resolveDisplayedAppState(
+  app: RuntimeAppSource | null | undefined,
+  containers?: Array<ContainerSnapshot> | null
+): { status: AppStatus | null; health: AppHealth | null } {
+  if (!app) return { status: null, health: null }
+  if (!containers) return { status: app.status, health: null }
+
+  const snapshot = selectAppSnapshot(containers, app.id, app.containerId)
+  return {
+    status: resolveRuntimeAppStatus(app.status, snapshot),
+    health: resolveAppHealth(snapshot),
+  }
 }

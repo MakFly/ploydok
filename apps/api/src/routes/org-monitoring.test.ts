@@ -126,29 +126,38 @@ function buildTestApp(authedUser?: AuthUser): Hono {
     return next()
   })
 
-  // Mock DB that returns arrays for queries
+  const queryRows = [
+    {
+      status: "running",
+      plan: "hobby",
+      cpu_limit: null,
+      mem_limit_bytes: null,
+      pids_limit: null,
+      project_id: "org-1",
+    },
+    {
+      status: "stopped",
+      plan: "pro",
+      cpu_limit: null,
+      mem_limit_bytes: null,
+      pids_limit: null,
+      project_id: "org-1",
+    },
+  ]
+
+  const whereResult = {
+    limit: () => Promise.resolve([{ project_id: "org-1" }]),
+    then: (
+      resolve: (rows: typeof queryRows) => unknown,
+      reject?: (error: unknown) => unknown
+    ) => Promise.resolve(queryRows).then(resolve, reject),
+  }
+
+  // Mock DB that supports both awaitable queries and `.where().limit()` chains.
   const mockDb = {
     select: () => ({
       from: () => ({
-        where: () =>
-          Promise.resolve([
-            {
-              status: "running",
-              plan: "hobby",
-              cpu_limit: null,
-              mem_limit_bytes: null,
-              pids_limit: null,
-              project_id: "org-1",
-            },
-            {
-              status: "stopped",
-              plan: "pro",
-              cpu_limit: null,
-              mem_limit_bytes: null,
-              pids_limit: null,
-              project_id: "org-1",
-            },
-          ]),
+        where: () => whereResult,
         limit: () => Promise.resolve([{ project_id: "org-1" }]),
       }),
     }),

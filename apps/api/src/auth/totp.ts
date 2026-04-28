@@ -17,6 +17,11 @@ const SECRET_BYTES = 20 // 160 bits — RFC 4226 §4 recommendation for SHA-1
 export const TOTP_PERIOD_S = PERIOD_S
 export const TOTP_DIGITS = DIGITS
 
+export interface TotpVerificationResult {
+  ok: boolean
+  matchedStep?: number
+}
+
 // RFC 4648 §6 base32 alphabet
 const BASE32_ALPHABET = "ABCDEFGHIJKLMNOPQRSTUVWXYZ234567"
 
@@ -128,6 +133,14 @@ export function verifyCode(
   code: string,
   opts?: { nowSec?: number; window?: number },
 ): boolean {
+  return verifyCodeDetailed(secret, code, opts).ok
+}
+
+export function verifyCodeDetailed(
+  secret: string,
+  code: string,
+  opts?: { nowSec?: number; window?: number },
+): TotpVerificationResult {
   const nowSec = opts?.nowSec ?? Math.floor(Date.now() / 1000)
   const window = opts?.window ?? 1
 
@@ -136,7 +149,7 @@ export function verifyCode(
 
   // Reject non-6-digit inputs early
   if (normalised.length !== DIGITS || !/^\d+$/.test(normalised)) {
-    return false
+    return { ok: false }
   }
 
   const incoming = Buffer.from(normalised, "utf8")
@@ -146,11 +159,14 @@ export function verifyCode(
     const expectedBuf = Buffer.from(expected, "utf8")
 
     if (timingSafeEqual(expectedBuf, incoming)) {
-      return true
+      return {
+        ok: true,
+        matchedStep: Math.floor(nowSec / PERIOD_S) + i,
+      }
     }
   }
 
-  return false
+  return { ok: false }
 }
 
 // ---------------------------------------------------------------------------

@@ -6,6 +6,7 @@ import { hasRole } from "@ploydok/db/queries"
 import { verifyAccessToken, ACCESS_COOKIE } from "./jwt"
 import { countActive } from "./backup-codes"
 import type { Db } from "@ploydok/db"
+import { authenticatePat } from "./pat"
 
 // ---------------------------------------------------------------------------
 // Helpers
@@ -62,6 +63,26 @@ export interface AppVariables {
  */
 export function requireAuth(db: Db) {
   return async (c: Context, next: Next) => {
+    const patResult = await authenticatePat(c, db)
+    if (patResult.kind === "invalid") {
+      return c.json(
+        {
+          error: {
+            code: "UNAUTHENTICATED",
+            message: "Invalid API token",
+          },
+        },
+        401
+      )
+    }
+
+    if (patResult.kind === "ok") {
+      c.set("user", patResult.user)
+      c.set("session_id", patResult.user.session_id)
+      c.set("access_exp", 0)
+      return next()
+    }
+
     const cookieHeader = c.req.raw.headers.get("cookie") ?? ""
     const cookies = parseCookies(cookieHeader)
     const token = cookies[ACCESS_COOKIE]

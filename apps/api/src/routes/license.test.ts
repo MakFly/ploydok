@@ -1,67 +1,140 @@
 // SPDX-License-Identifier: AGPL-3.0-only
-import { describe, it, expect } from "bun:test"
+import { describe, it, expect, beforeEach, mock } from "bun:test"
+import { Hono } from "hono"
+import { nanoid } from "nanoid"
+import { memberships, projects, users } from "@ploydok/db"
+import type { Db } from "@ploydok/db"
+import { makeTestDb, TEST_PG_URL } from "../test/db-helpers"
+import { signAccessToken, ACCESS_COOKIE } from "../auth/jwt"
 
-describe("license routes", () => {
-  describe("GET /license/status", () => {
-    it("returns activated=false when no license exists", () => {
-      // Test stub: requires full app setup with database
-      // In integration tests, create a fresh DB and verify status endpoint
-      const mockStatus = {
-        activated: false,
-        is_expired: false,
-      }
-      expect(mockStatus.activated).toBe(false)
-    })
+mock.module("../license/verify", () => ({
+  InvalidLicenseError: class InvalidLicenseError extends Error {},
+  verifyLicenseJwt: mock(async () => ({
+    license_id: "license-test",
+    plan: "enterprise",
+    seats: 25,
+    exp: Math.floor(Date.now() / 1000) + 86_400,
+  })),
+}))
 
-    it("returns license status when activated", () => {
-      const mockStatus = {
-        activated: true,
-        plan: "pro" as const,
-        seats: 5,
-        expires_at: new Date().toISOString(),
-        is_expired: false,
-      }
-      expect(mockStatus.activated).toBe(true)
-      expect(mockStatus.plan).toBe("pro")
-    })
+import { createLicenseRouter } from "./license"
 
-    it("marks license as expired when expires_at < now", () => {
-      const now = new Date()
-      const pastDate = new Date(now.getTime() - 86400000) // 1 day ago
-      expect(pastDate < now).toBe(true)
-    })
+const skip = !TEST_PG_URL
+if (skip) console.log("[license.test] PLOYDOK_TEST_PG_URL not set — skipping")
+
+async function insertUser(db: Db, emailPrefix: string) {
+  const id = `${emailPrefix}-${nanoid(6)}`
+  const now = new Date()
+  await db.insert(users).values({
+    id,
+    email: `${emailPrefix}-${id}@test.com`,
+    display_name: emailPrefix,
+    created_at: now,
+    updated_at: now,
+    recovery_token_hash: null,
+    recovery_expires_at: null,
+  })
+  return { id, email: `${emailPrefix}-${id}@test.com` }
+}
+
+async function insertOrg(db: Db, ownerId: string) {
+  const id = `org-${nanoid(6)}`
+  await db.insert(projects).values({
+    id,
+    owner_id: ownerId,
+    name: `Org ${id}`,
+    slug: `org-${id}`,
+    created_at: new Date(),
+  })
+  return id
+}
+
+async function insertMembership(
+  db: Db,
+  orgId: string,
+  userId: string,
+  role: "owner" | "member"
+) {
+  const now = new Date()
+  await db.insert(memberships).values({
+    id: nanoid(),
+    org_id: orgId,
+    user_id: userId,
+    role,
+    invited_by: null,
+    invited_at: now,
+    accepted_at: now,
+  })
+}
+
+async function buildAuthCookie(userId: string, email: string) {
+  const token = await signAccessToken({
+    userId,
+    email,
+    sessionId: `sess-${nanoid(6)}`,
+  })
+  return `${ACCESS_COOKIE}=${encodeURIComponent(token)}`
+}
+
+function buildApp(db: Db) {
+  const app = new Hono()
+  app.route("/license", createLicenseRouter(db))
+  return app
+}
+
+describe.skipIf(skip)("license routes", () => {
+  let db: Db
+
+  beforeEach(async () => {
+    const result = await makeTestDb()
+    db = result.db
   })
 
-  describe("POST /license/activate", () => {
-    it("requires authentication", () => {
-      // POST /activate without auth should return 401
-      // Test requires full app setup with auth middleware
-      expect(true).toBe(true)
+  it("returns 403 for a non-owner even if another owner exists", async () => {
+    const owner = await insertUser(db, "owner")
+    const member = await insertUser(db, "member")
+    const orgId = await insertOrg(db, owner.id)
+    await insertMembership(db, orgId, owner.id, "owner")
+    await insertMembership(db, orgId, member.id, "member")
+
+    const app = buildApp(db)
+    const res = await app.request("/license/activate", {
+      method: "POST",
+      headers: {
+        cookie: await buildAuthCookie(member.id, member.email),
+        "content-type": "application/json",
+      },
+      body: JSON.stringify({ jwt: "valid.jwt.token" }),
     })
 
-    it("requires admin membership", () => {
-      // POST /activate with non-admin user should return 403
-      expect(true).toBe(true)
+    expect(res.status).toBe(403)
+    const body = (await res.json()) as { error: string }
+    expect(body.error).toContain("owners")
+  })
+
+  it("returns 200 for an accepted owner and activates the license", async () => {
+    const owner = await insertUser(db, "owner")
+    const orgId = await insertOrg(db, owner.id)
+    await insertMembership(db, orgId, owner.id, "owner")
+
+    const app = buildApp(db)
+    const res = await app.request("/license/activate", {
+      method: "POST",
+      headers: {
+        cookie: await buildAuthCookie(owner.id, owner.email),
+        "content-type": "application/json",
+      },
+      body: JSON.stringify({ jwt: "valid.jwt.token" }),
     })
 
-    it("validates JWT format", () => {
-      const invalidJwt = "not.a.valid.jwt"
-      expect(invalidJwt).toContain(".")
-    })
-
-    it("successfully activates valid license", () => {
-      const mockClaims = {
-        plan: "enterprise" as const,
-        seats: 10,
-        exp: Math.floor(Date.now() / 1000) + 86400,
-        iat: Math.floor(Date.now() / 1000),
-        issuer: "ploydok" as const,
-        license_id: "550e8400-e29b-41d4-a716-446655440000",
-      }
-
-      expect(mockClaims.plan).toBe("enterprise")
-      expect(mockClaims.seats).toBe(10)
-      expect(mockClaims.issuer).toBe("ploydok")
-    })
+    expect(res.status).toBe(200)
+    const body = (await res.json()) as {
+      success: boolean
+      plan: string
+      message: string
+    }
+    expect(body.success).toBe(true)
+    expect(body.plan).toBe("enterprise")
+    expect(body.message).toContain("License activated")
   })
 })

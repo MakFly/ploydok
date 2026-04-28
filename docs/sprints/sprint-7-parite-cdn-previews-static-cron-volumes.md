@@ -1,31 +1,36 @@
-# Sprint 7 — Parité déploiement (CDN · Previews · Static · Cron · Volumes · Volume backups) ⏳ À faire
+# Sprint 7 — Parité déploiement (CDN · Previews · Static · Cron · Volumes · Volume backups) ⚠️ Partiel
 
 **Durée estimée** : 2 semaines (6 mini-features découplables en 2 vagues).
 **Objectif** : combler les écarts de parité avec Dokploy/Coolify côté déploiement d'applications, sur la base de l'audit `docs/audits/2026-04-24_20h21_gap-dokploy-sidebar.md` + vérification code.
-**Dépendances** : Sprint 4 (domaines, secrets) terminé. Indépendant du Sprint 5 (copilot) et du Sprint 6 (hardening).
+**Dépendances** : Sprint 4 (domaines, secrets) terminé. Indépendant du Sprint 6 (hardening).
 
 ---
 
 ## Correctifs à l'audit initial (vérification code-in-hand)
 
-| Feature                | État audit           | Réalité code                                                                                                        | Ref                                                                                                            |
-| ---------------------- | -------------------- | ------------------------------------------------------------------------------------------------------------------- | -------------------------------------------------------------------------------------------------------------- |
-| MariaDB                | "manque"             | **Déjà supporté** (enum + template MariaDB 11.4)                                                                    | `packages/db/src/schema/databases.ts:16` · `apps/api/src/databases/templates/index.ts:21-116`                  |
-| DB backups S3          | "local seul"         | **S3 déjà complet** (age + retention + cron)                                                                        | `packages/db/src/schema/backup_configs.ts` · `apps/api/src/databases/backup.ts` · `apps/api/src/storage/s3.ts` |
-| Module S3              | "manque"             | **Déjà présent** : AWS SDK + endpoint custom → compatible AWS / Cloudflare R2 / Scaleway / OVH / Backblaze / Wasabi | `apps/api/src/storage/s3.ts:1-109`                                                                             |
-| BullMQ crons           | "stuck-build reaper" | **7 crons infra actifs**                                                                                            | `apps/api/src/worker/index.ts:188-194`                                                                         |
-| `build_method=compose` | "supporté"           | **Enum présent, worker throw `FatalDeployError`**                                                                   | `apps/api/src/worker/handlers/deploy.ts:249-251`                                                               |
+| Feature                | État audit           | Réalité code                                                                                                        | Ref                                                                                                                                     |
+| ---------------------- | -------------------- | ------------------------------------------------------------------------------------------------------------------- | --------------------------------------------------------------------------------------------------------------------------------------- |
+| MariaDB                | "manque"             | **Déjà supporté** (enum + template MariaDB 11.4)                                                                    | `packages/db/src/schema/databases.ts:16` · `apps/api/src/databases/templates/index.ts:21-116`                                           |
+| DB backups S3          | "local seul"         | **S3 déjà complet** (age + retention + cron)                                                                        | `packages/db/src/schema/backup_configs.ts` · `apps/api/src/databases/backup.ts` · `apps/api/src/storage/s3.ts`                          |
+| Module S3              | "manque"             | **Déjà présent** : AWS SDK + endpoint custom → compatible AWS / Cloudflare R2 / Scaleway / OVH / Backblaze / Wasabi | `apps/api/src/storage/s3.ts:1-109`                                                                                                      |
+| BullMQ crons           | "stuck-build reaper" | **7 crons infra actifs**                                                                                            | `apps/api/src/worker/index.ts:188-194`                                                                                                  |
+| `build_method=compose` | "supporté"           | **Enum présent, worker throw `FatalDeployError`**                                                                   | `apps/api/src/worker/handlers/deploy.ts:249-251`                                                                                        |
+| Static sites           | "rien"               | **Builder écrit mais pas branché** : `build-static.ts` (+ test) existe, `deploy.ts` ne l'appelle pas                | `apps/api/src/worker/handlers/build-static.ts` · `apps/api/src/worker/handlers/deploy.ts` (0 match `static`)                            |
+| Preview deployments    | "no-op"              | **Tuyauterie partielle** : schémas + queue `previewTeardown` + cron `cleanup-previews` OK, déclencheur PR manquant  | `packages/db/src/schema/preview-deployments.ts` · `apps/api/src/worker/jobs/cleanup-previews.ts` · `apps/api/src/github/webhook.ts:404` |
+| Scheduled tasks        | "zéro schéma/worker" | **Largement implémenté** : schémas `scheduled-jobs` + `scheduled-job-runs` + route + tests existent                 | `packages/db/src/schema/scheduled-jobs.ts` · `packages/db/src/schema/scheduled-job-runs.ts` · `apps/api/src/routes/scheduled-jobs.ts`   |
 
 → **MariaDB = rien à faire.** Juste une vérif UI (formulaire création DB dans `apps/web/src/routes/_authed/.../databases`) pour s'assurer que le type est sélectionnable. Pas scopé dans ce sprint.
 
+→ **Re-vérification 2026-04-27** : 3 items du scope initial sont déjà partiellement/largement faits. Le reste-à-faire réel est plus petit que la doc d'origine — cf. section suivante.
+
 ## Ce qui manque réellement
 
-1. **CDN** (cache / compression / headers / image-optim) — Caddy = reverse-proxy + TLS + rate-limit aujourd'hui.
-2. **Preview deployments PR** — webhook case existe mais no-op (`apps/api/src/github/webhook.ts:401-404`).
-3. **Static sites** — pas de builder static, zéro match `"static"` dans `apps/api/src/worker/`.
-4. **Scheduled tasks utilisateur** — zéro schéma, zéro worker.
-5. **App persistent volumes** — schema `apps` n'a aucune colonne volume (seules les DB en ont).
-6. **Volume backups** — backups = dump DB only (pas tar+encrypt des volumes).
+1. **CDN** : code + tests locaux OK. Reste la preuve release/prod avec Caddy rebuildé (`cache-handler`, Brotli, image filter) et Cloudflare live.
+2. **Preview deployments** : webhook PR + handlers deploy/teardown OK en unit. Reste le vrai e2e GitHub/PR/domain/commit-status.
+3. **Scheduled tasks** : runner + trigger manuel + logs/timeout OK en unit. Reste le vrai e2e agent/Docker avec 2 runs cron.
+4. **App persistent volumes** : schéma/API/runner/delete purge OK. Reste le vrai e2e agent/Docker : fichier qui persiste après redeploy + size-limit.
+5. **Volume backups** : backup local filesystem OK. Reste restore, chiffrement `.tar.age`, rétention e2e et preuves S3 providers.
+6. **Monitoring org-scoped** : toujours non commencé dans ce sprint.
 
 ## Ordre suggéré d'exécution
 
@@ -78,7 +83,32 @@ Rationale : CDN livrable rapide (pur Caddy). Static sites débloquent preview (9
 
 ## Mini-feature 1 — CDN
 
-**Stratégie** : flag app-level `cdn_mode = "off" | "internal" | "external"`. `internal` active cache-handler + brotli/gzip + headers + image optim dans Caddy. `external` désactive cache/encode internes (évite double-layer) et persiste seulement les headers pour un edge externe (Cloudflare/Bunny). `off` = comportement actuel.
+**Avancement 2026-04-27** :
+
+- [x] Schéma DB + migration `0035_app_cdn.sql` ajoutés
+- [x] Schéma DB + migration `0036_cloudflare_cdn.sql` ajoutés pour Cloudflare managed
+- [x] Schéma partagé `CdnConfigSchema` + types exportés
+- [x] API `GET /apps/:id/cdn` + `PUT /apps/:id/cdn` branchée avec validation Zod
+- [x] API `GET/PUT /apps/:id/cdn/cloudflare`, `POST /sync`, `POST /purge` branchée
+- [x] CaddyClient/reconciler injectent CDN sur routes reverse-proxy et static file_server
+- [x] Les réécritures Caddy deploy/rollback/domain/protection conservent `middlewares.cdn`
+- [x] Purge Cloudflare best-effort après deploy blue/green, rollback et static deploy
+- [x] UI `CDN & caching` branchée dans l'onglet Domains
+- [x] UI Cloudflare managed : token, zone, hostname, origin, purge
+- [x] Tests unitaires CDN/reconciler/routes/Cloudflare client verts
+- [x] Migration appliquée sur l'environnement local (`bun --env-file=apps/api/.env.local run db:migrate`)
+- [ ] Release/prod-only : Caddy reconstruit/redémarré avec les modules CDN (`infra/caddy/Dockerfile`)
+- [ ] Release/prod-only : E2E live Cloudflare API avec token/zone réels
+- [ ] Release/prod-only : `curl -I` live cache/compression/image variants sur Caddy rebuildé
+
+**Validation locale vs release/prod-only (2026-04-28)** :
+
+- [x] Local : rendu JSON des routes Caddy pour reverse-proxy + static vérifié par tests unitaires (`apps/api/src/caddy/client.test.ts`, `reconciler-cdn.test.ts`, `reconciler.test.ts`)
+- [x] Local : branchement static au boot Caddy déjà vérifié via reconciler + spec live gated `PLOYDOK_E2E_REAL`
+- [ ] Release/prod-only : preuve runtime des modules xcaddy (`cache-handler`, `brotli`, `image_filter`) après rebuild effectif du container Caddy
+- [ ] Release/prod-only : preuve opérateur d'un cache HIT / compression `br` / resize image au travers du listener HTTP réel
+
+**Stratégie** : flag app-level `cdn_mode = "off" | "internal" | "external"`. `internal` active cache-handler + brotli/gzip + headers + image optim dans Caddy. `external` devient **Cloudflare managed** : Ploydok crée/maintient le DNS record proxied, la Cache Rule et purge le cache Cloudflare après deploy/rollback. `off` = comportement actuel.
 
 **Schéma** — `packages/db/src/schema/apps.ts` :
 
@@ -89,8 +119,13 @@ cdn_cache_paths: text("cdn_cache_paths").array(),
 cdn_compression: boolean("cdn_compression").notNull().default(false),
 cdn_image_optim: boolean("cdn_image_optim").notNull().default(false),
 cdn_headers: text("cdn_headers"),                         // JSON {[name]: value}
-cdn_external_provider: text("cdn_external_provider"),     // "cloudflare" | "bunny" | null
+cdn_external_provider: text("cdn_external_provider"),     // "cloudflare" | null
 ```
+
+**Schéma Cloudflare managed** :
+
+- `cloudflare_connections` : token Cloudflare chiffré par org/projet
+- `app_cloudflare_cdn` : zone, hostname, origin, DNS record id, ruleset/rule id, status sync
 
 **Caddy** — `apps/api/src/caddy/` :
 
@@ -100,25 +135,41 @@ cdn_external_provider: text("cdn_external_provider"),     // "cloudflare" | "bun
 
 **Plugins Caddy** — `infra/caddy/Dockerfile` (nouveau) : build xcaddy avec `caddy-cache-handler`, `caddy-brotli`, un module image-optim. `infra/docker-compose.yml` → `build: ./caddy` au lieu de `image: caddy:2`. Documenter dans `.claude/rules/infra.md`.
 
-**API** — `apps/api/src/routes/apps-cdn.ts` (nouveau) : `GET /apps/:id/cdn`, `PUT /apps/:id/cdn` (Zod dans `packages/shared/src/schemas/cdn.ts`, TTL 0-86400, header names `/^[A-Za-z-]+$/`). Trigger reconciler après update.
+**API** — `apps/api/src/routes/apps-cdn.ts` : `GET /apps/:id/cdn`, `PUT /apps/:id/cdn` (Zod dans `packages/shared/src/cdn.ts`, TTL 0-86400, header names `/^[A-Za-z-]+$/`). `GET/PUT /apps/:id/cdn/cloudflare`, `POST /sync`, `POST /purge` orchestrent Cloudflare.
 
-**UI** — `apps/web/src/routes/_authed/apps/$id/settings/cdn.tsx` (nouveau onglet) : toggle mode, slider TTL, éditeur paths, textarea headers JSON, switches compression/image-optim, sélecteur provider si `external`.
+**UI** — `apps/web/src/components/apps/CdnSection.tsx` : toggle mode, TTL, paths, headers JSON, Caddy-only compression/image-optim, et flow Cloudflare managed si `external`.
 
 **DoD** :
 
-- [ ] Migration + `make db-migrate` OK
+- [x] Migration + `make db-migrate` OK
 - [ ] Toggle `internal` → `curl -I` renvoie `Cache-Status: Caddy; hit` au 2ème hit
 - [ ] `Accept-Encoding: br` → `Content-Encoding: br`
 - [ ] `GET /img.jpg?w=200` → WebP resizé
 - [ ] Toggle `external` → pas de `Cache-Status`, headers persistent
+- [ ] Cloudflare external → DNS proxied + Cache Rule créés via API
+- [ ] Deploy/rollback/static deploy → purge Cloudflare host OK
 - [ ] Rollback `off` propre
-- [ ] Unit test `reconciler.cdn.test.ts` + spec `apps/web/e2e/cdn.spec.ts`
+- [x] Unit test `reconciler.cdn.test.ts`
+- [x] Unit test `cloudflare/client.test.ts`
+- [ ] Spec `apps/web/e2e/cdn.spec.ts`
 
 ---
 
 ## Mini-feature 2 — Preview deployments PR
 
 **Stratégie** : sur PR ouverte/synchronisée → build + deploy éphémère sur `pr-<N>.<app-wildcard>.<base-domain>`. Sur PR fermée → teardown. Table dédiée (pas d'extension `apps`).
+
+**Avancement 2026-04-28** :
+
+- [x] Migration `0037_preview_deployments.sql` + colonnes preview app appliquées localement
+- [x] Webhook GitHub `pull_request` route vers `handlePullRequest`
+- [x] PR opened/synchronize crée/met à jour la preview et enqueue `previewDeploy`
+- [x] PR closed enqueue `previewTeardown` même si les previews sont ensuite désactivées
+- [x] Handler `preview-deploy` clone le SHA PR, build static/docker/nixpacks/railpack, crée route Caddy et container preview
+- [x] Handler `preview-teardown` supprime route, container et artefacts static preview
+- [x] Cron cleanup preview branchée au worker
+- [x] Tests unitaires webhook + handlers preview verts
+- [ ] E2E réel GitHub PR + domaine preview + commit status
 
 **Schéma** :
 
@@ -140,10 +191,10 @@ cdn_external_provider: text("cdn_external_provider"),     // "cloudflare" | "bun
 
 **DoD** :
 
-- [ ] PR ouverte → row `preview_deployments` created, build lancé
+- [x] PR ouverte → row `preview_deployments` created, build lancé
 - [ ] `pr-42.<wildcard>` sert le SHA de la PR
 - [ ] Push sur la PR → redeploy même domain, nouveau SHA
-- [ ] PR closed → teardown en < 60s
+- [x] PR closed → teardown en < 60s
 - [ ] Commit status GitHub posté avec URL preview
 - [ ] TTL expiry teardown auto
 - [ ] Spec `apps/web/e2e/preview-pr.spec.ts`
@@ -153,6 +204,18 @@ cdn_external_provider: text("cdn_external_provider"),     // "cloudflare" | "bun
 ## Mini-feature 3 — Static sites
 
 **Stratégie** : nouveau `build_method = "static"`. Build → extraire `dist/` → servir via Caddy `file_server` (zéro runtime container).
+
+**Avancement 2026-04-27** :
+
+- [x] `build_method=static` accepté par schéma DB, shared schema, API create/patch
+- [x] `static_output_dir` + `static_spa_fallback` ajoutés au schéma `apps`
+- [x] Worker static construit un projet réel via `build_command`, copie l'output et promeut `current` par symlink atomique
+- [x] CaddyClient sait upsert une route `file_server` avec fallback SPA
+- [x] Reconciler boot Caddy restaure les apps `status=serving`
+- [x] UI Build & runtime expose `Static site`, output directory et fallback SPA
+- [x] Fixture `apps/web/e2e/fixtures/repos/static-vite` construite localement (`static-fixture-ok`)
+- [x] E2E live API + Caddy + domaine local validé (`apps/web/e2e/static-site.spec.ts`, `PLOYDOK_E2E_REAL=1 bunx playwright test static-site.spec.ts --reporter=list`)
+- [x] Couverture locale Caddy JSON static+CDN renforcée sans dépendre d'un rebuild runtime (`apps/api/src/caddy/client.test.ts`, `apps/api/src/caddy/reconciler.test.ts`)
 
 **Schéma** — `packages/db/src/schema/apps.ts` :
 
@@ -172,18 +235,29 @@ cdn_external_provider: text("cdn_external_provider"),     // "cloudflare" | "bun
 
 **DoD** :
 
-- [ ] Vite/Astro/Next static buildée → `dist/` servie
-- [ ] Fallback `index.html` si `static_spa_fallback=true`
-- [ ] Rollback N-1 via symlink en < 1s
-- [ ] GC : 5 deploys avec `keep_per_repo=3` → 3 dossiers SHA restants
-- [ ] Cache-Control de base compose avec mini-feature 1
-- [ ] Spec `apps/web/e2e/static-site.spec.ts`
+- [x] Vite static buildée → `dist/` servie
+- [x] Fallback `index.html` si `static_spa_fallback=true`
+- [x] Rollback N-1 via symlink atomique couvert par `build-static.test.ts`
+- [x] GC : vieux dossiers SHA purgés selon `keep_per_repo`, couvert par `build-static.test.ts`
+- [ ] Local infra live : `Cache-Control` de base compose avec mini-feature 1 sur un Caddy lancé avec modules CDN
+- [x] Spec `apps/web/e2e/static-site.spec.ts`
 
 ---
 
 ## Mini-feature 4 — Scheduled tasks utilisateur
 
 **Stratégie** : l'utilisateur définit des tâches (commande + cron) exécutées dans un container one-shot (image de l'app) OU via `docker exec` sur le container de l'app. Logs consultables.
+
+**Avancement 2026-04-28** :
+
+- [x] Runner `scheduled-jobs-runner` implémenté et exporte `runScheduledJobNow`
+- [x] `app_exec` exécute via `agent.containerExec` sur le container runtime de l'app
+- [x] `container_run` crée un container éphémère, exécute la commande, stop/remove en cleanup
+- [x] Timeout strict + capture stdout/stderr + persistance `scheduled_job_runs`
+- [x] Route `POST /orgs/:orgSlug/scheduled-jobs/:id/run` branchée
+- [x] Runner démarré/arrêté avec le worker
+- [x] Tests unitaires runner + routes + queries verts
+- [ ] E2E réel cron `* * * * *` avec agent Docker up
 
 **Schéma** :
 
@@ -203,10 +277,10 @@ cdn_external_provider: text("cdn_external_provider"),     // "cloudflare" | "bun
 **DoD** :
 
 - [ ] Task `* * * * *` → 2 runs dans 2 minutes
-- [ ] Logs consultables dans l'UI
-- [ ] `timeout_s` kille le container au-delà
-- [ ] Trigger manuel immédiat
-- [ ] `enabled=false` → skip
+- [x] Logs consultables via API/run rows
+- [x] `timeout_s` kille le container au-delà
+- [x] Trigger manuel immédiat
+- [x] `enabled=false` → skip
 - [ ] Spec `apps/web/e2e/scheduled-tasks.spec.ts`
 
 ---
@@ -214,6 +288,18 @@ cdn_external_provider: text("cdn_external_provider"),     // "cloudflare" | "bun
 ## Mini-feature 5 — App persistent volumes
 
 **Stratégie** : une app déclare N volumes persistants (host path bind mount), normalisés dans une table dédiée. Préalable à la mini-feature 6.
+
+**Avancement 2026-04-28** :
+
+- [x] Migration `0038_app_volumes.sql` + table `app_volumes`
+- [x] Queries DB + schémas shared `AppVolume*`
+- [x] API CRUD volumes branchée sous app
+- [x] Runner blue/green passe les volumes persistants à `agent.containerCreate`
+- [x] Agent Rust autorise `/var/lib/ploydok/app-volumes/...` et refuse les chemins hors préfixe
+- [x] Delete app purge le dossier host `/var/lib/ploydok/app-volumes/<app_id>`
+- [x] UI app `Storage` expose création/édition/suppression des volumes
+- [x] Tests unitaires runner/delete/allowlist verts
+- [ ] Tests PG routes volumes skippés sans `PLOYDOK_TEST_PG_URL`
 
 **Schéma** — `packages/db/src/schema/app_volumes.ts` : `id`, `app_id`, `name`, `mount_path`, `size_limit_bytes nullable`, `created_at`. Cascade delete app → volumes.
 
@@ -230,7 +316,7 @@ cdn_external_provider: text("cdn_external_provider"),     // "cloudflare" | "bun
 **DoD** :
 
 - [ ] App avec volume `data → /data` → fichier persiste après redeploy
-- [ ] Delete app → dossier host purgé
+- [x] Delete app → dossier host purgé
 - [ ] Size limit check via `du` tick (xfs quota plus tard)
 - [ ] Spec `apps/web/e2e/app-volume-persists.spec.ts`
 
@@ -239,6 +325,19 @@ cdn_external_provider: text("cdn_external_provider"),     // "cloudflare" | "bun
 ## Mini-feature 6 — Volume backups
 
 **Stratégie** : réutiliser ~90% du code `apps/api/src/databases/backup.ts`. Généraliser pour cibler DB **ou** `app_volume`. Archive tar + chiffrement age + destination S3/local + retention + cron.
+
+**Avancement 2026-04-28** :
+
+- [x] Migrations `0039_volume_backups.sql` + tables `volume_backup_configs` / `volume_backups`
+- [x] Backup manuel d'un app volume vers filesystem local
+- [x] Writer local atomique partagé + S3-compatible préparé pour R2/AWS/Scaleway/OVH via endpoint custom
+- [x] Routes app volume backup config/list/backup-now/delete
+- [x] UI app `Storage` expose config backups local/S3-compatible + backup now + liste
+- [x] UI database expose l'onglet `Backups` avec config local/S3-compatible + backup now + liste + restore DB
+- [x] Cron volume backups branché au job backup databases
+- [x] Tests unitaires storage/volume/routes verts
+- [ ] Restore volume non terminé
+- [ ] E2E réel S3 providers non testé localement
 
 **Schéma** (2 options, préférer **B**) :
 
@@ -256,6 +355,7 @@ cdn_external_provider: text("cdn_external_provider"),     // "cloudflare" | "bun
 
 **DoD** :
 
+- [x] Backup app volume → archive `.tar` dans filesystem local
 - [ ] Backup app volume → archive `.tar.age` dans S3/local
 - [ ] Restore (app stoppée) → fichiers reviennent
 - [ ] Retention purge vieux backups
@@ -371,8 +471,8 @@ file /tmp/resized.webp  # Expect WebP, width 200
 # 7. Header custom
 curl -I https://cdn-test.localtest.me:8543/  # Expect: X-Custom: ok
 
-# 8. Switch external → pas de cache, headers persistent
-curl -X PUT .../cdn -d '{"cdn_mode":"external","cdn_headers":{"X-Custom":"ok"}}'
+# 8. Switch Cloudflare managed external
+curl -X PUT .../cdn/cloudflare -d '{"api_token":"...","zone_id":"...","hostname":"cdn-test.example.com","origin":"origin.example.com","cache_ttl_s":600,"cache_paths":["/assets/*"],"headers":{"X-Custom":"ok"}}'
 curl -I https://cdn-test.localtest.me:8543/assets/app.js
 ```
 

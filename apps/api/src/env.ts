@@ -50,6 +50,7 @@ const schema = z.object({
   STRIPE_ENTERPRISE_PRICE_ID: z.string().optional(),
   PLOYDOK_LICENSE_PUBLIC_KEY: z.string().optional(),
   PLOYDOK_SHOW_LICENSE_UI: z.coerce.boolean().default(false),
+  PLOYDOK_CVE_SCAN: z.enum(["on", "off"]).default("on"),
 })
 
 const raw = schema.parse({
@@ -85,6 +86,7 @@ const raw = schema.parse({
   STRIPE_ENTERPRISE_PRICE_ID: Bun.env["STRIPE_ENTERPRISE_PRICE_ID"],
   PLOYDOK_LICENSE_PUBLIC_KEY: Bun.env["PLOYDOK_LICENSE_PUBLIC_KEY"],
   PLOYDOK_SHOW_LICENSE_UI: Bun.env["PLOYDOK_SHOW_LICENSE_UI"],
+  PLOYDOK_CVE_SCAN: Bun.env["PLOYDOK_CVE_SCAN"],
 })
 
 const isProd = raw.NODE_ENV === "prod"
@@ -169,4 +171,5 @@ export const env = {
   STRIPE_ENTERPRISE_PRICE_ID: raw.STRIPE_ENTERPRISE_PRICE_ID,
   PLOYDOK_LICENSE_PUBLIC_KEY: raw.PLOYDOK_LICENSE_PUBLIC_KEY,
   PLOYDOK_SHOW_LICENSE_UI: raw.PLOYDOK_SHOW_LICENSE_UI,
+  PLOYDOK_CVE_SCAN: raw.PLOYDOK_CVE_SCAN,
 } as const

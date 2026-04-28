@@ -14,8 +14,8 @@ export interface PreviewDeployment {
 
 export async function listPreviewDeployments(
   appId: string
-): Promise<PreviewDeployment[]> {
-  return apiFetch<PreviewDeployment[]>(`/apps/${appId}/previews`)
+): Promise<Array<PreviewDeployment>> {
+  return apiFetch<Array<PreviewDeployment>>(`/apps/${appId}/previews`)
 }
 
 export async function getPreviewDeployment(

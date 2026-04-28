@@ -1,7 +1,6 @@
 // SPDX-License-Identifier: AGPL-3.0-only
 import * as React from "react"
-import { Outlet, useParams, useRouterState } from "@tanstack/react-router"
-import { createFileRoute, redirect } from "@tanstack/react-router"
+import { Outlet, createFileRoute, redirect, useParams, useRouterState } from "@tanstack/react-router"
 import { AppBar } from "../../../../../components/apps/AppBar"
 import { normalizeAppDetail, useApp } from "../../../../../lib/apps"
 import { useCurrentOrganizationSlug } from "../../../../../lib/organizations"
@@ -10,18 +9,19 @@ import type { RawAppDetail } from "../../../../../lib/apps"
 import type { Build, OrganizationSummary } from "@ploydok/shared"
 
 function AppDetailLayout(): React.JSX.Element {
-  const { id } = useParams({ strict: false }) as { id: string }
+  const { id: routeAppId } = useParams({ strict: false })
+  const appId = routeAppId!
   const loaderData = Route.useLoaderData()
-  const { data: app } = useApp(id, { initialData: loaderData.app })
+  const { data: app } = useApp(appId, { initialData: loaderData.app })
   const currentOrgSlug = useCurrentOrganizationSlug()
   const pathname = useRouterState({ select: (s) => s.location.pathname })
 
   const currentApp = app
   const isLogsRoute =
-    pathname === `/apps/${id}/logs` ||
-    pathname === `/apps/${id}/shell` ||
-    pathname === `/orgs/${currentOrgSlug}/apps/${id}/logs` ||
-    pathname === `/orgs/${currentOrgSlug}/apps/${id}/shell`
+    pathname === `/apps/${appId}/logs` ||
+    pathname === `/apps/${appId}/shell` ||
+    pathname === `/orgs/${currentOrgSlug}/apps/${appId}/logs` ||
+    pathname === `/orgs/${currentOrgSlug}/apps/${appId}/shell`
 
   return (
     <div

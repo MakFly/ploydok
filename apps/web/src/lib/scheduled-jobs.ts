@@ -1,16 +1,16 @@
 // SPDX-License-Identifier: AGPL-3.0-only
 import { apiFetch } from "./api"
 import type {
-  ScheduledJobSummary,
+  ScheduledJobCreateInput,
   ScheduledJobDetail,
   ScheduledJobRun,
-  ScheduledJobCreateInput,
+  ScheduledJobSummary,
 } from "@ploydok/shared"
 
 export async function listScheduledJobs(
   orgSlug: string
-): Promise<ScheduledJobSummary[]> {
-  const data = await apiFetch<{ jobs: ScheduledJobSummary[] }>(
+): Promise<Array<ScheduledJobSummary>> {
+  const data = await apiFetch<{ jobs: Array<ScheduledJobSummary> }>(
     `/orgs/${orgSlug}/scheduled-jobs`
   )
   return data.jobs
@@ -19,8 +19,8 @@ export async function listScheduledJobs(
 export async function getScheduledJob(
   orgSlug: string,
   jobId: string
-): Promise<{ job: ScheduledJobDetail; recentRuns: ScheduledJobRun[] }> {
-  return apiFetch<{ job: ScheduledJobDetail; recentRuns: ScheduledJobRun[] }>(
+): Promise<{ job: ScheduledJobDetail; recentRuns: Array<ScheduledJobRun> }> {
+  return apiFetch<{ job: ScheduledJobDetail; recentRuns: Array<ScheduledJobRun> }>(
     `/orgs/${orgSlug}/scheduled-jobs/${jobId}`
   )
 }

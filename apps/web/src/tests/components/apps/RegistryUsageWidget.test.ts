@@ -4,7 +4,7 @@
  * No DOM rendering — tests the exported formatBytes and diskBarTone functions.
  */
 import { describe, expect, it } from "bun:test"
-import { formatBytes, diskBarTone } from "../../../components/apps/RegistryUsageWidget"
+import { diskBarTone, formatBytes } from "../../../components/apps/RegistryUsageWidget"
 
 // ---------------------------------------------------------------------------
 // formatBytes

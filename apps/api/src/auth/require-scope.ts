@@ -15,7 +15,15 @@ export function requireScope(required: string) {
     const user = c.get("user") as AuthUser | undefined
 
     if (!user) {
-      return c.json({ error: "Unauthorized" }, 401)
+      return c.json(
+        {
+          error: {
+            code: "UNAUTHENTICATED",
+            message: "Authentication required",
+          },
+        },
+        401
+      )
     }
 
     if (!user.token_scopes) {
@@ -27,8 +35,10 @@ export function requireScope(required: string) {
     if (!tokenHasScope(user.token_scopes, required)) {
       return c.json(
         {
-          error: "Forbidden",
-          message: `Token missing required scope: ${required}`,
+          error: {
+            code: "FORBIDDEN",
+            message: `Token missing required scope: ${required}`,
+          },
         },
         403
       )

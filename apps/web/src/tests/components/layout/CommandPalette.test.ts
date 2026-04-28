@@ -5,9 +5,10 @@
  */
 import { describe, expect, it } from "bun:test"
 import {
-  matchesQuery,
-  type FilterableItem,
+
+  matchesQuery
 } from "../../../components/layout/CommandPalette"
+import type {FilterableItem} from "../../../components/layout/CommandPalette";
 
 // ---------------------------------------------------------------------------
 // matchesQuery — case-insensitive filter

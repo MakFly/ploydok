@@ -1,14 +1,14 @@
 // SPDX-License-Identifier: AGPL-3.0-only
 import { useMutation, useQueryClient } from "@tanstack/react-query"
+import { toast } from "sonner"
 import { apiFetch } from "./api"
 import type { ApiError } from "./api"
-import { toast } from "sonner"
 
 export interface UploadCertResult {
   uploaded: boolean
   notBefore: string | null
   notAfter: string | null
-  sans: string[]
+  sans: Array<string>
 }
 
 export function useUploadCert(appId: string, domain: string) {

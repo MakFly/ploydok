@@ -4,8 +4,8 @@ import type { WebhookSummary } from "@ploydok/shared"
 
 export async function listEventWebhooks(
   orgSlug: string
-): Promise<WebhookSummary[]> {
-  const data = await apiFetch<{ webhooks: WebhookSummary[] }>(
+): Promise<Array<WebhookSummary>> {
+  const data = await apiFetch<{ webhooks: Array<WebhookSummary> }>(
     `/orgs/${orgSlug}/event-webhooks`
   )
   return data.webhooks || []
@@ -13,7 +13,7 @@ export async function listEventWebhooks(
 
 export async function createEventWebhook(
   orgSlug: string,
-  payload: { name: string; url: string; events: string[]; secret?: string }
+  payload: { name: string; url: string; events: Array<string>; secret?: string }
 ): Promise<WebhookSummary & { secret?: string }> {
   return apiFetch<WebhookSummary & { secret?: string }>(
     `/orgs/${orgSlug}/event-webhooks`,
@@ -30,7 +30,7 @@ export async function updateEventWebhook(
   payload: Partial<{
     name: string
     url: string
-    events: string[]
+    events: Array<string>
     enabled: boolean
     secret: string
   }>

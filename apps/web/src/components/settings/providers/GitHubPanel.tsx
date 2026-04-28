@@ -13,10 +13,10 @@ import {
   useRevokeInstallation,
   useSyncGitHubInstallations,
 } from "../../../lib/github"
-import type { AppInstallation, ImportGitHubAppPayload } from "../../../lib/github"
 import { CachedReposPanel } from "./CachedReposPanel"
 import { SyncProgressDialog } from "./SyncProgressDialog"
 import { useSyncWithProgress } from "./useSyncWithProgress"
+import type { AppInstallation, ImportGitHubAppPayload } from "../../../lib/github"
 
 export function GitHubPanel(): React.JSX.Element {
   const appParam =

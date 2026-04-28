@@ -63,9 +63,8 @@ bunx --bun shadcn@latest init --preset bgm023GIT --template start --monorepo
 - **Build** : BuildKit rootless, user namespaces, seccomp profile strict
 
 ### IA
-- **Modèle** : Claude Sonnet 4.6 (fallback Haiku 4.5 pour Q&A simples)
-- **SDK** : `@anthropic-ai/sdk` avec prompt caching activé
-- **Tool-use** : schémas JSON stricts, chaque tool → appel gRPC à `ploydok-agent`
+- Hors roadmap v1.0. Le copilote reste un backlog post-v1 et ne fait pas
+  partie de l'architecture livrée.
 
 ---
 
@@ -85,7 +84,7 @@ bunx --bun shadcn@latest init --preset bgm023GIT --template start --monorepo
 ┌─────────────────────────────────────────────┐
 │  ploydok-api (Bun + Hono)                   │
 │  - Auth / RBAC / Audit                      │
-│  - Copilot orchestration (Anthropic SDK)    │
+│  - Monitoring / API tokens / terminal       │
 └──────┬──────────────────────────┬───────────┘
        │ gRPC (mTLS, unix socket) │ admin API
        ▼                          ▼
@@ -162,16 +161,16 @@ bunx --bun shadcn@latest init --preset bgm023GIT --template start --monorepo
 
 ---
 
-## 8. Copilot IA — specs
+## 8. Backlog post-v1 — Copilot IA
 
-### Intents supportés v1 (read-only)
+### Intents envisagés (read-only)
 - « Montre les logs erreur de `api` sur 1h »
 - « Pourquoi `web` crash ? »
 - « Génère un Dockerfile pour une app Next.js »
 - « Quelles apps consomment > 80% CPU ? »
 - « Diagnostique ce message d'erreur : ... »
 
-### Intents v1.5 (write, confirmation passkey)
+### Intents write futurs (confirmation passkey)
 - « Deploy `feat-x` sur staging »
 - « Rollback `api` à v1.4.2 »
 - « Restart `db-prod` »
@@ -194,7 +193,7 @@ bunx --bun shadcn@latest init --preset bgm023GIT --template start --monorepo
 
 ---
 
-## 10. Roadmap — 7 sprints de 1 semaine
+## 10. Roadmap v1.0
 
 > Analyse des gaps vs Dokploy/Coolify/Vercel : voir [gap-analysis.md](./gap-analysis.md). 13 gaps critiques intégrés en v1.0, 4 reportés v1.1.
 
@@ -260,19 +259,6 @@ bunx --bun shadcn@latest init --preset bgm023GIT --template start --monorepo
 - [ ] Backup schedule chiffré vers S3/R2 (age)
 
 **Deliverable** : app + Postgres + domaine wildcard + migrations auto via hooks.
-
----
-
-### Sprint 5 — Copilot IA (read-only)
-**Objectif** : différenciateur produit.
-- [ ] Intégration `@anthropic-ai/sdk` (Claude Sonnet 4.6) + prompt caching
-- [ ] Tool schemas : `getLogs`, `getStats`, `getAppStatus`, `listApps`, `explainError`, `generateDockerfile`
-- [ ] UI chat (composant shadcn, streaming SSE)
-- [ ] RAG léger : contexte = liste apps + derniers événements audit
-- [ ] Garde-fou : aucun tool write exposé en v1
-- [ ] Redaction secrets avant envoi LLM
-
-**Deliverable** : chat qui diagnostique un crash loop et propose un fix.
 
 ---
 

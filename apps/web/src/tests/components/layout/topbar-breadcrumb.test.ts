@@ -1,12 +1,13 @@
 // SPDX-License-Identifier: AGPL-3.0-only
 import { describe, expect, it } from "bun:test"
 import {
+
   extractAppId,
   extractAppName,
   extractAppStatus,
-  resolveTopbarBreadcrumb,
-  type MatchWithLoader,
+  resolveTopbarBreadcrumb
 } from "../../../components/layout/topbar-breadcrumb"
+import type {MatchWithLoader} from "../../../components/layout/topbar-breadcrumb";
 
 describe("extractAppId", () => {
   it("reads the app id from the app layout loader data", () => {

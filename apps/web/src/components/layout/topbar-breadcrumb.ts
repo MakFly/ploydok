@@ -143,8 +143,7 @@ export function resolveTopbarBreadcrumb(
     if (
       segments[0] === "git-providers" ||
       segments[0] === "registry" ||
-      segments[0] === "notifications" ||
-      segments[0] === "api-tokens"
+      segments[0] === "notifications"
     ) {
       items[0] = INTEGRATIONS
     }

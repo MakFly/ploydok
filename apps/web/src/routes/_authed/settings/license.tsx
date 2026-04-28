@@ -2,11 +2,11 @@
 import * as React from "react"
 import { createFileRoute } from "@tanstack/react-router"
 import { RiAlertLine, RiCheckLine } from "@remixicon/react"
-import { ShellPage } from "../../../components/layout/AppShell"
-import { SettingsTabs } from "../../../components/settings/SettingsTabs"
-import { useLicenseStatus, useActivateLicense } from "../../../lib/license"
 import { toast } from "sonner"
 import { Button } from "@workspace/ui/components/button"
+import { ShellPage } from "../../../components/layout/AppShell"
+import { SettingsTabs } from "../../../components/settings/SettingsTabs"
+import { useActivateLicense, useLicenseStatus } from "../../../lib/license"
 
 export const Route = createFileRoute("/_authed/settings/license")({
   component: LicensePage,

@@ -5,10 +5,11 @@ import {
   useQuery,
   useQueryClient
 } from "@tanstack/react-query";
-import { ApiError, apiFetch, criticalRetryDelay, shouldRetryCriticalQuery } from "./api";
+import { toast } from "sonner";
+import { apiFetch, criticalRetryDelay, shouldRetryCriticalQuery } from "./api";
+import type { ApiError} from "./api";
 import type {UseQueryResult} from "@tanstack/react-query";
 import type { Me } from "@ploydok/shared";
-import { toast } from "sonner";
 
 // ---------------------------------------------------------------------------
 // useMe

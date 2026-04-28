@@ -1,9 +1,10 @@
 // SPDX-License-Identifier: AGPL-3.0-only
 import * as React from "react"
 import { RiCpuLine, RiDatabase2Line, RiGitBranchLine } from "@remixicon/react"
-import { PLAN_NAMES, PLANS, type PlanName } from "@ploydok/shared"
+import { PLANS, PLAN_NAMES  } from "@ploydok/shared"
 import { Input } from "@workspace/ui/components/input"
 import { cn } from "@workspace/ui/lib/utils"
+import type {PlanName} from "@ploydok/shared";
 
 export interface PlanSelectorValue {
   plan: PlanName

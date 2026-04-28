@@ -2,11 +2,11 @@
 import * as React from "react"
 import { createFileRoute, useRouter } from "@tanstack/react-router"
 import { Button } from "@workspace/ui/components/button"
-import { apiFetch } from "../../lib/api"
-import type { Me } from "@ploydok/shared"
 import { toast } from "sonner"
+import { apiFetch } from "../../lib/api"
 import { PasskeyButton } from "../../components/auth/PasskeyButton"
 import { organizationDashboardPath } from "../../lib/organizations"
+import type { Me } from "@ploydok/shared"
 
 export const Route = createFileRoute("/_public/login")({
   component: LoginPage,

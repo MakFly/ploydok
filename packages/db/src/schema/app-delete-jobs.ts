@@ -1,15 +1,13 @@
 // SPDX-License-Identifier: AGPL-3.0-only
 import { index, pgTable, text, timestamp, jsonb } from "drizzle-orm/pg-core"
-import { apps } from "./apps"
 import { users } from "./users"
 
 export const app_delete_jobs = pgTable(
   "app_delete_jobs",
   {
     id: text("id").primaryKey(),
-    app_id: text("app_id")
-      .notNull()
-      .references(() => apps.id, { onDelete: "cascade" }),
+    // Keep the app id as an immutable audit pointer after the app row is deleted.
+    app_id: text("app_id").notNull(),
     status: text("status", {
       enum: ["pending", "running", "succeeded", "failed", "cancelled"],
     })

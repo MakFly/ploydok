@@ -37,16 +37,27 @@ function notificationIcon(type: NotificationType): React.JSX.Element {
   if (
     type === "build.succeeded" ||
     type === "deploy.status_change" ||
-    type === "provider.sync.completed"
+    type === "provider.sync.completed" ||
+    type === "app.deleted" ||
+    type === "app.stopped"
   ) {
     return (
       <RiCheckboxCircleLine className="mt-0.5 size-4 shrink-0 text-emerald-500" />
     )
   }
-  if (type === "build.failed" || type === "provider.sync.failed") {
+  if (
+    type === "build.failed" ||
+    type === "provider.sync.failed" ||
+    type === "app.delete.failed" ||
+    type === "app.stop.failed"
+  ) {
     return <RiCloseCircleLine className="mt-0.5 size-4 shrink-0 text-red-500" />
   }
-  if (type === "provider.sync.started") {
+  if (
+    type === "provider.sync.started" ||
+    type === "app.delete.queued" ||
+    type === "app.stop.queued"
+  ) {
     return <RiRefreshLine className="mt-0.5 size-4 shrink-0 text-blue-500" />
   }
   return (

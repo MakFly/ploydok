@@ -1,16 +1,17 @@
 // SPDX-License-Identifier: AGPL-3.0-only
 /**
- * Scheduled cron: run database backups according to each config's schedule_cron.
+ * Scheduled cron: run database and app-volume backups according to schedule_cron.
  *
  * Runs every hour at :20 past (offset to avoid clashing with other crons).
  * Uses a simple cron-expression parser to check whether a config is "due".
  * When due, calls runBackupOnce() and dispatches backup.succeeded / backup.failed.
  */
 import { and, eq } from "drizzle-orm"
-import { databases, backup_configs } from "@ploydok/db"
+import { apps, databases, backup_configs, volume_backup_configs } from "@ploydok/db"
 import type { Db } from "@ploydok/db"
 import { childLogger } from "../../logger"
 import { runBackupOnce } from "../../databases/backup"
+import { runVolumeBackupOnce } from "../../backups/volume"
 import { dispatch } from "../../notify/index"
 import { createRedis } from "@ploydok/db"
 import { env } from "../../env"
@@ -81,6 +82,27 @@ export async function runScheduledBackups(db: Db): Promise<{ queued: number; ski
     void runBackupJob(db, dbRow.id, dbRow.project_id)
   }
 
+  const volumeConfigs = await db
+    .select({ config: volume_backup_configs, app: apps })
+    .from(volume_backup_configs)
+    .innerJoin(apps, eq(volume_backup_configs.app_id, apps.id))
+    .where(eq(volume_backup_configs.enabled, true))
+
+  for (const { config, app } of volumeConfigs) {
+    if (!isCronDue(config.schedule_cron, now)) {
+      skipped++
+      continue
+    }
+
+    log.info(
+      { configId: config.id, appId: app.id, volumeId: config.volume_id, cron: config.schedule_cron },
+      "volume backup due — running"
+    )
+    queued++
+
+    void runVolumeBackupJob(db, app.id, app.name, config.volume_id, app.project_id)
+  }
+
   return { queued, skipped }
 }
 
@@ -115,6 +137,46 @@ async function runBackupJob(db: Db, databaseId: string, projectId: string): Prom
       { appId: databaseId, appName: databaseId },
       { userId: projectId, projectId },
     ).catch((e) => log.warn({ e }, "backup.failed dispatch crashed (non-fatal)"))
+  }
+}
+
+async function runVolumeBackupJob(
+  db: Db,
+  appId: string,
+  appName: string,
+  volumeId: string,
+  projectId: string
+): Promise<void> {
+  try {
+    const result = await runVolumeBackupOnce(db, appId, volumeId)
+
+    const redis = createRedis(env.REDIS_URL)
+    await dispatch(
+      db,
+      redis,
+      result.status === "succeeded" ? "backup.succeeded" : "backup.failed",
+      {
+        appId,
+        appName: `${appName}:${volumeId}`,
+        commitSha: result.backupId,
+      },
+      { userId: projectId, projectId },
+    ).catch((err) =>
+      log.warn({ err, appId, volumeId }, "volume backup notification dispatch failed (non-fatal)")
+    )
+  } catch (err) {
+    log.error({ err, appId, volumeId }, "volume backup job crashed")
+
+    const redis = createRedis(env.REDIS_URL)
+    await dispatch(
+      db,
+      redis,
+      "backup.failed",
+      { appId, appName: `${appName}:${volumeId}` },
+      { userId: projectId, projectId },
+    ).catch((e) =>
+      log.warn({ e, appId, volumeId }, "volume backup.failed dispatch crashed (non-fatal)")
+    )
   }
 }
 

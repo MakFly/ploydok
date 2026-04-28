@@ -197,6 +197,28 @@ function startMockServer(
           },
           null
         ),
+      listContainerFiles: (_call, cb) =>
+        cb(
+          {
+            code: grpc.status.UNIMPLEMENTED,
+            details: "non implémenté",
+            name: "Error",
+            message: "non implémenté",
+            metadata: new grpc.Metadata(),
+          },
+          null
+        ),
+      readContainerFile: (_call, cb) =>
+        cb(
+          {
+            code: grpc.status.UNIMPLEMENTED,
+            details: "non implémenté",
+            name: "Error",
+            message: "non implémenté",
+            metadata: new grpc.Metadata(),
+          },
+          null
+        ),
     }
 
     server.addService(AgentService, {

@@ -16,6 +16,7 @@ const EVENT_EMOJI: Record<NotificationEvent, string> = {
   "db.rotated": "🔐",
   "backup.succeeded": "💾",
   "backup.failed": "💥",
+  "cve.detected": "🚨",
 }
 
 // Telegram HTML parse_mode allows a small tag subset. We escape &, <, > on any
@@ -48,6 +49,17 @@ export function buildTelegramMessage(
     lines.push("")
     lines.push(`<b>Erreur</b>:`)
     lines.push(`<pre>${escapeHtml(truncated)}</pre>`)
+  }
+  if (payload.advisoryId) {
+    lines.push("")
+    lines.push(`<b>Advisory</b>: <code>${escapeHtml(payload.advisoryId)}</code>`)
+    lines.push(`<b>Sévérité</b>: ${escapeHtml(payload.advisorySeverity ?? "UNKNOWN")}`)
+    lines.push(
+      `<b>Package</b>: ${escapeHtml(payload.packageName ?? "unknown")}@${escapeHtml(payload.currentVersion ?? "unknown")}`
+    )
+    if (payload.advisoryUrl) {
+      lines.push(`<b>Détail</b>: <a href="${escapeHtml(payload.advisoryUrl)}">${escapeHtml(payload.advisoryUrl)}</a>`)
+    }
   }
   return lines.join("\n")
 }

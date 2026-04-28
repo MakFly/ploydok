@@ -49,6 +49,7 @@ import {
   deleteTotpSecret,
 } from "../auth/totp-storage"
 import { generateSecret, buildOtpauthUrl, verifyCode } from "../auth/totp"
+import { requireTotpVerified } from "../auth/second-factor"
 // AuthenticatorTransportFuture is re-exported from @simplewebauthn/server internals
 // We use a simple string type alias to avoid the missing @simplewebauthn/types package
 type AuthenticatorTransportFuture =
@@ -1208,6 +1209,16 @@ export function createAuthRouter(db: Db): Hono {
     await markTotpVerified(db, user.id)
     return c.json({ ok: true })
   })
+
+  // -------------------------------------------------------------------------
+  // POST /auth/second-factor/verify
+  // -------------------------------------------------------------------------
+  auth.post(
+    "/auth/second-factor/verify",
+    requireAuth(db),
+    requireTotpVerified(db),
+    (c) => c.json({ ok: true })
+  )
 
   // -------------------------------------------------------------------------
   // PATCH /auth/totp/preferences

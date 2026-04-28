@@ -19,7 +19,9 @@ import { childLogger } from "./logger"
 import { appsRouter } from "./routes/apps"
 import { appsEnvRouter } from "./routes/apps-env"
 import { appsDomainsRouter } from "./routes/apps-domains"
+import { appsVolumesRouter } from "./routes/apps-volumes"
 import { createCdnRouter } from "./routes/apps-cdn"
+import { createPreviewsRoute } from "./routes/apps-previews"
 import { githubRouter } from "./routes/github"
 import { gitlabRouter } from "./routes/gitlab"
 import { registryCredentialsRouter } from "./routes/registry-credentials"
@@ -49,6 +51,7 @@ import { createScheduledJobsRouter } from "./routes/scheduled-jobs"
 import { createProjectEnvRouter } from "./routes/project-env"
 import { createOrgMonitoringRouter } from "./routes/org-monitoring"
 import { createHostStatsRouter } from "./routes/host-stats"
+import { createAdvisoriesRouter } from "./routes/advisories"
 import { getDefaultOrganizationForUser } from "./services/organizations"
 import {
   collectProcessMetrics,
@@ -56,6 +59,7 @@ import {
   renderMetrics,
 } from "./observability/metrics"
 import { buildHealthReport, buildPublicStatus } from "./observability/health"
+import { createOpenApiDocument } from "./openapi"
 
 const httpLog = childLogger("http")
 const errorLog = childLogger("error")
@@ -322,6 +326,9 @@ app.get("/metrics", (c) => {
   return c.body(renderMetrics())
 })
 
+// Generated from the Hono route registry so docs and API stay in sync.
+app.get("/openapi.json", (c) => c.json(createOpenApiDocument(app.routes)))
+
 // Test-only routes pour exercer le middleware logger + error handler.
 // SECURITY: actifs UNIQUEMENT si NODE_ENV=test.
 if (env.NODE_ENV === "test") {
@@ -370,6 +377,7 @@ app.route("/host-stats", createHostStatsRouter(db))
 app.use("/apps/*", requireAuth(db))
 app.route("/apps", appsEnvRouter)
 app.route("/apps", appsDomainsRouter)
+app.route("/apps", appsVolumesRouter)
 app.route("/apps", appsProtectionRouter)
 app.route("/apps", createCdnRouter(db))
 app.route("/apps", appsRouter)
@@ -466,6 +474,10 @@ app.route("/", createBackupsRouter(db))
 app.use("/apps/*/databases/*", requireAuth(db))
 app.route("/apps", createAppsDatabasesLinkRouter(db))
 
+// Preview deployments — /apps/:id/previews/*
+app.use("/apps/*/previews*", requireAuth(db))
+app.route("/apps", createPreviewsRoute(db))
+
 // Billing (Stripe) — /orgs/:orgSlug/billing/* requires auth ; webhooks are public + signed.
 app.use("/orgs/*/billing/*", requireAuth(db))
 const billingOrgScoped = new Hono()
@@ -499,7 +511,7 @@ app.use("/orgs/*/scheduled-jobs", requireAuth(db))
 const scheduledJobsOrgScoped = new Hono()
 scheduledJobsOrgScoped.route(
   "/:orgSlug/scheduled-jobs",
-  createScheduledJobsRouter()
+  createScheduledJobsRouter(db)
 )
 app.route("/orgs", scheduledJobsOrgScoped)
 
@@ -514,6 +526,11 @@ app.route("/orgs", projectEnvOrgScoped)
 app.use("/organizations/*/monitoring/*", requireAuth(db))
 app.use("/organizations/*/monitoring", requireAuth(db))
 app.route("/organizations", createOrgMonitoringRouter(db))
+
+// CVE/advisory scanner — admin platform + app-scoped org endpoints.
+app.use("/admin/*", requireAuth(db))
+app.use("/organizations/*/apps/*/advisories", requireAuth(db))
+app.route("/", createAdvisoriesRouter(db))
 
 // /me — requires auth
 app.get("/me", requireAuth(db), async (c) => {

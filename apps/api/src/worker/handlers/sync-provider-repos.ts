@@ -4,6 +4,7 @@ import {
   replaceInstallationRepos,
   getGitLabConfig,
 } from "@ploydok/db/queries"
+import type { ProviderCredentialRow } from "@ploydok/db"
 import type {
   ProviderInstallationRow,
   ProviderRepoRow,
@@ -78,7 +79,7 @@ export async function enqueueProviderReposSync(
 async function claimProviderCredential(
   db: Db,
   credentialId: string
-): Promise<boolean> {
+): Promise<ProviderCredentialRow | null> {
   const result = await db
     .update(provider_credentials)
     .set({
@@ -93,7 +94,7 @@ async function claimProviderCredential(
     )
     .returning()
 
-  return result.length > 0
+  return result[0] ?? null
 }
 
 // ---------------------------------------------------------------------------
@@ -343,6 +344,24 @@ async function syncGitHubInstallation(
     )
   }
 
+  if (!claimed.last_sync_source) {
+    await db
+      .update(provider_credentials)
+      .set({
+        last_sync_status: "failed",
+        updated_at: new Date(),
+      })
+      .where(eq(provider_credentials.id, credentialId))
+    const reason = "Provider credential is not claimable: missing last_sync_source"
+    auditUnauthorized({
+      jobName: "provider.repos.sync",
+      jobId: `sync-${credentialId}`,
+      payload: { provider: "github", installationId: externalInstallationId },
+      reason,
+    })
+    throw new Error(`GitHub credential ${credentialId} is not claimable`)
+  }
+
   auditClaimed({
     jobName: "provider.repos.sync",
     jobId: `sync-${credentialId}`,
@@ -590,6 +609,24 @@ async function syncGitLabUser(
     throw new Error(
       `GitLab credential ${credentialId} not found or not in pending/running state`
     )
+  }
+
+  if (!claimed.last_sync_source) {
+    await db
+      .update(provider_credentials)
+      .set({
+        last_sync_status: "failed",
+        updated_at: new Date(),
+      })
+      .where(eq(provider_credentials.id, credentialId))
+    const reason = "Provider credential is not claimable: missing last_sync_source"
+    auditUnauthorized({
+      jobName: "provider.repos.sync",
+      jobId: `sync-${credentialId}`,
+      payload: { provider: "gitlab", userId },
+      reason,
+    })
+    throw new Error(`GitLab credential ${credentialId} is not claimable`)
   }
 
   auditClaimed({

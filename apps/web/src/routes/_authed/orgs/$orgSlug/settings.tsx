@@ -1,6 +1,6 @@
 // SPDX-License-Identifier: AGPL-3.0-only
+import { Link, Outlet, createFileRoute } from "@tanstack/react-router"
 import type * as React from "react"
-import { createFileRoute, Link, Outlet } from "@tanstack/react-router"
 
 export const Route = createFileRoute("/_authed/orgs/$orgSlug/settings")({
   component: SettingsLayout,

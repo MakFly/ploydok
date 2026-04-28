@@ -7,11 +7,7 @@ import { z } from "zod"
 import { apps, builds, projects, system_jobs } from "@ploydok/db"
 import { ALL_PROBE_KEYS, classifyStack } from "@ploydok/shared"
 import type { StackClassification } from "@ploydok/shared"
-import {
-  insertBuild,
-  updateBuildStatus,
-  getAppForUser,
-} from "@ploydok/db/queries"
+import { updateBuildStatus, getAppForUser } from "@ploydok/db/queries"
 import { claimQueuedRow } from "../queue-claim"
 import { auditUnauthorized, auditClaimed } from "../queue-audit"
 import { enqueueWithDbRow } from "../queue-enqueue"
@@ -36,6 +32,11 @@ import { diskGuard, gcKeepLast, tagManifest } from "../registry"
 import { workerLog } from "../logger"
 import { eventBus } from "../event-bus"
 import { runBlueGreen } from "../runner"
+import {
+  dispatchStaticDeploy,
+  gcOldShas,
+  caddyStaticRootForApp,
+} from "./build-static"
 import { imageRepoForApp } from "../../services/runtime-containers"
 import { classifyAgentError, FatalDeployError } from "../errors"
 import { createRedis } from "@ploydok/db"
@@ -46,8 +47,10 @@ import {
   buildEnvPairForDeploy,
 } from "../../secrets/resolver"
 import { runPreDeployHook, runPostDeployHook } from "../hooks"
-import { getSharedAgent } from "../../debug/singletons"
+import { getSharedAgent, getSharedCaddy } from "../../debug/singletons"
 import { ensureFrameworkEnvVars } from "../../services/framework-env"
+import { purgeCloudflareForApp } from "../../cloudflare/purge"
+import { captureAppManifests } from "../../advisories/service"
 
 // Shared Redis client for commit status dedup (singleton per worker process).
 const redis = createRedis(env.REDIS_URL)
@@ -88,8 +91,19 @@ interface AppForDeploy {
   build_command: string | null
   start_command: string | null
   build_method: string | null
+  static_output_dir: string | null
+  static_spa_fallback: boolean | null
+  cdn_mode: "off" | "internal" | "external"
+  cdn_cache_ttl_s: number | null
+  cdn_cache_paths: string[] | null
+  cdn_compression: boolean | null
+  cdn_image_optim: boolean | null
+  cdn_headers: string | null
+  cdn_external_provider: string | null
   runtime_port: number | null
   restart_policy: string | null
+  domain: string | null
+  keep_per_repo: number | null
   image_ref: string | null
   registry_credential_id: string | null
   owner_id: string
@@ -123,8 +137,19 @@ async function getAppForDeploy(db: Db, appId: string): Promise<AppForDeploy> {
       build_command: apps.build_command,
       start_command: apps.start_command,
       build_method: apps.build_method,
+      static_output_dir: apps.static_output_dir,
+      static_spa_fallback: apps.static_spa_fallback,
+      cdn_mode: apps.cdn_mode,
+      cdn_cache_ttl_s: apps.cdn_cache_ttl_s,
+      cdn_cache_paths: apps.cdn_cache_paths,
+      cdn_compression: apps.cdn_compression,
+      cdn_image_optim: apps.cdn_image_optim,
+      cdn_headers: apps.cdn_headers,
+      cdn_external_provider: apps.cdn_external_provider,
       runtime_port: apps.runtime_port,
       restart_policy: apps.restart_policy,
+      domain: apps.domain,
+      keep_per_repo: apps.keep_per_repo,
       image_ref: apps.image_ref,
       registry_credential_id: apps.registry_credential_id,
       owner_id: projects.owner_id,
@@ -163,9 +188,10 @@ async function classifyWorkspaceStack(params: {
 }
 
 function defaultRuntimePortForStack(
-  method: "docker" | "nixpacks" | "railpack",
+  method: "docker" | "nixpacks" | "railpack" | "static",
   classification: StackClassification
 ): number | null {
+  if (method === "static") return null
   if (
     (method === "nixpacks" || method === "railpack") &&
     (classification.stack === "laravel" ||
@@ -357,20 +383,29 @@ export async function handleDeploy(
       `build_method="${rawMethod}" is not yet supported (planned sprint 3.3)`
     )
   }
-  const normalizedMethod: "docker" | "nixpacks" | "railpack" | "auto" =
+  const normalizedMethod:
+    | "docker"
+    | "nixpacks"
+    | "railpack"
+    | "static"
+    | "auto" =
     rawMethod === "docker" || rawMethod === "dockerfile"
       ? "docker"
       : rawMethod === "nixpacks"
         ? "nixpacks"
         : rawMethod === "railpack"
           ? "railpack"
-          : "auto"
+          : rawMethod === "static"
+            ? "static"
+            : "auto"
   const resolvedBuildMethod =
     normalizedMethod === "nixpacks"
       ? "nixpacks"
       : normalizedMethod === "railpack"
         ? "railpack"
-        : "docker"
+        : normalizedMethod === "static"
+          ? "static"
+          : "docker"
 
   // Hydrate build record with build_method, commitSha, commitMessage.
   await db
@@ -475,6 +510,7 @@ export async function handleDeploy(
   } = { finishedAt: new Date() }
   // Resolved commit sha (updated once clone resolves HEAD, used for commit status)
   let resolvedCommitShaFinal: string | null = payload.commitSha ?? null
+  let workspacePathForAudit: string | null = null
   // Commit status state to post on failure: FatalDeployError → failure, unknown → error
   let commitStatusErrorState: "failure" | "error" = "error"
   const deployStartMs = Date.now()
@@ -643,6 +679,7 @@ export async function handleDeploy(
       throw classifyAgentError(cloneErr)
     }
     const { workspacePath, headSha } = cloneResult
+    workspacePathForAudit = workspacePath
 
     // When the deploy was triggered without an explicit commit (manual deploy,
     // initial create), persist the actual HEAD sha so the UI can show it.
@@ -659,7 +696,8 @@ export async function handleDeploy(
     const detectedOverride =
       normalizedMethod === "docker" ||
       normalizedMethod === "nixpacks" ||
-      normalizedMethod === "railpack"
+      normalizedMethod === "railpack" ||
+      normalizedMethod === "static"
         ? normalizedMethod
         : "auto"
     const detected = await detectBuildMethod({
@@ -750,7 +788,10 @@ export async function handleDeploy(
       )
     }
 
-    if (app.runtime_port === null || app.runtime_port === undefined) {
+    if (
+      detected.method !== "static" &&
+      (app.runtime_port === null || app.runtime_port === undefined)
+    ) {
       const inferredRuntimePort = defaultRuntimePortForStack(
         detected.method,
         workspaceClassification
@@ -823,7 +864,73 @@ export async function handleDeploy(
       ...runtimeSecretEnvRaw,
     }
 
-    if (detected.method === "docker") {
+    if (detected.method === "static") {
+      onLog("[deploy] static site build selected")
+      const staticResult = await dispatchStaticDeploy(
+        app.id,
+        commitSha,
+        app.static_output_dir ?? "dist",
+        {
+          workspacePath,
+          rootDir: app.root_dir,
+          installCommand: app.install_command,
+          buildCommand: app.build_command,
+          env: buildEnv,
+          onLog,
+        }
+      )
+      onLog(`[deploy] static files installed: ${staticResult.shaDir}`)
+
+      if (app.domain) {
+        await getSharedCaddy().upsertStaticRoute({
+          appId: app.id,
+          host: app.domain,
+          root: caddyStaticRootForApp(app.id),
+          spaFallback: app.static_spa_fallback ?? true,
+          cdn: app,
+        })
+        await purgeCloudflareForApp(db, app.id)
+        onLog(`[deploy] Caddy static route updated for ${app.domain}`)
+      }
+
+      const keep = app.keep_per_repo ?? 3
+      if (keep > 0) {
+        const deleted = await gcOldShas(app.id, keep)
+        if (deleted > 0) onLog(`[deploy] static GC removed ${deleted} build(s)`)
+      }
+
+      await db
+        .update(apps)
+        .set({
+          container_id: null,
+          status: "serving",
+          updated_at: new Date(),
+        })
+        .where(eq(apps.id, app.id))
+
+      finalPatch = { finishedAt: new Date() }
+      finalStatus = "succeeded"
+
+      if (ownerId) {
+        try {
+          eventBus.publish(`user:${ownerId}`, {
+            type: "deploy.status_change",
+            appId: app.id,
+            buildId,
+            message: "Static site live",
+            data: { status: "serving" },
+          })
+        } catch (pubErr) {
+          log.warn(
+            { pubErr, buildId },
+            "eventBus publish deploy.status_change (static live) failed (non-fatal)"
+          )
+        }
+      }
+
+      log.info({ buildId, finalStatus }, "static deploy completed")
+      return
+    } else if (detected.method === "docker") {
       // BuildKit path (M3.1)
       const contextDir = path.join(workspacePath, app.root_dir ?? ".")
       const dockerfileRel = detected.dockerfilePath ?? "Dockerfile"
@@ -1332,6 +1439,24 @@ export async function handleDeploy(
     }
 
     // Notification dispatch — build/deploy outcome
+    if (
+      workspacePathForAudit &&
+      (finalStatus === "succeeded" ||
+        finalStatus === "succeeded_with_warning")
+    ) {
+      captureAppManifests(db, {
+        appId: app.id,
+        checkoutDir: workspacePathForAudit,
+        rootDir: app.root_dir,
+      }).catch((err) =>
+        log.warn(
+          { err, appId: app.id, buildId },
+          "app manifest capture failed (non-fatal)"
+        )
+      )
+    }
+
+    // Notification dispatch — build/deploy outcome
     if (ownerId) {
       const durationMs = Date.now() - deployStartMs
       const notifyEvent =
@@ -1357,10 +1482,8 @@ export async function handleDeploy(
     }
 
     // Fire-and-forget: enqueue async workspace cleanup via BullMQ.
-    cleanupQueue
-      .add("cleanup.build", { appId: payload.appId, buildId })
-      .catch((enqErr) => {
-        log.warn({ enqErr, buildId }, "failed to push cleanup.build to BullMQ")
-      })
+    cleanupQueue.add("cleanup.build", { appId, buildId }).catch((enqErr) => {
+      log.warn({ enqErr, buildId }, "failed to push cleanup.build to BullMQ")
+    })
   }
 }

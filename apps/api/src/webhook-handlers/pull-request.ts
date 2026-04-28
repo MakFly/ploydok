@@ -3,6 +3,7 @@ import type { Db } from "@ploydok/db"
 import { childLogger } from "../logger"
 import {
   getAppByRepoAndOwner,
+  getPreviewDeploymentByAppAndPr,
   updatePreviewDeployment,
   insertPreviewDeployment,
 } from "@ploydok/db/queries"
@@ -54,15 +55,6 @@ export async function handlePullRequest(
     return
   }
 
-  // Check if preview deployments are enabled
-  if (!app.preview_enabled) {
-    log.debug(
-      { appId: app.id, deliveryId },
-      "preview deployments disabled — skipping"
-    )
-    return
-  }
-
   const now = new Date()
   const expiresAt = new Date(
     now.getTime() + (app.preview_ttl_days ?? 7) * 24 * 60 * 60 * 1000
@@ -71,22 +63,36 @@ export async function handlePullRequest(
   switch (action) {
     case "opened":
     case "synchronize": {
+      if (!app.preview_enabled) {
+        log.debug(
+          { appId: app.id, deliveryId },
+          "preview deployments disabled — skipping"
+        )
+        return
+      }
+
       log.info(
         { appId: app.id, prNumber, headSha, deliveryId },
         "enqueuing preview deploy"
       )
 
-      // Upsert the preview_deployments row
       const previewId = `${app.id}:pr-${prNumber}`
       const domain = `pr-${prNumber}.${app.preview_wildcard || `preview.${app.slug}`}`
+      const existingPreview = await getPreviewDeploymentByAppAndPr(
+        db,
+        app.id,
+        prNumber
+      )
 
-      await updatePreviewDeployment(db, previewId, {
-        head_sha: headSha,
-        status: "pending",
-        expires_at: expiresAt,
-        updated_at: now,
-      }).catch(async () => {
-        // Row doesn't exist, insert it
+      if (existingPreview) {
+        await updatePreviewDeployment(db, previewId, {
+          head_sha: headSha,
+          domain,
+          status: "pending",
+          expires_at: expiresAt,
+          updated_at: now,
+        })
+      } else {
         await insertPreviewDeployment(db, {
           id: previewId,
           app_id: app.id,
@@ -98,7 +104,7 @@ export async function handlePullRequest(
           created_at: now,
           updated_at: now,
         })
-      })
+      }
 
       await previewDeploy.add("preview.deploy", {
         appId: app.id,

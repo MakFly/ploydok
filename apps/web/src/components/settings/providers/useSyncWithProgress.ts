@@ -46,9 +46,9 @@ export interface SyncProgressState {
   importedCount: number
   totalCount: number
   errorMessage?: string
-  begin(syncId: string): void
-  fail(message: string): void
-  close(): void
+  begin: (syncId: string) => void
+  fail: (message: string) => void
+  close: () => void
 }
 
 export function useSyncWithProgress(): SyncProgressState {

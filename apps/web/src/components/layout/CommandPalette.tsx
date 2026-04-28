@@ -1,6 +1,6 @@
 // SPDX-License-Identifier: AGPL-3.0-only
 import * as React from "react"
-import { useRouter, useMatches } from "@tanstack/react-router"
+import { useMatches, useRouter } from "@tanstack/react-router"
 import {
   RiApps2Line,
   RiArchiveLine,
@@ -8,7 +8,6 @@ import {
   RiDashboardLine,
   RiDatabase2Line,
   RiFileListLine,
-  RiKey2Line,
   RiKeyLine,
   RiNotificationLine,
   RiPlugLine,
@@ -190,12 +189,6 @@ const NAV_ITEMS: Array<NavEntry> = [
     label: "Integrations — Notifications",
     icon: RiNotificationLine,
     to: "/settings/notifications",
-  },
-  {
-    id: "nav-integrations-api-tokens",
-    label: "Integrations — API tokens",
-    icon: RiKey2Line,
-    to: "/settings/api-tokens",
   },
   {
     id: "nav-settings",

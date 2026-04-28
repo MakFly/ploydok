@@ -1,6 +1,17 @@
-# Sprint — system_jobs : DB-anchored gate pour gc.registry ⏳ À faire
+# Sprint — system_jobs : DB-anchored gate pour gc.registry ✅ Code · ⏳ e2e
 
 > Mini-sprint sécu. Estimation **1 jour focus** (~8h).
+>
+> **Suivi 2026-04-27** : code + e2e ciblé verts. Le sprint reste en
+> `✅ Code · ⏳ e2e` car `bun run lint` root échoue encore sur des erreurs
+> préexistantes côté `apps/web` hors périmètre secops.
+>
+> - [x] `bunx tsc -p apps/api/tsconfig.json --noEmit`
+> - [x] `bun test apps/api/src/worker/handlers/gc-registry.test.ts`
+> - [x] `PLOYDOK_TEST_PG_URL=... bun test apps/api/src/worker/queue-trust.e2e.test.ts`
+> - [x] `bun run check:spdx`
+> - [x] `git diff --check`
+> - [ ] `bun run lint` root — bloqué par erreurs existantes `apps/web`
 
 ## Contexte
 
@@ -71,22 +82,22 @@ scope.
 
 ## DoD
 
-- [ ] Table `system_jobs` créée (migration `0031_system_jobs.sql`).
-- [ ] Les 3 producers gc.registry **enqueueables** passent par
+- [x] Table `system_jobs` créée (migration `0031_superb_professor_monster.sql`).
+- [x] Les 3 producers gc.registry **enqueueables** passent par
       `enqueueWithDbRow` :
   - `POST /apps/:id/registry-gc` → `source='api'`, actor=user.id
   - `deploy.ts` post-deploy auto → `source='auto:deploy'`, actor=null
   - cron 04:00 UTC → `source='cron:gc'`, actor=null
-- [ ] `delete-app.ts` garde son appel direct `await runRegistryGc(...,
+- [x] `delete-app.ts` garde son appel direct `await runRegistryGc(...,
     keepPerRepo: 0)` (exception documentée dans le code — le gate est
       déjà passé via `claimQueuedRow(app_delete_jobs)` en amont).
-- [ ] Le worker `gc.registry` ne lit plus `job.data.appId` ni
+- [x] Le worker `gc.registry` ne lit plus `job.data.appId` ni
       `job.data.keepPerRepo` ; il claim le `system_jobs` row et utilise
       ses `options` typées via Zod.
-- [ ] Push raw `{ appId, keepPerRepo: 0 }` direct dans Redis →
+- [x] Push raw `{ appId, keepPerRepo: 0 }` direct dans Redis →
       `auditUnauthorized` + zéro side-effect. Test e2e vert.
-- [ ] Replay sur le même `jobId` → 2e claim retourne null.
-- [ ] Pas de régression : POST /registry-gc continue de fonctionner,
+- [x] Replay sur le même `jobId` → 2e claim retourne null.
+- [x] Pas de régression : POST /registry-gc continue de fonctionner,
       cron continue de tourner, delete-app continue de wiper, auto
       post-deploy continue son fire-and-forget.
 - [ ] `bun run typecheck && bun run lint && bun test && bun run check:spdx`

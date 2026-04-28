@@ -99,10 +99,10 @@ function parseLine(raw: string, fallbackT: number): LogLine & { _raw: string } {
       ) {
         const obj = parsed as Record<string, unknown>
         const t =
-          typeof obj["t"] === "number" ? (obj["t"] as number) : fallbackT
+          typeof obj["t"] === "number" ? (obj["t"]) : fallbackT
         const stream =
           obj["stream"] === "stdout" || obj["stream"] === "stderr"
-            ? (obj["stream"] as "stdout" | "stderr")
+            ? (obj["stream"])
             : undefined
         return { id: 0, text: obj["line"] as string, t, stream, _raw: raw }
       }

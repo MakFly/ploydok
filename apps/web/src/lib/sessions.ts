@@ -1,9 +1,9 @@
 // SPDX-License-Identifier: AGPL-3.0-only
 import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
+import { toast } from "sonner";
 import { apiFetch } from "./api";
 import type { ApiError } from "./api";
 import type { SessionInfo } from "@ploydok/shared";
-import { toast } from "sonner";
 
 interface SessionsResponse {
   sessions: Array<SessionInfo>;

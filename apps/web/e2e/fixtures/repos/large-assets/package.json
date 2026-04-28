@@ -1,0 +1,8 @@
+{
+  "name": "ploydok-e2e-large-assets",
+  "version": "0.0.1",
+  "type": "module",
+  "scripts": {
+    "build": "bun run build.ts"
+  }
+}

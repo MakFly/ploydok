@@ -24,7 +24,7 @@ export interface HostStats {
     mem_warn_pct: number
     load_warn_per_cpu: number
   }
-  alerts: string[]
+  alerts: Array<string>
   error: string
   fetched_at: number
 }
@@ -44,6 +44,6 @@ export function useHostStats(): {
   return {
     data: q.data,
     isLoading: q.isLoading,
-    error: q.error as Error | null,
+    error: q.error,
   }
 }

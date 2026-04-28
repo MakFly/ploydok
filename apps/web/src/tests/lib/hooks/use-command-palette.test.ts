@@ -5,9 +5,10 @@
  */
 import { describe, expect, it } from "bun:test"
 import {
-  resolveKeyAction,
-  type KeyEventInput,
+
+  resolveKeyAction
 } from "../../../lib/hooks/use-command-palette"
+import type {KeyEventInput} from "../../../lib/hooks/use-command-palette";
 
 // ---------------------------------------------------------------------------
 // Helpers

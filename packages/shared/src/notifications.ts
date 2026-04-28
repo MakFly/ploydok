@@ -11,6 +11,7 @@ export const NotificationEventEnum = z.enum([
   "db.rotated",
   "backup.succeeded",
   "backup.failed",
+  "cve.detected",
 ])
 export type NotificationEvent = z.infer<typeof NotificationEventEnum>
 

@@ -115,6 +115,20 @@ fn test_path_traversal_is_denied() {
     );
 }
 
+#[test]
+fn test_app_volume_prefix_is_allowed() {
+    let v = make_validator();
+    let mut req = valid_create();
+    req.volumes = vec![VolumeMount {
+        host_path: "/var/lib/ploydok/app-volumes/app-123/vol-456".to_string(),
+        container_path: "/data".to_string(),
+        read_only: false,
+    }];
+
+    let result = v.validate_container_create(&req);
+    assert!(result.is_ok(), "app volume prefix should be allowed");
+}
+
 // ─── Test 5: labels manquants ─────────────────────────────────────────────────
 
 #[test]

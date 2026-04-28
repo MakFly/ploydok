@@ -11,8 +11,8 @@ import {
   RiPauseLine,
   RiPlayLine,
   RiSearchLine,
-  RiTimeLine,
   RiTextWrap,
+  RiTimeLine,
 } from "@remixicon/react"
 import { cn } from "@workspace/ui/lib/utils"
 import type { LogLevel } from "../../lib/hooks/use-log-stream"

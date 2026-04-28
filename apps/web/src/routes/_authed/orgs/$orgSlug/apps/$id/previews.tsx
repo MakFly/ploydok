@@ -40,7 +40,7 @@ function PreviewsPage() {
     queryKey: ["app", appId, "previews"],
     queryFn: async () => {
       try {
-        return await apiFetch<PreviewDeployment[]>(`/apps/${appId}/previews`)
+        return await apiFetch<Array<PreviewDeployment>>(`/apps/${appId}/previews`)
       } catch (err) {
         if (err instanceof ApiError && err.status === 404) return []
         throw err

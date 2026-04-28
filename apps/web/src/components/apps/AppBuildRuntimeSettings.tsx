@@ -25,14 +25,13 @@ import {
   AlertDescription,
   AlertTitle,
 } from "@workspace/ui/components/alert"
+import { Switch } from "@workspace/ui/components/switch"
 import { cn } from "@workspace/ui/lib/utils"
-import {
-  NIXPACKS_SUPPORTED_PHP_VERSIONS_LABEL,
-  type Stack,
-} from "@ploydok/shared"
-import type { AppDetail, AppSettingsPatch } from "../../lib/apps"
+import { NIXPACKS_SUPPORTED_PHP_VERSIONS_LABEL } from "@ploydok/shared"
 import { useUpdateAppSettings } from "../../lib/apps-mutations"
 import { useStackClassification } from "../../lib/stack-classifier-hook"
+import type { Stack } from "@ploydok/shared"
+import type { AppDetail, AppSettingsPatch } from "../../lib/apps"
 
 type StringPatchKey = Exclude<
   keyof AppSettingsPatch,
@@ -46,6 +45,7 @@ type StringPatchKey = Exclude<
   | "hooksPreDeploy"
   | "hooksPostDeploy"
   | "hooksTimeoutS"
+  | "staticSpaFallback"
 >
 
 interface FieldOption {
@@ -72,6 +72,7 @@ interface BuildRuntimePlaceholders {
   installCommand: string
   buildCommand: string
   startCommand: string
+  staticOutputDir: string
   healthcheckPath: string
   runtimePort: string
   healthcheckPort: string
@@ -97,6 +98,7 @@ const DEFAULT_PLACEHOLDERS: BuildRuntimePlaceholders = {
   installCommand: "npm install",
   buildCommand: "npm run build",
   startCommand: "npm start",
+  staticOutputDir: "dist",
   healthcheckPath: "/",
   runtimePort: "3000",
   healthcheckPort: "3000",
@@ -290,6 +292,7 @@ function getBuildRuntimePlaceholders(
         installCommand: "npm install",
         buildCommand: "npm run build",
         startCommand: "managed static server",
+        staticOutputDir: "dist",
         runtimePort: "80",
         healthcheckPort: "80",
       })
@@ -301,8 +304,11 @@ function getBuildRuntimePlaceholders(
   }
 }
 
-function buildFields(placeholders: BuildRuntimePlaceholders): Array<FieldDef> {
-  return [
+function buildFields(
+  placeholders: BuildRuntimePlaceholders,
+  isStatic: boolean
+): Array<FieldDef> {
+  const base: Array<FieldDef> = [
     { key: "branch", label: "Branch", placeholder: placeholders.branch },
     {
       key: "rootDir",
@@ -318,6 +324,40 @@ function buildFields(placeholders: BuildRuntimePlaceholders): Array<FieldDef> {
       mono: true,
       options: BUILD_METHOD_OPTIONS,
     },
+  ]
+
+  if (isStatic) {
+    return [
+      ...base,
+      {
+        key: "nodeVersion",
+        label: "Node version",
+        placeholder: placeholders.nodeVersion,
+        mono: true,
+      },
+      {
+        key: "installCommand",
+        label: "Install command",
+        placeholder: placeholders.installCommand,
+        mono: true,
+      },
+      {
+        key: "buildCommand",
+        label: "Build command",
+        placeholder: placeholders.buildCommand,
+        mono: true,
+      },
+      {
+        key: "staticOutputDir",
+        label: "Output directory",
+        placeholder: placeholders.staticOutputDir,
+        mono: true,
+      },
+    ]
+  }
+
+  return [
+    ...base,
     {
       key: "dockerfilePath",
       label: "Dockerfile path",
@@ -383,18 +423,23 @@ export function AppBuildRuntimeSettings({
       ),
     [app.buildMethod, stackClassification.data?.stack]
   )
-  const fields = React.useMemo(() => buildFields(placeholders), [placeholders])
   const detectedStack = stackClassification.data?.stack
-  const showPhpNixpacksSupport =
-    Boolean(detectedStack && PHP_STACKS.has(detectedStack)) &&
-    (app.buildMethod === "auto" ||
-      app.buildMethod === "nixpacks" ||
-      app.buildMethod == null)
   const [editing, setEditing] = React.useState(false)
   const [formError, setFormError] = React.useState<string | null>(null)
   const [formData, setFormData] = React.useState<AppSettingsPatch>(() =>
     formDataFromApp(app)
   )
+  const selectedBuildMethod = formData.buildMethod ?? app.buildMethod
+  const isStatic = selectedBuildMethod === "static"
+  const fields = React.useMemo(
+    () => buildFields(placeholders, isStatic),
+    [isStatic, placeholders]
+  )
+  const showPhpNixpacksSupport =
+    Boolean(detectedStack && PHP_STACKS.has(detectedStack)) &&
+    (selectedBuildMethod === "auto" ||
+      selectedBuildMethod === "nixpacks" ||
+      selectedBuildMethod == null)
 
   React.useEffect(() => {
     setFormData(formDataFromApp(app))
@@ -470,31 +515,49 @@ export function AppBuildRuntimeSettings({
           />
         ))}
 
-        <PortField
-          inputId="setting-runtime-port"
-          label="Runtime port"
-          placeholder={placeholders.runtimePort}
-          value={formData.runtimePort ?? null}
-          editing={editing}
-          onChange={(value) =>
-            setFormData((previous) => ({ ...previous, runtimePort: value }))
-          }
-        />
+        {isStatic ? (
+          <BooleanField
+            inputId="setting-static-spa-fallback"
+            label="SPA fallback"
+            hint="Serve index.html for deep client routes."
+            checked={formData.staticSpaFallback ?? true}
+            editing={editing}
+            onChange={(value) =>
+              setFormData((previous) => ({
+                ...previous,
+                staticSpaFallback: value,
+              }))
+            }
+          />
+        ) : (
+          <>
+            <PortField
+              inputId="setting-runtime-port"
+              label="Runtime port"
+              placeholder={placeholders.runtimePort}
+              value={formData.runtimePort ?? null}
+              editing={editing}
+              onChange={(value) =>
+                setFormData((previous) => ({ ...previous, runtimePort: value }))
+              }
+            />
 
-        <PortField
-          inputId="setting-healthcheck-port"
-          label="Healthcheck port"
-          hint="Leave empty to reuse runtime port"
-          placeholder={placeholders.healthcheckPort}
-          value={formData.healthcheckPort ?? null}
-          editing={editing}
-          onChange={(value) =>
-            setFormData((previous) => ({
-              ...previous,
-              healthcheckPort: value,
-            }))
-          }
-        />
+            <PortField
+              inputId="setting-healthcheck-port"
+              label="Healthcheck port"
+              hint="Leave empty to reuse runtime port"
+              placeholder={placeholders.healthcheckPort}
+              value={formData.healthcheckPort ?? null}
+              editing={editing}
+              onChange={(value) =>
+                setFormData((previous) => ({
+                  ...previous,
+                  healthcheckPort: value,
+                }))
+              }
+            />
+          </>
+        )}
 
         {formError ? (
           <Alert variant="destructive" className="md:col-span-2 xl:col-span-3">
@@ -538,6 +601,8 @@ function formDataFromApp(app: AppDetail): AppSettingsPatch {
     buildCommand: app.buildCommand,
     startCommand: app.startCommand,
     buildMethod: app.buildMethod,
+    staticOutputDir: app.staticOutputDir,
+    staticSpaFallback: app.staticSpaFallback ?? true,
     runtimePort: app.runtimePort,
     healthcheckPath: app.healthcheckPath,
     healthcheckPort: app.healthcheckPort,
@@ -679,6 +744,36 @@ function PortField({
         />
       ) : (
         <ReadOnlyValue value={displayValue} placeholder={placeholder} mono />
+      )}
+      {hint ? <p className="text-xs text-muted-foreground">{hint}</p> : null}
+    </div>
+  )
+}
+
+function BooleanField({
+  inputId,
+  label,
+  hint,
+  checked,
+  editing,
+  onChange,
+}: {
+  inputId: string
+  label: string
+  hint?: string
+  checked: boolean
+  editing: boolean
+  onChange: (value: boolean) => void
+}): React.JSX.Element {
+  return (
+    <div className="flex flex-col gap-1.5">
+      <Label htmlFor={inputId}>{label}</Label>
+      {editing ? (
+        <div className="flex h-10 items-center rounded-md border bg-background px-3">
+          <Switch id={inputId} checked={checked} onCheckedChange={onChange} />
+        </div>
+      ) : (
+        <ReadOnlyValue value={checked ? "Enabled" : "Disabled"} placeholder="Enabled" />
       )}
       {hint ? <p className="text-xs text-muted-foreground">{hint}</p> : null}
     </div>

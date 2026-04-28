@@ -1,8 +1,8 @@
 // SPDX-License-Identifier: AGPL-3.0-only
 import { redirect } from "@tanstack/react-router"
 import { ApiError, SessionExpiredError, apiFetch } from "./api"
-import type { Me } from "@ploydok/shared"
 import { organizationDashboardPath } from "./organizations"
+import type { Me } from "@ploydok/shared"
 
 interface InstanceState {
   bootstrapped: boolean

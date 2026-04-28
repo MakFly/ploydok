@@ -12,6 +12,13 @@ export interface NotificationPayload {
   buildId?: string | null
   durationMs?: number | null
   errorMessage?: string | null
+  advisoryId?: string | null
+  advisorySummary?: string | null
+  advisorySeverity?: string | null
+  packageName?: string | null
+  currentVersion?: string | null
+  fixVersion?: string | null
+  advisoryUrl?: string | null
 }
 
 export interface NotificationAdapter {

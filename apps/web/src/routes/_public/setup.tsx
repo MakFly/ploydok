@@ -9,8 +9,8 @@ import { Label } from "@workspace/ui/components/label"
 import { Alert, AlertDescription } from "@workspace/ui/components/alert"
 import { toast } from "sonner"
 import { apiFetch } from "../../lib/api"
-import type { Me } from "@ploydok/shared"
 import { organizationDashboardPath } from "../../lib/organizations"
+import type { Me } from "@ploydok/shared"
 
 interface SetupSearch {
   token?: string
@@ -23,7 +23,7 @@ interface SetupOptionsResponse {
 
 interface SetupVerifyResponse {
   user: { id: string; email: string; display_name: string }
-  backup_codes: string[]
+  backup_codes: Array<string>
 }
 
 interface TotpEnrollResponse {
@@ -48,7 +48,7 @@ function SetupPage(): React.JSX.Element {
   const [deviceName, setDeviceName] = React.useState("")
   const [loading, setLoading] = React.useState(false)
   const [error, setError] = React.useState<string | null>(null)
-  const [backupCodes, setBackupCodes] = React.useState<string[]>([])
+  const [backupCodes, setBackupCodes] = React.useState<Array<string>>([])
   const [acknowledged, setAcknowledged] = React.useState(false)
 
   const [totpData, setTotpData] = React.useState<TotpEnrollResponse | null>(
@@ -405,18 +405,18 @@ function SetupPage(): React.JSX.Element {
   )
 }
 
-function buildBackupCodesText(codes: string[], email: string): string {
+function buildBackupCodesText(codes: Array<string>, email: string): string {
   const header = [
     "Ploydok backup codes",
     email ? `Account: ${email}` : null,
     `Generated: ${new Date().toISOString()}`,
     "Each code is single-use. Store in a password manager or print and lock away.",
     "",
-  ].filter(Boolean) as string[]
+  ].filter(Boolean) as Array<string>
   return [...header, ...codes].join("\n") + "\n"
 }
 
-function downloadBackupCodes(codes: string[], email: string): void {
+function downloadBackupCodes(codes: Array<string>, email: string): void {
   const text = buildBackupCodesText(codes, email)
   const blob = new Blob([text], { type: "text/plain;charset=utf-8" })
   const url = URL.createObjectURL(blob)
@@ -429,7 +429,7 @@ function downloadBackupCodes(codes: string[], email: string): void {
   URL.revokeObjectURL(url)
 }
 
-async function copyBackupCodes(codes: string[]): Promise<void> {
+async function copyBackupCodes(codes: Array<string>): Promise<void> {
   try {
     await navigator.clipboard.writeText(codes.join("\n"))
     toast.success("Backup codes copied")

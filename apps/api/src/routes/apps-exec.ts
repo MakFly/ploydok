@@ -22,6 +22,7 @@
 //
 // Close codes :
 //   4001  unauthorized
+//   4003  write proof required
 //   4004  app not found / no container_id
 //   1000  exit normal
 //   1001  idle timeout / absolute timeout
@@ -29,9 +30,12 @@
 
 import { Hono } from "hono"
 import { createBunWebSocket } from "hono/bun"
+import { createHmac, timingSafeEqual } from "node:crypto"
 import { eq, and, isNotNull } from "drizzle-orm"
 import { createDb, apps, projects, memberships, audit_log } from "@ploydok/db"
 import { verifyAccessToken, ACCESS_COOKIE } from "../auth/jwt"
+import { SECOND_FACTOR_COOKIE } from "../auth/second-factor"
+import { ExecCommandAuditor } from "../auth/exec-audit"
 import { env } from "../env"
 import { getSharedAgent } from "../debug/singletons"
 import { childLogger } from "../logger"
@@ -50,13 +54,17 @@ const log = childLogger("exec")
 export const { upgradeWebSocket, websocket: wsExecHandler } =
   createBunWebSocket()
 
+export type ExecMode = "ro" | "rw"
+
 // ---------------------------------------------------------------------------
 // Constants
 // ---------------------------------------------------------------------------
 
-const IDLE_TIMEOUT_MS = 600_000 // 10 min
+const IDLE_TIMEOUT_MS = 900_000 // 15 min
 const ABSOLUTE_TIMEOUT_MS = 3_600_000 // 1 h
 const SHELL = "/bin/sh"
+const WRITE_PROOF_TTL_MS = 15 * 60 * 1000
+const CLOSE_CODE_FORBIDDEN = 4003
 
 // ---------------------------------------------------------------------------
 // DB singleton
@@ -78,6 +86,83 @@ function parseCookies(header: string): Record<string, string> {
     out[k] = decodeURIComponent(v)
   }
   return out
+}
+
+function b64urlDecode(s: string): string {
+  return Buffer.from(s, "base64url").toString("utf8")
+}
+
+function signSecondFactorPayload(payload: string): string {
+  const hmac = createHmac("sha256", env.SESSION_SECRET)
+  hmac.update(payload)
+  return hmac.digest("hex")
+}
+
+interface SecondFactorCookiePayload {
+  user_id: string
+  verified_at: number
+}
+
+function parseSecondFactorCookie(
+  raw: string
+): SecondFactorCookiePayload | null {
+  const decoded = decodeURIComponent(raw)
+  const dotIdx = decoded.lastIndexOf(".")
+  if (dotIdx === -1) return null
+
+  const payload = decoded.slice(0, dotIdx)
+  const hmac = decoded.slice(dotIdx + 1)
+  const expectedHmac = signSecondFactorPayload(payload)
+
+  try {
+    const a = Buffer.from(hmac, "hex")
+    const b = Buffer.from(expectedHmac, "hex")
+    if (a.length !== b.length || !timingSafeEqual(a, b)) return null
+  } catch {
+    return null
+  }
+
+  let parsed: unknown
+  try {
+    parsed = JSON.parse(b64urlDecode(payload))
+  } catch {
+    return null
+  }
+
+  if (
+    typeof parsed !== "object" ||
+    parsed === null ||
+    typeof (parsed as Record<string, unknown>)["user_id"] !== "string" ||
+    typeof (parsed as Record<string, unknown>)["verified_at"] !== "number"
+  ) {
+    return null
+  }
+
+  return parsed as SecondFactorCookiePayload
+}
+
+export function getRequestedExecMode(req: Request): ExecMode {
+  const raw = new URL(req.url).searchParams.get("mode")
+  return raw === "rw" ? "rw" : "ro"
+}
+
+export function hasFreshSecondFactorCookie(
+  req: Request,
+  userId: string,
+  now = Date.now()
+): boolean {
+  const cookieHeader = req.headers.get("cookie") ?? ""
+  const cookies = parseCookies(cookieHeader)
+  const rawCookie = cookies[SECOND_FACTOR_COOKIE]
+  if (!rawCookie) return false
+
+  const payload = parseSecondFactorCookie(rawCookie)
+  if (!payload) return false
+
+  return (
+    payload.user_id === userId &&
+    now - payload.verified_at <= WRITE_PROOF_TTL_MS
+  )
 }
 
 /**
@@ -167,6 +252,7 @@ wsExecRouter.get(
     const appId = c.req.param("id") ?? ""
     const cols = Math.max(1, parseInt(c.req.query("cols") ?? "80", 10) || 80)
     const rows = Math.max(1, parseInt(c.req.query("rows") ?? "24", 10) || 24)
+    const requestedMode = getRequestedExecMode(c.req.raw)
 
     // Per-connection state
     let closed = false
@@ -178,6 +264,20 @@ wsExecRouter.get(
     let startMs = 0
     let sessionUserId = ""
     let sessionContainerId = ""
+    let sessionExecId = ""
+    let writeEnabled = false
+    let commandAuditor: ExecCommandAuditor | null = null
+    let stdoutAuditor: ExecCommandAuditor | null = null
+    let stderrAuditor: ExecCommandAuditor | null = null
+
+    function flushAuditBuffers() {
+      const pending: Array<Promise<void>> = []
+      if (commandAuditor) pending.push(commandAuditor.flushFinal())
+      if (stdoutAuditor) pending.push(stdoutAuditor.flushFinal())
+      if (stderrAuditor) pending.push(stderrAuditor.flushFinal())
+      if (pending.length === 0) return
+      void Promise.allSettled(pending)
+    }
 
     function resetIdle() {
       if (idleTimer) clearTimeout(idleTimer)
@@ -223,12 +323,17 @@ wsExecRouter.get(
             userId: sessionUserId,
             appId,
             containerId: sessionContainerId,
+            sessionId: sessionExecId,
+            mode: requestedMode,
+            writeEnabled,
             durationMs: Date.now() - startMs,
             exitCode: exitCode ?? null,
           },
           "exec.end"
         )
       }
+
+      flushAuditBuffers()
 
       if (ws) {
         ws.close(code, reason)
@@ -257,6 +362,17 @@ wsExecRouter.get(
           return
         }
 
+        // Browser WebSockets cannot initiate a dedicated WebAuthn/TOTP prompt
+        // today. We therefore keep the authenticated session as the open gate
+        // and require a separate fresh second-factor cookie only for rw mode.
+        if (requestedMode === "rw") {
+          if (!hasFreshSecondFactorCookie(c.req.raw, userId)) {
+            ws.close(CLOSE_CODE_FORBIDDEN, "write proof required")
+            return
+          }
+          writeEnabled = true
+        }
+
         // 3. Look up container_id from DB — never from query string
         const appRows = await db
           .select({ container_id: apps.container_id })
@@ -270,10 +386,55 @@ wsExecRouter.get(
           return
         }
         sessionContainerId = containerId
+        sessionExecId = crypto.randomUUID()
+        commandAuditor = writeEnabled
+          ? new ExecCommandAuditor(db, {
+              userId,
+              appId,
+              containerId,
+              sessionId: sessionExecId,
+            })
+          : null
+        stdoutAuditor = new ExecCommandAuditor(
+          db,
+          {
+            userId,
+            appId,
+            containerId,
+            sessionId: sessionExecId,
+          },
+          {
+            action: "app.exec.output",
+            stream: "stdout",
+          }
+        )
+        stderrAuditor = new ExecCommandAuditor(
+          db,
+          {
+            userId,
+            appId,
+            containerId,
+            sessionId: sessionExecId,
+          },
+          {
+            action: "app.exec.output",
+            stream: "stderr",
+          }
+        )
 
         // 4. Audit log — pino + table audit_log (queryable via /audit).
         startMs = Date.now()
-        log.info({ userId, appId, containerId }, "exec.start")
+        log.info(
+          {
+            userId,
+            appId,
+            containerId,
+            sessionId: sessionExecId,
+            mode: requestedMode,
+            writeEnabled,
+          },
+          "exec.start"
+        )
         try {
           await db.insert(audit_log).values({
             user_id: userId,
@@ -282,8 +443,16 @@ wsExecRouter.get(
             target_id: appId,
             metadata: JSON.stringify({
               container_id: containerId,
+              session_id: sessionExecId,
               cols,
               rows,
+              mode: requestedMode,
+              write_enabled: writeEnabled,
+              open_proof: "authenticated_session_cookie",
+              write_proof:
+                requestedMode === "rw"
+                  ? "fresh_second_factor_cookie"
+                  : null,
             }),
             created_at: new Date(),
           })
@@ -318,10 +487,12 @@ wsExecRouter.get(
               if (frame.ready) {
                 ws.send(JSON.stringify({ type: "ready" }))
               } else if (frame.stdout && frame.stdout.byteLength > 0) {
+                stdoutAuditor?.feed(frame.stdout)
                 // Send raw binary — xterm.js reads it directly.
                 // Cast: proto generates Uint8Array<ArrayBufferLike>, Bun WS expects Uint8Array<ArrayBuffer>.
                 ws.send(frame.stdout as Uint8Array<ArrayBuffer>)
               } else if (frame.stderr && frame.stderr.byteLength > 0) {
+                stderrAuditor?.feed(frame.stderr)
                 // In TTY mode this rarely fires; forward as binary anyway.
                 ws.send(frame.stderr as Uint8Array<ArrayBuffer>)
               } else if (frame.exit) {
@@ -355,8 +526,22 @@ wsExecRouter.get(
 
         // Binary → stdin
         if (data instanceof ArrayBuffer || data instanceof Uint8Array) {
+          if (!writeEnabled) {
+            try {
+              ws.send(
+                JSON.stringify({
+                  type: "error",
+                  message: "Session is read-only",
+                })
+              )
+            } catch {
+              /* ignore */
+            }
+            return
+          }
           const bytes =
             data instanceof ArrayBuffer ? new Uint8Array(data) : data
+          commandAuditor?.feed(bytes)
           execSession.send({ stdin: bytes })
           return
         }

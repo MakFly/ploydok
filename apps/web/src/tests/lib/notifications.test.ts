@@ -249,6 +249,45 @@ describe("resolveNotificationHref", () => {
     expect(href).toBe("/settings/git-providers")
   })
 
+  it("links queued app delete notifications to the app settings page", () => {
+    const href = resolveNotificationHref(
+      {
+        ...makeEvent("delete-queued"),
+        type: "app.delete.queued",
+        appId: "app_123",
+      },
+      "acme",
+    )
+
+    expect(href).toBe("/orgs/acme/apps/app_123/settings")
+  })
+
+  it("links app stop notifications to the app settings page", () => {
+    const href = resolveNotificationHref(
+      {
+        ...makeEvent("stop-queued"),
+        type: "app.stop.queued",
+        appId: "app_123",
+      },
+      "acme",
+    )
+
+    expect(href).toBe("/orgs/acme/apps/app_123/settings")
+  })
+
+  it("does not link completed app delete notifications to a removed app", () => {
+    const href = resolveNotificationHref(
+      {
+        ...makeEvent("delete-done"),
+        type: "app.deleted",
+        appId: "app_123",
+      },
+      "acme",
+    )
+
+    expect(href).toBeNull()
+  })
+
   it("does not invent app-scoped links without an org slug or app id", () => {
     expect(resolveNotificationHref(makeEvent("missing-app"), "acme")).toBeNull()
     expect(

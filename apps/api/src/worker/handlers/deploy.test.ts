@@ -17,6 +17,7 @@ import {
 } from "bun:test"
 import fs from "node:fs"
 import path from "node:path"
+import { nanoid } from "nanoid"
 
 // ---------------------------------------------------------------------------
 // Module-level mocks — must be set up before dynamic imports
@@ -28,6 +29,9 @@ import * as detectMod from "../detect"
 import * as nixpacksMod from "../nixpacks"
 import * as runnerMod from "../runner"
 import * as eventBusMod from "../event-bus"
+import * as queueClaimMod from "../queue-claim"
+import * as queueAuditMod from "../queue-audit"
+import { imageRepoForApp } from "../../services/runtime-containers"
 
 // ---------------------------------------------------------------------------
 // Helpers
@@ -108,18 +112,53 @@ describe("handleDeploy", () => {
 
     await expect(handleDeploy(fakeDb, job)).rejects.toThrow()
   })
+
+  it("drops legacy payload containing only appId, with unauthorized audit", async () => {
+    const { handleDeploy } = await import("./deploy")
+
+    const claimSpy = spyOn(queueClaimMod, "claimQueuedRow")
+    const auditSpy = spyOn(queueAuditMod, "auditUnauthorized")
+
+    await handleDeploy(fakeDb, makeJob({ appId: "legacy-app" }))
+
+    expect(claimSpy).not.toHaveBeenCalled()
+    expect(auditSpy).toHaveBeenCalledTimes(1)
+    expect(auditSpy.mock.calls[0]?.[0]).toMatchObject({
+      reason: "legacy payload format — drop after queue drain",
+    })
+  })
+
+  it("claims by buildId when provided (legacy appId is ignored)", async () => {
+    const { handleDeploy } = await import("./deploy")
+
+    const claimSpy = spyOn(queueClaimMod, "claimQueuedRow").mockResolvedValue(null)
+    const auditSpy = spyOn(queueAuditMod, "auditUnauthorized")
+
+    await handleDeploy(fakeDb, makeJob({ buildId: "build-123", appId: "legacy-app" }))
+
+    expect(claimSpy).toHaveBeenCalledTimes(1)
+    expect(claimSpy.mock.calls[0]?.[0]).toMatchObject({ id: "build-123" })
+    expect(auditSpy).toHaveBeenCalledTimes(1)
+    expect(auditSpy.mock.calls[0]?.[0]).toMatchObject({
+      reason: "build row not found or not pending",
+    })
+  })
 })
 
 // ---------------------------------------------------------------------------
 // Integration-style tests with a real Postgres DB (via makeTestDb)
 // ---------------------------------------------------------------------------
 
-import { apps, projects, users } from "@ploydok/db"
+import { apps, builds, projects, users } from "@ploydok/db"
 import type { Db } from "@ploydok/db"
 import { eq } from "drizzle-orm"
 import { makeTestDb, TEST_PG_URL } from "../../test/db-helpers"
 
 const NOW = new Date()
+
+function uniqueTestId(prefix: string): string {
+  return `${prefix}-${nanoid(8).toLowerCase()}`
+}
 
 const skipIntegration = !TEST_PG_URL
 if (skipIntegration)
@@ -130,13 +169,13 @@ if (skipIntegration)
 describe.skipIf(skipIntegration)(
   "handleDeploy — integration stubs (real Postgres DB)",
   () => {
-    it("creates a build record with status running then failed when no git config", async () => {
+    it("drops a raw buildId without a queued build row", async () => {
       const { db } = await makeTestDb()
 
       const { handleDeploy } = await import("./deploy")
-      const job = makeJob({ appId: "non-existent-app" })
+      const job = makeJob({ buildId: uniqueTestId("missing-build") })
 
-      await expect(handleDeploy(db, job)).rejects.toThrow("App not found")
+      await expect(handleDeploy(db, job)).resolves.toBeUndefined()
     })
   }
 )
@@ -151,7 +190,7 @@ import { env } from "../../env"
 import { listBuildsByApp } from "@ploydok/db/queries"
 
 // App IDs used in log archiving tests — cleaned up after all tests.
-const LOG_TEST_APP_IDS = ["app-log-1", "app-log-2"]
+const LOG_TEST_APP_IDS: string[] = []
 
 afterAll(() => {
   for (const appId of LOG_TEST_APP_IDS) {
@@ -173,29 +212,40 @@ describe.skipIf(skipIntegration)("handleDeploy — log archiving", () => {
   it("creates a log file at the expected path and writes log lines to it", async () => {
     // Set up a real Postgres DB with fixtures.
     const { db } = await makeTestDb()
+    const userId = uniqueTestId("user-log")
+    const projectId = uniqueTestId("proj-log")
+    const appId = uniqueTestId("app-log")
+    const buildId = uniqueTestId("build-log")
+    LOG_TEST_APP_IDS.push(appId)
 
     // Insert fixtures: user → project → app
     await db.insert(users).values({
-      id: "user-log-1",
-      email: "log@test.com",
+      id: userId,
+      email: `${userId}@test.com`,
       display_name: "Log Tester",
       created_at: NOW,
       updated_at: NOW,
     })
     await db.insert(projects).values({
-      id: "proj-log-1",
-      owner_id: "user-log-1",
-      name: "log-project",
-      slug: "log-project",
+      id: projectId,
+      owner_id: userId,
+      name: projectId,
+      slug: projectId,
       created_at: NOW,
     })
     await db.insert(apps).values({
-      id: "app-log-1",
-      project_id: "proj-log-1",
+      id: appId,
+      project_id: projectId,
       name: "log-app",
-      slug: "log-app",
+      slug: appId,
       repo_full_name: "owner/repo",
       branch: "main",
+    })
+    await db.insert(builds).values({
+      id: buildId,
+      app_id: appId,
+      requested_by_user_id: null,
+      source: "api",
     })
 
     // Mock external dependencies so the build runs to completion.
@@ -221,6 +271,11 @@ describe.skipIf(skipIntegration)("handleDeploy — log archiving", () => {
       }
     )
     spyOn(registryMod, "gcKeepLast").mockResolvedValue([])
+    spyOn(Bun, "spawn").mockImplementation(() => ({
+      stdout: new Response("").body,
+      stderr: new Response("").body,
+      exited: Promise.resolve(0),
+    }) as unknown as ReturnType<typeof Bun.spawn>)
     // Mock runBlueGreen so the log archiving test doesn't need a running agent.
     spyOn(runnerMod, "runBlueGreen").mockResolvedValue({
       containerId: "cont-log-1",
@@ -229,14 +284,14 @@ describe.skipIf(skipIntegration)("handleDeploy — log archiving", () => {
 
     const { handleDeploy } = await import("./deploy")
     const job = makeJob({
-      appId: "app-log-1",
+      buildId,
       commitMessage: "chore: log archiving test",
     })
 
     await handleDeploy(db, job)
 
     // Assert the log file was created at the expected path.
-    const expectedLogDir = path.join(env.PLOYDOK_BUILD_DIR, "app-log-1")
+    const expectedLogDir = path.join(env.PLOYDOK_BUILD_DIR, appId)
     const logFiles = (fs.readdirSync(expectedLogDir) as string[]).filter((f) =>
       f.endsWith(".log")
     )
@@ -251,8 +306,8 @@ describe.skipIf(skipIntegration)("handleDeploy — log archiving", () => {
     expect(content).toContain("Step 3/3 : RUN bun install\n")
 
     // Assert the build DB record has log_path set to the log file path.
-    const builds = await listBuildsByApp(db, "app-log-1")
-    const build = builds[0]
+    const buildRows = await listBuildsByApp(db, appId)
+    const build = buildRows.find((row) => row.id === buildId)
     expect(build?.log_path).toBe(logFilePath)
     expect(build?.status).toBe("succeeded")
     // build_method must be non-null (fix for build_method null bug).
@@ -263,28 +318,39 @@ describe.skipIf(skipIntegration)("handleDeploy — log archiving", () => {
 
   it("still creates the log file even when the build fails", async () => {
     const { db } = await makeTestDb()
+    const userId = uniqueTestId("user-log-fail")
+    const projectId = uniqueTestId("proj-log-fail")
+    const appId = uniqueTestId("app-log-fail")
+    const buildId = uniqueTestId("build-log-fail")
+    LOG_TEST_APP_IDS.push(appId)
 
     await db.insert(users).values({
-      id: "user-log-2",
-      email: "fail@test.com",
+      id: userId,
+      email: `${userId}@test.com`,
       display_name: "Fail Tester",
       created_at: NOW,
       updated_at: NOW,
     })
     await db.insert(projects).values({
-      id: "proj-log-2",
-      owner_id: "user-log-2",
-      name: "fail-project",
-      slug: "fail-project",
+      id: projectId,
+      owner_id: userId,
+      name: projectId,
+      slug: projectId,
       created_at: NOW,
     })
     await db.insert(apps).values({
-      id: "app-log-2",
-      project_id: "proj-log-2",
+      id: appId,
+      project_id: projectId,
       name: "fail-app",
-      slug: "fail-app",
+      slug: appId,
       repo_full_name: "owner/repo",
       branch: "main",
+    })
+    await db.insert(builds).values({
+      id: buildId,
+      app_id: appId,
+      requested_by_user_id: null,
+      source: "api",
     })
 
     spyOn(installTokensMod, "listAppInstallations").mockResolvedValue([
@@ -298,22 +364,22 @@ describe.skipIf(skipIntegration)("handleDeploy — log archiving", () => {
     )
 
     const { handleDeploy } = await import("./deploy")
-    const job = makeJob({ appId: "app-log-2" })
+    const job = makeJob({ buildId })
 
     await expect(handleDeploy(db, job)).rejects.toThrow(
       "git clone failed: timeout"
     )
 
     // Log file must have been created (even on failure).
-    const expectedLogDir = path.join(env.PLOYDOK_BUILD_DIR, "app-log-2")
+    const expectedLogDir = path.join(env.PLOYDOK_BUILD_DIR, appId)
     const logFiles = (fs.readdirSync(expectedLogDir) as string[]).filter((f) =>
       f.endsWith(".log")
     )
     expect(logFiles.length).toBe(1)
 
     // Build record must have log_path + failed status.
-    const buildRows = await listBuildsByApp(db, "app-log-2")
-    const build = buildRows[0]
+    const buildRows = await listBuildsByApp(db, appId)
+    const build = buildRows.find((row) => row.id === buildId)
     expect(build?.status).toBe("failed")
 
     const logFilePath = path.join(expectedLogDir, logFiles[0] as string)
@@ -325,15 +391,19 @@ describe.skipIf(skipIntegration)("handleDeploy — log archiving", () => {
 // Blue-green integration tests — assert step 4 orchestration
 // ---------------------------------------------------------------------------
 
-const LOG_TEST_APP_ID_BG = "app-bg-1"
+const LOG_TEST_APP_IDS_BG: string[] = []
 
 afterAll(() => {
-  const dir = path.join(env.PLOYDOK_BUILD_DIR, LOG_TEST_APP_ID_BG)
-  fs.rmSync(dir, { recursive: true, force: true })
+  for (const appId of LOG_TEST_APP_IDS_BG) {
+    const dir = path.join(env.PLOYDOK_BUILD_DIR, appId)
+    fs.rmSync(dir, { recursive: true, force: true })
+  }
 })
 
 describe.skipIf(skipIntegration)("handleDeploy — blue-green", () => {
   let db: Db
+  let bgAppId: string
+  let bgBuildId: string
 
   beforeEach(async () => {
     mock.restore()
@@ -341,29 +411,40 @@ describe.skipIf(skipIntegration)("handleDeploy — blue-green", () => {
     // Fresh Postgres DB for each test.
     const result = await makeTestDb()
     db = result.db
+    const userId = uniqueTestId("user-bg")
+    const projectId = uniqueTestId("proj-bg")
+    bgAppId = uniqueTestId("app-bg")
+    bgBuildId = uniqueTestId("build-bg")
+    LOG_TEST_APP_IDS_BG.push(bgAppId)
 
     // Seed: user → project → app
     await db.insert(users).values({
-      id: "user-bg-1",
-      email: "bg@test.com",
+      id: userId,
+      email: `${userId}@test.com`,
       display_name: "BG Tester",
       created_at: NOW,
       updated_at: NOW,
     })
     await db.insert(projects).values({
-      id: "proj-bg-1",
-      owner_id: "user-bg-1",
-      name: "bg-project",
-      slug: "bg-project",
+      id: projectId,
+      owner_id: userId,
+      name: projectId,
+      slug: projectId,
       created_at: NOW,
     })
     await db.insert(apps).values({
-      id: LOG_TEST_APP_ID_BG,
-      project_id: "proj-bg-1",
+      id: bgAppId,
+      project_id: projectId,
       name: "bg-app",
-      slug: "bg-app",
+      slug: bgAppId,
       repo_full_name: "owner/repo",
       branch: "main",
+    })
+    await db.insert(builds).values({
+      id: bgBuildId,
+      app_id: bgAppId,
+      requested_by_user_id: null,
+      source: "api",
     })
 
     // Stub common dependencies for a full successful build up to push.
@@ -383,6 +464,11 @@ describe.skipIf(skipIntegration)("handleDeploy — blue-green", () => {
     spyOn(registryMod, "diskGuard").mockResolvedValue(undefined)
     spyOn(nixpacksMod, "nixpacksBuild").mockResolvedValue(undefined)
     spyOn(registryMod, "gcKeepLast").mockResolvedValue([])
+    spyOn(Bun, "spawn").mockImplementation(() => ({
+      stdout: new Response("").body,
+      stderr: new Response("").body,
+      exited: Promise.resolve(0),
+    }) as unknown as ReturnType<typeof Bun.spawn>)
   })
 
   it("calls runBlueGreen after push, updates build containerId, publishes Container live event", async () => {
@@ -402,7 +488,7 @@ describe.skipIf(skipIntegration)("handleDeploy — blue-green", () => {
 
     const { handleDeploy } = await import("./deploy")
     const job = makeJob({
-      appId: LOG_TEST_APP_ID_BG,
+      buildId: bgBuildId,
       commitMessage: "feat: test deploy",
     })
 
@@ -412,12 +498,12 @@ describe.skipIf(skipIntegration)("handleDeploy — blue-green", () => {
     expect(runBlueGreenSpy).toHaveBeenCalledTimes(1)
     const bgOpts = runBlueGreenSpy.mock
       .calls[0]![0] as import("../runner").RunBlueGreenOptions
-    expect(bgOpts.appId).toBe(LOG_TEST_APP_ID_BG)
-    expect(bgOpts.imageRef).toContain(`app-${LOG_TEST_APP_ID_BG.toLowerCase()}`)
+    expect(bgOpts.appId).toBe(bgAppId)
+    expect(bgOpts.imageRef).toContain(imageRepoForApp(bgAppId))
 
     // Build record must have containerId and status succeeded.
-    const buildRows = await listBuildsByApp(db, LOG_TEST_APP_ID_BG)
-    const build = buildRows[0]
+    const buildRows = await listBuildsByApp(db, bgAppId)
+    const build = buildRows.find((row) => row.id === bgBuildId)
     expect(build?.status).toBe("succeeded")
     expect(build?.container_id).toBe("cont-123")
 
@@ -456,15 +542,15 @@ describe.skipIf(skipIntegration)("handleDeploy — blue-green", () => {
     )
 
     const { handleDeploy } = await import("./deploy")
-    const job = makeJob({ appId: LOG_TEST_APP_ID_BG })
+    const job = makeJob({ buildId: bgBuildId })
 
     await expect(handleDeploy(db, job)).rejects.toThrow(
       "healthcheck failed after 6 retries"
     )
 
     // Build record must have status failed.
-    const buildRows = await listBuildsByApp(db, LOG_TEST_APP_ID_BG)
-    const build = buildRows[0]
+    const buildRows = await listBuildsByApp(db, bgAppId)
+    const build = buildRows.find((row) => row.id === bgBuildId)
     expect(build?.status).toBe("failed")
     expect(build?.container_id).toBeNull()
 
@@ -472,7 +558,7 @@ describe.skipIf(skipIntegration)("handleDeploy — blue-green", () => {
     const appRows = await db
       .select()
       .from(apps)
-      .where(eq(apps.id, LOG_TEST_APP_ID_BG))
+      .where(eq(apps.id, bgAppId))
       .limit(1)
     const appRow = appRows[0]
     expect(appRow?.status).not.toBe("running")

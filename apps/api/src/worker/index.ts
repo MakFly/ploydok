@@ -51,10 +51,22 @@ import {
   startReapStuckBuildsCron,
   stopReapStuckBuildsCron,
 } from "./jobs/reap-stuck-builds"
+import {
+  startCleanupPreviewsCron,
+  stopCleanupPreviewsCron,
+} from "./jobs/cleanup-previews"
 import { handleSyncProviderRepos } from "./handlers/sync-provider-repos"
 import type { SyncProviderReposPayload } from "./handlers/sync-provider-repos"
 import { handlePreviewDeploy } from "./handlers/preview-deploy"
 import { handlePreviewTeardown } from "./handlers/preview-teardown"
+import { getSharedAgent } from "../debug/singletons"
+import type { Agent } from "../agent"
+import {
+  startScheduledJobsRunner,
+  stopScheduledJobsRunner,
+} from "./jobs/scheduled-jobs-runner"
+import { refreshAdvisories } from "../advisories/service"
+import { startCveRefreshCron, stopCveRefreshCron } from "./jobs/cve-refresh"
 
 // ---------------------------------------------------------------------------
 // Types
@@ -63,6 +75,97 @@ import { handlePreviewTeardown } from "./handlers/preview-teardown"
 /** Returned by `startWorker`. Call `stop()` for graceful shutdown. */
 export interface WorkerHandle {
   stop(): void
+}
+
+interface GcRegistryPayload {
+  id?: string
+  data: unknown
+}
+
+export async function handleGcRegistryJob(
+  db: Db,
+  job: GcRegistryPayload
+): Promise<void> {
+  const { jobId } = job.data as { jobId?: string }
+  if (!jobId) {
+    auditUnauthorized({
+      jobName: "gc.registry.requested",
+      jobId: job.id ?? "",
+      payload: job.data,
+      reason: "legacy payload (no jobId) — drop after queue drain",
+    })
+    return
+  }
+
+  const claimed = await claimQueuedRow<typeof system_jobs.$inferSelect>({
+    db,
+    table: system_jobs,
+    id: jobId,
+  })
+  if (!claimed) {
+    auditUnauthorized({
+      jobName: "gc.registry.requested",
+      jobId: job.id ?? "",
+      payload: job.data,
+      reason: "no matching pending system_jobs row",
+    })
+    return
+  }
+
+  let opts: { appId?: string | null | undefined; keepPerRepo: number }
+  try {
+    opts = GcRegistryOptionsSchema.parse(claimed.options)
+  } catch (err) {
+    await db
+      .update(system_jobs)
+      .set({
+        status: "failed",
+        finished_at: new Date(),
+        error_message:
+          err instanceof Error ? err.message.slice(0, 1000) : String(err),
+      })
+      .where(eq(system_jobs.id, jobId))
+
+    auditUnauthorized({
+      jobName: "gc.registry.requested",
+      jobId: job.id ?? "",
+      payload: claimed.options,
+      reason: "invalid system_jobs.options schema",
+    })
+    return
+  }
+
+  auditClaimed({
+    jobName: "gc.registry.requested",
+    jobId: job.id ?? "",
+    rowId: jobId,
+    actor: claimed.requested_by_user_id,
+    source: claimed.source,
+  })
+
+  try {
+    const result = await runRegistryGc(
+      opts.appId
+        ? { db, appFilter: opts.appId, keepPerRepo: opts.keepPerRepo }
+        : { db, keepPerRepo: opts.keepPerRepo }
+    )
+    await db
+      .update(system_jobs)
+      .set({ status: "succeeded", finished_at: new Date() })
+      .where(eq(system_jobs.id, jobId))
+    logger.info({ jobId, ...result }, "gc.registry done")
+  } catch (err) {
+    await db
+      .update(system_jobs)
+      .set({
+        status: "failed",
+        finished_at: new Date(),
+        error_message:
+          err instanceof Error ? err.message.slice(0, 1000) : String(err),
+      })
+      .where(eq(system_jobs.id, jobId))
+    throw err
+  }
 }
 
 // ---------------------------------------------------------------------------
@@ -80,9 +183,10 @@ export interface WorkerHandle {
  */
 export function startWorker(
   db: Db,
-  opts?: { signal?: AbortSignal }
+  opts?: { signal?: AbortSignal; agent?: Agent }
 ): WorkerHandle {
   const connection = createRedis(env.REDIS_URL)
+  const agent = opts?.agent ?? getSharedAgent()
 
   const workers: Worker[] = [
     new Worker(
@@ -122,62 +226,7 @@ export function startWorker(
     new Worker(
       "gc.registry",
       async (job) => {
-        const { jobId } = job.data as { jobId?: string }
-        if (!jobId) {
-          auditUnauthorized({
-            jobName: "gc.registry.requested",
-            jobId: job.id ?? "",
-            payload: job.data,
-            reason: "legacy payload (no jobId) — drop after queue drain",
-          })
-          return
-        }
-        const claimed = await claimQueuedRow<typeof system_jobs.$inferSelect>({
-          db,
-          table: system_jobs,
-          id: jobId,
-        })
-        if (!claimed) {
-          auditUnauthorized({
-            jobName: "gc.registry.requested",
-            jobId: job.id ?? "",
-            payload: job.data,
-            reason: "no matching pending system_jobs row",
-          })
-          return
-        }
-        const opts = GcRegistryOptionsSchema.parse(claimed.options)
-        auditClaimed({
-          jobName: "gc.registry.requested",
-          jobId: job.id ?? "",
-          rowId: jobId,
-          actor: claimed.requested_by_user_id,
-          source: claimed.source,
-        })
-
-        try {
-          const result = await runRegistryGc(
-            opts.appId
-              ? { db, appFilter: opts.appId, keepPerRepo: opts.keepPerRepo }
-              : { db, keepPerRepo: opts.keepPerRepo }
-          )
-          await db
-            .update(system_jobs)
-            .set({ status: "succeeded", finished_at: new Date() })
-            .where(eq(system_jobs.id, jobId))
-          logger.info({ jobId, ...result }, "gc.registry done")
-        } catch (err) {
-          await db
-            .update(system_jobs)
-            .set({
-              status: "failed",
-              finished_at: new Date(),
-              error_message:
-                err instanceof Error ? err.message.slice(0, 1000) : String(err),
-            })
-            .where(eq(system_jobs.id, jobId))
-          throw err
-        }
+        await handleGcRegistryJob(db, job)
       },
       { connection, concurrency: 1 }
     ),
@@ -208,7 +257,8 @@ export function startWorker(
         // Parse job payload to extract appId for notification purposes.
         let appIdForNotification: string | null = null
         try {
-          const payload = JSON.parse(job.data)
+          const payload =
+            typeof job.data === "string" ? JSON.parse(job.data) : job.data
           if (payload.jobId) {
             const jobRow = await db
               .select({ app_id: app_delete_jobs.app_id })
@@ -316,6 +366,16 @@ export function startWorker(
       },
       { connection, concurrency: 1 }
     ),
+
+    new Worker(
+      "cve.refresh",
+      async (job) => {
+        logger.info({ jobId: job.id, data: job.data }, "cve.refresh job started")
+        const result = await refreshAdvisories(db, connection)
+        logger.info({ jobId: job.id, ...result }, "cve.refresh done")
+      },
+      { connection, concurrency: 1 }
+    ),
   ]
 
   // Attach error loggers to each worker
@@ -332,7 +392,10 @@ export function startWorker(
   startBackupDatabasesCron(db)
   startOrphanContainerGcCron(db)
   startReapStuckBuildsCron(db)
+  startCleanupPreviewsCron(db)
   startAuditRetentionCron({ db })
+  startScheduledJobsRunner(db, agent)
+  startCveRefreshCron(db)
 
   const abortHandler = () => stop()
   opts?.signal?.addEventListener("abort", abortHandler)
@@ -345,7 +408,10 @@ export function startWorker(
     stopBackupDatabasesCron()
     stopOrphanContainerGcCron()
     stopReapStuckBuildsCron()
+    stopCleanupPreviewsCron()
     stopAuditRetentionCron()
+    stopScheduledJobsRunner()
+    stopCveRefreshCron()
     Promise.all(workers.map((w) => w.close())).catch((err) => {
       logger.error({ err }, "error closing BullMQ workers")
     })

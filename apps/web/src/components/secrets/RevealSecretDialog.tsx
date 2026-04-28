@@ -14,12 +14,12 @@ import { Input } from "@workspace/ui/components/input"
 import {
   Field,
   FieldContent,
-  FieldLabel,
   FieldDescription,
+  FieldLabel,
 } from "@workspace/ui/components/field"
 import { useRevealSecret } from "../../lib/secrets"
-import type { SecretPhase, SecretScope } from "../../lib/secrets"
 import { useMe } from "../../lib/auth"
+import type { SecretPhase, SecretScope } from "../../lib/secrets"
 
 const AUTO_HIDE_MS = 30_000
 

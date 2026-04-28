@@ -22,7 +22,7 @@ export interface SecretMeta {
 }
 
 interface SecretsResponse {
-  secrets: SecretMeta[]
+  secrets: Array<SecretMeta>
 }
 
 export interface CreateSecretPayload {
@@ -55,7 +55,7 @@ export function useSecrets(
   scope?: SecretScope,
   phase?: SecretPhase
 ) {
-  return useQuery<SecretMeta[], ApiError>({
+  return useQuery<Array<SecretMeta>, ApiError>({
     queryKey: secretsQueryKey(appId, scope, phase),
     queryFn: async () => {
       const params = new URLSearchParams()

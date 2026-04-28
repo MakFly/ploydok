@@ -134,6 +134,11 @@ pub struct ValidatorConfig {
     #[serde(default = "default_volume_prefix")]
     pub volume_prefix: String,
 
+    /// Root prefix allowed for app persistent bind mounts.
+    /// Default: `/var/lib/ploydok/app-volumes`
+    #[serde(default = "default_app_volume_prefix")]
+    pub app_volume_prefix: String,
+
     /// Maximum fractional CPUs allowed in resource limits.
     /// Default: `4.0`
     #[serde(default = "default_max_cpu")]
@@ -157,6 +162,10 @@ fn default_volume_prefix() -> String {
     "/var/lib/ploydok/volumes".to_string()
 }
 
+fn default_app_volume_prefix() -> String {
+    "/var/lib/ploydok/app-volumes".to_string()
+}
+
 fn default_max_cpu() -> f64 {
     4.0
 }
@@ -170,6 +179,7 @@ impl Default for ValidatorConfig {
         Self {
             allowed_registries: default_allowed_registries(),
             volume_prefix: default_volume_prefix(),
+            app_volume_prefix: default_app_volume_prefix(),
             max_cpu: default_max_cpu(),
             max_memory_bytes: default_max_memory_bytes(),
         }
@@ -254,24 +264,28 @@ fn extract_registry(image: &str) -> &str {
     "docker.io"
 }
 
-/// Validate that a `host_path` is under `volume_prefix` without path traversal.
+/// Validate that a `host_path` is under one of the allowlisted prefixes without path traversal.
 ///
 /// Returns `Ok(())` on success, or the violated path as `Err(String)`.
-fn validate_host_path(host_path: &str, volume_prefix: &str) -> Result<(), String> {
+fn validate_host_path(host_path: &str, allowed_prefixes: &[&str]) -> Result<(), String> {
     // Reject null bytes and obvious traversal sequences before any canonicalisation.
     if host_path.contains('\0') || host_path.contains("..") {
         return Err(format!(
             "path traversal détecté dans host_path: {host_path}"
         ));
     }
-    // The path must start with the allowed prefix.
-    let prefix = volume_prefix.trim_end_matches('/');
-    if !host_path.starts_with(&format!("{prefix}/")) && host_path != prefix {
-        return Err(format!(
-            "host_path '{host_path}' hors du préfixe autorisé '{prefix}/'"
-        ));
+
+    for prefix in allowed_prefixes {
+        let normalized = prefix.trim_end_matches('/');
+        if host_path.starts_with(&format!("{normalized}/")) || host_path == normalized {
+            return Ok(());
+        }
     }
-    Ok(())
+
+    Err(format!(
+        "host_path '{host_path}' hors des préfixes autorisés: {}",
+        allowed_prefixes.join(", ")
+    ))
 }
 
 // ─── Validator impl ──────────────────────────────────────────────────────────
@@ -310,9 +324,12 @@ impl Validator for StrictValidator {
             }
         }
 
-        // 3. Volume host paths: under /var/lib/ploydok/volumes/, no traversal.
+        // 3. Volume host paths: under the allowlisted Ploydok roots, no traversal.
         for vol in &req.volumes {
-            if let Err(reason) = validate_host_path(&vol.host_path, &self.cfg.volume_prefix) {
+            if let Err(reason) = validate_host_path(
+                &vol.host_path,
+                &[&self.cfg.volume_prefix, &self.cfg.app_volume_prefix],
+            ) {
                 return Err(deny(
                     tonic::Code::PermissionDenied,
                     "volume_host_path",

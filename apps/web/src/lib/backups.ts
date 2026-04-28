@@ -1,7 +1,7 @@
 // SPDX-License-Identifier: AGPL-3.0-only
 import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query"
-import { apiFetch } from "./api"
 import { toast } from "sonner"
+import { apiFetch } from "./api"
 
 // ---------------------------------------------------------------------------
 // Types
@@ -9,7 +9,9 @@ import { toast } from "sonner"
 
 export interface Backup {
   id: string
-  databaseId: string
+  databaseId?: string
+  appId?: string
+  volumeId?: string
   configId: string | null
   destinationKind: "s3" | "local" | null
   location: string
@@ -23,7 +25,9 @@ export interface Backup {
 
 export interface BackupConfig {
   id: string
-  databaseId: string
+  databaseId?: string
+  appId?: string
+  volumeId?: string
   destinationKind: "s3" | "local"
   s3Endpoint: string | null
   s3Bucket: string | null
@@ -58,47 +62,92 @@ export interface RestoreInput {
   confirm: string
 }
 
+export type BackupTarget =
+  | { kind: "database"; databaseId: string }
+  | { kind: "app-volume"; appId: string; volumeId: string }
+
 // ---------------------------------------------------------------------------
 // Query keys
 // ---------------------------------------------------------------------------
 
-const backupsKey = (databaseId: string) => ["backups", databaseId] as const
-const backupConfigKey = (databaseId: string) => ["backup-config", databaseId] as const
+const backupsKey = (target: BackupTarget) =>
+  target.kind === "database"
+    ? (["backups", "database", target.databaseId] as const)
+    : (["backups", "app-volume", target.appId, target.volumeId] as const)
+const backupConfigKey = (target: BackupTarget) =>
+  target.kind === "database"
+    ? (["backup-config", "database", target.databaseId] as const)
+    : ([
+        "backup-config",
+        "app-volume",
+        target.appId,
+        target.volumeId,
+      ] as const)
+
+function backupsPath(target: BackupTarget): string {
+  if (target.kind === "database") return `/databases/${target.databaseId}/backups`
+  return `/apps/${target.appId}/volumes/${target.volumeId}/backups`
+}
+
+function backupConfigPath(target: BackupTarget): string {
+  if (target.kind === "database") {
+    return `/databases/${target.databaseId}/backup-config`
+  }
+  return `/apps/${target.appId}/volumes/${target.volumeId}/backup-config`
+}
+
+function backupNowPath(target: BackupTarget): string {
+  if (target.kind === "database") {
+    return `/databases/${target.databaseId}/backup-now`
+  }
+  return `/apps/${target.appId}/volumes/${target.volumeId}/backup-now`
+}
 
 // ---------------------------------------------------------------------------
 // Hooks
 // ---------------------------------------------------------------------------
 
-export function useBackups(databaseId: string) {
+export function useTargetBackups(target: BackupTarget) {
   return useQuery({
-    queryKey: backupsKey(databaseId),
-    queryFn: () => apiFetch<{ backups: Backup[] }>(`/databases/${databaseId}/backups`).then((d) => d.backups),
+    queryKey: backupsKey(target),
+    queryFn: () =>
+      apiFetch<{ backups: Array<Backup> }>(backupsPath(target)).then(
+        (d) => d.backups
+      ),
     refetchInterval: 10_000,
   })
 }
 
-export function useBackupConfig(databaseId: string) {
+export function useBackups(databaseId: string) {
+  return useTargetBackups({ kind: "database", databaseId })
+}
+
+export function useTargetBackupConfig(target: BackupTarget) {
   return useQuery({
-    queryKey: backupConfigKey(databaseId),
+    queryKey: backupConfigKey(target),
     queryFn: () =>
-      apiFetch<{ config: BackupConfig | null }>(`/databases/${databaseId}/backup-config`).then(
-        (d) => d.config,
+      apiFetch<{ config: BackupConfig | null }>(backupConfigPath(target)).then(
+        (d) => d.config
       ),
   })
 }
 
-export function useUpdateBackupConfig(databaseId: string) {
+export function useBackupConfig(databaseId: string) {
+  return useTargetBackupConfig({ kind: "database", databaseId })
+}
+
+export function useUpdateTargetBackupConfig(target: BackupTarget) {
   const queryClient = useQueryClient()
   return useMutation({
     mutationFn: async (input: UpdateBackupConfigInput) => {
-      return apiFetch<{ config: BackupConfig }>(`/databases/${databaseId}/backup-config`, {
+      return apiFetch<{ config: BackupConfig }>(backupConfigPath(target), {
         method: "PUT",
         body: JSON.stringify(input),
         headers: { "content-type": "application/json" },
       })
     },
     onSuccess: () => {
-      queryClient.invalidateQueries({ queryKey: backupConfigKey(databaseId) })
+      queryClient.invalidateQueries({ queryKey: backupConfigKey(target) })
       toast.success("Backup configuration saved")
     },
     onError: (err: Error) => {
@@ -107,24 +156,32 @@ export function useUpdateBackupConfig(databaseId: string) {
   })
 }
 
-export function useBackupNow(databaseId: string) {
+export function useUpdateBackupConfig(databaseId: string) {
+  return useUpdateTargetBackupConfig({ kind: "database", databaseId })
+}
+
+export function useTargetBackupNow(target: BackupTarget) {
   const queryClient = useQueryClient()
   return useMutation({
     mutationFn: async () => {
-      return apiFetch<{ message: string; backupId: string }>(`/databases/${databaseId}/backup-now`, {
+      return apiFetch<{ message: string; backupId: string }>(backupNowPath(target), {
         method: "POST",
       })
     },
     onSuccess: () => {
       toast.success("Backup started")
       setTimeout(() => {
-        queryClient.invalidateQueries({ queryKey: backupsKey(databaseId) })
+        queryClient.invalidateQueries({ queryKey: backupsKey(target) })
       }, 2000)
     },
     onError: (err: Error) => {
       toast.error(`Backup failed: ${err.message}`)
     },
   })
+}
+
+export function useBackupNow(databaseId: string) {
+  return useTargetBackupNow({ kind: "database", databaseId })
 }
 
 export function useRestoreBackup(databaseId: string) {
@@ -145,14 +202,14 @@ export function useRestoreBackup(databaseId: string) {
   })
 }
 
-export function useDeleteBackup(databaseId: string) {
+export function useDeleteBackup(target: BackupTarget) {
   const queryClient = useQueryClient()
   return useMutation({
     mutationFn: async (backupId: string) => {
       return apiFetch<{ ok: boolean }>(`/backups/${backupId}`, { method: "DELETE" })
     },
     onSuccess: () => {
-      queryClient.invalidateQueries({ queryKey: backupsKey(databaseId) })
+      queryClient.invalidateQueries({ queryKey: backupsKey(target) })
       toast.success("Backup deleted")
     },
     onError: (err: Error) => {

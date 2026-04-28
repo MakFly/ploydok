@@ -9,7 +9,7 @@ import type { SecretMeta, SecretPhase, SecretScope } from "../../lib/secrets"
 interface SecretsTableProps {
   appId: string
   scope: SecretScope
-  secrets: SecretMeta[]
+  secrets: Array<SecretMeta>
   onReveal: (key: string, scope: SecretScope, phase: SecretPhase) => void
 }
 

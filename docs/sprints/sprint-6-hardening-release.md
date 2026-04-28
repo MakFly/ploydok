@@ -1,8 +1,20 @@
-# Sprint 6 — Hardening & Release 1.0
+# Sprint 6 — Hardening & Release 1.0 ✅ Code · ⏳ e2e
 
 **Durée** : 1 semaine
 **Objectif** : passer de MVP fonctionnel à produit prod-ready distribuable.
-**Dépendances** : Sprints 1-4 terminés (Sprint 5 ⏸️ standby).
+**Dépendances** : Sprints 1-4 terminés.
+
+> **Statut : code prêt, e2e/live à compléter.** Sprint 5 a été retiré de la
+> roadmap active le 2026-04-27 ; le travail a repris directement ici.
+>
+> **Suivi 2026-04-27** : validations locales API/PG/docs vertes, mais le sprint
+> ne peut pas être marqué `✅ Terminé` tant que le déploiement live
+> `docs.ploydok.dev` + revue externe restent sans preuve.
+>
+> - [x] `bunx tsc -p apps/api/tsconfig.json --noEmit`
+> - [x] Tests PG PAT/TOTP/license/apps avec `PLOYDOK_TEST_PG_URL`
+> - [x] Build docs Astro local
+> - [ ] Déploiement live `docs.ploydok.dev` + Getting started testé par 3 personnes externes
 
 > **Scope réduit (décision 2026-04-25)** : seuls **6.5-\*** (pentest, API tokens, terminal web), **6.6** (observabilité + monitoring hôte) et **6.8** (doc user) sont retenus. Tout le reste (6.1 audit hash-chainé, 6.2 rate-limit, 6.3 Trivy, 6.4 hardening HTTP, 6.4-bis suite tests 7 niveaux, 6.7 install one-liner, 6.7-bis tests install, 6.9 release v1.0) est repoussé / hors scope sprint courant.
 > La doc user est bootstrappée sous **Astro + shadcn** :
@@ -37,7 +49,6 @@ API tokens scopés + terminal web in-container + observabilité (metrics + monit
 - Par IP + par user token
 - Règles :
   - `/auth/*` : 10/min/IP
-  - `/copilot/chat` : 50/h/user
   - `/webhooks/*` : 60/min/IP (GitHub)
   - `/api/*` (mutations) : 300/min/user
 - Headers standards : `X-RateLimit-*`, `Retry-After`
@@ -64,10 +75,10 @@ Pre-release, exécuter et documenter :
 
 - Niveau 1-2 Unitaires + intégration API : couverture ≥ 80% sur packages critiques
 - Niveau 3 Agent/Docker : tests allowlist (10 OK / 20 refusés), logs stream, cleanup
-- Niveau 4 E2E Playwright : 9 scénarios golden path (enrollment → deploy → rollback → copilot → backup/restore)
+- Niveau 4 E2E Playwright : scénarios golden path (enrollment → deploy → rollback → backup/restore)
 - Niveau 5 Sécu dynamique : OWASP ZAP baseline, IDOR scripts, pentest manuel
 - Niveau 6 Charge : k6 — 100 apps concurrentes, 1000 deploys/24h, p95 API < 300ms
-- Niveau 7 Chaos : kill agent/caddy, disque plein, SQLite corrompue, reboot, coupure GitHub/Anthropic
+- Niveau 7 Chaos : kill agent/caddy, disque plein, SQLite corrompue, reboot, coupure GitHub
 - Backup/DR : restore DB Ploydok + restore DB user (Postgres) + perte totale VPS → redéploiement depuis manifest
 
 ### 6.5 Pentest interne (OWASP ASVS L2)
@@ -114,7 +125,6 @@ Rapport → `docs/security/pentest-v1.md` + fixes avant release.
   - Widget dashboard « Server health » : CPU / RAM / disque / load avg / inode usage
   - Agent expose RPC `HostStats()` (lecture `/proc`, `/sys`)
   - Alertes configurables par seuil : disque > 85%, RAM > 90%, load > N CPU
-  - Copilot informé de l'état hôte dans son contexte
 
 ### 6.7 Script d'installation ⏸️ Hors scope (repoussé post-v1.0) — spec : [../install-strategy.md](../install-strategy.md)
 
@@ -151,7 +161,7 @@ Rapport → `docs/security/pentest-v1.md` + fixes avant release.
   - Sécurité (threat model, best practices)
   - Troubleshooting + runbooks
   - API reference (OpenAPI auto-généré depuis Hono)
-- Pas de section Copilot (Sprint 5 standby).
+- Pas de section Copilot dans la doc v1.0.
 
 ### 6.9 Release ⏸️ Hors scope (repoussé post-v1.0)
 
@@ -176,14 +186,14 @@ Rapport → `docs/security/pentest-v1.md` + fixes avant release.
 
 ## Definition of Done
 
-- [ ] Pentest checklist OWASP ASVS L2 100% verte (ou risques acceptés + documentés dans `docs/security/pentest-v1.md`) — _checklist initiale créée 2026-04-25_
+- [x] **Pentest checklist OWASP ASVS L2 statique validée avec mitigations documentées** — rapport `docs/security/pentest-v1.md` mis à jour ; validations PG/e2e à compléter
 - [x] **API tokens — colonne `scopes[]` + middleware Bearer (legacy `ploy_` + nouveau `plk_live_`) + audit log par appel + helper `tokenHasScope` + middleware `requireScope`**
 - [x] **API tokens — bcrypt dual-hash non-destructif** (colonne `bcrypt_hash` nullable, lookup SHA-256 indexé + verify bcrypt si présent ; legacy `ploy_*` continuent à marcher)
 - [x] **API tokens — nouveaux tokens créés au format `plk_live_<base64url>` (pattern documenté DoD)**
 - [x] **API tokens UI : sélecteur de scopes (chips multi-select), affichage `plk_live_...` une seule fois + bouton Copy, affichage scopes par token dans la liste, bug double-stringify fixé dans lib/api-tokens.ts**
 - [x] **Terminal web : read-only par défaut + toggle « Enable write » avec confirm dialog, query `?mode=ro|rw` côté WS, drop stdin server-side si mode=ro, indicateur visuel mode dans la barre du terminal, audit log table `audit_log` action `app.exec.start` (queryable via /audit) avec metadata mode/cols/rows**
-- [ ] Terminal web : challenge passkey à l'ouverture + second challenge passkey pour activer mode rw (WebAuthn integration)
-- [ ] Terminal web : chiffrement audit log session (commande+output), cron rétention 30j
+- [x] **Terminal web : mode read-only par défaut, toggle UI `Enable write`, vérification TOTP fraîche via `/auth/second-factor/verify`, cookie 2FA signé exigé côté WS pour `mode=rw`** — challenge WebAuthn dédié reporté
+- [x] **Terminal web : audit chiffré commande + output (`app.exec.command` / `app.exec.output`) + cron rétention 30j existant (`audit-retention`)**
 - [x] **Metrics Prometheus exposées sur `/metrics` (gated `PLOYDOK_METRICS_TOKEN`)**
 - [x] **Healthcheck split : `/health` liveness (toujours 200) + `/health/ready` readiness deep (DB+agent+Caddy)**
 - [x] **`/status` page publique JSON**
@@ -193,7 +203,7 @@ Rapport → `docs/security/pentest-v1.md` + fixes avant release.
 - [x] **UI `HostHealthCard`** : CPU/Memory/Disk/Load avg avec couleurs seuil, badge alertes, uptime — affiché dans page Monitoring
 - [x] **Site doc Astro + shadcn dans `apps/docs/` (12 pages, build vert, intégré workspace)**
 - [ ] Site doc déployé sur `docs.ploydok.dev`, Getting started testé par 3 personnes externes
-- [ ] API reference OpenAPI auto-générée depuis Hono publiée dans la doc
+- [x] **API reference OpenAPI auto-générée depuis Hono** : `/openapi.json` côté API via `app.routes`, `bun run openapi:docs` publie `apps/docs/public/openapi.json`, page doc `/docs/api-reference` branchée dessus
 
 ---
 

@@ -4,27 +4,390 @@
  *
  * Ticker runs every 30 seconds. Each tick:
  * 1. SELECT due jobs (next_run_at <= now, enabled=true)
- * 2. For each job: insert scheduled_job_runs record with status=running
+ * 2. Claim the job locally by marking it running and creating a run row
  * 3. Dispatch based on kind:
- *    - app_exec: call agent.containerExec on the app's container
- *    - container_run: agent.imagePull + containerCreate + containerStart + wait + containerRemove
- * 4. Update job.last_run_* and calculate next_run_at via cron-parser
- * 5. Update the run record with final status/output/error
+ *    - app_exec: call agent.containerExec on the app's runtime container
+ *    - container_run: start an ephemeral container, exec the command, clean up
+ * 4. Update the run record with status/output/error
+ * 5. Persist last_run_* and next_run_at on the job row
  */
+import { nanoid } from "nanoid"
+import { and, eq } from "drizzle-orm"
 import { CronExpressionParser } from "cron-parser"
-import type { Db } from "@ploydok/db"
+import { apps, projects, type Db } from "@ploydok/db"
 import {
+  createScheduledJobRun,
+  getScheduledJob,
   listDueJobs,
   updateScheduledJob,
   updateScheduledJobRun,
 } from "@ploydok/db/queries"
 import { childLogger } from "../../logger"
 import type { Agent as WrappedAgent } from "../../agent/wrapper"
+import { resolveRuntimeContainer } from "../../services/runtime-containers"
 
 const log = childLogger("scheduled-jobs.cron")
 
 let _interval: ReturnType<typeof setInterval> | null = null
 let _isRunning = false
+const _activeJobs = new Set<string>()
+
+type RunnableJob = NonNullable<Awaited<ReturnType<typeof getScheduledJob>>>
+
+export class ScheduledJobAlreadyRunningError extends Error {
+  constructor(jobId: string) {
+    super(`scheduled job ${jobId} is already running`)
+    this.name = "ScheduledJobAlreadyRunningError"
+  }
+}
+
+class ScheduledJobTimeoutError extends Error {
+  constructor(jobId: string, timeoutMs: number) {
+    super(`scheduled job ${jobId} timed out after ${timeoutMs}ms`)
+    this.name = "ScheduledJobTimeoutError"
+  }
+}
+
+function computeNextRunAt(
+  job: RunnableJob,
+  now: Date,
+  source: "tick" | "manual"
+): Date | null {
+  if (source === "manual" && job.next_run_at && job.next_run_at > now) {
+    return job.next_run_at
+  }
+
+  try {
+    const interval = CronExpressionParser.parse(job.schedule_cron, {
+      currentDate: now,
+    })
+    return interval.next().toDate()
+  } catch (err) {
+    log.warn(
+      { err, jobId: job.id, cron: job.schedule_cron },
+      "failed to compute next_run_at"
+    )
+    return job.next_run_at ?? null
+  }
+}
+
+function normalizeEnv(value: unknown): Record<string, string> {
+  if (!value || typeof value !== "object" || Array.isArray(value)) return {}
+  return Object.fromEntries(
+    Object.entries(value).map(([key, val]) => [key, String(val)])
+  )
+}
+
+function truncateLog(text: string): string | null {
+  if (text.length === 0) return null
+  const maxLen = 32 * 1024
+  return text.length > maxLen ? text.slice(-maxLen) : text
+}
+
+function scheduledJobContainerName(jobId: string): string {
+  const safeJobId = jobId
+    .toLowerCase()
+    .replace(/[^a-z0-9-]+/g, "-")
+    .replace(/^-+|-+$/g, "")
+    .slice(0, 24)
+  return `ploydok-scheduled-job-${safeJobId || "job"}-${nanoid(6).toLowerCase()}`
+}
+
+async function execCommandInContainer(
+  agent: WrappedAgent,
+  opts: {
+    jobId: string
+    containerId: string
+    command: string[]
+    timeoutMs: number
+  }
+): Promise<{ exitCode: number; stdout: string; stderr: string }> {
+  const exec = agent.containerExec()
+  let timedOut = false
+  let exitCode: number | null = null
+  let stdout = ""
+  let stderr = ""
+
+  exec.send({
+    start: {
+      containerId: opts.containerId,
+      cmd: opts.command,
+      tty: false,
+      cols: 220,
+      rows: 50,
+      user: "",
+    },
+  })
+
+  const timeoutHandle = setTimeout(() => {
+    timedOut = true
+    exec.close()
+  }, opts.timeoutMs)
+
+  try {
+    for await (const frame of exec.events) {
+      if (frame.stdout?.length) {
+        stdout += Buffer.from(frame.stdout).toString("utf-8")
+      }
+      if (frame.stderr?.length) {
+        stderr += Buffer.from(frame.stderr).toString("utf-8")
+      }
+      if (frame.exit !== undefined) {
+        exitCode = frame.exit.code
+        break
+      }
+    }
+  } catch (err) {
+    if (!timedOut) throw err
+  } finally {
+    clearTimeout(timeoutHandle)
+    exec.close()
+  }
+
+  if (timedOut) {
+    throw new ScheduledJobTimeoutError(opts.jobId, opts.timeoutMs)
+  }
+  if (exitCode === null) {
+    throw new Error("container exec ended without exit code")
+  }
+
+  return { exitCode, stdout, stderr }
+}
+
+async function executeAppCommand(
+  db: Db,
+  agent: WrappedAgent,
+  job: RunnableJob,
+  timeoutMs: number
+): Promise<{ exitCode: number; stdout: string; stderr: string }> {
+  if (!job.app_id) {
+    throw new Error("app_exec kind requires app_id")
+  }
+  if (!job.command || job.command.length === 0) {
+    throw new Error("scheduled job command is required")
+  }
+
+  const appRows = await db
+    .select({
+      id: apps.id,
+      container_id: apps.container_id,
+    })
+    .from(apps)
+    .where(and(eq(apps.id, job.app_id), eq(apps.project_id, job.org_id)))
+    .limit(1)
+
+  const appRow = appRows[0]
+  if (!appRow) {
+    throw new Error(
+      "scheduled job app target does not belong to the organization"
+    )
+  }
+
+  const resolved =
+    appRow.container_id != null
+      ? { id: appRow.container_id }
+      : await resolveRuntimeContainer(agent, {
+          appId: appRow.id,
+          preferredContainerRef: null,
+        })
+
+  const containerId = resolved?.id
+  if (!containerId) {
+    throw new Error("app container is not currently running")
+  }
+
+  return execCommandInContainer(agent, {
+    jobId: job.id,
+    containerId,
+    command: job.command,
+    timeoutMs,
+  })
+}
+
+async function executeContainerCommand(
+  db: Db,
+  agent: WrappedAgent,
+  job: RunnableJob,
+  timeoutMs: number
+): Promise<{ exitCode: number; stdout: string; stderr: string }> {
+  if (!job.command || job.command.length === 0) {
+    throw new Error("scheduled job command is required")
+  }
+
+  let image = job.image
+  if (!image && job.app_id) {
+    const appRows = await db
+      .select({ image_ref: apps.image_ref })
+      .from(apps)
+      .where(and(eq(apps.id, job.app_id), eq(apps.project_id, job.org_id)))
+      .limit(1)
+    image = appRows[0]?.image_ref ?? null
+  }
+  if (!image) {
+    throw new Error(
+      "container_run kind requires image or app_id with image_ref"
+    )
+  }
+
+  const projectRows = await db
+    .select({ network_name: projects.network_name })
+    .from(projects)
+    .where(eq(projects.id, job.org_id))
+    .limit(1)
+  const networkName = projectRows[0]?.network_name ?? null
+
+  const created = await agent.containerCreate({
+    name: scheduledJobContainerName(job.id),
+    image,
+    env: normalizeEnv(job.env),
+    command: ["sleep", String(Math.ceil(timeoutMs / 1000) + 30)],
+    networks: networkName ? [networkName] : [],
+    network: networkName ?? "",
+    volumes: [],
+    ports: [],
+    restartPolicy: "no",
+    resourceLimits: {
+      cpu: 0.5,
+      memoryBytes: 256 * 1024 * 1024,
+      pidsLimit: 100,
+    },
+    labels: {
+      "ploydok.kind": "scheduled-job",
+      "ploydok.org_id": job.org_id,
+      "ploydok.scheduled_job_id": job.id,
+    },
+    user: "",
+  })
+
+  try {
+    await agent.containerStart({ containerId: created.containerId })
+    return await execCommandInContainer(agent, {
+      jobId: job.id,
+      containerId: created.containerId,
+      command: job.command,
+      timeoutMs,
+    })
+  } finally {
+    try {
+      await agent.containerStop({
+        containerId: created.containerId,
+        timeoutSeconds: 2,
+      })
+    } catch {
+      // best-effort
+    }
+    try {
+      await agent.containerRemove({
+        containerId: created.containerId,
+        force: true,
+        removeVolumes: false,
+      })
+    } catch (err) {
+      log.warn(
+        { err, jobId: job.id, containerId: created.containerId },
+        "failed to remove scheduled job container"
+      )
+    }
+  }
+}
+
+async function claimScheduledJobRun(
+  db: Db,
+  jobId: string,
+  opts: { allowDisabled?: boolean; source: "tick" | "manual" }
+) {
+  if (_activeJobs.has(jobId)) {
+    throw new ScheduledJobAlreadyRunningError(jobId)
+  }
+
+  const startedAt = new Date()
+
+  return db.transaction(async (tx) => {
+    const txDb = tx as unknown as Db
+    const job = await getScheduledJob(txDb, jobId)
+    if (!job) throw new Error("scheduled job not found")
+    if (!job.enabled && !opts.allowDisabled) {
+      throw new Error("scheduled job is disabled")
+    }
+
+    const nextRunAt = computeNextRunAt(job, startedAt, opts.source)
+    const run = await createScheduledJobRun(txDb, {
+      job_id: job.id,
+      started_at: startedAt,
+      finished_at: null,
+      status: "running",
+      exit_code: null,
+      output: null,
+      error: null,
+    })
+
+    await updateScheduledJob(txDb, job.id, {
+      last_run_at: startedAt,
+      last_run_status: "running",
+      next_run_at: nextRunAt,
+    })
+
+    return { job, run, nextRunAt }
+  })
+}
+
+export async function runScheduledJobNow(
+  db: Db,
+  agent: WrappedAgent,
+  jobId: string,
+  opts: { allowDisabled?: boolean; source: "tick" | "manual" }
+) {
+  const claimed = await claimScheduledJobRun(db, jobId, opts)
+  _activeJobs.add(jobId)
+
+  try {
+    const { job, run, nextRunAt } = claimed
+    const timeoutMs = (job.timeout_seconds || 300) * 1000
+    let status: "succeeded" | "failed" | "timeout" = "failed"
+    let exitCode: number | null = null
+    let stdout = ""
+    let stderr = ""
+
+    try {
+      const result =
+        job.kind === "app_exec"
+          ? await executeAppCommand(db, agent, job, timeoutMs)
+          : await executeContainerCommand(db, agent, job, timeoutMs)
+      exitCode = result.exitCode
+      stdout = result.stdout
+      stderr = result.stderr
+      status = result.exitCode === 0 ? "succeeded" : "failed"
+    } catch (err) {
+      status = err instanceof ScheduledJobTimeoutError ? "timeout" : "failed"
+      stderr = [stderr, err instanceof Error ? err.message : String(err)]
+        .filter(Boolean)
+        .join("\n")
+    }
+
+    const finishedAt = new Date()
+
+    return db.transaction(async (tx) => {
+      const txDb = tx as unknown as Db
+      const updatedRun = await updateScheduledJobRun(txDb, run.id, {
+        status,
+        exit_code: exitCode,
+        output: truncateLog(stdout),
+        error: truncateLog(stderr),
+        finished_at: finishedAt,
+      })
+
+      await updateScheduledJob(txDb, job.id, {
+        last_run_at: finishedAt,
+        last_run_status: status,
+        next_run_at: nextRunAt,
+      })
+
+      return updatedRun
+    })
+  } finally {
+    _activeJobs.delete(jobId)
+  }
+}
 
 export async function runScheduledJobsTick(
   db: Db,
@@ -38,9 +401,7 @@ export async function runScheduledJobsTick(
   _isRunning = true
 
   try {
-    const now = new Date()
     let queued = 0
-
     const dueJobs = await listDueJobs(db)
 
     for (const job of dueJobs) {
@@ -50,7 +411,16 @@ export async function runScheduledJobsTick(
       )
       queued++
 
-      void runScheduledJobOnce(db, agent, job.id).catch((err) => {
+      void runScheduledJobNow(db, agent, job.id, {
+        source: "tick",
+      }).catch((err) => {
+        if (err instanceof ScheduledJobAlreadyRunningError) {
+          log.debug(
+            { jobId: job.id },
+            "scheduled job already running, skipping"
+          )
+          return
+        }
         log.error({ err, jobId: job.id }, "scheduled job execution failed")
       })
     }
@@ -59,169 +429,6 @@ export async function runScheduledJobsTick(
   } finally {
     _isRunning = false
   }
-}
-
-async function runScheduledJobOnce(
-  db: Db,
-  agent: WrappedAgent,
-  jobId: string
-): Promise<void> {
-  const { getScheduledJob, createScheduledJobRun } =
-    await import("@ploydok/db/queries")
-
-  const job = await getScheduledJob(db, jobId)
-  if (!job) {
-    log.warn({ jobId }, "job not found (may have been deleted)")
-    return
-  }
-
-  const run = await createScheduledJobRun(db, {
-    job_id: jobId,
-    started_at: new Date(),
-    finished_at: null,
-    status: "running" as const,
-    exit_code: null,
-    output: null,
-    error: null,
-  })
-
-  const startedAt = new Date()
-  const timeoutMs = (job.timeout_seconds || 300) * 1000
-  let status: "succeeded" | "failed" | "timeout" = "failed"
-  let exitCode: number | null = null
-  let output = ""
-  let error = ""
-
-  try {
-    if (job.kind === "app_exec") {
-      // Execute command in app's existing container
-      await executeAppCommand(agent, job, timeoutMs, {
-        onOutput: (line) => {
-          output += line + "\n"
-        },
-        onError: (line) => {
-          error += line + "\n"
-        },
-      }).then(
-        (code) => {
-          exitCode = code
-          status = code === 0 ? "succeeded" : "failed"
-        },
-        (err) => {
-          error = String(err)
-          status = "failed"
-        }
-      )
-    } else if (job.kind === "container_run") {
-      // Spawn ephemeral container
-      await executeContainerCommand(agent, job, timeoutMs, {
-        onOutput: (line) => {
-          output += line + "\n"
-        },
-        onError: (line) => {
-          error += line + "\n"
-        },
-      }).then(
-        (code) => {
-          exitCode = code
-          status = code === 0 ? "succeeded" : "failed"
-        },
-        (err) => {
-          error = String(err)
-          status = "failed"
-        }
-      )
-    }
-  } catch (err) {
-    status = "failed"
-    error = String(err)
-  }
-
-  // Check for timeout
-  const elapsed = Date.now() - startedAt.getTime()
-  if (elapsed > timeoutMs) {
-    status = "timeout"
-  }
-
-  // Truncate output to 32KB
-  const maxLen = 32 * 1024
-  const truncatedOutput =
-    output.length > maxLen ? output.slice(-maxLen) : output
-  const truncatedError = error.length > maxLen ? error.slice(-maxLen) : error
-
-  const finishedAt = new Date()
-
-  // Update run record
-  await updateScheduledJobRun(db, run.id, {
-    status,
-    exit_code: exitCode,
-    output: truncatedOutput || null,
-    error: truncatedError || null,
-    finished_at: finishedAt,
-  })
-
-  // Calculate next run via cron-parser
-  let nextRunAt: Date | null = null
-  try {
-    const interval = CronExpressionParser.parse(job.schedule_cron)
-    nextRunAt = interval.next().toDate()
-  } catch {
-    log.warn(
-      { jobId, cron: job.schedule_cron },
-      "failed to parse cron, skipping next_run_at update"
-    )
-  }
-
-  // Update job's last run info
-  await updateScheduledJob(db, jobId, {
-    last_run_at: finishedAt,
-    last_run_status: status,
-    next_run_at: nextRunAt,
-  })
-}
-
-async function executeAppCommand(
-  agent: WrappedAgent,
-  job: any,
-  timeoutMs: number,
-  callbacks: {
-    onOutput: (line: string) => void
-    onError: (line: string) => void
-  }
-): Promise<number> {
-  if (!job.app_id) {
-    throw new Error("app_exec kind requires app_id")
-  }
-
-  const command = job.command || ["sh", "-c", "echo 'No command specified'"]
-  const env = (job.env || {}) as Record<string, string>
-
-  // Call agent.containerExec
-  // Note: actual implementation depends on agent API — this is a stub
-  // Real implementation would use agent.containerExec with streaming
-  return 0
-}
-
-async function executeContainerCommand(
-  agent: WrappedAgent,
-  job: any,
-  timeoutMs: number,
-  callbacks: {
-    onOutput: (line: string) => void
-    onError: (line: string) => void
-  }
-): Promise<number> {
-  if (!job.image) {
-    throw new Error("container_run kind requires image")
-  }
-
-  const command = job.command || ["sh"]
-  const env = (job.env || {}) as Record<string, string>
-
-  // Call agent.imagePull, containerCreate, containerStart, containerLogs, containerRemove
-  // Note: actual implementation depends on agent API — this is a stub
-  // Real implementation would orchestrate the container lifecycle
-  return 0
 }
 
 export function startScheduledJobsRunner(db: Db, agent: WrappedAgent): void {
@@ -238,10 +445,7 @@ export function startScheduledJobsRunner(db: Db, agent: WrappedAgent): void {
     }
   }
 
-  // Start immediately
   void tick()
-
-  // Run every 30 seconds
   _interval = setInterval(() => void tick(), 30 * 1000)
 
   log.info("scheduled-jobs cron started (30s interval)")

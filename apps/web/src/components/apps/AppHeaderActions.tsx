@@ -35,8 +35,12 @@ function isBuildInFlight(status: AppStatus): boolean {
   )
 }
 
-function isStopped(status: AppStatus): boolean {
+export function shouldUseDeployLabel(status: AppStatus): boolean {
   return status === "stopped" || status === "failed" || status === "created"
+}
+
+export function canStopRuntime(status: AppStatus): boolean {
+  return status !== "stopped" && status !== "created"
 }
 
 export function AppHeaderActions({
@@ -52,7 +56,8 @@ export function AppHeaderActions({
   const stop = useStopApp(app.id)
 
   const inFlight = isBuildInFlight(app.status)
-  const stopped = isStopped(app.status)
+  const useDeployLabel = shouldUseDeployLabel(app.status)
+  const canStop = canStopRuntime(app.status)
   const succeededBuilds = (builds ?? []).filter((b) => b.status === "succeeded")
   const canRollback = succeededBuilds.length >= 2
 
@@ -71,7 +76,7 @@ export function AppHeaderActions({
         ) : (
           <RiRocketLine className="size-4" aria-hidden="true" />
         )}
-        {stopped ? "Deploy" : "Redeploy"}
+        {useDeployLabel ? "Deploy" : "Redeploy"}
       </Button>
 
       <ConfirmButton
@@ -80,7 +85,7 @@ export function AppHeaderActions({
         icon={<RiRefreshLine className="size-4" />}
         label="Restart"
         title="Restart the container without rebuilding (uses the last successful image)"
-        disabled={restart.isPending || stopped || inFlight}
+        disabled={restart.isPending || useDeployLabel || inFlight}
         loading={restart.isPending}
         confirmTitle="Restart application?"
         confirmDescription="The current container will be replaced by a fresh instance running the last successful image. The app will be briefly unavailable."
@@ -106,21 +111,21 @@ export function AppHeaderActions({
         onConfirm={() => rollback.mutate()}
       />
 
-      {!stopped && (
+      {canStop && (
         <ConfirmButton
           size="sm"
           variant="destructive"
           icon={<RiStopCircleLine className="size-4" />}
           label="Stop"
-          title="Stop the running container and remove its public route"
+          title="Stop all runtime containers and remove the public route"
           disabled={stop.isPending || inFlight}
           loading={stop.isPending}
           confirmTitle="Stop this application?"
           confirmDescription={
             <>
               <span className="mb-2 block">
-                The running container will be stopped and the public route
-                removed from Caddy.
+                All runtime containers for this app, including stale blue/green
+                slots, will be stopped and the public route removed from Caddy.
               </span>
               <ul className="list-disc space-y-1 pl-5 text-xs text-muted-foreground">
                 <li>The app will become unreachable on its public domain.</li>

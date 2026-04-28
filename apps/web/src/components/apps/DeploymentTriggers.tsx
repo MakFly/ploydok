@@ -23,9 +23,9 @@ import { Switch } from "@workspace/ui/components/switch"
 import { Textarea } from "@workspace/ui/components/textarea"
 import { cn } from "@workspace/ui/lib/utils"
 import { useApp } from "../../lib/apps"
-import type { AppDetail } from "../../lib/apps"
 import { useUpdateAppSettings } from "../../lib/apps-mutations"
 import { patchAppSettings } from "../../lib/webhooks"
+import type { AppDetail } from "../../lib/apps"
 import type { AutoDeploySettings } from "../../lib/webhooks"
 
 interface AppAutoDeployFields {

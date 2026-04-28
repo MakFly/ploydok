@@ -39,8 +39,11 @@ import {
 import { RevealConnectionDialog } from "../../../../../components/databases/RevealConnectionDialog"
 import { RestartDatabaseDialog } from "../../../../../components/databases/RestartDatabaseDialog"
 import { RotationPanel } from "../../../../../components/databases/RotationPanel"
+import { BackupConfigPanel } from "../../../../../components/databases/BackupConfigPanel"
+import { BackupsList } from "../../../../../components/databases/BackupsList"
 import { DeleteDatabaseDialog } from "../../../../../components/databases/DeleteDatabaseDialog"
 import { DatabaseStatusBadge } from "../../../../../components/databases/DatabaseStatusBadge"
+import { useBackupNow } from "../../../../../lib/backups"
 import {
   organizationPath,
   useCurrentOrganizationSlug,
@@ -51,12 +54,13 @@ export const Route = createFileRoute("/_authed/orgs/$orgSlug/databases/$id")({
 })
 
 function DatabaseDetailPage(): React.JSX.Element {
-  const { id } = useParams({ strict: false }) as { id: string }
+  const { id: routeDbId } = useParams({ strict: false })
+  const dbId = routeDbId!
   const navigate = useNavigate()
   const currentOrgSlug = useCurrentOrganizationSlug()
-  const { data: db, isLoading, error, refetch } = useDatabase(id)
-  const { data: logs } = useDatabaseLogs(id)
-  const { data: stats } = useDatabaseStats(id)
+  const { data: db, isLoading, error, refetch } = useDatabase(dbId)
+  const { data: logs } = useDatabaseLogs(dbId)
+  const { data: stats } = useDatabaseStats(dbId)
   const [revealOpen, setRevealOpen] = React.useState(false)
   const [restartOpen, setRestartOpen] = React.useState(false)
   const [deleteOpen, setDeleteOpen] = React.useState(false)
@@ -66,6 +70,7 @@ function DatabaseDetailPage(): React.JSX.Element {
   >("internal")
   const { mutate: startDb, isPending: isStarting } = useStartDatabase()
   const { mutate: stopDb, isPending: isStopping } = useStopDatabase()
+  const { mutate: backupNow, isPending: isBackingUp } = useBackupNow(dbId)
   const { mutate: updateNetwork, isPending: isUpdatingNetwork } =
     useUpdateDatabaseNetwork()
 
@@ -199,7 +204,7 @@ function DatabaseDetailPage(): React.JSX.Element {
               variant={publicEnabled ? "destructive" : "outline"}
               onClick={() =>
                 updateNetwork({
-                  id,
+                  id: dbId,
                   exposureMode: publicEnabled ? exposureMode : "internal",
                   publicEnabled,
                 })
@@ -215,14 +220,14 @@ function DatabaseDetailPage(): React.JSX.Element {
             <div className="grid grid-cols-3 gap-2">
               <Button
                 variant="outline"
-                onClick={() => startDb(id)}
+                onClick={() => startDb(dbId)}
                 disabled={isStarting || db.status === "running"}
               >
                 {isStarting ? "Starting..." : "Start"}
               </Button>
               <Button
                 variant="outline"
-                onClick={() => stopDb(id)}
+                onClick={() => stopDb(dbId)}
                 disabled={isStopping || db.status === "stopped"}
               >
                 {isStopping ? "Stopping..." : "Stop"}
@@ -239,6 +244,7 @@ function DatabaseDetailPage(): React.JSX.Element {
             <TabsTrigger value="general">General</TabsTrigger>
             <TabsTrigger value="connection">Connection</TabsTrigger>
             <TabsTrigger value="monitoring">Monitoring</TabsTrigger>
+            <TabsTrigger value="backups">Backups</TabsTrigger>
             <TabsTrigger value="logs">Logs</TabsTrigger>
             <TabsTrigger value="advanced">Advanced</TabsTrigger>
           </TabsList>
@@ -343,6 +349,47 @@ function DatabaseDetailPage(): React.JSX.Element {
             </div>
           </TabsContent>
 
+          <TabsContent value="backups" className="flex flex-col gap-4">
+            <div className="grid gap-4 xl:grid-cols-[minmax(0,1fr)_minmax(320px,420px)]">
+              <div className="rounded-lg border p-4">
+                <div className="mb-4 flex flex-wrap items-center justify-between gap-3">
+                  <div>
+                    <h2 className="text-sm font-semibold">Database backups</h2>
+                    <p className="text-xs text-muted-foreground">
+                      Manual and scheduled backups for this database.
+                    </p>
+                  </div>
+                  <Button
+                    variant="outline"
+                    onClick={() => backupNow()}
+                    disabled={isBackingUp}
+                  >
+                    {isBackingUp ? "Starting..." : "Backup now"}
+                  </Button>
+                </div>
+                <BackupsList
+                  target={{ kind: "database", databaseId: dbId }}
+                  restoreLabel={db.name}
+                  onBackupNow={() => backupNow()}
+                  backupNowLoading={isBackingUp}
+                />
+              </div>
+
+              <div className="rounded-lg border p-4">
+                <div className="mb-4">
+                  <h2 className="text-sm font-semibold">Backup policy</h2>
+                  <p className="text-xs text-muted-foreground">
+                    Store locally or on S3-compatible storage such as R2, AWS,
+                    Scaleway, or OVH.
+                  </p>
+                </div>
+                <BackupConfigPanel
+                  target={{ kind: "database", databaseId: dbId }}
+                />
+              </div>
+            </div>
+          </TabsContent>
+
           <TabsContent value="logs">
             <div className="max-h-[420px] overflow-auto rounded-lg border bg-muted/20 p-4 font-mono text-xs whitespace-pre-wrap">
               {logs?.lines?.length
@@ -373,7 +420,7 @@ function DatabaseDetailPage(): React.JSX.Element {
       </div>
 
       <RevealConnectionDialog
-        databaseId={revealOpen ? id : null}
+        databaseId={revealOpen ? dbId : null}
         onClose={() => setRevealOpen(false)}
       />
       <RestartDatabaseDialog

@@ -3,20 +3,21 @@ import * as React from "react"
 import { createFileRoute } from "@tanstack/react-router"
 import {
   RiAddLine,
-  RiShip2Line,
   RiDeleteBinLine,
   RiLockLine,
+  RiShip2Line,
 } from "@remixicon/react"
 import { Button } from "@workspace/ui/components/button"
 import { Input } from "@workspace/ui/components/input"
 import { cn } from "@workspace/ui/lib/utils"
 import { ShellPage } from "../../../components/layout/AppShell"
 import {
+
   useCreateRegistryCredential,
   useDeleteRegistryCredential,
-  useRegistryCredentials,
-  type RegistryCredential,
+  useRegistryCredentials
 } from "../../../lib/registry-credentials"
+import type {RegistryCredential} from "../../../lib/registry-credentials";
 
 export const Route = createFileRoute("/_authed/settings/registry")({
   component: RegistryPage,

@@ -3,16 +3,17 @@ import * as React from "react"
 import { Link } from "@tanstack/react-router"
 import { AppStatusBadge } from "../apps/AppStatusBadge"
 import {
+
   resolveAppHealth,
   resolveRuntimeAppStatus,
-  selectAppSnapshot,
-  type AppHealth,
+  selectAppSnapshot
 } from "../../lib/app-runtime"
 import { useMonitoring } from "../../lib/monitoring"
 import {
   organizationPath,
   useCurrentOrganizationSlug,
 } from "../../lib/organizations"
+import type {AppHealth} from "../../lib/app-runtime";
 import type { AppListItem } from "../../lib/apps"
 
 // ---------------------------------------------------------------------------

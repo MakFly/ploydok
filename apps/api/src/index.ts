@@ -13,6 +13,7 @@ import {
 } from "./caddy/reconciler.js"
 import { reconcileCaddyAttachments } from "./caddy/attachment.js"
 import { bootstrapSetupToken } from "./auth/setup-token"
+import { reconcileRuntimeAppsOnBoot } from "./services/app-runtime-reconciler.js"
 
 const log = childLogger("boot")
 
@@ -74,6 +75,13 @@ async function bootInfra(db: Db): Promise<void> {
     } else {
       log.warn({ err }, "networkCreate ploydok-ingress failed (non-fatal)")
     }
+  }
+
+  try {
+    const result = await reconcileRuntimeAppsOnBoot(db, agent)
+    log.info(result, "runtime app reconcile complete")
+  } catch (err) {
+    log.warn({ err }, "runtime app reconcile failed (non-fatal)")
   }
 }
 

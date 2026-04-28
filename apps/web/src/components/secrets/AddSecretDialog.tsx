@@ -13,8 +13,8 @@ import { Input } from "@workspace/ui/components/input"
 import {
   Field,
   FieldContent,
-  FieldLabel,
   FieldError,
+  FieldLabel,
 } from "@workspace/ui/components/field"
 import { useCreateSecret } from "../../lib/secrets"
 import type { SecretPhase, SecretScope } from "../../lib/secrets"
@@ -26,8 +26,8 @@ interface AddSecretDialogProps {
   onOpenChange: (open: boolean) => void
 }
 
-const SCOPES: SecretScope[] = ["shared", "prod", "preview", "dev"]
-const PHASES: SecretPhase[] = ["runtime", "build", "both"]
+const SCOPES: Array<SecretScope> = ["shared", "prod", "preview", "dev"]
+const PHASES: Array<SecretPhase> = ["runtime", "build", "both"]
 
 export function AddSecretDialog({
   appId,

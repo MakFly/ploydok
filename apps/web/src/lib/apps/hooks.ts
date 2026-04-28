@@ -7,22 +7,29 @@ import {
   useQueryClient,
 } from "@tanstack/react-query"
 import { toast } from "sonner"
-import type { AppConfig, Build, CaddyExtraHandlers } from "@ploydok/shared"
 import { apiFetch, criticalQueryDefaults, invalidateGetCache } from "../api"
-import type { ApiError } from "../api"
 import { useEventsSubscription } from "../events-provider"
 import {
-  normalizeAppDetail,
   applyAppStatus,
   getEventAppStatus,
+  normalizeAppDetail,
 } from "./transforms"
+import type { ApiError } from "../api"
+import type {
+  AppConfig,
+  Build,
+  CaddyExtraHandlers,
+  CdnConfig,
+  CloudflareManagedCdn,
+  CloudflareManagedCdnStatus,
+} from "@ploydok/shared"
 import type {
   AppDetail,
   AppListItem,
-  AppsResponse,
   AppStatusEventPayload,
-  BuildsResponse,
+  AppsResponse,
   BuildWithApp,
+  BuildsResponse,
   RawAppDetail,
   RegistryUsage,
   UseAppOptions,
@@ -367,6 +374,107 @@ export function useUpdateAppCaddyExtra() {
     onSuccess: (data, { appId }) => {
       toast.success("Caddy handlers updated")
       qc.setQueryData(["apps", appId, "caddy-extra"], data)
+    },
+    onError: (error) => {
+      toast.error(error.message)
+    },
+  })
+}
+
+export type AppCdnConfig = CdnConfig & {
+  ready?: boolean
+  warning?: string
+}
+
+export function useAppCdn(appId: string) {
+  return useQuery<AppCdnConfig, ApiError>({
+    queryKey: ["apps", appId, "cdn"],
+    queryFn: () => apiFetch<AppCdnConfig>(`/apps/${appId}/cdn`),
+    staleTime: 15_000,
+    enabled: Boolean(appId),
+  })
+}
+
+export function useUpdateAppCdn() {
+  const qc = useQueryClient()
+  return useMutation<
+    AppCdnConfig,
+    ApiError,
+    { appId: string; config: CdnConfig }
+  >({
+    mutationFn: ({ appId, config }) =>
+      apiFetch<AppCdnConfig>(`/apps/${appId}/cdn`, {
+        method: "PUT",
+        body: config,
+        headers: { "content-type": "application/json" },
+      }),
+    onSuccess: (data, { appId }) => {
+      if (data.ready === false) {
+        toast.warning("CDN saved, Caddy sync is pending")
+      } else {
+        toast.success("CDN configuration updated")
+      }
+      qc.setQueryData(["apps", appId, "cdn"], data)
+      invalidateGetCache(`/apps/${appId}`)
+      void qc.invalidateQueries({ queryKey: ["apps", appId] })
+    },
+    onError: (error) => {
+      toast.error(error.message)
+    },
+  })
+}
+
+export function useAppCloudflareCdn(appId: string) {
+  return useQuery<CloudflareManagedCdnStatus, ApiError>({
+    queryKey: ["apps", appId, "cdn", "cloudflare"],
+    queryFn: () =>
+      apiFetch<CloudflareManagedCdnStatus>(`/apps/${appId}/cdn/cloudflare`),
+    staleTime: 15_000,
+    enabled: Boolean(appId),
+  })
+}
+
+export function useUpdateAppCloudflareCdn() {
+  const qc = useQueryClient()
+  return useMutation<
+    AppCdnConfig & { cloudflare: CloudflareManagedCdnStatus },
+    ApiError,
+    { appId: string; config: CloudflareManagedCdn }
+  >({
+    mutationFn: ({ appId, config }) =>
+      apiFetch<AppCdnConfig & { cloudflare: CloudflareManagedCdnStatus }>(
+        `/apps/${appId}/cdn/cloudflare`,
+        {
+          method: "PUT",
+          body: config,
+          headers: { "content-type": "application/json" },
+        }
+      ),
+    onSuccess: (data, { appId }) => {
+      if (data.cloudflare.status === "failed") {
+        toast.warning("Cloudflare configuration saved, sync failed")
+      } else {
+        toast.success("Cloudflare CDN configured")
+      }
+      qc.setQueryData(["apps", appId, "cdn"], data)
+      qc.setQueryData(["apps", appId, "cdn", "cloudflare"], data.cloudflare)
+      invalidateGetCache(`/apps/${appId}`)
+      void qc.invalidateQueries({ queryKey: ["apps", appId] })
+    },
+    onError: (error) => {
+      toast.error(error.message)
+    },
+  })
+}
+
+export function usePurgeAppCloudflareCdn(appId: string) {
+  return useMutation<{ ok: true }, ApiError, void>({
+    mutationFn: () =>
+      apiFetch<{ ok: true }>(`/apps/${appId}/cdn/cloudflare/purge`, {
+        method: "POST",
+      }),
+    onSuccess: () => {
+      toast.success("Cloudflare cache purge requested")
     },
     onError: (error) => {
       toast.error(error.message)

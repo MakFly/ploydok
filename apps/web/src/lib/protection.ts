@@ -1,15 +1,15 @@
 // SPDX-License-Identifier: AGPL-3.0-only
 import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query"
+import { toast } from "sonner"
 import { apiFetch } from "./api"
 import type { ApiError } from "./api"
-import { toast } from "sonner"
 
 export interface ProtectionConfig {
   basicAuth: {
     enabled: boolean
     user: string | null
   }
-  ipAllowlist: string[]
+  ipAllowlist: Array<string>
   rateLimitRps: number | null
 }
 
@@ -19,7 +19,7 @@ export interface ProtectionPatch {
     user?: string
     pass?: string
   }
-  ipAllowlist?: string[]
+  ipAllowlist?: Array<string>
   rateLimitRps?: number | null
 }
 

@@ -1,5 +1,6 @@
 // SPDX-License-Identifier: AGPL-3.0-only
 import * as React from "react"
+import { apiFetch } from "../../lib/api/client"
 import { FileBrowser } from "./FileBrowser"
 
 // ---------------------------------------------------------------------------
@@ -20,10 +21,14 @@ interface ShellProps {
   appId: string
 }
 
+type ShellMode = "ro" | "rw"
+
 function closeReason(code: number): string {
   switch (code) {
     case 4001:
       return "Unauthorized"
+    case 4003:
+      return "Write access requires a fresh second-factor check"
     case 4004:
       return "App not found or no running container"
     case 1001:
@@ -36,6 +41,7 @@ function closeReason(code: number): string {
 }
 
 export function Shell({ appId }: ShellProps): React.JSX.Element {
+  const [mode, setMode] = React.useState<ShellMode>("ro")
   const containerRef = React.useRef<HTMLDivElement>(null)
   const termRef = React.useRef<unknown>(null)
   const wsRef = React.useRef<WebSocket | null>(null)
@@ -92,7 +98,7 @@ export function Shell({ appId }: ShellProps): React.JSX.Element {
       const fitAddon = new FitAddon()
       term.loadAddon(fitAddon)
       term.loadAddon(new WebLinksAddon())
-      term.open(containerRef.current!)
+      term.open(containerRef.current)
       fitAddon.fit()
 
       termRef.current = term
@@ -100,9 +106,11 @@ export function Shell({ appId }: ShellProps): React.JSX.Element {
 
       const { cols, rows } = term
       const wsBase = API_BASE.replace(/^http/, "ws")
-      const url = `${wsBase}/ws/apps/${appId}/exec?cols=${cols}&rows=${rows}`
+      const url = `${wsBase}/ws/apps/${appId}/exec?cols=${cols}&rows=${rows}&mode=${mode}`
 
-      term.write("\x1b[2mConnecting to shell…\x1b[0m\r\n")
+      term.write(
+        `\x1b[2mConnecting to ${mode === "rw" ? "write" : "read-only"} shell…\x1b[0m\r\n`
+      )
 
       const ws = new WebSocket(url)
       ws.binaryType = "arraybuffer"
@@ -158,7 +166,7 @@ export function Shell({ appId }: ShellProps): React.JSX.Element {
       })
 
       term.onData((data: string) => {
-        if (ws.readyState === WebSocket.OPEN) {
+        if (mode === "rw" && ws.readyState === WebSocket.OPEN) {
           ws.send(new TextEncoder().encode(data))
         }
       })
@@ -207,15 +215,48 @@ export function Shell({ appId }: ShellProps): React.JSX.Element {
         termRef.current = null
       }
     }
-  }, [appId])
+  }, [appId, mode])
+
+  async function toggleWriteMode(): Promise<void> {
+    if (mode === "rw") {
+      setMode("ro")
+      return
+    }
+
+    const confirmed = window.confirm("Enable write access for this terminal?")
+    if (!confirmed) return
+
+    const code = window.prompt("TOTP code")
+    if (!code) return
+
+    await apiFetch("/auth/second-factor/verify", {
+      method: "POST",
+      headers: { "X-TOTP-Code": code },
+    })
+    setMode("rw")
+  }
 
   return (
     <div className="flex h-full w-full">
-      <div
-        ref={containerRef}
-        className="min-w-0 flex-1 overflow-hidden bg-[#09090b] p-1 [&_.xterm-viewport]:scrollbar-thin"
-        aria-label="Interactive shell terminal"
-      />
+      <div className="flex min-w-0 flex-1 flex-col bg-[#09090b]">
+        <div className="flex h-9 shrink-0 items-center justify-between border-b border-zinc-800 px-3">
+          <span className="font-mono text-[12px] uppercase tracking-normal text-zinc-400">
+            {mode === "rw" ? "write" : "read-only"}
+          </span>
+          <button
+            type="button"
+            onClick={() => void toggleWriteMode()}
+            className="rounded-md border border-zinc-700 px-2.5 py-1 text-[12px] font-medium text-zinc-200 transition-colors hover:border-zinc-500 hover:bg-zinc-800"
+          >
+            {mode === "rw" ? "Disable write" : "Enable write"}
+          </button>
+        </div>
+        <div
+          ref={containerRef}
+          className="min-h-0 min-w-0 flex-1 overflow-hidden p-1 [&_.xterm-viewport]:scrollbar-thin"
+          aria-label="Interactive shell terminal"
+        />
+      </div>
       <FileBrowser appId={appId} />
     </div>
   )

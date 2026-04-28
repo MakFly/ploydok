@@ -70,6 +70,19 @@ export async function getAppForOwner(
   return rows[0]?.app ?? null
 }
 
+export async function getAppByRepoAndOwner(
+  db: Db,
+  repoFullName: string
+): Promise<AppRow | null> {
+  const rows = await db
+    .select({ app: apps })
+    .from(apps)
+    .where(eq(apps.repo_full_name, repoFullName))
+    .limit(1)
+
+  return rows[0]?.app ?? null
+}
+
 /**
  * Returns all apps belonging to projects where user has access (any role).
  */

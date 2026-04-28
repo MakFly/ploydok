@@ -18,11 +18,95 @@
 // of `auth.e2e.test.ts`. Migrations run once per process via `makeTestDb`.
 
 import { describe, expect, it } from "bun:test"
+import { Queue, QueueEvents, Worker } from "bullmq"
 import { eq } from "drizzle-orm"
 import { nanoid } from "nanoid"
-import { apps, builds, projects, system_jobs, users } from "@ploydok/db"
+import { createRedis, apps, builds, projects, system_jobs, users } from "@ploydok/db"
+import type { Db } from "@ploydok/db"
+import { env } from "../env"
 import { makeTestDb, TEST_PG_URL } from "../test/db-helpers"
 import { claimQueuedRow } from "./queue-claim"
+import { GcRegistryOptionsSchema, runRegistryGc } from "./handlers/gc-registry"
+
+const TEST_REDIS_URL = Bun.env["PLOYDOK_TEST_REDIS_URL"] ?? env.REDIS_URL
+
+interface WorkerHarness {
+  queue: Queue
+  queueEvents: QueueEvents
+  close: () => Promise<void>
+}
+
+async function createGcRegistryHarness(db: Db): Promise<WorkerHarness> {
+  const prefix = `queue-trust-e2e-${nanoid(8)}`
+  const connection = createRedis(TEST_REDIS_URL)
+
+  const queue = new Queue("gc.registry", {
+    connection,
+    prefix,
+  })
+  const queueEvents = new QueueEvents("gc.registry", {
+    connection,
+    prefix,
+  })
+  const worker = new Worker(
+    "gc.registry",
+    async (job) => {
+      const { jobId } = job.data as { jobId?: string }
+      if (!jobId) {
+        return { dropped: "missing-job-id" }
+      }
+
+      const claimed = await claimQueuedRow<typeof system_jobs.$inferSelect>({
+        db,
+        table: system_jobs,
+        id: jobId,
+      })
+      if (!claimed) {
+        return { dropped: "missing-row" }
+      }
+
+      const opts = GcRegistryOptionsSchema.parse(claimed.options)
+      if (opts.appId) {
+        await runRegistryGc({
+          db,
+          appFilter: opts.appId,
+          keepPerRepo: opts.keepPerRepo,
+        })
+      } else {
+        await runRegistryGc({ db, keepPerRepo: opts.keepPerRepo })
+      }
+
+      await db
+        .update(system_jobs)
+        .set({ status: "succeeded", finished_at: new Date() })
+        .where(eq(system_jobs.id, jobId))
+
+      return { claimed: true, rowId: jobId }
+    },
+    {
+      connection,
+      prefix,
+      concurrency: 1,
+    }
+  )
+
+  await Promise.all([
+    queue.waitUntilReady(),
+    worker.waitUntilReady(),
+    queueEvents.waitUntilReady(),
+  ])
+
+  return {
+    queue,
+    queueEvents,
+    close: async () => {
+      await worker.close()
+      await queueEvents.close()
+      await queue.close()
+      await connection.quit()
+    },
+  }
+}
 
 const skip = !TEST_PG_URL
 if (skip) {
@@ -163,6 +247,91 @@ describe.skipIf(skip)("queue-trust e2e — system_jobs (gc.registry)", () => {
       await db.delete(system_jobs).where(eq(system_jobs.id, sysJobId))
       await db.delete(users).where(eq(users.id, userId))
     } finally {
+      await cleanup()
+    }
+  }, 30_000)
+
+  it("drops raw gc payload at worker-consumption time", async () => {
+    const { db, cleanup } = await makeTestDb()
+    const targetJobId = `sj_${nanoid(10)}`
+    const workerHarness = await createGcRegistryHarness(db)
+
+    await db.insert(system_jobs).values({
+      id: targetJobId,
+      kind: "gc.registry",
+      options: { appId: null, keepPerRepo: 3 },
+      source: "system",
+    })
+
+    try {
+      const legitJob = await workerHarness.queue.add("gc.registry.requested", {
+        jobId: targetJobId,
+      })
+      await legitJob.waitUntilFinished(workerHarness.queueEvents)
+
+      const [targetBeforeReplay] = await db
+        .select({ status: system_jobs.status })
+        .from(system_jobs)
+        .where(eq(system_jobs.id, targetJobId))
+      expect(targetBeforeReplay?.status).toBe("succeeded")
+
+      const raw = await workerHarness.queue.add("gc.registry.requested", {
+        appId: "app-raw",
+        keepPerRepo: 0,
+      })
+      const rawResult = await raw.waitUntilFinished(workerHarness.queueEvents)
+      expect(rawResult).toMatchObject({ dropped: "missing-job-id" })
+
+      const [targetAfterRaw] = await db
+        .select({ status: system_jobs.status })
+        .from(system_jobs)
+        .where(eq(system_jobs.id, targetJobId))
+      expect(targetAfterRaw?.status).toBe("succeeded")
+    } finally {
+      await workerHarness.close()
+      await cleanup()
+    }
+  }, 30_000)
+
+  it("prevents replay with duplicate jobId in queue", async () => {
+    const { db, cleanup } = await makeTestDb()
+    const replayJobId = `sj_${nanoid(10)}`
+    const workerHarness = await createGcRegistryHarness(db)
+
+    await db.insert(system_jobs).values({
+      id: replayJobId,
+      kind: "gc.registry",
+      options: { appId: null, keepPerRepo: 3 },
+      source: "system",
+    })
+
+    try {
+      const firstAttempt = await workerHarness.queue.add("gc.registry.requested", {
+        jobId: replayJobId,
+      })
+      const firstResult = await firstAttempt.waitUntilFinished(
+        workerHarness.queueEvents
+      )
+      expect(firstResult).toMatchObject({ claimed: true, rowId: replayJobId })
+
+      const secondAttempt = await workerHarness.queue.add(
+        "gc.registry.requested",
+        {
+          jobId: replayJobId,
+        }
+      )
+      const secondResult = await secondAttempt.waitUntilFinished(
+        workerHarness.queueEvents
+      )
+      expect(secondResult).toMatchObject({ dropped: "missing-row" })
+
+      const [target] = await db
+        .select({ status: system_jobs.status })
+        .from(system_jobs)
+        .where(eq(system_jobs.id, replayJobId))
+      expect(target?.status).toBe("succeeded")
+    } finally {
+      await workerHarness.close()
       await cleanup()
     }
   }, 30_000)

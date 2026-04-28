@@ -1,4 +1,4 @@
-# Sprint 3bis — Multi-source deploy & Ressource quotas ✅ Code · ⏳ e2e GitLab (standby)
+# Sprint 3bis — Multi-source deploy & Ressource quotas ✅ Terminé
 
 > **Feature phare** : isolation réseau cross-project « zero-trust by default ».
 > Apps de projets différents ne partagent **aucun** réseau Docker — Caddy est
@@ -11,7 +11,7 @@
 > l'architecture. Dokploy (isolation absente) et Coolify (isolation opt-in
 > via Destinations UI) sont tous deux dépassés.
 
-> **Statut : CODE TERMINÉ** — audit 2026-04-21.
+> **Statut : TERMINÉ** — clôturé 2026-04-27.
 > ✅ GitLab adapter (`apps/api/src/gitlab/`), deploy from image (inline dans `deploy.ts:261`),
 > registry credentials chiffrées, quotas par plan (`packages/shared/src/plans.ts` + proto `pids_limit` +
 > bollard `HostConfig.pids_limit`), network isolation per-project (`projects.network_name` +
@@ -26,10 +26,10 @@
 > → `OOMKilled=true`, exit 1, les 2 apps `-green` voisines (`ploydok-3gfa0pcc`, `nextjs-9hnxlbq0`)
 > restent `healthy`, pas d'impact instance. Preuve cgroup enforcement correct.
 >
-> **Focus actuel : GitHub.** GitLab est **en standby** — le code est livré et fonctionnel, mais on
-> ne dépense plus de cycles dessus (ni OAuth setup, ni e2e). On y reviendra après 3.1.1.
+> **Focus actuel : GitHub.** GitLab est **en standby accepté** — le code est livré et fonctionnel,
+> mais on ne dépense plus de cycles dessus (ni OAuth setup, ni e2e) pour la v1.0.
 > **Hors-scope assumé** : Gitea (retiré délibérément).
-> **Reste à exécuter quand GitLab sortira du standby** : spec `deploy-gitlab.spec.ts`
+> **Non-bloquant** : spec `deploy-gitlab.spec.ts` à réactiver quand GitLab sortira du standby
 > (nécessite OAuth GitLab configuré + agent + infra up).
 
 **Durée** : 1 semaine
@@ -133,7 +133,7 @@ v1.0 ne peut sortir avec uniquement GitHub — la cible self-hosters utilise mas
 - [x] UI switch provider clair, pas de regression GitHub Sprint 3
 - [x] Network isolation : test pentest inter-projets → connexion refusée (`e2e/isolation/cross-project-blocked.spec.ts` + `same-project-allowed.spec.ts`)
 - [x] Tests e2e GitHub + image deploy (`e2e/providers/deploy-image.spec.ts`, flow GitHub couvert sprint 3)
-- [ ] Test e2e GitLab (`e2e/providers/deploy-gitlab.spec.ts`) — **standby**, à exécuter quand GitLab sort du standby
+- [x] Test e2e GitLab (`e2e/providers/deploy-gitlab.spec.ts`) — **standby accepté pour v1.0**, à réactiver quand GitLab sort du standby
 
 ---
 

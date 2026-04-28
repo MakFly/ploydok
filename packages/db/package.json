@@ -23,6 +23,7 @@
     "bcryptjs": "^3.0.3",
     "drizzle-orm": "^0.45.2",
     "ioredis": "^5.10.1",
+    "nanoid": "^5.1.9",
     "postgres": "^3.4.9"
   }
 }

@@ -5,10 +5,10 @@ import {
   useQuery,
   useQueryClient,
 } from "@tanstack/react-query"
+import { toast } from "sonner"
 import { apiFetch, criticalRetryDelay, shouldRetryCriticalQuery } from "./api"
 import type { ApiError } from "./api"
 import type { GitBranch, GitRepo } from "@ploydok/shared"
-import { toast } from "sonner"
 
 // ---------------------------------------------------------------------------
 // Types

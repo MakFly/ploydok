@@ -7,7 +7,7 @@ import path from "node:path"
 // ---------------------------------------------------------------------------
 
 export type DetectedMethod = {
-  method: "docker" | "nixpacks" | "railpack"
+  method: "docker" | "nixpacks" | "railpack" | "static"
   dockerfilePath?: string
 }
 
@@ -16,7 +16,7 @@ export interface DetectOptions {
   /** Sub-directory within the workspace to look in. Default: '.'. */
   rootDir?: string
   /** Force a build method (skip auto-detection). */
-  override?: "docker" | "nixpacks" | "railpack" | "auto"
+  override?: "docker" | "nixpacks" | "railpack" | "static" | "auto"
   /** Dockerfile path relative to rootDir. Default: 'Dockerfile'. */
   dockerfilePath?: string
   /** Railpack config path relative to rootDir. Default: 'railpack.json'. */
@@ -53,6 +53,9 @@ export async function detectBuildMethod(
   }
   if (opts.override === "railpack") {
     return { method: "railpack" }
+  }
+  if (opts.override === "static") {
+    return { method: "static" }
   }
 
   const root = path.join(opts.workspacePath, opts.rootDir ?? ".")
