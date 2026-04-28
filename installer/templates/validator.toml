@@ -1,0 +1,6 @@
+[paths]
+allowed_host_roots = [
+  "${PLOYDOK_DATA_DIR}/volumes",
+  "${PLOYDOK_DATA_DIR}/app-volumes",
+  "${PLOYDOK_DATA_DIR}/static",
+]

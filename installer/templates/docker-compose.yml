@@ -1,0 +1,89 @@
+services:
+  api:
+    image: ${PLOYDOK_IMAGE_REGISTRY}/ploydok-api:${PLOYDOK_VERSION}
+    restart: unless-stopped
+    env_file: .env
+    depends_on:
+      - postgres
+      - redis
+    volumes:
+      - ${PLOYDOK_DATA_DIR}/logs:/var/log/ploydok
+      - ${PLOYDOK_DATA_DIR}/builds:/var/lib/ploydok/builds
+      - ${PLOYDOK_DATA_DIR}/static:/var/lib/ploydok/static
+      - ${PLOYDOK_DATA_DIR}/certs:/var/lib/ploydok/certs:ro
+      - ${PLOYDOK_DATA_DIR}/agent:/run/ploydok
+    ports:
+      - "127.0.0.1:3335:3335"
+    networks:
+      - ploydok
+
+  agent:
+    image: ${PLOYDOK_IMAGE_REGISTRY}/ploydok-agent:${PLOYDOK_VERSION}
+    restart: unless-stopped
+    environment:
+      PLOYDOK_AGENT_SOCKET: /run/ploydok/agent.sock
+      PLOYDOK_VALIDATOR_CONFIG: /etc/ploydok/validator.toml
+    volumes:
+      - /var/run/docker.sock:/var/run/docker.sock
+      - ${PLOYDOK_DATA_DIR}/agent:/run/ploydok
+      - ${PLOYDOK_DATA_DIR}/volumes:/var/lib/ploydok/volumes
+      - ${PLOYDOK_DATA_DIR}/app-volumes:/var/lib/ploydok/app-volumes
+      - ${PLOYDOK_DATA_DIR}/static:/var/lib/ploydok/static
+      - ${PLOYDOK_DATA_DIR}/config:/etc/ploydok:ro
+    networks:
+      - ploydok
+
+  caddy:
+    image: ${PLOYDOK_IMAGE_REGISTRY}/ploydok-caddy:${PLOYDOK_VERSION}
+    restart: unless-stopped
+    volumes:
+      - ${PLOYDOK_DATA_DIR}/caddy/data:/data
+      - ${PLOYDOK_DATA_DIR}/caddy/config:/config
+      - ${PLOYDOK_DATA_DIR}/static:/var/lib/ploydok/static:ro
+    ports:
+      - "${PLOYDOK_HTTP_BIND}:80"
+      - "${PLOYDOK_HTTPS_BIND}:443"
+      - "127.0.0.1:2019:2019"
+    networks:
+      - ploydok
+      - ploydok-public
+
+  postgres:
+    image: postgres:16-alpine
+    restart: unless-stopped
+    environment:
+      POSTGRES_USER: ploydok
+      POSTGRES_PASSWORD: ${PLOYDOK_PG_PASSWORD}
+      POSTGRES_DB: ploydok
+    volumes:
+      - ${PLOYDOK_DATA_DIR}/postgres:/var/lib/postgresql/data
+    networks:
+      - ploydok
+
+  redis:
+    image: redis:7-alpine
+    restart: unless-stopped
+    command: ["redis-server", "--requirepass", "${PLOYDOK_REDIS_PASSWORD}", "--appendonly", "yes"]
+    volumes:
+      - ${PLOYDOK_DATA_DIR}/redis:/data
+    networks:
+      - ploydok
+
+  registry:
+    image: registry:2
+    restart: unless-stopped
+    environment:
+      REGISTRY_STORAGE_DELETE_ENABLED: "true"
+    volumes:
+      - ${PLOYDOK_DATA_DIR}/registry:/var/lib/registry
+    ports:
+      - "127.0.0.1:5000:5000"
+    networks:
+      - ploydok
+
+networks:
+  ploydok:
+    driver: bridge
+  ploydok-public:
+    name: ploydok-public
+    driver: bridge

@@ -1,0 +1,38 @@
+name: Installer
+
+on:
+  pull_request:
+    paths:
+      - "installer/**"
+      - "docs/install/**"
+      - "apps/docs/src/pages/docs/install.mdx"
+      - "apps/docs/src/lib/nav.ts"
+      - ".github/workflows/installer.yml"
+  push:
+    branches:
+      - main
+    paths:
+      - "installer/**"
+      - "docs/install/**"
+      - "apps/docs/src/pages/docs/install.mdx"
+      - "apps/docs/src/lib/nav.ts"
+      - ".github/workflows/installer.yml"
+  workflow_dispatch:
+
+jobs:
+  dry-run:
+    name: Dry-run installer
+    runs-on: ubuntu-latest
+
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v6
+
+      - name: Install shell dependencies
+        run: sudo apt-get update && sudo apt-get install -y gettext-base
+
+      - name: Shell syntax
+        run: bash -n installer/install.sh installer/ploydok-cli installer/tests/run.sh
+
+      - name: Installer scenarios
+        run: bash installer/tests/run.sh
