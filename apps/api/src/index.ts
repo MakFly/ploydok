@@ -8,14 +8,22 @@ import { childLogger } from "./logger"
 import { startWorker } from "./worker"
 import { createDb, type Db } from "@ploydok/db"
 import {
+  fetchPublicDatabaseProxiesForCaddy,
   fetchRunningAppsForCaddy,
+  fetchRunningServicesForCaddy,
+  reconcileDatabaseTcpProxies,
   reconcileCaddyRoutes,
+  reconcileServiceRoutes,
 } from "./caddy/reconciler.js"
 import { reconcileCaddyAttachments } from "./caddy/attachment.js"
 import { bootstrapSetupToken } from "./auth/setup-token"
 import { reconcileRuntimeAppsOnBoot } from "./services/app-runtime-reconciler.js"
 
 const log = childLogger("boot")
+
+function sleep(ms: number): Promise<void> {
+  return new Promise((resolve) => setTimeout(resolve, ms))
+}
 
 export function createApp() {
   return app
@@ -25,22 +33,7 @@ async function bootInfra(db: Db): Promise<void> {
   const caddy = getSharedCaddy()
   const agent = getSharedAgent()
 
-  try {
-    const apps = await fetchRunningAppsForCaddy(db)
-    const result = await reconcileCaddyRoutes({ caddy, logger: log, apps })
-    log.info(result, "caddy reconcile complete")
-  } catch (err) {
-    log.warn({ err }, "caddy reconcile failed (non-fatal)")
-  }
-
-  // Reconcile Caddy ↔ project-network attachments so live apps remain
-  // reachable after a Caddy or API restart without waiting for the next deploy.
-  try {
-    const result = await reconcileCaddyAttachments(agent, db)
-    log.info(result, "caddy attachments reconcile complete")
-  } catch (err) {
-    log.warn({ err }, "caddy attachments reconcile failed (non-fatal)")
-  }
+  await reconcileIngressWithRetry(db, caddy, agent)
 
   // Legacy flat network (pre-Phase-1.C). Kept so existing apps still resolve
   // until they are redeployed under per-project networks.
@@ -85,12 +78,70 @@ async function bootInfra(db: Db): Promise<void> {
   }
 }
 
+async function reconcileIngressWithRetry(
+  db: Db,
+  caddy: ReturnType<typeof getSharedCaddy>,
+  agent: ReturnType<typeof getSharedAgent>
+): Promise<void> {
+  const attempts = Number(Bun.env["PLOYDOK_INGRESS_RECONCILE_ATTEMPTS"] ?? 30)
+  const delayMs = Number(Bun.env["PLOYDOK_INGRESS_RECONCILE_DELAY_MS"] ?? 1000)
+
+  for (let attempt = 1; attempt <= attempts; attempt++) {
+    try {
+      const [apps, services, databases] = await Promise.all([
+        fetchRunningAppsForCaddy(db),
+        fetchRunningServicesForCaddy(db),
+        fetchPublicDatabaseProxiesForCaddy(db),
+      ])
+      const [appRoutes, serviceRoutes, databaseProxies, attachments] =
+        await Promise.all([
+          reconcileCaddyRoutes({ caddy, logger: log, apps }),
+          reconcileServiceRoutes({ caddy, logger: log, services }),
+          reconcileDatabaseTcpProxies({ caddy, logger: log, databases }),
+          reconcileCaddyAttachments(agent, db),
+        ])
+
+      const failed =
+        appRoutes.failed +
+        serviceRoutes.failed +
+        databaseProxies.failed +
+        attachments.failed
+
+      if (
+        appRoutes.bootstrapped &&
+        serviceRoutes.bootstrapped &&
+        databaseProxies.bootstrapped &&
+        failed === 0
+      ) {
+        log.info(
+          { appRoutes, serviceRoutes, databaseProxies, attachments, attempt },
+          "ingress reconcile complete"
+        )
+        return
+      }
+
+      log.warn(
+        { appRoutes, serviceRoutes, databaseProxies, attachments, attempt },
+        "ingress reconcile incomplete"
+      )
+    } catch (err) {
+      log.warn({ err, attempt }, "ingress reconcile failed")
+    }
+
+    if (attempt < attempts) {
+      await sleep(delayMs)
+    }
+  }
+
+  log.error({ attempts }, "ingress reconcile exhausted")
+}
+
 if (import.meta.main) {
   // M3.2: pass the BunWebSocket handler so Bun can upgrade WS connections.
   // idleTimeout: 0 disables the 10 s default so long-lived SSE streams
   // (GET /events) don't get chunk-encoded-truncated before their first
   // heartbeat. Per-request sockets are still closed on client abort.
-  Bun.serve({
+  const server = Bun.serve({
     port: env.PORT,
     fetch: app.fetch,
     websocket: wsHandler,
@@ -102,9 +153,14 @@ if (import.meta.main) {
   const worker = startWorker(workerDb)
   log.info("worker started (polling jobs every 2s)")
 
-  const shutdown = () => {
+  let shuttingDown = false
+  const shutdown = async () => {
+    if (shuttingDown) return
+    shuttingDown = true
     log.info("worker stopping...")
-    worker.stop()
+    await worker.stop()
+    server.stop(true)
+    process.exit(0)
   }
   process.on("SIGTERM", shutdown)
   process.on("SIGINT", shutdown)

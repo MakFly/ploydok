@@ -54,7 +54,8 @@ What gets restarted, what doesn't:
 
 | Component | On `upgrade` | Notes |
 |---|---|---|
-| `ploydok-api`, `ploydok-agent`, `ploydok-caddy` | restarted (~5–15 s) | new image pulled and rolled via `docker compose up -d` |
+| `ploydok-api`, `ploydok-agent` | restarted (~5–15 s) | new image pulled and rolled via `docker compose up -d --no-deps api agent` |
+| `ploydok-caddy` | **not restarted** by default | use `--include-data-plane` only for ingress/Caddy releases |
 | `postgres`, `redis` | **not** restarted unless their image tag changed | most patch releases never touch them |
 | **Your deployed apps** (containers spawned by the agent) | **not touched** | they keep serving traffic the entire time |
 | **Your databases provisioned via Ploydok** | **not touched** | same |
@@ -63,10 +64,18 @@ Safety net (built into the CLI):
 
 - Snapshot of the Postgres control-plane DB taken before upgrade → `/var/lib/ploydok/backups/pre-upgrade-<version>.sql`.
 - `docker-compose.yml` backed up to `…/backups/docker-compose.pre-upgrade-<version>.yml`.
-- Post-upgrade healthcheck on `127.0.0.1:3335/health` (60 s budget). If it fails the previous compose file is restored and services are brought back up.
+- Post-upgrade readiness check on `127.0.0.1:3335/health/ready` (60 s budget). If it fails the previous compose file is restored and services are brought back up.
 - Image signatures verified with `cosign verify` before pull.
 
-The control-plane (UI / API) has a brief 5–15 s cold window during the swap. Apps and databases keep running because their containers are managed by the agent and are independent of the platform image rolls.
+The control-plane (UI / API) has a brief 5–15 s cold window during the swap. Apps and databases keep serving because their containers and the Caddy ingress stay outside normal platform image rolls.
+
+If a release intentionally changes the ingress/data-plane image, run:
+
+```bash
+sudo ploydok-cli upgrade --version=1.2.3 --include-data-plane
+```
+
+That path may interrupt active HTTP/WebSocket connections and should be treated as a maintenance operation.
 
 To uninstall:
 

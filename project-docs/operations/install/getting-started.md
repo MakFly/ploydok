@@ -65,4 +65,14 @@ sudo installer/ploydok-cli uninstall --yes --restore-previous-proxy
 sudo installer/ploydok-cli upgrade --version=1.0.1
 ```
 
-L’upgrade vérifie les signatures, prend un snapshot Postgres avant pull/restart, puis restaure le `docker-compose.yml` précédent si le healthcheck post-upgrade échoue.
+L’upgrade normal est `control-plane only` : il met à jour `ploydok-api` et `ploydok-agent`, mais ne recrée pas `ploydok-caddy`, les apps, les databases utilisateur, les réseaux projet, ni les volumes.
+
+L’upgrade vérifie les signatures, prend un snapshot Postgres avant pull/restart, applique les migrations control-plane, puis restaure le `docker-compose.yml` précédent si `/health/ready` échoue.
+
+Pour une release qui modifie volontairement l’ingress/Caddy :
+
+```bash
+sudo installer/ploydok-cli upgrade --version=1.0.1 --include-data-plane
+```
+
+Ce chemin peut couper des connexions HTTP/WebSocket actives et doit être traité comme une opération de maintenance.

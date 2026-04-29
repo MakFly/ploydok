@@ -15,6 +15,16 @@ assert_contains() {
   grep -Fq "$needle" "$file" || { echo "expected $file to contain $needle" >&2; exit 1; }
 }
 
+assert_text_contains() {
+  local text="$1" needle="$2"
+  grep -Fq "$needle" <<<"$text" || { echo "expected text to contain $needle" >&2; exit 1; }
+}
+
+assert_text_not_contains() {
+  local text="$1" needle="$2"
+  ! grep -Fq "$needle" <<<"$text" || { echo "expected text not to contain $needle" >&2; exit 1; }
+}
+
 assert_not_exists() {
   [[ ! -e "$1" ]] || { echo "expected $1 to be absent" >&2; exit 1; }
 }
@@ -65,8 +75,24 @@ bash "$ROOT/installer/install.sh" \
   exit 1
 }
 
-PLOYDOK_INSTALL_DRY_RUN=1 PLOYDOK_INSTALL_ROOT="$TMP/root" PLOYDOK_INSTALL_SKIP_COSIGN=1 \
-bash "$ROOT/installer/ploydok-cli" upgrade --data-dir=/var/lib/ploydok --version=test2
+upgrade_output="$(
+  PLOYDOK_INSTALL_DRY_RUN=1 PLOYDOK_INSTALL_ROOT="$TMP/root" PLOYDOK_INSTALL_SKIP_COSIGN=1 \
+    bash "$ROOT/installer/ploydok-cli" upgrade --data-dir=/var/lib/ploydok --version=test2 2>&1
+)"
+assert_text_contains "$upgrade_output" "update $TMP/root/var/lib/ploydok/docker-compose.yml api/agent images to test2"
+assert_text_contains "$upgrade_output" "pull api agent"
+assert_text_contains "$upgrade_output" "up -d --no-deps api agent"
+assert_text_contains "$upgrade_output" "run --rm --no-deps api bun run --cwd packages/db migrate"
+assert_text_not_contains "$upgrade_output" "ploydok-caddy:test2"
+
+upgrade_data_plane_output="$(
+  PLOYDOK_INSTALL_DRY_RUN=1 PLOYDOK_INSTALL_ROOT="$TMP/root" PLOYDOK_INSTALL_SKIP_COSIGN=1 \
+    bash "$ROOT/installer/ploydok-cli" upgrade --data-dir=/var/lib/ploydok --version=test3 --include-data-plane 2>&1
+)"
+assert_text_contains "$upgrade_data_plane_output" "ploydok-caddy:test3"
+assert_text_contains "$upgrade_data_plane_output" "update $TMP/root/var/lib/ploydok/docker-compose.yml api/agent/caddy images to test3"
+assert_text_contains "$upgrade_data_plane_output" "pull api agent caddy"
+assert_text_contains "$upgrade_data_plane_output" "up -d --no-deps api agent caddy"
 
 PLOYDOK_INSTALL_DRY_RUN=1 PLOYDOK_INSTALL_ROOT="$TMP/root" \
 bash "$ROOT/installer/ploydok-cli" uninstall --data-dir=/var/lib/ploydok --yes --restore-previous-proxy
