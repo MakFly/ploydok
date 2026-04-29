@@ -88,7 +88,7 @@ import { withAppDeployLock } from "./app-deploy-lock"
 
 /** Returned by `startWorker`. Call `stop()` for graceful shutdown. */
 export interface WorkerHandle {
-  stop(): void
+  stop(): Promise<void>
 }
 
 interface GcRegistryPayload {
@@ -445,7 +445,7 @@ export function startWorker(
   const abortHandler = () => stop()
   opts?.signal?.addEventListener("abort", abortHandler)
 
-  function stop() {
+  async function stop() {
     stopRegistryGcCron()
     stopPurgeWebhookSecretsCron()
     stopCertExpiryCheckCron()
@@ -458,7 +458,7 @@ export function startWorker(
     stopAuditAnchorCron()
     stopScheduledJobsRunner()
     stopCveRefreshCron()
-    Promise.all(workers.map((w) => w.close())).catch((err) => {
+    await Promise.all(workers.map((w) => w.close())).catch((err) => {
       logger.error({ err }, "error closing BullMQ workers")
     })
   }

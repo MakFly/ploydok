@@ -5,11 +5,18 @@
 // vérité pour les routes applicatives : on re-pousse toutes les routes des
 // apps `running`/`restarting` vers l'Admin API Caddy. Idempotent via
 // `setUpstream` (PATCH si route existe, POST sinon).
-import { and, inArray, isNotNull } from "drizzle-orm"
-import { apps as appsTable, type Db } from "@ploydok/db"
+import { and, eq, inArray, isNotNull } from "drizzle-orm"
+import {
+  apps as appsTable,
+  databases as databasesTable,
+  services as servicesTable,
+  type Db,
+} from "@ploydok/db"
 import type { CaddyClient } from "./client.js"
 import type { Logger } from "pino"
 import { caddyStaticRootForApp } from "../worker/handlers/build-static.js"
+import { composeToContainers } from "../marketplace/compose-to-containers.js"
+import { upsertServiceRoute } from "./service-routes.js"
 export { applyCdnHandlers, type CdnAppConfig } from "./cdn.js"
 
 export interface AppForReconcile {
@@ -34,6 +41,20 @@ export interface ReconcileResult {
   synced: number
   skipped: number
   failed: number
+}
+
+export interface ServiceForReconcile {
+  id: string
+  slug: string
+  domain: string | null
+  compose_raw: string
+}
+
+export interface DatabaseProxyForReconcile {
+  id: string
+  host: string | null
+  port: number | null
+  public_port: number | null
 }
 
 export async function fetchRunningAppsForCaddy(
@@ -65,6 +86,41 @@ export async function fetchRunningAppsForCaddy(
     )
 }
 
+export async function fetchRunningServicesForCaddy(
+  db: Db
+): Promise<ServiceForReconcile[]> {
+  return db
+    .select({
+      id: servicesTable.id,
+      slug: servicesTable.slug,
+      domain: servicesTable.domain,
+      compose_raw: servicesTable.compose_raw,
+    })
+    .from(servicesTable)
+    .where(and(eq(servicesTable.status, "running"), isNotNull(servicesTable.domain)))
+}
+
+export async function fetchPublicDatabaseProxiesForCaddy(
+  db: Db
+): Promise<DatabaseProxyForReconcile[]> {
+  return db
+    .select({
+      id: databasesTable.id,
+      host: databasesTable.host,
+      port: databasesTable.port,
+      public_port: databasesTable.public_port,
+    })
+    .from(databasesTable)
+    .where(
+      and(
+        eq(databasesTable.status, "running"),
+        eq(databasesTable.public_enabled, true),
+        eq(databasesTable.exposure_mode, "public_proxy"),
+        isNotNull(databasesTable.public_port)
+      )
+    )
+}
+
 export interface ReconcileOptions {
   caddy: CaddyClient
   logger: Logger
@@ -72,6 +128,124 @@ export interface ReconcileOptions {
   defaultPort?: number
   bootstrapRetries?: number
   bootstrapBackoffMs?: number
+}
+
+function normalizeDatabaseRuntimeToken(dbId: string, maxLength: number): string {
+  const normalized = dbId
+    .toLowerCase()
+    .replace(/[^a-z0-9-]+/g, "-")
+    .replace(/-+/g, "-")
+    .replace(/^-+|-+$/g, "")
+    .slice(0, maxLength)
+
+  return normalized || "db"
+}
+
+function databaseTcpProxyServerId(dbId: string): string {
+  return `ploydok-db-proxy-${normalizeDatabaseRuntimeToken(dbId, 54)}`
+}
+
+export async function reconcileServiceRoutes(opts: {
+  caddy: CaddyClient
+  logger: Logger
+  services: ServiceForReconcile[]
+}): Promise<ReconcileResult> {
+  const result: ReconcileResult = {
+    bootstrapped: false,
+    synced: 0,
+    skipped: 0,
+    failed: 0,
+  }
+
+  const bootstrapped = await tryBootstrap(opts.caddy, opts.logger, 3, 500)
+  result.bootstrapped = bootstrapped
+  if (!bootstrapped) return result
+
+  for (const service of opts.services) {
+    if (!service.domain) {
+      result.skipped++
+      continue
+    }
+    try {
+      const containers = composeToContainers({
+        compose: service.compose_raw,
+        servicePrefix: `ploydok-svc-${service.slug}`,
+        network: "ploydok-public",
+        labels: {
+          "ploydok.kind": "service",
+          "ploydok.service_id": service.id,
+        },
+      })
+      await upsertServiceRoute(opts.caddy, {
+        serviceId: service.id,
+        domain: service.domain,
+        containers,
+      })
+      result.synced++
+      opts.logger.info(
+        { serviceId: service.id, host: service.domain },
+        "caddy service route reconciled"
+      )
+    } catch (err) {
+      result.failed++
+      opts.logger.warn(
+        { err, serviceId: service.id, host: service.domain },
+        "caddy service route reconcile failed"
+      )
+    }
+  }
+
+  opts.logger.info(result, "caddy service route reconcile done")
+  return result
+}
+
+export async function reconcileDatabaseTcpProxies(opts: {
+  caddy: CaddyClient
+  logger: Logger
+  databases: DatabaseProxyForReconcile[]
+}): Promise<ReconcileResult> {
+  const result: ReconcileResult = {
+    bootstrapped: false,
+    synced: 0,
+    skipped: 0,
+    failed: 0,
+  }
+
+  try {
+    await opts.caddy.ensureLayer4Bootstrap()
+    result.bootstrapped = true
+  } catch (err) {
+    opts.logger.warn({ err }, "caddy layer4 bootstrap failed")
+    return result
+  }
+
+  for (const database of opts.databases) {
+    if (!database.host || !database.port || !database.public_port) {
+      result.skipped++
+      continue
+    }
+    try {
+      await opts.caddy.upsertTcpProxy({
+        serverId: databaseTcpProxyServerId(database.id),
+        listenPort: database.public_port,
+        upstream: `${database.host}:${database.port}`,
+      })
+      result.synced++
+      opts.logger.info(
+        { databaseId: database.id, publicPort: database.public_port },
+        "caddy database tcp proxy reconciled"
+      )
+    } catch (err) {
+      result.failed++
+      opts.logger.warn(
+        { err, databaseId: database.id, publicPort: database.public_port },
+        "caddy database tcp proxy reconcile failed"
+      )
+    }
+  }
+
+  opts.logger.info(result, "caddy database tcp proxy reconcile done")
+  return result
 }
 
 export async function reconcileCaddyRoutes(
