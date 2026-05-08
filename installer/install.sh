@@ -316,6 +316,7 @@ PLOYDOK_PUBLIC_SCHEME=https
 PLOYDOK_PUBLIC_HOST=${PLOYDOK_PUBLIC_HOST:-localhost}
 PLOYDOK_REGISTRY_URL=registry:5000
 PLOYDOK_REGISTRY_PUSH_URL=registry:5000
+CADDY_ADMIN_URL=http://caddy:2019
 EOF
 }
 
@@ -378,6 +379,10 @@ verify_or_pull_images() {
 write_templates() {
   render_template docker-compose.yml | write_file "$DATA_DIR/docker-compose.yml" 0640 ploydok:ploydok
   render_template validator.toml | write_file "$DATA_DIR/config/validator.toml" 0640 ploydok:ploydok
+  install -D -m 0644 "$(install_dir)/templates/Caddyfile" "$(real_path "$DATA_DIR/caddy/Caddyfile")"
+  if [[ "$DRY_RUN" != "1" && -z "$ROOT_PREFIX" ]]; then
+    chown ploydok:ploydok "$DATA_DIR/caddy/Caddyfile"
+  fi
   render_template ploydok.service | write_file "/etc/systemd/system/ploydok.service" 0644
   render_template ploydok.target | write_file "/etc/systemd/system/ploydok.target" 0644
   if [[ "$MODE" == "coexist" ]]; then

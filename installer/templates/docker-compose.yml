@@ -41,6 +41,7 @@ services:
     image: ${PLOYDOK_IMAGE_REGISTRY}/ploydok-caddy:${PLOYDOK_VERSION}
     restart: unless-stopped
     volumes:
+      - ${PLOYDOK_DATA_DIR}/caddy/Caddyfile:/etc/caddy/Caddyfile:ro
       - ${PLOYDOK_DATA_DIR}/caddy/data:/data
       - ${PLOYDOK_DATA_DIR}/caddy/config:/config
       - ${PLOYDOK_DATA_DIR}/static:/var/lib/ploydok/static:ro
