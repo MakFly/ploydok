@@ -429,6 +429,22 @@ wait_health() {
   die "healthcheck timed out: $url" 1
 }
 
+db_migrate() {
+  [[ "$DRY_RUN" == "1" ]] && { log "dry-run: applying db migrations"; return; }
+  local compose=(docker compose --env-file "$DATA_DIR/.env" -f "$DATA_DIR/docker-compose.yml")
+  log "waiting for postgres to accept connections"
+  for _ in $(seq 1 60); do
+    if "${compose[@]}" exec -T postgres pg_isready -U ploydok -d ploydok >/dev/null 2>&1; then
+      break
+    fi
+    sleep 1
+  done
+  log "applying database migrations"
+  "${compose[@]}" exec -T api bun run /app/packages/db/src/migrate.ts
+  log "restarting api after migrations"
+  "${compose[@]}" restart api >/dev/null
+}
+
 main() {
   require_root
   preflight
@@ -446,6 +462,7 @@ main() {
   install_cli
   start_services
   wait_health
+  db_migrate
   log "Ploydok installed. Open https://${PLOYDOK_PUBLIC_HOST:-localhost}/setup from this machine's DNS."
 }
 
