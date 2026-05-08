@@ -1,0 +1,17 @@
+**/node_modules
+**/dist
+**/.turbo
+**/.output
+**/test-results
+**/playwright-report
+**/.vite
+**/coverage
+**/target
+.git
+.github
+.claude
+.ai
+project-docs
+docs
+infra/caddy/data
+*.log

@@ -1,0 +1,35 @@
+# SPDX-License-Identifier: AGPL-3.0-only
+# Production image for ploydok-agent (gRPC daemon).
+# Build context = monorepo root.
+#   docker build -f agent/Dockerfile.prod -t ghcr.io/makfly/ploydok-agent:0.0.1 .
+
+FROM rust:1.88-slim-bookworm AS builder
+WORKDIR /workspace
+
+RUN apt-get update \
+ && apt-get install -y --no-install-recommends \
+      pkg-config \
+      libssl-dev \
+      protobuf-compiler \
+      ca-certificates \
+ && rm -rf /var/lib/apt/lists/*
+
+COPY agent/ ./agent/
+COPY packages/agent-proto/proto ./packages/agent-proto/proto
+WORKDIR /workspace/agent
+RUN cargo build --release -p ploydok-agent
+
+FROM debian:bookworm-slim AS runtime
+RUN apt-get update \
+ && apt-get install -y --no-install-recommends \
+      ca-certificates \
+      libssl3 \
+      tini \
+ && rm -rf /var/lib/apt/lists/*
+
+COPY --from=builder /workspace/agent/target/release/ploydok-agent /usr/local/bin/ploydok-agent
+
+ENV PLOYDOK_AGENT_SOCKET=/run/ploydok/agent.sock \
+    RUST_LOG=info
+
+ENTRYPOINT ["/usr/bin/tini", "--", "/usr/local/bin/ploydok-agent"]
