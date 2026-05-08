@@ -23,6 +23,10 @@ services:
     environment:
       PLOYDOK_AGENT_SOCKET: /run/ploydok/agent.sock
       PLOYDOK_VALIDATOR_CONFIG: /etc/ploydok/validator.toml
+      # mTLS bootstrap pas encore branché end-to-end côté API (cf. roadmap).
+      # v0.0.1 : insecure intra-compose (socket Unix mounté entre api/agent,
+      # network bridge isolé). À durcir via PKI partagée + cert client API.
+      PLOYDOK_AGENT_INSECURE: "1"
     volumes:
       - /var/run/docker.sock:/var/run/docker.sock
       - ${PLOYDOK_DATA_DIR}/agent:/run/ploydok
