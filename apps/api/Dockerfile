@@ -3,7 +3,7 @@
 # Build context must be the monorepo root.
 #   docker build -f apps/api/Dockerfile -t ghcr.io/makfly/ploydok-api:0.0.1 .
 
-FROM oven/bun:1.3-debian AS deps
+FROM oven/bun:1.3-debian AS builder
 WORKDIR /app
 
 RUN apt-get update \
@@ -15,13 +15,9 @@ RUN apt-get update \
  && rm -rf /var/lib/apt/lists/*
 
 COPY package.json bun.lock ./
-COPY apps/api/package.json apps/api/package.json
-COPY apps/web/package.json apps/web/package.json
-COPY packages/db/package.json packages/db/package.json
-COPY packages/shared/package.json packages/shared/package.json
-COPY packages/agent-proto/package.json packages/agent-proto/package.json
-COPY packages/app-auditor/package.json packages/app-auditor/package.json
-COPY packages/ui/package.json packages/ui/package.json
+COPY apps/api ./apps/api
+COPY apps/web/package.json ./apps/web/package.json
+COPY packages ./packages
 
 RUN bun install --frozen-lockfile
 
@@ -38,10 +34,7 @@ RUN apt-get update \
 ENV NODE_ENV=production \
     PORT=3335
 
-COPY --from=deps /app/node_modules ./node_modules
-COPY package.json bun.lock ./
-COPY apps/api ./apps/api
-COPY packages ./packages
+COPY --from=builder /app /app
 
 EXPOSE 3335
 
