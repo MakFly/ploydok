@@ -44,6 +44,11 @@ export function createAgentClient(opts: AgentClientOptions = {}): AgentClient {
     // Large receive buffer for build context / image pull streams
     "grpc.max_receive_message_length": 256 * 1024 * 1024, // 256 MiB
     "grpc.max_send_message_length": 256 * 1024 * 1024, // 256 MiB
+    // Sur Unix socket avec TLS, gRPC n'extrait pas de SNI depuis l'address ;
+    // on force le hostname utilisé pour la vérification du SAN à correspondre
+    // au CN du cert serveur émis par installer/install.sh::generate_agent_pki.
+    "grpc.ssl_target_name_override": "ploydok-agent",
+    "grpc.default_authority": "ploydok-agent",
   }
 
   return new AgentClient(address, credentials, channelOptions)

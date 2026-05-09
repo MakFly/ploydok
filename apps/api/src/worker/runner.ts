@@ -156,7 +156,13 @@ function createAgentClient(
           fs.readFileSync(certPath)
         )
       : grpc.credentials.createInsecure()
-  return new AgentClient(address, creds)
+  // Voir apps/api/src/agent/client.ts — sur Unix socket + TLS il faut forcer
+  // l'authority pour que la vérif SAN matche le CN du cert agent.
+  const channelOptions: grpc.ClientOptions = {
+    "grpc.ssl_target_name_override": "ploydok-agent",
+    "grpc.default_authority": "ploydok-agent",
+  }
+  return new AgentClient(address, creds, channelOptions)
 }
 
 // ---------------------------------------------------------------------------
