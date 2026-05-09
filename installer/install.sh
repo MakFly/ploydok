@@ -418,7 +418,11 @@ configure_firewall() {
 
 start_services() {
   run systemctl daemon-reload
-  run systemctl enable --now ploydok.target
+  run systemctl enable ploydok.target ploydok.service
+  # `restart` (not `start`) so a fresh install re-runs ExecStart even if the
+  # oneshot/RemainAfterExit service was left in `active (exited)` by a prior
+  # run — `systemctl start` is a no-op on an already-active oneshot.
+  run systemctl restart ploydok.service
 }
 
 wait_health() {
