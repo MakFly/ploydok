@@ -270,7 +270,7 @@ create_system_user() {
 
 create_directories() {
   local dir
-  for dir in data builds backups volumes app-volumes certs logs caddy/data caddy/config postgres redis registry agent config static; do
+  for dir in data builds backups volumes app-volumes certs pki logs caddy/data caddy/config postgres redis registry agent config static; do
     install -d -m 0750 "$(real_path "$DATA_DIR/$dir")"
   done
   if [[ "$DRY_RUN" != "1" && -z "$ROOT_PREFIX" ]]; then
@@ -317,6 +317,9 @@ PLOYDOK_PUBLIC_HOST=${PLOYDOK_PUBLIC_HOST:-localhost}
 PLOYDOK_REGISTRY_URL=registry:5000
 PLOYDOK_REGISTRY_PUSH_URL=registry:5000
 CADDY_ADMIN_URL=http://caddy:2019
+PLOYDOK_AGENT_CA=/var/lib/ploydok/pki/ca.pem
+PLOYDOK_AGENT_CLIENT_CERT=/var/lib/ploydok/pki/api-client.crt
+PLOYDOK_AGENT_CLIENT_KEY=/var/lib/ploydok/pki/api-client.key
 EOF
 }
 
@@ -338,6 +341,80 @@ generate_mtls() {
     -days 3650 >/dev/null 2>&1
 }
 
+# PKI partagée entre l'agent (server gRPC mTLS) et l'API (client mTLS).
+# Idempotent : si ca.pem existe, on ne régénère rien (préserve les certs entre
+# re-installs). Les fichiers ca.pem/server.pem/server.key/client.pem/client.key
+# sont les noms attendus par `pki::ensure_pki()` côté agent Rust ; les alias
+# .crt/.key facilitent les références humaines et certaines libs TLS.
+generate_agent_pki() {
+  local pki_dir
+  pki_dir="$(real_path "$DATA_DIR/pki")"
+
+  if [[ "$DRY_RUN" == "1" ]]; then
+    log "dry-run: generate agent PKI in $pki_dir"
+    return
+  fi
+
+  if [[ -f "$pki_dir/ca.pem" && -f "$pki_dir/server.pem" && -f "$pki_dir/client.pem" ]]; then
+    log "existing $pki_dir preserved"
+    return
+  fi
+
+  local tmp_ext
+  tmp_ext="$(mktemp)"
+  cat >"$tmp_ext" <<'EOF'
+[v3_req]
+basicConstraints = CA:FALSE
+keyUsage = digitalSignature, keyEncipherment
+extendedKeyUsage = serverAuth
+subjectAltName = @alt_names
+
+[alt_names]
+DNS.1 = agent
+DNS.2 = ploydok-agent
+DNS.3 = localhost
+EOF
+
+  # CA (10 ans)
+  openssl req -x509 -newkey rsa:4096 -nodes -days 3650 \
+    -keyout "$pki_dir/ca.key" -out "$pki_dir/ca.crt" \
+    -subj "/CN=Ploydok agent CA" >/dev/null 2>&1
+
+  # Cert serveur agent (CN=ploydok-agent, SAN DNS:agent + DNS:localhost)
+  openssl req -newkey rsa:4096 -nodes \
+    -keyout "$pki_dir/agent.key" -out "$pki_dir/agent.csr" \
+    -subj "/CN=ploydok-agent" >/dev/null 2>&1
+  openssl x509 -req -in "$pki_dir/agent.csr" \
+    -CA "$pki_dir/ca.crt" -CAkey "$pki_dir/ca.key" -CAcreateserial \
+    -out "$pki_dir/agent.crt" -days 3650 \
+    -extensions v3_req -extfile "$tmp_ext" >/dev/null 2>&1
+  rm -f "$pki_dir/agent.csr"
+
+  # Cert client API (CN=ploydok-api)
+  openssl req -newkey rsa:4096 -nodes \
+    -keyout "$pki_dir/api-client.key" -out "$pki_dir/api-client.csr" \
+    -subj "/CN=ploydok-api" >/dev/null 2>&1
+  openssl x509 -req -in "$pki_dir/api-client.csr" \
+    -CA "$pki_dir/ca.crt" -CAkey "$pki_dir/ca.key" -CAcreateserial \
+    -out "$pki_dir/api-client.crt" -days 3650 >/dev/null 2>&1
+  rm -f "$pki_dir/api-client.csr"
+
+  rm -f "$tmp_ext"
+
+  # Aliases attendus par pki::ensure_pki côté agent
+  cp -f "$pki_dir/ca.crt" "$pki_dir/ca.pem"
+  cp -f "$pki_dir/agent.crt" "$pki_dir/server.pem"
+  cp -f "$pki_dir/agent.key" "$pki_dir/server.key"
+  cp -f "$pki_dir/api-client.crt" "$pki_dir/client.pem"
+  cp -f "$pki_dir/api-client.key" "$pki_dir/client.key"
+
+  if [[ -z "$ROOT_PREFIX" ]]; then
+    chown -R ploydok:ploydok "$pki_dir"
+  fi
+  chmod 0640 "$pki_dir"/*.crt "$pki_dir"/*.pem
+  chmod 0600 "$pki_dir"/*.key
+}
+
 install_docker() {
   log "Docker not found; installing via get.docker.com (skip with --skip-docker-install)"
   if [[ "$DRY_RUN" == "1" ]]; then
@@ -357,18 +434,27 @@ install_cli() {
   fi
 }
 
+# Vérifie la signature keyless OIDC des images publiées par
+# .github/workflows/release-images.yml. Identité attendue :
+#   issuer   : https://token.actions.githubusercontent.com
+#   identity : https://github.com/MakFly/ploydok/.github/workflows/release-images.yml@<ref>
+# Bypass (CI / dry-run / image registry custom non signé) : PLOYDOK_INSTALL_SKIP_COSIGN=1.
 verify_or_pull_images() {
   local images=(
     "$IMAGE_REGISTRY/ploydok-api:$VERSION"
     "$IMAGE_REGISTRY/ploydok-agent:$VERSION"
     "$IMAGE_REGISTRY/ploydok-caddy:$VERSION"
   )
+  local cosign_identity_regex='^https://github\.com/MakFly/ploydok/\.github/workflows/release-images\.yml@.*$'
   local image
   for image in "${images[@]}"; do
-    if command -v cosign >/dev/null 2>&1; then
-      run cosign verify "$image"
-    elif [[ "$DRY_RUN" == "1" || "${PLOYDOK_INSTALL_SKIP_COSIGN:-0}" == "1" ]]; then
-      warn "cosign not installed; image signature verification skipped for $image"
+    if [[ "$DRY_RUN" == "1" || "${PLOYDOK_INSTALL_SKIP_COSIGN:-0}" == "1" ]]; then
+      warn "image signature verification skipped for $image (PLOYDOK_INSTALL_SKIP_COSIGN=1 or dry-run)"
+    elif command -v cosign >/dev/null 2>&1; then
+      run cosign verify \
+        --certificate-oidc-issuer https://token.actions.githubusercontent.com \
+        --certificate-identity-regexp "$cosign_identity_regex" \
+        "$image"
     else
       die "cosign is required to verify $image (set PLOYDOK_INSTALL_SKIP_COSIGN=1 only for controlled test installs)" 3
     fi
@@ -465,6 +551,7 @@ main() {
   create_directories
   generate_secrets
   generate_mtls
+  generate_agent_pki
   verify_or_pull_images
   write_templates
   configure_firewall

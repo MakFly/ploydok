@@ -2,3 +2,16 @@
 	admin 0.0.0.0:2019
 	auto_https off
 }
+
+# Route control-plane : sert l'API sur localhost (et le hostname public quand il
+# pointe sur ce serveur). On NE FAIT PAS de catch-all sans matcher car les
+# routes app utilisateur sont append via l'Admin API et un catch-all en tête
+# bloquerait tout. Avec un matcher host explicite, l'évaluation Caddy passe à
+# la route suivante quand le host ne matche pas — les routes app gardent la
+# main sur leur domaine.
+:80 {
+	@control_plane host localhost ploydok.local
+	handle @control_plane {
+		reverse_proxy api:3335
+	}
+}

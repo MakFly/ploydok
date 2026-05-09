@@ -16,6 +16,7 @@
 //                 in the last two succeeded builds) in < 10s.
 //   restartApp  — stopApp + runBlueGreen from the last succeeded build image.
 
+import * as fs from "node:fs"
 import { and, desc, eq } from "drizzle-orm"
 import * as grpc from "@grpc/grpc-js"
 import { AgentClient } from "@ploydok/agent-proto"
@@ -136,16 +137,25 @@ function defaultAgentSocket(): string {
 
 const DEFAULT_AGENT_SOCKET = defaultAgentSocket()
 
-/**
- * Create a gRPC AgentClient connected to the Unix domain socket.
- * Uses PLOYDOK_AGENT_INSECURE=1 mode (no mTLS) when available;
- * in production the socket is already restricted by filesystem permissions.
- */
+// Si les 3 env mTLS sont fournies (cf. installer/install.sh::generate_agent_pki),
+// on monte un canal gRPC chiffré + authentifié par cert client. Sinon fallback
+// insecure — utilisé en dev (socket Unix local) ou quand l'agent tourne en
+// PLOYDOK_AGENT_INSECURE=1.
 function createAgentClient(
   socketPath = DEFAULT_AGENT_SOCKET
 ): InstanceType<typeof AgentClient> {
   const address = `unix://${socketPath}`
-  const creds = grpc.credentials.createInsecure()
+  const caPath = process.env["PLOYDOK_AGENT_CA"]
+  const certPath = process.env["PLOYDOK_AGENT_CLIENT_CERT"]
+  const keyPath = process.env["PLOYDOK_AGENT_CLIENT_KEY"]
+  const creds =
+    caPath && certPath && keyPath
+      ? grpc.credentials.createSsl(
+          fs.readFileSync(caPath),
+          fs.readFileSync(keyPath),
+          fs.readFileSync(certPath)
+        )
+      : grpc.credentials.createInsecure()
   return new AgentClient(address, creds)
 }
 
