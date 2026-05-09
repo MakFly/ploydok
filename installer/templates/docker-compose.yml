@@ -24,6 +24,12 @@ services:
     environment:
       PLOYDOK_AGENT_SOCKET: /run/ploydok/agent.sock
       PLOYDOK_VALIDATOR_CONFIG: /etc/ploydok/validator.toml
+      # PKI partagée prête (cf. installer/install.sh::generate_agent_pki) mais
+      # enforcement reporté : tonic 0.13 + Unix socket + TLS ne handshake pas
+      # avec grpc-js côté API (TRANSIENT_FAILURE immédiat). À débloquer dans
+      # un sprint dédié — quand tonic supportera UDS+TLS proprement, retirer
+      # cette ligne et les fallbacks createInsecure côté API.
+      PLOYDOK_AGENT_INSECURE: "1"
     volumes:
       - /var/run/docker.sock:/var/run/docker.sock
       - ${PLOYDOK_DATA_DIR}/agent:/run/ploydok

@@ -317,9 +317,14 @@ PLOYDOK_PUBLIC_HOST=${PLOYDOK_PUBLIC_HOST:-localhost}
 PLOYDOK_REGISTRY_URL=registry:5000
 PLOYDOK_REGISTRY_PUSH_URL=registry:5000
 CADDY_ADMIN_URL=http://caddy:2019
-PLOYDOK_AGENT_CA=/var/lib/ploydok/pki/ca.pem
-PLOYDOK_AGENT_CLIENT_CERT=/var/lib/ploydok/pki/api-client.crt
-PLOYDOK_AGENT_CLIENT_KEY=/var/lib/ploydok/pki/api-client.key
+# Les 3 PLOYDOK_AGENT_CA/CERT/KEY ci-dessous sont commentés : la PKI est
+# générée dans \$DATA_DIR/pki et montée :ro dans le container, prête à être
+# activée — mais l'agent reste en PLOYDOK_AGENT_INSECURE=1 le temps de
+# débloquer tonic+UDS+TLS (cf. compose template). Décommenter ces lignes
+# ET retirer PLOYDOK_AGENT_INSECURE=1 simultanément quand le fix land.
+# PLOYDOK_AGENT_CA=/var/lib/ploydok/pki/ca.pem
+# PLOYDOK_AGENT_CLIENT_CERT=/var/lib/ploydok/pki/api-client.crt
+# PLOYDOK_AGENT_CLIENT_KEY=/var/lib/ploydok/pki/api-client.key
 EOF
 }
 
