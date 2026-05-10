@@ -27,6 +27,12 @@ import type { ApiError } from "../../lib/api"
 // Helpers
 // ---------------------------------------------------------------------------
 
+function safeIsoString(value: string | null | undefined): string {
+  if (!value) return "—"
+  const d = new Date(value)
+  return Number.isNaN(d.getTime()) ? "—" : d.toISOString()
+}
+
 const DECISION_LABELS: Record<string, string> = {
   enqueued: "Enqueued",
   skipped_disabled: "Skipped — disabled",
@@ -287,16 +293,12 @@ export function DeliveryDetailsDialog({
               </div>
               <div className="grid grid-cols-[1fr_2fr] gap-2">
                 <span className="text-muted-foreground">Received at</span>
-                <span className="font-mono">
-                  {new Date(delivery.receivedAt).toISOString()}
-                </span>
+                <span className="font-mono">{safeIsoString(delivery.receivedAt)}</span>
               </div>
               {delivery.processedAt && (
                 <div className="grid grid-cols-[1fr_2fr] gap-2">
                   <span className="text-muted-foreground">Processed at</span>
-                  <span className="font-mono">
-                    {new Date(delivery.processedAt).toISOString()}
-                  </span>
+                  <span className="font-mono">{safeIsoString(delivery.processedAt)}</span>
                 </div>
               )}
               <div className="grid grid-cols-[1fr_2fr] gap-2">
