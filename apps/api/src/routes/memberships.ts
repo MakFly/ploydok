@@ -36,13 +36,38 @@ function hashToken(token: string): string {
   return createHash("sha256").update(token).digest("hex")
 }
 
+async function resolveOrgId(
+  db: Db,
+  slugOrId: string
+): Promise<string | null> {
+  const rows = await db
+    .select({ id: projects.id })
+    .from(projects)
+    .where(eq(projects.slug, slugOrId))
+    .limit(1)
+  if (rows[0]) return rows[0].id
+  const byId = await db
+    .select({ id: projects.id })
+    .from(projects)
+    .where(eq(projects.id, slugOrId))
+    .limit(1)
+  return byId[0]?.id ?? null
+}
+
 export function createMembershipsRouter(db: Db): Hono {
   const router = new Hono()
 
   // GET /orgs/:slug/members — list members and pending invitations
   router.get("/:orgId/members", async (c) => {
     const user = getUser(c)
-    const orgId = c.req.param("orgId")
+    const orgParam = c.req.param("orgId")
+    const orgId = await resolveOrgId(db, orgParam)
+    if (!orgId) {
+      return c.json(
+        { error: { code: "NOT_FOUND", message: "Organization not found" } },
+        404
+      )
+    }
 
     // Verify user has membership in org
     const membership = await getMembership(db, orgId, user.id)
@@ -67,7 +92,14 @@ export function createMembershipsRouter(db: Db): Hono {
   // POST /orgs/:slug/members/invite — invite a member (owner only)
   router.post("/:orgId/members/invite", async (c) => {
     const user = getUser(c)
-    const orgId = c.req.param("orgId")
+    const orgParam = c.req.param("orgId")
+    const orgId = await resolveOrgId(db, orgParam)
+    if (!orgId) {
+      return c.json(
+        { error: { code: "NOT_FOUND", message: "Organization not found" } },
+        404
+      )
+    }
 
     // Verify user is owner
     const isOwner = await isOrgOwner(db, orgId, user.id)
@@ -175,7 +207,14 @@ export function createMembershipsRouter(db: Db): Hono {
   // DELETE /orgs/:slug/members/:userId — remove member (owner only)
   router.delete("/:orgId/members/:userId", async (c) => {
     const user = getUser(c)
-    const orgId = c.req.param("orgId")
+    const orgParam = c.req.param("orgId")
+    const orgId = await resolveOrgId(db, orgParam)
+    if (!orgId) {
+      return c.json(
+        { error: { code: "NOT_FOUND", message: "Organization not found" } },
+        404
+      )
+    }
     const userId = c.req.param("userId")
 
     // Verify user is owner
@@ -215,7 +254,14 @@ export function createMembershipsRouter(db: Db): Hono {
   // PATCH /orgs/:slug/members/:userId/role — update member role (owner only)
   router.patch("/:orgId/members/:userId/role", async (c) => {
     const user = getUser(c)
-    const orgId = c.req.param("orgId")
+    const orgParam = c.req.param("orgId")
+    const orgId = await resolveOrgId(db, orgParam)
+    if (!orgId) {
+      return c.json(
+        { error: { code: "NOT_FOUND", message: "Organization not found" } },
+        404
+      )
+    }
     const userId = c.req.param("userId")
 
     // Verify user is owner
@@ -266,7 +312,14 @@ export function createMembershipsRouter(db: Db): Hono {
   // DELETE /orgs/:slug/invitations/:invitationId — cancel invitation (owner only)
   router.delete("/:orgId/invitations/:invitationId", async (c) => {
     const user = getUser(c)
-    const orgId = c.req.param("orgId")
+    const orgParam = c.req.param("orgId")
+    const orgId = await resolveOrgId(db, orgParam)
+    if (!orgId) {
+      return c.json(
+        { error: { code: "NOT_FOUND", message: "Organization not found" } },
+        404
+      )
+    }
     const invitationId = c.req.param("invitationId")
 
     // Verify user is owner
