@@ -4,6 +4,10 @@ services:
   api:
     image: ${PLOYDOK_IMAGE_REGISTRY}/ploydok-api:${PLOYDOK_VERSION}
     restart: unless-stopped
+    labels:
+      ploydok.kind: app
+      ploydok.component: api
+      com.centurylinklabs.watchtower.enable: "true"
     env_file: ${PLOYDOK_DATA_DIR}/.env
     depends_on:
       - postgres
@@ -25,6 +29,10 @@ services:
   web:
     image: ${PLOYDOK_IMAGE_REGISTRY}/ploydok-web:${PLOYDOK_VERSION}
     restart: unless-stopped
+    labels:
+      ploydok.kind: app
+      ploydok.component: web
+      com.centurylinklabs.watchtower.enable: "true"
     environment:
       PLOYDOK_API_URL: http://api:3335
     depends_on:
@@ -35,6 +43,10 @@ services:
   agent:
     image: ${PLOYDOK_IMAGE_REGISTRY}/ploydok-agent:${PLOYDOK_VERSION}
     restart: unless-stopped
+    labels:
+      ploydok.kind: app
+      ploydok.component: agent
+      com.centurylinklabs.watchtower.enable: "true"
     environment:
       PLOYDOK_AGENT_ADDR: 0.0.0.0:50051
       PLOYDOK_AGENT_PKI_DIR: /var/lib/ploydok/pki
@@ -56,6 +68,7 @@ services:
     labels:
       ploydok.kind: infra
       ploydok.component: caddy
+      com.centurylinklabs.watchtower.enable: "true"
     volumes:
       - ${PLOYDOK_INSTALL_DIR}/Caddyfile:/etc/caddy/Caddyfile:ro
       - caddy-data:/data
@@ -75,6 +88,7 @@ services:
     labels:
       ploydok.kind: infra
       ploydok.component: adminer
+      com.centurylinklabs.watchtower.enable: "true"
     networks:
       - ploydok
 
@@ -115,6 +129,23 @@ services:
       - registry-data:/var/lib/registry
     ports:
       - "127.0.0.1:5000:5000"
+    networks:
+      - ploydok
+
+  watchtower:
+    image: containrrr/watchtower:1.7.1
+    restart: unless-stopped
+    environment:
+      WATCHTOWER_CLEANUP: "true"
+      WATCHTOWER_INCLUDE_RESTARTING: "true"
+      WATCHTOWER_LABEL_ENABLE: "true"
+      WATCHTOWER_POLL_INTERVAL: "300"
+      WATCHTOWER_ROLLING_RESTART: "true"
+    labels:
+      ploydok.kind: infra
+      ploydok.component: watchtower
+    volumes:
+      - /var/run/docker.sock:/var/run/docker.sock
     networks:
       - ploydok
 
