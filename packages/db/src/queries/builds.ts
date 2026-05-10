@@ -1,5 +1,5 @@
 // SPDX-License-Identifier: AGPL-3.0-only
-import { and, desc, eq, inArray, lt, ne } from "drizzle-orm"
+import { and, desc, eq, inArray, isNotNull, isNull, lt, ne, or, sql } from "drizzle-orm"
 import type { Db } from "../client"
 import { builds } from "../schema"
 
@@ -171,4 +171,86 @@ export async function getLastSucceededBuild(
     .orderBy(desc(builds.created_at))
     .limit(1)
   return rows[0] ?? null
+}
+
+/**
+ * Persist the gzipped+base64 log archive for a build. Bypasses the
+ * sticky-terminal guard of updateBuildStatus because archive columns can be
+ * set on any build state (including terminal ones). Idempotent: callers
+ * should check log_archive IS NULL before invoking.
+ */
+export async function setBuildLogArchive(
+  db: Db,
+  id: string,
+  archive: string,
+  rawSize: number,
+  compressedSize: number
+) {
+  await db
+    .update(builds)
+    .set({
+      log_archive: archive,
+      log_archive_raw_size: rawSize,
+      log_archive_compressed_size: compressedSize,
+      log_archived_at: new Date(),
+    })
+    .where(eq(builds.id, id))
+}
+
+/**
+ * Find builds whose logs (archive or file) are eligible for purge.
+ * Eligibility = finished_at < cutoff AND not already purged AND has either
+ * an archive or a log_path on disk.
+ */
+export async function findBuildsToPurge(db: Db, cutoff: Date, limit = 1000) {
+  return db
+    .select({
+      id: builds.id,
+      app_id: builds.app_id,
+      log_path: builds.log_path,
+    })
+    .from(builds)
+    .where(
+      and(
+        isNotNull(builds.finished_at),
+        lt(builds.finished_at, cutoff),
+        isNull(builds.log_purged_at),
+        or(isNotNull(builds.log_archive), isNotNull(builds.log_path))
+      )
+    )
+    .limit(limit)
+}
+
+/**
+ * NULL the archive and stamp log_purged_at. Keep the build row intact for
+ * historical UI (status, commit_sha, finished_at remain visible).
+ */
+export async function markBuildLogPurged(db: Db, id: string) {
+  await db
+    .update(builds)
+    .set({
+      log_archive: null,
+      log_purged_at: new Date(),
+    })
+    .where(eq(builds.id, id))
+}
+
+/**
+ * Backfill helper: list builds whose archive is missing but a log file may
+ * still exist on disk. Used by the one-shot backfill script.
+ */
+export async function findBuildsToArchive(db: Db, limit = 500) {
+  return db
+    .select({ id: builds.id, app_id: builds.app_id, log_path: builds.log_path })
+    .from(builds)
+    .where(
+      and(
+        isNotNull(builds.finished_at),
+        isNull(builds.log_archive),
+        isNull(builds.log_purged_at),
+        sql`${builds.log_path} IS NOT NULL`
+      )
+    )
+    .orderBy(desc(builds.finished_at))
+    .limit(limit)
 }

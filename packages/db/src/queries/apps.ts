@@ -331,16 +331,24 @@ export type BuildLogRow = {
   id: string
   app_id: string
   log_path: string | null
+  log_archive: string | null
+  log_purged_at: Date | null
 }
 
-/** Returns the build row (id + app_id + log_path) for a given build/app pair. */
+/** Returns the build row (id + app_id + log_path + archive metadata) for a given build/app pair. */
 export async function getBuildLogPath(
   db: Db,
   buildId: string,
   appId: string
 ): Promise<BuildLogRow | null> {
   const rows = await db
-    .select({ id: builds.id, app_id: builds.app_id, log_path: builds.log_path })
+    .select({
+      id: builds.id,
+      app_id: builds.app_id,
+      log_path: builds.log_path,
+      log_archive: builds.log_archive,
+      log_purged_at: builds.log_purged_at,
+    })
     .from(builds)
     .where(and(eq(builds.id, buildId), eq(builds.app_id, appId)))
     .limit(1)

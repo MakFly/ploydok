@@ -44,6 +44,7 @@ import {
   type AppRow,
 } from "@ploydok/db/queries"
 import { listDeliveriesByApp, getDeliveryById } from "@ploydok/db/queries"
+import { decompressLog } from "../services/build-log-archive"
 import {
   replayDelivery,
   ReplayLimitError,
@@ -1452,11 +1453,46 @@ export function createAppsRouter(db: Db): Hono {
       )
     }
 
-    // log_path is normally persisted at build start (deploy.ts line 516).
-    // If it's missing — race with an in-flight build, killed worker before
-    // the early persist, or legacy row predating that change — fall back to
-    // the convention path. Returns 200 with an explanatory body when truly
-    // empty so the UI doesn't show a misleading "Failed to load logs (404)".
+    // Resolution order:
+    //   1. log_purged_at non-null → return explanatory body (purge happened).
+    //   2. log_archive non-null  → decompress from DB (resilient: works even
+    //      if the on-disk file was rm'd by the purge cron or volume loss).
+    //   3. log_path or convention path on disk (live builds, freshly finished
+    //      builds before the async archive job ran).
+    //   4. Empty body, status 200.
+    if (build.log_purged_at) {
+      return new Response(
+        `[Logs purged after ${env.PLOYDOK_BUILD_LOG_RETENTION_DAYS} days retention]`,
+        {
+          status: 200,
+          headers: {
+            "content-type": "text/plain; charset=utf-8",
+            "x-log-source": "purged",
+          },
+        }
+      )
+    }
+
+    if (build.log_archive) {
+      try {
+        const decompressed = decompressLog(build.log_archive)
+        return new Response(decompressed, {
+          status: 200,
+          headers: {
+            "content-type": "text/plain; charset=utf-8",
+            "content-disposition": `attachment; filename="build-${buildId}.log"`,
+            "x-log-source": "archive",
+          },
+        })
+      } catch (err) {
+        // Archive corrupt — fall through to filesystem fallback.
+        console.warn(
+          `decompressLog failed for buildId=${buildId}:`,
+          err instanceof Error ? err.message : err
+        )
+      }
+    }
+
     const conventionPath = nodePath.join(
       env.PLOYDOK_BUILD_DIR,
       appId,
@@ -1482,6 +1518,7 @@ export function createAppsRouter(db: Db): Hono {
         status: 200,
         headers: {
           "content-type": "text/plain; charset=utf-8",
+          "x-log-source": "empty",
         },
       })
     }
@@ -1491,6 +1528,7 @@ export function createAppsRouter(db: Db): Hono {
       headers: {
         "content-type": "text/plain; charset=utf-8",
         "content-disposition": `attachment; filename="build-${buildId}.log"`,
+        "x-log-source": "file",
       },
     })
   })
