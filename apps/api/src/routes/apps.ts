@@ -1,5 +1,6 @@
 // SPDX-License-Identifier: AGPL-3.0-only
 import { readFile } from "node:fs/promises"
+import * as nodePath from "node:path"
 import { randomBytes } from "node:crypto"
 import { Hono } from "hono"
 import { z } from "zod"
@@ -1451,26 +1452,38 @@ export function createAppsRouter(db: Db): Hono {
       )
     }
 
-    if (!build.log_path) {
-      return c.json(
-        {
-          error: {
-            code: "NOT_FOUND",
-            message: "No archived log file for this build",
-          },
-        },
-        404
-      )
+    // log_path is normally persisted at build start (deploy.ts line 516).
+    // If it's missing — race with an in-flight build, killed worker before
+    // the early persist, or legacy row predating that change — fall back to
+    // the convention path. Returns 200 with an explanatory body when truly
+    // empty so the UI doesn't show a misleading "Failed to load logs (404)".
+    const conventionPath = nodePath.join(
+      env.PLOYDOK_BUILD_DIR,
+      appId,
+      `${buildId}.log`
+    )
+    const candidatePath = build.log_path ?? conventionPath
+
+    let content: Buffer | null = null
+    try {
+      content = await readFile(candidatePath)
+    } catch {
+      if (build.log_path && build.log_path !== conventionPath) {
+        try {
+          content = await readFile(conventionPath)
+        } catch {
+          // both paths missing — fall through to empty body
+        }
+      }
     }
 
-    let content: Buffer
-    try {
-      content = await readFile(build.log_path)
-    } catch {
-      return c.json(
-        { error: { code: "NOT_FOUND", message: "Log file not found on disk" } },
-        404
-      )
+    if (!content) {
+      return new Response("(no logs captured)", {
+        status: 200,
+        headers: {
+          "content-type": "text/plain; charset=utf-8",
+        },
+      })
     }
 
     return new Response(content, {

@@ -453,6 +453,7 @@ export function useLogStream({
 
     let ws: WebSocket
     let fallbackTriggered = false
+    let fallbackTimer: ReturnType<typeof setTimeout> | null = null
 
     const triggerFallback = (): void => {
       setError(
@@ -502,20 +503,24 @@ export function useLogStream({
         appendLine(text)
       }
 
-      ws.onerror = () => {
-        if (!fallbackTriggered) {
-          fallbackTriggered = true
+      // Defer fallback by 1s so the API has a chance to persist log_path
+      // for builds that just finished (race between WS close and DB write).
+      const scheduleFallback = (): void => {
+        if (fallbackTriggered) return
+        fallbackTriggered = true
+        if (fallbackTimer) clearTimeout(fallbackTimer)
+        fallbackTimer = setTimeout(() => {
+          fallbackTimer = null
           triggerFallback()
-        }
+        }, 1_000)
       }
+
+      ws.onerror = scheduleFallback
 
       ws.onclose = (ev) => {
         setConnected(false)
         flushPendingLines()
-        if (!ev.wasClean && !fallbackTriggered) {
-          fallbackTriggered = true
-          triggerFallback()
-        }
+        if (!ev.wasClean) scheduleFallback()
       }
     } catch {
       if (!fallbackTriggered) {
@@ -525,6 +530,7 @@ export function useLogStream({
     }
 
     return () => {
+      if (fallbackTimer) clearTimeout(fallbackTimer)
       ws?.close()
     }
   }, [appId, buildId, archiveOnly, appendLine, flushPendingLines])
