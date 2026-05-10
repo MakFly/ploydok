@@ -11,7 +11,6 @@ import {
 import { cn } from "@workspace/ui/lib/utils"
 import { ShellPage } from "../../../../components/layout/AppShell"
 import { useGitHubAppConfig } from "../../../../lib/github"
-import { useGitLabConfig } from "../../../../lib/gitlab"
 
 export const Route = createFileRoute("/_authed/settings/git-providers/")({
   component: GitProvidersHub,
@@ -20,7 +19,7 @@ export const Route = createFileRoute("/_authed/settings/git-providers/")({
 interface ProviderCardProps {
   slug: "github" | "gitlab"
   name: string
-  status: "configured" | "not_configured" | "loading"
+  status: "configured" | "not_configured" | "loading" | "coming_soon"
   description: string
   icon: React.ComponentType<{ className?: string }>
   accent: string
@@ -29,7 +28,6 @@ interface ProviderCardProps {
 
 function GitProvidersHub(): React.JSX.Element {
   const github = useGitHubAppConfig()
-  const gitlab = useGitLabConfig()
 
   const providers: ReadonlyArray<ProviderCardProps> = [
     {
@@ -53,12 +51,7 @@ function GitProvidersHub(): React.JSX.Element {
         "OAuth2 per-user — gitlab.com ou instance self-hosted ; webhook X-Gitlab-Token.",
       icon: RiGitlabFill,
       accent: "text-[#fc6d26]",
-      status: gitlab.isLoading
-        ? "loading"
-        : gitlab.data?.configured
-          ? "configured"
-          : "not_configured",
-      ...(gitlab.data?.instance_url ? { note: gitlab.data.instance_url } : {}),
+      status: "coming_soon",
     },
   ]
 
@@ -87,12 +80,9 @@ function ProviderCard({
   accent,
   note,
 }: ProviderCardProps): React.JSX.Element {
-  return (
-    <Link
-      to="/settings/git-providers/$slug"
-      params={{ slug }}
-      className="group flex flex-col gap-4 rounded-xl border border-border bg-card p-5 transition-colors hover:border-primary/40"
-    >
+  const disabled = status === "coming_soon"
+  const inner = (
+    <>
       <div className="flex items-start gap-3">
         <div className="flex size-11 shrink-0 items-center justify-center rounded-md border border-border bg-background">
           <Icon className={cn("size-6", accent)} />
@@ -108,9 +98,33 @@ function ProviderCard({
             </p>
           ) : null}
         </div>
-        <RiArrowRightSLine className="size-4 shrink-0 text-muted-foreground opacity-0 transition-opacity group-hover:opacity-100" />
+        {!disabled && (
+          <RiArrowRightSLine className="size-4 shrink-0 text-muted-foreground opacity-0 transition-opacity group-hover:opacity-100" />
+        )}
       </div>
       <p className="text-xs text-muted-foreground">{description}</p>
+    </>
+  )
+
+  if (disabled) {
+    return (
+      <div
+        aria-disabled
+        title="Coming soon"
+        className="flex cursor-not-allowed flex-col gap-4 rounded-xl border border-border bg-card p-5 opacity-60"
+      >
+        {inner}
+      </div>
+    )
+  }
+
+  return (
+    <Link
+      to="/settings/git-providers/$slug"
+      params={{ slug }}
+      className="group flex flex-col gap-4 rounded-xl border border-border bg-card p-5 transition-colors hover:border-primary/40"
+    >
+      {inner}
     </Link>
   )
 }
@@ -118,8 +132,15 @@ function ProviderCard({
 function StatusBadge({
   status,
 }: {
-  status: "configured" | "not_configured" | "loading"
+  status: "configured" | "not_configured" | "loading" | "coming_soon"
 }): React.JSX.Element {
+  if (status === "coming_soon") {
+    return (
+      <span className="inline-flex items-center gap-1 rounded-full border border-border bg-background px-1.5 py-0.5 font-mono text-[10px] tracking-wide text-muted-foreground uppercase">
+        Coming soon
+      </span>
+    )
+  }
   if (status === "loading") {
     return (
       <span className="font-mono text-[10px] tracking-wide text-muted-foreground uppercase">

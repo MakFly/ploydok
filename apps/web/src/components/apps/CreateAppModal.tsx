@@ -975,6 +975,7 @@ function ProviderTabs({
     label: string
     hint: string
     icon: React.JSX.Element
+    disabled?: boolean
   }> = [
     {
       id: "github",
@@ -987,6 +988,7 @@ function ProviderTabs({
       label: "GitLab",
       hint: "Auto-deploy sur push",
       icon: <RiGitlabFill className="size-5 text-[#FC6D26]" />,
+      disabled: true,
     },
     {
       id: "image",
@@ -1003,19 +1005,27 @@ function ProviderTabs({
       className="grid gap-2 sm:grid-cols-3"
     >
       {tabs.map((t) => {
-        const active = source === t.id
+        const active = source === t.id && !t.disabled
+        const disabled = Boolean(t.disabled)
         return (
           <button
             key={t.id}
             type="button"
             role="tab"
             aria-selected={active}
-            onClick={() => onChange(t.id)}
+            aria-disabled={disabled}
+            disabled={disabled}
+            onClick={() => {
+              if (!disabled) onChange(t.id)
+            }}
+            title={disabled ? "Coming soon" : undefined}
             className={cn(
               "group relative flex items-center gap-3 rounded-lg border p-3 text-left transition-all",
-              active
-                ? "border-primary bg-primary/5 shadow-sm ring-1 ring-primary/20"
-                : "border-border bg-card hover:border-primary/30 hover:bg-muted/40"
+              disabled
+                ? "cursor-not-allowed border-border bg-muted/30 opacity-60"
+                : active
+                  ? "border-primary bg-primary/5 shadow-sm ring-1 ring-primary/20"
+                  : "border-border bg-card hover:border-primary/30 hover:bg-muted/40"
             )}
           >
             <span
@@ -1036,9 +1046,13 @@ function ProviderTabs({
                 {t.hint}
               </span>
             </span>
-            {active && (
+            {disabled ? (
+              <span className="ml-auto shrink-0 rounded-full border border-border bg-background px-1.5 py-0.5 font-mono text-[9px] tracking-wide text-muted-foreground uppercase">
+                Coming soon
+              </span>
+            ) : active ? (
               <RiCheckLine className="ml-auto size-4 shrink-0 text-primary" />
-            )}
+            ) : null}
           </button>
         )
       })}
