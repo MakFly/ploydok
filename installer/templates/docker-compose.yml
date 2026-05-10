@@ -46,7 +46,12 @@ services:
     labels:
       ploydok.kind: app
       ploydok.component: agent
-      com.centurylinklabs.watchtower.enable: "true"
+      # Excluded from Watchtower auto-update: an agent restart drops the gRPC
+      # connection to in-flight user builds (deploys + container ops). Update
+      # the agent manually when a release contains relevant changes:
+      #   docker compose -f /opt/ploydok/docker-compose.yml pull agent
+      #   docker compose -f /opt/ploydok/docker-compose.yml up -d --no-deps agent
+      com.centurylinklabs.watchtower.enable: "false"
     environment:
       PLOYDOK_AGENT_ADDR: 0.0.0.0:50051
       PLOYDOK_AGENT_PKI_DIR: /var/lib/ploydok/pki
@@ -68,7 +73,12 @@ services:
     labels:
       ploydok.kind: infra
       ploydok.component: caddy
-      com.centurylinklabs.watchtower.enable: "true"
+      # Excluded from Watchtower auto-update: Caddy is the single reverse-proxy
+      # serving every user app. A Watchtower-driven stop+create cycles ~5-8s of
+      # downtime on ALL user apps and the admin UI. Update Caddy manually:
+      #   docker compose -f /opt/ploydok/docker-compose.yml pull caddy
+      #   docker compose -f /opt/ploydok/docker-compose.yml up -d --no-deps caddy
+      com.centurylinklabs.watchtower.enable: "false"
     volumes:
       - ${PLOYDOK_INSTALL_DIR}/Caddyfile:/etc/caddy/Caddyfile:ro
       - caddy-data:/data
