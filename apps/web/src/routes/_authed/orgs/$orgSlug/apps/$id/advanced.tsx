@@ -121,11 +121,17 @@ function AdvancedSettingsPage() {
         </p>
       </div>
 
-      <Alert variant="destructive" className="border-orange-200 bg-orange-50">
-        <AlertDescription className="text-sm text-orange-800">
-          <strong>⚠️ Warning:</strong> An invalid config can break your app
-          routing. The config is automatically validated server-side, but manual
-          rollback may be necessary if Caddy refuses the JSON.
+      <Alert
+        variant="destructive"
+        className="border-orange-200 bg-orange-50 dark:border-orange-900 dark:bg-orange-950"
+      >
+        <AlertDescription className="text-sm text-orange-900 dark:text-orange-100">
+          <strong>⚠️ How it works:</strong> the JSON below is merged into the
+          Caddy route handler chain for this app, in front of the reverse
+          proxy. The Caddy Admin API rejects invalid JSON server-side — your
+          previous handler chain stays in place if validation fails, so a bad
+          paste never takes the app offline. Save again with a corrected
+          config to re-apply.
         </AlertDescription>
       </Alert>
 
@@ -145,6 +151,48 @@ function AdvancedSettingsPage() {
           </div>
         )}
       </div>
+
+      <details className="rounded-lg border border-border bg-muted/20 p-4 text-sm">
+        <summary className="cursor-pointer font-medium">
+          Examples — copy &amp; paste
+        </summary>
+        <div className="mt-3 space-y-4">
+          <div>
+            <p className="mb-1 font-medium">
+              1. Add a security header to every response
+            </p>
+            <pre className="overflow-x-auto rounded-md bg-muted p-3 font-mono text-xs">{`[
+  {
+    "handler": "headers",
+    "response": {
+      "headers": {
+        "Strict-Transport-Security": ["max-age=63072000; includeSubDomains"]
+      }
+    }
+  }
+]`}</pre>
+          </div>
+          <div>
+            <p className="mb-1 font-medium">2. Permanent redirect to /docs</p>
+            <pre className="overflow-x-auto rounded-md bg-muted p-3 font-mono text-xs">{`[
+  {
+    "handler": "static_response",
+    "status_code": 301,
+    "headers": { "Location": ["/docs"] }
+  }
+]`}</pre>
+          </div>
+          <div>
+            <p className="mb-1 font-medium">3. Rewrite /api/* to /v1/*</p>
+            <pre className="overflow-x-auto rounded-md bg-muted p-3 font-mono text-xs">{`[
+  {
+    "handler": "rewrite",
+    "uri": "/v1{http.request.uri.path}"
+  }
+]`}</pre>
+          </div>
+        </div>
+      </details>
 
       <div className="flex gap-2">
         <Button

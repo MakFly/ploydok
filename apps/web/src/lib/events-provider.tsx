@@ -4,6 +4,10 @@
 // events nommés auprès des consumers via Context. Remplace les EventSource
 // multiples ouvertes par useNotifications + useMonitoringEvents.
 //
+// Reconnexion: la spec EventSource arrête le retry natif sur réponse non-2xx
+// (typiquement 401 cookie expiré). On gère donc nous-mêmes le reconnect avec
+// backoff exponentiel + refresh token avant chaque tentative.
+//
 // Usage:
 //   <EventsProvider>          ← monté dans _authed.tsx (1 instance par session authed)
 //     <App />
@@ -20,8 +24,13 @@ import { useBackendUnavailable } from "./backend-status"
 type Listener = (data: unknown) => void
 type Subscribe = (eventType: string, cb: Listener) => () => void
 
+export type EventsStatus = "connecting" | "open" | "reconnecting" | "offline"
+
 const SubscribeContext = React.createContext<Subscribe | null>(null)
-const ConnectedContext = React.createContext<boolean>(false)
+const StatusContext = React.createContext<EventsStatus>("connecting")
+
+const MAX_BACKOFF_MS = 30_000
+const BASE_BACKOFF_MS = 1_000
 
 export function EventsProvider({
   children,
@@ -29,60 +38,108 @@ export function EventsProvider({
   children: React.ReactNode
 }): React.JSX.Element {
   const backendUnavailable = useBackendUnavailable()
-  const [connected, setConnected] = React.useState(false)
+  const [status, setStatus] = React.useState<EventsStatus>("connecting")
   const listenersRef = React.useRef(new Map<string, Set<Listener>>())
   const abortRef = React.useRef<AbortController | null>(null)
   const attachedRef = React.useRef(new Set<string>())
   const esRef = React.useRef<EventSource | null>(null)
+  const attemptRef = React.useRef(0)
+  const reconnectTimerRef = React.useRef<ReturnType<typeof setTimeout> | null>(
+    null
+  )
 
   React.useEffect(() => {
     if (typeof window === "undefined") return
     if (backendUnavailable.active) {
-      abortRef.current?.abort()
-      abortRef.current = null
-      esRef.current?.close()
-      esRef.current = null
-      attachedRef.current = new Set<string>()
-      setConnected(false)
+      teardown()
+      setStatus("offline")
       return
     }
 
     const abort = new AbortController()
     abortRef.current = abort
+    attemptRef.current = 0
+    setStatus("connecting")
 
-    void (async () => {
-      // EventSource cannot retry through apiFetch's 401 refresh path. Refresh
-      // once before opening the stream so a page reload with an expired access
-      // cookie does not create a noisy failed SSE connection first.
+    void openConnection(abort)
+
+    return () => {
+      teardown()
+    }
+
+    function teardown(): void {
+      abort.abort()
+      if (abortRef.current === abort) abortRef.current = null
+      if (reconnectTimerRef.current) {
+        clearTimeout(reconnectTimerRef.current)
+        reconnectTimerRef.current = null
+      }
+      esRef.current?.close()
+      esRef.current = null
+      attachedRef.current = new Set<string>()
+    }
+
+    async function openConnection(currentAbort: AbortController): Promise<void> {
+      // EventSource cannot retry through apiFetch's 401 refresh path.
+      // Always refresh the access cookie before (re)opening the stream so
+      // the SSE handshake doesn't get rejected on stale tokens.
       await triggerRefresh().catch(() => undefined)
-      if (abort.signal.aborted) return
+      if (currentAbort.signal.aborted) return
 
+      esRef.current?.close()
       const es = new EventSource(`${apiBaseUrl()}/events`, {
         withCredentials: true,
       })
       esRef.current = es
       attachedRef.current = new Set<string>()
 
-      es.onopen = () => setConnected(true)
-      es.onerror = () => setConnected(false)
+      es.onopen = () => {
+        if (currentAbort.signal.aborted) return
+        attemptRef.current = 0
+        setStatus("open")
+      }
+
+      es.onerror = () => {
+        if (currentAbort.signal.aborted) return
+        // Browser native retry will fire onopen again on transient errors.
+        // We only schedule our own reconnect when the EventSource has been
+        // permanently closed by the browser (CLOSED == non-2xx response).
+        if (es.readyState === EventSource.CLOSED) {
+          esRef.current?.close()
+          esRef.current = null
+          scheduleReconnect(currentAbort)
+        } else {
+          // Transient — surface the reconnecting state but let the browser
+          // handle the retry. onopen will reset us to "open".
+          setStatus("reconnecting")
+        }
+      }
 
       // Re-attach every event type already subscribed at the time of mount.
       // Needed if a consumer subscribed before the EventSource was opened.
       for (const eventType of listenersRef.current.keys()) {
         if (!attachedRef.current.has(eventType)) {
-          attachListener(es, eventType, listenersRef.current, abort.signal)
+          attachListener(es, eventType, listenersRef.current, currentAbort.signal)
           attachedRef.current.add(eventType)
         }
       }
-    })()
+    }
 
-    return () => {
-      abort.abort()
-      if (abortRef.current === abort) abortRef.current = null
-      esRef.current?.close()
-      esRef.current = null
-      attachedRef.current = new Set<string>()
-      setConnected(false)
+    function scheduleReconnect(currentAbort: AbortController): void {
+      if (currentAbort.signal.aborted) return
+      const delay = Math.min(
+        BASE_BACKOFF_MS * Math.pow(2, attemptRef.current),
+        MAX_BACKOFF_MS
+      )
+      attemptRef.current += 1
+      setStatus("reconnecting")
+
+      if (reconnectTimerRef.current) clearTimeout(reconnectTimerRef.current)
+      reconnectTimerRef.current = setTimeout(() => {
+        reconnectTimerRef.current = null
+        if (currentAbort.signal.aborted) return
+        void openConnection(currentAbort)
+      }, delay)
     }
   }, [backendUnavailable.active])
 
@@ -115,9 +172,7 @@ export function EventsProvider({
 
   return (
     <SubscribeContext.Provider value={subscribe}>
-      <ConnectedContext.Provider value={connected}>
-        {children}
-      </ConnectedContext.Provider>
+      <StatusContext.Provider value={status}>{children}</StatusContext.Provider>
     </SubscribeContext.Provider>
   )
 }
@@ -174,8 +229,13 @@ export function useEventsSubscription<T>(
   }, [subscribe, eventType, enabled])
 }
 
+export function useEventsStatus(): EventsStatus {
+  return React.useContext(StatusContext)
+}
+
+/** Backward-compat boolean: true only when the stream is fully open. */
 export function useEventsConnected(): boolean {
-  return React.useContext(ConnectedContext)
+  return React.useContext(StatusContext) === "open"
 }
 
 /**

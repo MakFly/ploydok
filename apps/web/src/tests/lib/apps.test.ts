@@ -213,19 +213,35 @@ describe("app runtime status helpers", () => {
     expect(selected?.id).toBe("running")
   })
 
-  it("returns null when expectedRef does not match any container", () => {
-    // Repro of the failed-deploy orphan bug: apps.container_id points at the
-    // canonical blue (now stopped), but a separate green is up + running with
-    // the same app_id label. With expectedRef pinned to the canonical name,
-    // the orphan must NOT be picked — otherwise the dashboard shows
-    // "Failed | Healthy".
+  it("falls back to highest-priority snapshot when expectedRef is stale", () => {
+    // Recreation scenario: apps.container_id in DB points at a previous
+    // container reference (blue/green swap, host reboot, watchtower swap),
+    // but the live agent reports a fresh container with the right app_id
+    // label. We pick it so the badge stops lying about "Stopped". The API
+    // reconciler refreshes apps.container_id on the next /apps fetch.
     const selected = selectAppSnapshot(
       [
         makeSnapshot({
-          id: "ctr-orphan-green",
+          id: "ctr-fresh-green",
           name: "ploydok-app-x-green",
           status: "running",
           last_seen_ms: 5000,
+        }),
+      ],
+      "app-1",
+      "ploydok-app-x-blue"
+    )
+    expect(selected?.id).toBe("ctr-fresh-green")
+  })
+
+  it("returns null when expectedRef is stale and no container has the right app_id", () => {
+    const selected = selectAppSnapshot(
+      [
+        makeSnapshot({
+          app_id: "other-app",
+          id: "ctr-other",
+          name: "ploydok-app-other-blue",
+          status: "running",
         }),
       ],
       "app-1",

@@ -155,15 +155,56 @@ async function persistStatus(
   }
 }
 
+async function persistContainerId(
+  db: Db,
+  appId: string,
+  next: string,
+  prev: string | null
+): Promise<void> {
+  try {
+    await db
+      .update(apps)
+      .set({ container_id: next, updated_at: new Date() })
+      .where(eq(apps.id, appId))
+    log.info({ appId, from: prev, to: next }, "reconciled apps.container_id")
+  } catch (err) {
+    log.warn({ err, appId }, "failed to persist reconciled container_id")
+  }
+}
+
 export async function reconcileAppStatusFromIndex<T extends ReconcilableApp>(
   db: Db,
   app: T,
   index: AppContainerIndex
 ): Promise<T> {
-  const next = deriveLiveStatus(app, index)
-  if (!next || next === app.status) return app
-  await persistStatus(db, app.id, next, app.status)
-  return { ...app, status: next }
+  let mutated: T = app
+  const live = resolveLiveContainer(app, index)
+  if (live && live.name !== app.container_id && live.id !== app.container_id) {
+    // Container was recreated (blue/green swap, restart, etc.) — refresh the
+    // canonical reference so the UI strict match keeps working.
+    await persistContainerId(db, app.id, live.name, app.container_id)
+    mutated = { ...mutated, container_id: live.name }
+  }
+
+  const next = deriveLiveStatus(mutated, index)
+  if (next && next !== mutated.status) {
+    await persistStatus(db, mutated.id, next, mutated.status)
+    mutated = { ...mutated, status: next }
+  }
+  return mutated
+}
+
+function resolveLiveContainer(
+  app: ReconcilableApp,
+  index: AppContainerIndex
+): ContainerLite | null {
+  if (app.container_id) {
+    const direct =
+      index.byContainerId.get(app.container_id) ??
+      index.byContainerName.get(app.container_id)
+    if (direct) return direct
+  }
+  return index.bestByAppId.get(app.id) ?? null
 }
 
 export async function reconcileAppStatus<T extends ReconcilableApp>(
