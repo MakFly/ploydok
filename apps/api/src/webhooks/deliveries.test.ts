@@ -88,8 +88,11 @@ describe("insertDelivery", () => {
     expect(vals.decision).toBe("enqueued")
     expect(vals.signature_valid).toBe(true)
     expect(vals.payload_hash).toBe("abc123")
-    expect(vals.payload_raw).toBeTruthy() // gzipped
-    expect(vals.payload_raw_expires_at).toBeInstanceOf(Date)
+    // payload_raw temporarily skipped (postgres.js bytea bind crash); the
+    // truncated flag still reflects the size cap so consumers can detect a
+    // missed audit body. Re-enable with a proper bytea binder fix.
+    expect(vals.payload_raw).toBeNull()
+    expect(vals.payload_raw_expires_at).toBeNull()
     expect(vals.payload_truncated).toBe(false)
   })
 
