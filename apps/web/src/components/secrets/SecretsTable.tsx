@@ -1,6 +1,11 @@
 // SPDX-License-Identifier: AGPL-3.0-only
 import * as React from "react"
-import { RiDatabase2Line, RiDeleteBinLine, RiEyeLine } from "@remixicon/react"
+import {
+  RiDatabase2Line,
+  RiDeleteBinLine,
+  RiEyeLine,
+  RiPencilLine,
+} from "@remixicon/react"
 import { Button } from "@workspace/ui/components/button"
 import { Badge } from "@workspace/ui/components/badge"
 import { useDeleteSecret } from "../../lib/secrets"
@@ -11,6 +16,7 @@ interface SecretsTableProps {
   scope: SecretScope
   secrets: Array<SecretMeta>
   onReveal: (key: string, scope: SecretScope, phase: SecretPhase) => void
+  onEdit?: (secret: SecretMeta) => void
 }
 
 export function SecretsTable({
@@ -18,6 +24,7 @@ export function SecretsTable({
   scope,
   secrets,
   onReveal,
+  onEdit = () => {},
 }: SecretsTableProps): React.JSX.Element {
   const { mutate: deleteSecret, isPending: isDeleting } = useDeleteSecret(appId)
 
@@ -89,6 +96,24 @@ export function SecretsTable({
                     title="Reveal value"
                   >
                     <RiEyeLine className="size-4" />
+                  </Button>
+                  <Button
+                    variant="ghost"
+                    size="icon"
+                    onClick={() => onEdit(secret)}
+                    disabled={secret.managed_by === "database"}
+                    title={
+                      secret.managed_by === "database"
+                        ? "Managed by database link"
+                        : "Edit secret"
+                    }
+                    aria-label={
+                      secret.managed_by === "database"
+                        ? "Managed by database link"
+                        : "Edit secret"
+                    }
+                  >
+                    <RiPencilLine className="size-4" />
                   </Button>
                   <Button
                     variant="ghost"

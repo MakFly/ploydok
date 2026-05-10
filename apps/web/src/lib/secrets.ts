@@ -33,6 +33,13 @@ export interface CreateSecretPayload {
   phase?: SecretPhase
 }
 
+export interface UpdateSecretPayload {
+  key: string
+  value: string
+  scope: SecretScope
+  phase: SecretPhase
+}
+
 export interface ImportEnvResult {
   imported: number
   removed: number
@@ -95,6 +102,33 @@ export function useCreateSecret(appId: string) {
         method: "POST",
         body: JSON.stringify(payload),
       })
+    },
+    onSuccess: () => {
+      qc.invalidateQueries({ queryKey: ["apps", appId, "secrets"] })
+    },
+  })
+}
+
+// ---------------------------------------------------------------------------
+// useUpdateSecret — PATCH /apps/:id/secrets/:key?scope=&phase=
+// ---------------------------------------------------------------------------
+
+export function useUpdateSecret(appId: string) {
+  const qc = useQueryClient()
+
+  return useMutation<
+    { key: string; scope: SecretScope; phase: SecretPhase },
+    ApiError,
+    UpdateSecretPayload
+  >({
+    mutationFn: async ({ key, scope, phase, value }) => {
+      return apiFetch(
+        `/apps/${appId}/secrets/${encodeURIComponent(key)}?scope=${scope}&phase=${phase}`,
+        {
+          method: "PATCH",
+          body: { value },
+        }
+      )
     },
     onSuccess: () => {
       qc.invalidateQueries({ queryKey: ["apps", appId, "secrets"] })
