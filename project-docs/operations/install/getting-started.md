@@ -40,12 +40,14 @@ Par défaut, les fichiers d’exécution restent séparés des données mutables
 --manage-firewall
 --yes
 --unattended
---runtime=swarm|compose      # default: swarm
+--runtime=swarm|compose      # default: compose
 ```
 
 ## Runtime : Swarm vs Compose
 
-**Swarm (par défaut)** — le control-plane (api, web) tourne en `replicas: 2`
+**Compose (par défaut)** — un container par service supervisé par `ploydok.service`. Mises à jour manuelles (`ploydok-cli upgrade`) ou via Watchtower si la stack le fournit. Mode safe pour tout VPS ; pas de prérequis Docker Swarm. Recommandé si MVP et qu'un downtime de quelques secondes lors d'une upgrade est acceptable.
+
+**Swarm (`--runtime=swarm`)** — le control-plane (api, web) tourne en `replicas: 2`
 sur Docker Swarm avec `update_config.order: start-first` + healthcheck-gated
 cutover. Une nouvelle image `:edge` poussée par la CI déclenche un rolling
 update (zéro 502 visible côté Caddy) via le timer systemd

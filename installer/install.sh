@@ -4,7 +4,7 @@ set -Eeuo pipefail
 
 VERSION="${PLOYDOK_VERSION:-edge}"
 MODE=""
-RUNTIME="${PLOYDOK_RUNTIME:-swarm}"
+RUNTIME="${PLOYDOK_RUNTIME:-compose}"
 HTTP_PORT="8080"
 HTTPS_PORT="8443"
 INSTALL_DIR="/opt/ploydok"
@@ -48,7 +48,7 @@ Options:
   --unattended
   --version=<tag>
   --image-registry=<registry>
-  --runtime=swarm|compose      (default: swarm — single-node Swarm with rolling updates)
+  --runtime=swarm|compose      (default: compose — pass swarm for rolling-update single-node Swarm)
   --help
 
 Environment for tests:
