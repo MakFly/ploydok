@@ -4,6 +4,7 @@ set -Eeuo pipefail
 
 VERSION="${PLOYDOK_VERSION:-edge}"
 MODE=""
+RUNTIME="${PLOYDOK_RUNTIME:-swarm}"
 HTTP_PORT="8080"
 HTTPS_PORT="8443"
 INSTALL_DIR="/opt/ploydok"
@@ -47,6 +48,7 @@ Options:
   --unattended
   --version=<tag>
   --image-registry=<registry>
+  --runtime=swarm|compose      (default: swarm — single-node Swarm with rolling updates)
   --help
 
 Environment for tests:
@@ -74,6 +76,7 @@ for arg in "$@"; do
     --unattended) UNATTENDED=1; YES=1; MODE="coexist" ;;
     --version=*) VERSION="${arg#*=}" ;;
     --image-registry=*) IMAGE_REGISTRY="${arg#*=}" ;;
+    --runtime=*) RUNTIME="${arg#*=}" ;;
     --help) usage; exit 0 ;;
     *) echo "Unknown option: $arg" >&2; usage >&2; exit 1 ;;
   esac
@@ -82,6 +85,11 @@ done
 case "$MODE" in
   ""|takeover|coexist|bootstrap-http|abort) ;;
   *) echo "Invalid --mode: $MODE" >&2; exit 1 ;;
+esac
+
+case "$RUNTIME" in
+  swarm|compose) ;;
+  *) echo "Invalid --runtime: $RUNTIME (expected swarm|compose)" >&2; exit 1 ;;
 esac
 
 case "$PUBLIC_SCHEME" in
@@ -598,6 +606,32 @@ install_docker() {
   command -v docker >/dev/null 2>&1 || die "Docker installation failed" 3
 }
 
+# Initialise un Swarm single-node si la machine n'en fait pas déjà partie.
+# Idempotent — si Swarm est déjà actif, on ne touche à rien (un opérateur a
+# pu joindre la machine à un cluster multi-node existant).
+ensure_swarm() {
+  [[ "$RUNTIME" == "swarm" ]] || return 0
+  local state
+  state="$(docker info --format '{{ .Swarm.LocalNodeState }}' 2>/dev/null || echo inactive)"
+  if [[ "$state" == "active" ]]; then
+    log "Docker Swarm already active (node state: $state)"
+    return 0
+  fi
+  if [[ "$DRY_RUN" == "1" ]]; then
+    log "dry-run: docker swarm init"
+    return 0
+  fi
+  local advertise
+  advertise="$(hostname -I 2>/dev/null | awk '{print $1}' || true)"
+  if [[ -n "$advertise" ]]; then
+    log "Initialising Docker Swarm (single-node, advertise-addr=$advertise)"
+    run docker swarm init --advertise-addr "$advertise"
+  else
+    log "Initialising Docker Swarm (single-node)"
+    run docker swarm init
+  fi
+}
+
 install_cli() {
   local src
   src="$(install_dir)/ploydok-cli"
@@ -637,11 +671,18 @@ verify_or_pull_images() {
 }
 
 write_templates() {
-  render_template docker-compose.yml | write_file "$INSTALL_DIR/docker-compose.yml" 0640 "$INSTALL_OWNER:$INSTALL_OWNER"
+  if [[ "$RUNTIME" == "swarm" ]]; then
+    render_template docker-stack.yml | write_file "$INSTALL_DIR/docker-stack.yml" 0640 "$INSTALL_OWNER:$INSTALL_OWNER"
+    render_template ploydok.service | write_file "/etc/systemd/system/ploydok.service" 0644
+    render_template ploydok-update.service | write_file "/etc/systemd/system/ploydok-update.service" 0644
+    render_template ploydok-update.timer | write_file "/etc/systemd/system/ploydok-update.timer" 0644
+  else
+    render_template docker-compose.yml | write_file "$INSTALL_DIR/docker-compose.yml" 0640 "$INSTALL_OWNER:$INSTALL_OWNER"
+    render_template ploydok.service | write_file "/etc/systemd/system/ploydok.service" 0644
+  fi
   render_template validator.toml | write_file "$DATA_DIR/config/validator.toml" 0640 ploydok:ploydok
   render_template buildkitd.toml | write_file "$DATA_DIR/config/buildkitd.toml" 0644 ploydok:ploydok
   render_template Caddyfile | write_file "$INSTALL_DIR/Caddyfile" 0644 "$INSTALL_OWNER:$INSTALL_OWNER"
-  render_template ploydok.service | write_file "/etc/systemd/system/ploydok.service" 0644
   render_template ploydok.target | write_file "/etc/systemd/system/ploydok.target" 0644
   if [[ "$MODE" == "coexist" ]]; then
     render_template nginx-ploydok.conf | write_file "/etc/nginx/snippets/ploydok.conf" 0644
@@ -686,6 +727,9 @@ start_services() {
   # oneshot/RemainAfterExit service was left in `active (exited)` by a prior
   # run — `systemctl start` is a no-op on an already-active oneshot.
   run systemctl restart ploydok.service
+  if [[ "$RUNTIME" == "swarm" ]]; then
+    run systemctl enable --now ploydok-update.timer
+  fi
 }
 
 wait_health() {
@@ -703,6 +747,14 @@ wait_health() {
 
 db_migrate() {
   [[ "$DRY_RUN" == "1" ]] && { log "dry-run: applying db migrations"; return; }
+  if [[ "$RUNTIME" == "swarm" ]]; then
+    db_migrate_swarm
+  else
+    db_migrate_compose
+  fi
+}
+
+db_migrate_compose() {
   local compose=(docker compose --env-file "$DATA_DIR/.env" -f "$INSTALL_DIR/docker-compose.yml")
   log "waiting for postgres to accept connections"
   for _ in $(seq 1 60); do
@@ -715,6 +767,26 @@ db_migrate() {
   "${compose[@]}" exec -T api bun run /app/packages/db/src/migrate.ts
   log "restarting api after migrations"
   "${compose[@]}" restart api >/dev/null
+}
+
+db_migrate_swarm() {
+  log "waiting for postgres task to be ready"
+  local pg_id=""
+  for _ in $(seq 1 60); do
+    pg_id="$(docker ps -q --filter label=com.docker.swarm.service.name=ploydok_postgres | head -n1)"
+    if [[ -n "$pg_id" ]] && docker exec "$pg_id" pg_isready -U ploydok -d ploydok >/dev/null 2>&1; then
+      break
+    fi
+    sleep 1
+  done
+  [[ -n "$pg_id" ]] || die "postgres task did not appear in time" 1
+  log "applying database migrations"
+  local api_id
+  api_id="$(docker ps -q --filter label=com.docker.swarm.service.name=ploydok_api | head -n1)"
+  [[ -n "$api_id" ]] || die "api task did not appear in time" 1
+  docker exec "$api_id" bun run /app/packages/db/src/migrate.ts
+  log "forcing api rolling restart after migrations"
+  run docker service update --force --detach ploydok_api
 }
 
 main() {
@@ -730,6 +802,7 @@ main() {
   generate_secrets
   generate_mtls
   generate_agent_pki
+  ensure_swarm
   verify_or_pull_images
   write_templates
   configure_firewall

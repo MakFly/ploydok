@@ -1,0 +1,17 @@
+[Unit]
+Description=Ploydok control-plane image refresher
+Requires=docker.service
+After=docker.service ploydok.service
+Wants=network-online.target
+
+[Service]
+Type=oneshot
+WorkingDirectory=${PLOYDOK_INSTALL_DIR}
+EnvironmentFile=${PLOYDOK_DATA_DIR}/.env
+# `--resolve-image always` re-resolves each tagged image (e.g. :edge) to its
+# current registry digest. If the digest differs from what the running tasks
+# pinned, Swarm executes a rolling update per the deploy.update_config of
+# each service (start-first + healthcheck-gated cutover). When all digests
+# match, this is a no-op.
+ExecStart=/usr/bin/docker stack deploy --resolve-image always --with-registry-auth --prune -c ${PLOYDOK_INSTALL_DIR}/docker-stack.yml ploydok
+TimeoutStartSec=300

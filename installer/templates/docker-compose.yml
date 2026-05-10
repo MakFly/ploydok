@@ -132,24 +132,6 @@ services:
     networks:
       - ploydok
 
-  watchtower:
-    image: containrrr/watchtower:1.7.1
-    restart: unless-stopped
-    environment:
-      DOCKER_API_VERSION: "1.40"
-      WATCHTOWER_CLEANUP: "true"
-      WATCHTOWER_INCLUDE_RESTARTING: "true"
-      WATCHTOWER_LABEL_ENABLE: "true"
-      WATCHTOWER_POLL_INTERVAL: "300"
-      WATCHTOWER_ROLLING_RESTART: "true"
-    labels:
-      ploydok.kind: infra
-      ploydok.component: watchtower
-    volumes:
-      - /var/run/docker.sock:/var/run/docker.sock
-    networks:
-      - ploydok
-
   buildkitd:
     image: moby/buildkit:v0.29.0-rootless
     container_name: ploydok-buildkitd
