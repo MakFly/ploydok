@@ -24,6 +24,7 @@ mock.module("../databases/spawner", () => ({
   getConnectionString: mock(
     async () => "postgres://ploydok:secret@ploydok-db-db-test-id:5432/app"
   ),
+  getConnectionPassword: mock(async () => "secret"),
   startDatabaseContainer: mock(async () => {}),
   stopDatabaseContainer: mock(async () => {}),
   recreateDatabaseContainer: mock(
@@ -190,6 +191,30 @@ describe("POST /databases validation", () => {
     const data = (await res.json()) as { id: string }
     expect(data.id).toBe("db-test-id")
   })
+
+  it("replays POST /databases by idempotency key", async () => {
+    const db = buildDb({
+      dbRow: {
+        id: "db-existing",
+        project_id: "proj-1",
+        creation_idempotency_key: "create-test-key:database",
+      },
+    })
+    const app = wrapRouter(db)
+    const res = await app.fetch(
+      req("POST", "/", {
+        projectId: "proj-1",
+        kind: "postgres",
+        name: "mydb",
+        plan: "small",
+        idempotencyKey: "create-test-key:database",
+      })
+    )
+
+    expect(res.status).toBe(200)
+    const data = (await res.json()) as { id: string }
+    expect(data.id).toBe("db-existing")
+  })
 })
 
 describe("POST /databases/external", () => {
@@ -223,6 +248,38 @@ describe("POST /databases/external", () => {
     expect(res.status).toBe(400)
     const data = (await res.json()) as { error: { code: string } }
     expect(data.error.code).toBe("VALIDATION_ERROR")
+  })
+})
+
+describe("POST /databases/:id/reveal", () => {
+  it("returns the connection string and extracted password", async () => {
+    const db = buildDb({
+      dbRow: {
+        id: "db-test-id",
+        project_id: "proj-1",
+        kind: "postgres",
+        name: "mydb",
+        plan: "small",
+        status: "running",
+        host: "ploydok-db-db-test-id",
+        port: 5432,
+        container_id: "container-123",
+        connection_string_enc: Buffer.from("enc"),
+        connection_string_nonce: Buffer.from("nonce"),
+        master_password_enc: Buffer.from("pw"),
+        master_password_nonce: Buffer.from("nonce"),
+      },
+    })
+    const app = wrapRouter(db)
+    const res = await app.fetch(req("POST", "/db-test-id/reveal"))
+
+    expect(res.status).toBe(200)
+    const data = (await res.json()) as {
+      connection_string: string
+      password: string
+    }
+    expect(data.connection_string).toContain("postgres://")
+    expect(data.password).toBe("secret")
   })
 })
 

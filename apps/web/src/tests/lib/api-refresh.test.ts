@@ -103,6 +103,22 @@ describe("apiFetch — auto-refresh sur 401", () => {
     expect(urls.filter((u) => u.includes("/auth/refresh")).length).toBe(0);
   });
 
+  it("ne retente pas les endpoints password pré-session", async () => {
+    enqueue(`${BASE}/auth/csrf`, [{ status: 200, body: { token: "t" } }]);
+    enqueue(`${BASE}/auth/login/password`, [
+      { status: 401, body: { error: { code: "INVALID_CREDENTIALS" } } },
+    ]);
+
+    await expect(
+      apiFetch("/auth/login/password", {
+        method: "POST",
+        body: { email: "admin@example.com", password: "wrong" },
+      }),
+    ).rejects.toBeInstanceOf(ApiError);
+    const urls = calls.map((c) => c.url);
+    expect(urls.filter((u) => u.includes("/auth/refresh")).length).toBe(0);
+  });
+
   it("retente /auth/sessions après un refresh réussi (endpoint protégé)", async () => {
     enqueue(`${BASE}/auth/sessions`, [
       { status: 401, body: { error: { code: "UNAUTHENTICATED", message: "expired" } } },

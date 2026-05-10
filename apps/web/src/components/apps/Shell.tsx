@@ -1,5 +1,6 @@
 // SPDX-License-Identifier: AGPL-3.0-only
 import * as React from "react"
+import { apiWebSocketBaseUrl } from "../../lib/api/base"
 import { apiFetch } from "../../lib/api/client"
 import { FileBrowser } from "./FileBrowser"
 
@@ -14,8 +15,6 @@ import { FileBrowser } from "./FileBrowser"
 //                          | {"type":"error","message":"..."}
 // Close codes: 4001=Unauthorized, 4004=AppNotFound, 1001=Idle, 1011=InternalError
 // ---------------------------------------------------------------------------
-
-const API_BASE = import.meta.env.VITE_API_URL ?? "http://localhost:3335"
 
 interface ShellProps {
   appId: string
@@ -105,7 +104,7 @@ export function Shell({ appId }: ShellProps): React.JSX.Element {
       fitRef.current = fitAddon
 
       const { cols, rows } = term
-      const wsBase = API_BASE.replace(/^http/, "ws")
+      const wsBase = apiWebSocketBaseUrl()
       const url = `${wsBase}/ws/apps/${appId}/exec?cols=${cols}&rows=${rows}&mode=${mode}`
 
       term.write(
@@ -240,7 +239,7 @@ export function Shell({ appId }: ShellProps): React.JSX.Element {
     <div className="flex h-full w-full">
       <div className="flex min-w-0 flex-1 flex-col bg-[#09090b]">
         <div className="flex h-9 shrink-0 items-center justify-between border-b border-zinc-800 px-3">
-          <span className="font-mono text-[12px] uppercase tracking-normal text-zinc-400">
+          <span className="font-mono text-[12px] tracking-normal text-zinc-400 uppercase">
             {mode === "rw" ? "write" : "read-only"}
           </span>
           <button

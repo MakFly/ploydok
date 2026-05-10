@@ -1,6 +1,6 @@
 // SPDX-License-Identifier: AGPL-3.0-only
 
-const API_BASE = import.meta.env.VITE_API_URL ?? "http://localhost:3335"
+import { apiBaseUrl } from "./base"
 
 export class ApiError extends Error {
   constructor(
@@ -31,7 +31,7 @@ export class SecondFactorRequiredError extends ApiError {
 
 export class BackendUnavailableError extends ApiError {
   constructor(
-    message = `Le frontend ne parvient plus a joindre l'API sur ${API_BASE}.`
+    message = `Le frontend ne parvient plus a joindre l'API sur ${apiBaseUrl()}.`
   ) {
     super(503, "BACKEND_UNAVAILABLE", message)
     this.name = "BackendUnavailableError"

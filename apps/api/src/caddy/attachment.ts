@@ -12,7 +12,7 @@ import { and, eq, inArray, isNotNull } from "drizzle-orm"
 import { apps as appsTable, projects as projectsTable } from "@ploydok/db"
 import type { Db } from "@ploydok/db"
 import type { Agent } from "../agent"
-import { AgentError, GrpcStatus, isAlreadyExists } from "../agent/index.js"
+import { isAlreadyExists, isNotFound, toAgentError } from "../agent/index.js"
 import { childLogger } from "../logger"
 
 const log = childLogger("caddy-attach")
@@ -70,17 +70,14 @@ export async function ensureCaddyOnProjectNetwork(
     })
     log.info({ projectNetwork, caddyId }, "caddy attached to project network")
   } catch (err) {
-    if (isAlreadyExists(err)) {
+    const agentErr = toAgentError(err)
+    if (isAlreadyExists(agentErr)) {
       log.debug({ projectNetwork, caddyId }, "caddy already on project network")
       return
     }
     // NOT_FOUND on the container id almost always means Caddy was recreated
     // (compose down/up). Invalidate the cache and retry once.
-    if (
-      err instanceof AgentError &&
-      err.code === GrpcStatus.NOT_FOUND &&
-      /container/i.test(err.details)
-    ) {
+    if (isNotFound(agentErr) && /container/i.test(agentErr.details)) {
       resetCaddyIdCache()
       const freshId = await resolveCaddyContainerId(agent)
       await agent.networkConnect({
@@ -119,7 +116,7 @@ export async function detachCaddyFromProjectNetwork(
     })
     log.info({ projectNetwork, caddyId }, "caddy detached from project network")
   } catch (err) {
-    if (err instanceof AgentError && err.code === GrpcStatus.NOT_FOUND) {
+    if (isNotFound(toAgentError(err))) {
       log.debug({ projectNetwork }, "caddy not on project network — nothing to detach")
       return
     }

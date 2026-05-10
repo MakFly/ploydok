@@ -20,6 +20,7 @@ import { childLogger } from "../logger"
 import type { AuthUser } from "../auth/middleware"
 
 const log = childLogger("apps-databases-link.routes")
+export const DEFAULT_DATABASE_ENV_PREFIX = "DATABASE"
 
 type AppEnv = { Variables: { user?: AuthUser } }
 
@@ -34,7 +35,7 @@ const LinkBody = z.object({
     .max(32)
     .regex(/^[A-Z0-9_]+$/)
     .optional()
-    .default("DB"),
+    .default(DEFAULT_DATABASE_ENV_PREFIX),
 })
 
 export function parseConnectionString(
@@ -201,10 +202,7 @@ export function createAppsDatabasesLinkRouter(db: Db): Hono<any, any, any> {
       })
       .from(secrets)
       .where(
-        and(
-          eq(secrets.app_id, appId),
-          inArray(secrets.key, requestedKeys)
-        )
+        and(eq(secrets.app_id, appId), inArray(secrets.key, requestedKeys))
       )
 
     const conflictingKeys = findLinkedEnvKeyConflicts(existingSecrets, dbId)

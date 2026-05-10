@@ -1,6 +1,12 @@
-[paths]
-allowed_host_roots = [
-  "${PLOYDOK_DATA_DIR}/volumes",
-  "${PLOYDOK_DATA_DIR}/app-volumes",
-  "${PLOYDOK_DATA_DIR}/static",
+allowed_registries = [
+  "docker.io",
+  "ghcr.io",
+  "registry.ploydok.io",
+  "registry:5000",
+  "127.0.0.1:5000",
 ]
+
+volume_prefix = "${PLOYDOK_DATA_DIR}/volumes"
+app_volume_prefix = "${PLOYDOK_DATA_DIR}/app-volumes"
+max_cpu = 4.0
+max_memory_bytes = 8589934592

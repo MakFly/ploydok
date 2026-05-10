@@ -31,6 +31,7 @@ const schema = z.object({
     .optional()
     .default("http://localhost:3335/gitlab/callback"),
   PLOYDOK_REGISTRY_URL: z.string().default("127.0.0.1:5000"),
+  PLOYDOK_REGISTRY_API_URL: z.string().optional(),
   PLOYDOK_REGISTRY_PUSH_URL: z.string().default("registry:5000"),
   PLOYDOK_REGISTRY_USER: z.string().optional(),
   PLOYDOK_REGISTRY_PASS: z.string().optional(),
@@ -45,6 +46,14 @@ const schema = z.object({
   PLOYDOK_PUBLIC_SCHEME: z.enum(["http", "https"]).optional(),
   PLOYDOK_PUBLIC_PORT: z.coerce.number().int().positive().optional(),
   PLOYDOK_PUBLIC_HOST: z.string().min(1).optional(),
+  PLOYDOK_DOMAIN_BASE: z.string().min(1).optional(),
+  PLOYDOK_SETUP_TOKEN_REQUIRED: z
+    .string()
+    .optional()
+    .transform((value) =>
+      value === undefined ? undefined : /^(1|true|yes|on)$/i.test(value.trim())
+    ),
+  PLOYDOK_COOKIE_SECURE: z.enum(["auto", "true", "false"]).default("auto"),
   STRIPE_SECRET_KEY: z.string().optional(),
   STRIPE_WEBHOOK_SECRET: z.string().optional(),
   STRIPE_PRO_PRICE_ID: z.string().optional(),
@@ -71,6 +80,7 @@ const raw = schema.parse({
   GITHUB_APP_CALLBACK_URL: Bun.env["GITHUB_APP_CALLBACK_URL"],
   GITLAB_OAUTH_CALLBACK_URL: Bun.env["GITLAB_OAUTH_CALLBACK_URL"],
   PLOYDOK_REGISTRY_URL: Bun.env["PLOYDOK_REGISTRY_URL"],
+  PLOYDOK_REGISTRY_API_URL: Bun.env["PLOYDOK_REGISTRY_API_URL"],
   PLOYDOK_REGISTRY_PUSH_URL: Bun.env["PLOYDOK_REGISTRY_PUSH_URL"],
   PLOYDOK_REGISTRY_USER: Bun.env["PLOYDOK_REGISTRY_USER"],
   PLOYDOK_REGISTRY_PASS: Bun.env["PLOYDOK_REGISTRY_PASS"],
@@ -80,6 +90,9 @@ const raw = schema.parse({
   PLOYDOK_PUBLIC_SCHEME: Bun.env["PLOYDOK_PUBLIC_SCHEME"],
   PLOYDOK_PUBLIC_PORT: Bun.env["PLOYDOK_PUBLIC_PORT"],
   PLOYDOK_PUBLIC_HOST: Bun.env["PLOYDOK_PUBLIC_HOST"],
+  PLOYDOK_DOMAIN_BASE: Bun.env["PLOYDOK_DOMAIN_BASE"],
+  PLOYDOK_SETUP_TOKEN_REQUIRED: Bun.env["PLOYDOK_SETUP_TOKEN_REQUIRED"],
+  PLOYDOK_COOKIE_SECURE: Bun.env["PLOYDOK_COOKIE_SECURE"],
   STRIPE_SECRET_KEY: Bun.env["STRIPE_SECRET_KEY"],
   STRIPE_WEBHOOK_SECRET: Bun.env["STRIPE_WEBHOOK_SECRET"],
   STRIPE_PRO_PRICE_ID: Bun.env["STRIPE_PRO_PRICE_ID"],
@@ -154,6 +167,8 @@ export const env = {
   GITHUB_APP_CALLBACK_URL: raw.GITHUB_APP_CALLBACK_URL,
   GITLAB_OAUTH_CALLBACK_URL: raw.GITLAB_OAUTH_CALLBACK_URL,
   PLOYDOK_REGISTRY_URL: raw.PLOYDOK_REGISTRY_URL,
+  PLOYDOK_REGISTRY_API_URL:
+    raw.PLOYDOK_REGISTRY_API_URL ?? raw.PLOYDOK_REGISTRY_PUSH_URL,
   PLOYDOK_REGISTRY_PUSH_URL: raw.PLOYDOK_REGISTRY_PUSH_URL,
   PLOYDOK_REGISTRY_USER: raw.PLOYDOK_REGISTRY_USER,
   PLOYDOK_REGISTRY_PASS: raw.PLOYDOK_REGISTRY_PASS,
@@ -164,6 +179,9 @@ export const env = {
     raw.PLOYDOK_PUBLIC_SCHEME ?? (isProd ? "https" : "http"),
   PLOYDOK_PUBLIC_PORT: raw.PLOYDOK_PUBLIC_PORT ?? (isProd ? undefined : 8180),
   PLOYDOK_PUBLIC_HOST: raw.PLOYDOK_PUBLIC_HOST ?? "localhost",
+  PLOYDOK_DOMAIN_BASE: raw.PLOYDOK_DOMAIN_BASE,
+  PLOYDOK_SETUP_TOKEN_REQUIRED: raw.PLOYDOK_SETUP_TOKEN_REQUIRED ?? true,
+  PLOYDOK_COOKIE_SECURE: raw.PLOYDOK_COOKIE_SECURE,
   STRIPE_SECRET_KEY: raw.STRIPE_SECRET_KEY,
   STRIPE_WEBHOOK_SECRET: raw.STRIPE_WEBHOOK_SECRET,
   STRIPE_PRO_PRICE_ID: raw.STRIPE_PRO_PRICE_ID,

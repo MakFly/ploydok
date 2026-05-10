@@ -148,6 +148,9 @@ export const apps = pgTable("apps", {
   hooks_pre_deploy: text("hooks_pre_deploy"),
   hooks_post_deploy: text("hooks_post_deploy"),
   hooks_timeout_s: integer("hooks_timeout_s").default(300),
+  // Client-supplied idempotency key for create flows. Prevents double-clicks or
+  // browser retries from creating duplicate apps.
+  creation_idempotency_key: text("creation_idempotency_key"),
   // Timestamps
   created_at: timestamp("created_at", { withTimezone: true, mode: "date" })
     .notNull()

@@ -13,6 +13,7 @@ export type NotificationType =
   | "build.started"
   | "build.succeeded"
   | "build.failed"
+  | "build.cancelled"
   | "deploy.status_change"
   | "container.health"
   | "provider.sync.started"
@@ -180,6 +181,7 @@ export function useNotifications(): {
   useEventsSubscription<NotificationEvent>("build.started", push)
   useEventsSubscription<NotificationEvent>("build.succeeded", push)
   useEventsSubscription<NotificationEvent>("build.failed", push)
+  useEventsSubscription<NotificationEvent>("build.cancelled", push)
   useEventsSubscription<NotificationEvent>("deploy.status_change", push)
   useEventsSubscription<NotificationEvent>("container.health", push)
   // provider.sync.progress is intentionally NOT subscribed: it fires once per

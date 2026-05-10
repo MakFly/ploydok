@@ -20,18 +20,39 @@ import {
 } from "./apps-mutations"
 import type { NotificationEvent } from "./notifications"
 
+function toastIdForBuild(evt: NotificationEvent): string | undefined {
+  return evt.buildId ? `deploy:${evt.buildId}` : undefined
+}
+
 export function useDeploymentToasts(): void {
   const mountedAt = React.useRef(Date.now())
   const qc = useQueryClient()
 
+  const onStarted = React.useCallback((evt: NotificationEvent) => {
+    if (evt.t < mountedAt.current) return
+    if (!evt.buildId) return
+    toast.loading(evt.message, { id: toastIdForBuild(evt) })
+  }, [])
+
+  const onDeployStatusChange = React.useCallback((evt: NotificationEvent) => {
+    if (evt.t < mountedAt.current) return
+    if (!evt.buildId) return
+    toast.loading(evt.message, { id: toastIdForBuild(evt) })
+  }, [])
+
   const onSucceeded = React.useCallback((evt: NotificationEvent) => {
     if (evt.t < mountedAt.current) return
-    toast.success(evt.message)
+    toast.success(evt.message, { id: toastIdForBuild(evt) })
   }, [])
 
   const onFailed = React.useCallback((evt: NotificationEvent) => {
     if (evt.t < mountedAt.current) return
-    toast.error(evt.message)
+    toast.error(evt.message, { id: toastIdForBuild(evt) })
+  }, [])
+
+  const onCancelled = React.useCallback((evt: NotificationEvent) => {
+    if (evt.t < mountedAt.current) return
+    toast.error(evt.message, { id: toastIdForBuild(evt) })
   }, [])
 
   // App delete cascade is async: DELETE /apps/:id returns 202 and the worker
@@ -101,8 +122,14 @@ export function useDeploymentToasts(): void {
     [qc]
   )
 
+  useEventsSubscription<NotificationEvent>("build.started", onStarted)
+  useEventsSubscription<NotificationEvent>(
+    "deploy.status_change",
+    onDeployStatusChange
+  )
   useEventsSubscription<NotificationEvent>("build.succeeded", onSucceeded)
   useEventsSubscription<NotificationEvent>("build.failed", onFailed)
+  useEventsSubscription<NotificationEvent>("build.cancelled", onCancelled)
   useEventsSubscription<NotificationEvent>("app.delete.queued", onAppDeleteQueued)
   useEventsSubscription<NotificationEvent>("app.deleted", onAppDeleted)
   useEventsSubscription<NotificationEvent>(

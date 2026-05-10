@@ -18,6 +18,7 @@ import {
   SelectTrigger,
   SelectValue,
 } from "@workspace/ui/components/select"
+import { DEFAULT_DATABASE_ENV_PREFIX } from "../../lib/database-env"
 import { useDatabases, useLinkDatabase } from "../../lib/databases"
 import type { Database } from "../../lib/databases"
 
@@ -37,7 +38,7 @@ export function LinkDatabaseDialog({
   onClose,
 }: LinkDatabaseDialogProps): React.JSX.Element {
   const [selectedDbId, setSelectedDbId] = React.useState("")
-  const [envPrefix, setEnvPrefix] = React.useState("DB")
+  const [envPrefix, setEnvPrefix] = React.useState(DEFAULT_DATABASE_ENV_PREFIX)
   const [prefixError, setPrefixError] = React.useState("")
 
   const { data: databases, isLoading } = useDatabases(projectId, {
@@ -70,7 +71,7 @@ export function LinkDatabaseDialog({
       {
         onSuccess: () => {
           setSelectedDbId("")
-          setEnvPrefix("DB")
+          setEnvPrefix(DEFAULT_DATABASE_ENV_PREFIX)
           onClose()
         },
       }
@@ -124,15 +125,15 @@ export function LinkDatabaseDialog({
                 setEnvPrefix(v)
                 if (v) validatePrefix(v)
               }}
-              placeholder="DB"
+              placeholder={DEFAULT_DATABASE_ENV_PREFIX}
             />
             {prefixError && (
               <span className="text-xs text-destructive">{prefixError}</span>
             )}
             <span className="text-xs text-muted-foreground">
               Generates <code>{"${prefix}_URL"}</code>,{" "}
-              <code>{"${prefix}_HOST"}</code>, etc. Use <code>DATABASE</code>{" "}
-              only when the app should receive <code>DATABASE_URL</code>.
+              <code>{"${prefix}_HOST"}</code>, etc. Default{" "}
+              <code>DATABASE</code> gives the app <code>DATABASE_URL</code>.
             </span>
           </div>
 

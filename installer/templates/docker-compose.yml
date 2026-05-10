@@ -1,11 +1,14 @@
+name: ploydok
+
 services:
   api:
     image: ${PLOYDOK_IMAGE_REGISTRY}/ploydok-api:${PLOYDOK_VERSION}
     restart: unless-stopped
-    env_file: .env
+    env_file: ${PLOYDOK_DATA_DIR}/.env
     depends_on:
       - postgres
       - redis
+      - buildkitd
     volumes:
       - ${PLOYDOK_DATA_DIR}/logs:/var/log/ploydok
       - ${PLOYDOK_DATA_DIR}/builds:/var/lib/ploydok/builds
@@ -13,8 +16,19 @@ services:
       - ${PLOYDOK_DATA_DIR}/certs:/var/lib/ploydok/certs:ro
       - ${PLOYDOK_DATA_DIR}/pki:/var/lib/ploydok/pki:ro
       - ${PLOYDOK_DATA_DIR}/agent:/run/ploydok
+      - /var/run/docker.sock:/var/run/docker.sock
     ports:
       - "127.0.0.1:3335:3335"
+    networks:
+      - ploydok
+
+  web:
+    image: ${PLOYDOK_IMAGE_REGISTRY}/ploydok-web:${PLOYDOK_VERSION}
+    restart: unless-stopped
+    environment:
+      PLOYDOK_API_URL: http://api:3335
+    depends_on:
+      - api
     networks:
       - ploydok
 
@@ -22,14 +36,9 @@ services:
     image: ${PLOYDOK_IMAGE_REGISTRY}/ploydok-agent:${PLOYDOK_VERSION}
     restart: unless-stopped
     environment:
-      PLOYDOK_AGENT_SOCKET: /run/ploydok/agent.sock
+      PLOYDOK_AGENT_ADDR: 0.0.0.0:50051
+      PLOYDOK_AGENT_PKI_DIR: /var/lib/ploydok/pki
       PLOYDOK_VALIDATOR_CONFIG: /etc/ploydok/validator.toml
-      # PKI partagée prête (cf. installer/install.sh::generate_agent_pki) mais
-      # enforcement reporté : tonic 0.13 + Unix socket + TLS ne handshake pas
-      # avec grpc-js côté API (TRANSIENT_FAILURE immédiat). À débloquer dans
-      # un sprint dédié — quand tonic supportera UDS+TLS proprement, retirer
-      # cette ligne et les fallbacks createInsecure côté API.
-      PLOYDOK_AGENT_INSECURE: "1"
     volumes:
       - /var/run/docker.sock:/var/run/docker.sock
       - ${PLOYDOK_DATA_DIR}/agent:/run/ploydok
@@ -44,10 +53,13 @@ services:
   caddy:
     image: ${PLOYDOK_IMAGE_REGISTRY}/ploydok-caddy:${PLOYDOK_VERSION}
     restart: unless-stopped
+    labels:
+      ploydok.kind: infra
+      ploydok.component: caddy
     volumes:
-      - ${PLOYDOK_DATA_DIR}/caddy/Caddyfile:/etc/caddy/Caddyfile:ro
-      - ${PLOYDOK_DATA_DIR}/caddy/data:/data
-      - ${PLOYDOK_DATA_DIR}/caddy/config:/config
+      - ${PLOYDOK_INSTALL_DIR}/Caddyfile:/etc/caddy/Caddyfile:ro
+      - caddy-data:/data
+      - caddy-config:/config
       - ${PLOYDOK_DATA_DIR}/static:/var/lib/ploydok/static:ro
     ports:
       - "${PLOYDOK_HTTP_BIND}:80"
@@ -57,6 +69,15 @@ services:
       - ploydok
       - ploydok-public
 
+  adminer:
+    image: ${PLOYDOK_IMAGE_REGISTRY}/ploydok-adminer:${PLOYDOK_VERSION}
+    restart: unless-stopped
+    labels:
+      ploydok.kind: infra
+      ploydok.component: adminer
+    networks:
+      - ploydok
+
   postgres:
     image: postgres:16-alpine
     restart: unless-stopped
@@ -65,16 +86,23 @@ services:
       POSTGRES_PASSWORD: ${PLOYDOK_PG_PASSWORD}
       POSTGRES_DB: ploydok
     volumes:
-      - ${PLOYDOK_DATA_DIR}/postgres:/var/lib/postgresql/data
+      - postgres-data:/var/lib/postgresql/data
     networks:
       - ploydok
 
   redis:
     image: redis:7-alpine
     restart: unless-stopped
-    command: ["redis-server", "--requirepass", "${PLOYDOK_REDIS_PASSWORD}", "--appendonly", "yes"]
+    command:
+      [
+        "redis-server",
+        "--requirepass",
+        "${PLOYDOK_REDIS_PASSWORD}",
+        "--appendonly",
+        "yes",
+      ]
     volumes:
-      - ${PLOYDOK_DATA_DIR}/redis:/data
+      - redis-data:/data
     networks:
       - ploydok
 
@@ -84,9 +112,29 @@ services:
     environment:
       REGISTRY_STORAGE_DELETE_ENABLED: "true"
     volumes:
-      - ${PLOYDOK_DATA_DIR}/registry:/var/lib/registry
+      - registry-data:/var/lib/registry
     ports:
       - "127.0.0.1:5000:5000"
+    networks:
+      - ploydok
+
+  buildkitd:
+    image: moby/buildkit:v0.29.0-rootless
+    container_name: ploydok-buildkitd
+    restart: unless-stopped
+    security_opt:
+      - seccomp=unconfined
+      - apparmor=unconfined
+    user: "1000:1000"
+    command:
+      - --addr
+      - tcp://0.0.0.0:1234
+      - --oci-worker-no-process-sandbox
+      - --config
+      - /etc/buildkit/buildkitd.toml
+    volumes:
+      - buildkit-cache:/home/user/.local/share/buildkit
+      - ${PLOYDOK_DATA_DIR}/config/buildkitd.toml:/etc/buildkit/buildkitd.toml:ro
     networks:
       - ploydok
 
@@ -96,3 +144,11 @@ networks:
   ploydok-public:
     name: ploydok-public
     driver: bridge
+
+volumes:
+  caddy-data:
+  caddy-config:
+  postgres-data:
+  redis-data:
+  registry-data:
+  buildkit-cache:

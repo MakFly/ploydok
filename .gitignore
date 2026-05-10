@@ -36,6 +36,9 @@ npm-debug.log*
 # instant-grep index
 .ig/
 
+# Agent reports and shared scratch state
+.ai/
+
 # SQLite dev databases
 *.db
 *.db-shm

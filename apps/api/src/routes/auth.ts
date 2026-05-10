@@ -1,7 +1,7 @@
 // SPDX-License-Identifier: AGPL-3.0-only
 import { Hono } from "hono"
 import { nanoid } from "nanoid"
-import { eq, and, ne } from "drizzle-orm"
+import { eq, and } from "drizzle-orm"
 import {
   users,
   passkeys,
@@ -25,7 +25,13 @@ import {
   REFRESH_COOKIE,
   ACCESS_MAX_AGE,
   REFRESH_MAX_AGE,
+  shouldUseSecureCookies,
 } from "../auth/jwt"
+import {
+  hashPassword,
+  validateAdminPassword,
+  verifyPassword,
+} from "../auth/password"
 import * as BackupCodes from "../auth/backup-codes"
 import * as Sessions from "../auth/sessions"
 import { setChallenge, consumeChallenge } from "../auth/challenges"
@@ -40,7 +46,6 @@ import {
   bootstrapSetupToken,
   clearSetupToken,
   consumeSetupToken,
-  peekSetupTokenUnsafe,
 } from "../auth/setup-token"
 import {
   saveTotpSecret,
@@ -65,7 +70,22 @@ type AuthenticatorTransportFuture =
 // Helpers
 // ---------------------------------------------------------------------------
 
-const isSecure = env.NODE_ENV === "prod"
+const isSecure = shouldUseSecureCookies()
+const PENDING_SETUP_TTL_MS = 30 * 60 * 1000
+const PASSWORD_LOGIN_LIMIT = 10
+const PASSWORD_LOGIN_WINDOW_MS = 5 * 60 * 1000
+
+interface PendingSetupAdmin {
+  email: string
+  displayName: string
+  createdAt: number
+}
+
+const pendingSetupAdmins = new Map<string, PendingSetupAdmin>()
+const passwordLoginAttempts = new Map<
+  string,
+  { count: number; resetAt: number }
+>()
 
 function setCookies(
   headers: Headers,
@@ -106,6 +126,34 @@ function getClientInfo(req: Request): { userAgent: string; ip: string } {
     userAgent: req.headers.get("user-agent") ?? "unknown",
     ip: req.headers.get("x-forwarded-for") ?? "unknown",
   }
+}
+
+function cleanupPendingSetupAdmins(): void {
+  const now = Date.now()
+  for (const [userId, pending] of pendingSetupAdmins) {
+    if (now - pending.createdAt > PENDING_SETUP_TTL_MS) {
+      pendingSetupAdmins.delete(userId)
+    }
+  }
+}
+
+function checkPasswordLoginRateLimit(ip: string, email: string): boolean {
+  const key = `${ip}:${email}`
+  const now = Date.now()
+  const current = passwordLoginAttempts.get(key)
+  if (!current || current.resetAt <= now) {
+    passwordLoginAttempts.set(key, {
+      count: 1,
+      resetAt: now + PASSWORD_LOGIN_WINDOW_MS,
+    })
+    return true
+  }
+  current.count += 1
+  return current.count <= PASSWORD_LOGIN_LIMIT
+}
+
+function clearPasswordLoginRateLimit(ip: string, email: string): void {
+  passwordLoginAttempts.delete(`${ip}:${email}`)
 }
 
 async function getUserMeta(db: Db, userId: string) {
@@ -168,40 +216,153 @@ export function createAuthRouter(db: Db): Hono {
     if (!bootstrapped) {
       await bootstrapSetupToken(db)
     }
-    return c.json({ bootstrapped })
+    return c.json({
+      bootstrapped,
+      setup_token_required: env.PLOYDOK_SETUP_TOKEN_REQUIRED,
+    })
   })
 
   // -------------------------------------------------------------------------
-  // GET /auth/setup/dev-token
-  // DEV-ONLY shortcut: returns the active setup token to the browser so the
-  // /setup page can auto-inject it without a copy-paste from the API logs.
-  // Hard-gated by NODE_ENV !== "prod" AND a loopback Origin check, so even a
-  // misconfigured production proxy can't expose the token to the public.
+  // POST /auth/setup/password
+  // First-boot wizard: creates the first admin with a password so bootstrap can
+  // run over plain HTTP behind an IP allowlist. Passkeys remain available after
+  // login, when the instance has a trusted HTTPS origin.
   // -------------------------------------------------------------------------
-  auth.get("/auth/setup/dev-token", async (c) => {
-    if (env.NODE_ENV === "prod") {
-      return c.json({ error: { code: "NOT_FOUND" } }, 404)
+  auth.post("/auth/setup/password", async (c) => {
+    const body = await c.req
+      .json<{
+        token?: string
+        email?: string
+        display_name?: string
+        password?: string
+      }>()
+      .catch(
+        () =>
+          ({}) as {
+            token?: string
+            email?: string
+            display_name?: string
+            password?: string
+          }
+      )
+
+    const existingUser = await db.select({ id: users.id }).from(users).limit(1)
+    if (existingUser.length > 0) {
+      clearSetupToken()
+      return c.json(
+        {
+          error: {
+            code: "ALREADY_BOOTSTRAPPED",
+            message: "Instance already bootstrapped",
+          },
+        },
+        409
+      )
     }
-    const origin = c.req.header("origin") ?? c.req.header("referer") ?? ""
-    const isLoopback =
-      origin.startsWith("http://localhost:") ||
-      origin.startsWith("http://127.0.0.1:") ||
-      origin === ""
-    if (!isLoopback) {
-      return c.json({ error: { code: "NOT_FOUND" } }, 404)
+
+    const email = body.email?.trim().toLowerCase()
+    const displayName = body.display_name?.trim()
+    const password = body.password ?? ""
+    if (!email || !displayName || !password) {
+      return c.json(
+        {
+          error: {
+            code: "BAD_REQUEST",
+            message: "email, display_name and password required",
+          },
+        },
+        400
+      )
     }
-    const token = peekSetupTokenUnsafe()
-    if (!token) {
-      return c.json({ error: { code: "NOT_READY" } }, 404)
+
+    const passwordError = validateAdminPassword(password)
+    if (passwordError) {
+      return c.json(
+        { error: { code: "PASSWORD_POLICY", message: passwordError } },
+        400
+      )
     }
-    return c.json({ token })
+
+    if (
+      env.PLOYDOK_SETUP_TOKEN_REQUIRED &&
+      !consumeSetupToken(body.token)
+    ) {
+      return c.json(
+        {
+          error: {
+            code: "SETUP_TOKEN_INVALID",
+            message: "Setup token missing, expired, or already consumed",
+          },
+        },
+        403
+      )
+    }
+
+    const now = new Date()
+    const user = {
+      id: nanoid(),
+      email,
+      display_name: displayName,
+    }
+    const passwordHash = await hashPassword(password)
+
+    await db.insert(users).values({
+      id: user.id,
+      email: user.email,
+      display_name: user.display_name,
+      password_hash: passwordHash,
+      is_instance_admin: true,
+      created_at: now,
+      updated_at: now,
+      recovery_token_hash: null,
+      recovery_expires_at: null,
+    })
+
+    await ensureDefaultOrganizationForUser(db, user.id, user.display_name)
+    const backupCodes = await BackupCodes.generate(db, user.id)
+
+    const { userAgent, ip } = getClientInfo(c.req.raw)
+    const { sessionId, refreshToken } = await Sessions.createSession(db, {
+      userId: user.id,
+      userAgent,
+      ip,
+    })
+    const accessToken = await signAccessToken({
+      userId: user.id,
+      email: user.email,
+      sessionId,
+    })
+    const accessExpiresAt = getAccessExpiresAt()
+
+    clearSetupToken()
+
+    const mail = renderWelcomeEmail(user.display_name)
+    void sendMail({ to: user.email, ...mail })
+
+    const response = c.newResponse(
+      JSON.stringify({
+        user: {
+          id: user.id,
+          email: user.email,
+          display_name: user.display_name,
+        },
+        accessExpiresAt,
+        backup_codes: backupCodes,
+      }),
+      200,
+      { "Content-Type": "application/json" }
+    )
+    setCookies(response.headers, accessToken, refreshToken, sessionId)
+    return response
   })
 
   // -------------------------------------------------------------------------
   // POST /auth/setup/options
-  // First-boot wizard step 1: validates the setup token, creates the admin
-  // user + default org, returns WebAuthn registration options so the browser
-  // can mint the first passkey.
+  // First-boot wizard step 1: validates the setup token and returns WebAuthn
+  // registration options so the browser can mint the first passkey. The admin
+  // user is only persisted in /auth/setup/verify after attestation succeeds;
+  // otherwise an interrupted WebAuthn prompt would leave the instance marked as
+  // bootstrapped with no usable login method.
   // -------------------------------------------------------------------------
   auth.post("/auth/setup/options", async (c) => {
     const body = await c.req
@@ -250,17 +411,12 @@ export function createAuthRouter(db: Db): Hono {
       )
     }
 
-    const now = new Date()
     const userId = nanoid()
-    await db.insert(users).values({
-      id: userId,
+    cleanupPendingSetupAdmins()
+    pendingSetupAdmins.set(userId, {
       email,
-      display_name: displayName,
-      is_instance_admin: true,
-      created_at: now,
-      updated_at: now,
-      recovery_token_hash: null,
-      recovery_expires_at: null,
+      displayName,
+      createdAt: Date.now(),
     })
 
     const options = await generateRegOptions({
@@ -299,21 +455,23 @@ export function createAuthRouter(db: Db): Hono {
       )
     }
 
-    const userRows = await db
-      .select()
-      .from(users)
-      .where(eq(users.id, body.userId))
-      .limit(1)
-    const user = userRows[0]
-    if (!user) {
+    cleanupPendingSetupAdmins()
+    const pendingAdmin = pendingSetupAdmins.get(body.userId)
+    if (!pendingAdmin) {
       return c.json(
-        { error: { code: "NOT_FOUND", message: "User not found" } },
-        404
+        {
+          error: {
+            code: "SETUP_CHALLENGE_EXPIRED",
+            message: "Setup challenge expired. Reload setup and try again.",
+          },
+        },
+        400
       )
     }
 
     const expectedChallenge = consumeChallenge(`setup:${body.userId}`)
     if (!expectedChallenge) {
+      pendingSetupAdmins.delete(body.userId)
       return c.json(
         {
           error: {
@@ -334,6 +492,7 @@ export function createAuthRouter(db: Db): Hono {
         expectedChallenge,
       })
     } catch (err) {
+      pendingSetupAdmins.delete(body.userId)
       return c.json(
         { error: { code: "VERIFICATION_FAILED", message: String(err) } },
         400
@@ -341,6 +500,7 @@ export function createAuthRouter(db: Db): Hono {
     }
 
     if (!verification.verified || !verification.registrationInfo) {
+      pendingSetupAdmins.delete(body.userId)
       return c.json(
         {
           error: {
@@ -352,31 +512,67 @@ export function createAuthRouter(db: Db): Hono {
       )
     }
 
+    const existingUser = await db.select({ id: users.id }).from(users).limit(1)
+    if (existingUser.length > 0) {
+      pendingSetupAdmins.delete(body.userId)
+      clearSetupToken()
+      return c.json(
+        {
+          error: {
+            code: "ALREADY_BOOTSTRAPPED",
+            message: "Instance already bootstrapped",
+          },
+        },
+        409
+      )
+    }
+
     const { credential } = verification.registrationInfo
     const now = new Date()
-    await db.insert(passkeys).values({
-      id: nanoid(),
-      user_id: body.userId,
-      credential_id: credential.id,
-      public_key: Buffer.from(credential.publicKey),
-      counter: credential.counter,
-      transports: JSON.stringify(credential.transports ?? []),
-      device_name: body.device_name?.trim() || null,
-      created_at: now,
-      last_used_at: now,
+    const user = {
+      id: body.userId,
+      email: pendingAdmin.email,
+      display_name: pendingAdmin.displayName,
+    }
+
+    await db.transaction(async (tx) => {
+      await tx.insert(users).values({
+        id: user.id,
+        email: user.email,
+        display_name: user.display_name,
+        is_instance_admin: true,
+        created_at: now,
+        updated_at: now,
+        recovery_token_hash: null,
+        recovery_expires_at: null,
+      })
+
+      await tx.insert(passkeys).values({
+        id: nanoid(),
+        user_id: user.id,
+        credential_id: credential.id,
+        public_key: Buffer.from(credential.publicKey),
+        counter: credential.counter,
+        transports: JSON.stringify(credential.transports ?? []),
+        device_name: body.device_name?.trim() || null,
+        created_at: now,
+        last_used_at: now,
+      })
     })
 
-    await ensureDefaultOrganizationForUser(db, body.userId, user.display_name)
-    const backupCodes = await BackupCodes.generate(db, body.userId)
+    pendingSetupAdmins.delete(body.userId)
+
+    await ensureDefaultOrganizationForUser(db, user.id, user.display_name)
+    const backupCodes = await BackupCodes.generate(db, user.id)
 
     const { userAgent, ip } = getClientInfo(c.req.raw)
     const { sessionId, refreshToken } = await Sessions.createSession(db, {
-      userId: body.userId,
+      userId: user.id,
       userAgent,
       ip,
     })
     const accessToken = await signAccessToken({
-      userId: body.userId,
+      userId: user.id,
       email: user.email,
       sessionId,
     })
@@ -607,6 +803,102 @@ export function createAuthRouter(db: Db): Hono {
           email: user.email,
           display_name: user.display_name,
         },
+        ...meta,
+      }),
+      200,
+      { "Content-Type": "application/json" }
+    )
+    setCookies(response.headers, accessToken, refreshToken, sessionId)
+    return response
+  })
+
+  // -------------------------------------------------------------------------
+  // POST /auth/login/password
+  // -------------------------------------------------------------------------
+  auth.post("/auth/login/password", async (c) => {
+    const body = await c.req
+      .json<{ email?: string; password?: string }>()
+      .catch(() => ({}) as { email?: string; password?: string })
+
+    const email = body.email?.trim().toLowerCase()
+    const password = body.password ?? ""
+    if (!email || !password) {
+      return c.json(
+        {
+          error: {
+            code: "INVALID_CREDENTIALS",
+            message: "Invalid email or password",
+          },
+        },
+        401
+      )
+    }
+
+    const { userAgent, ip } = getClientInfo(c.req.raw)
+    if (!checkPasswordLoginRateLimit(ip, email)) {
+      return c.json(
+        {
+          error: {
+            code: "RATE_LIMITED",
+            message: "Too many login attempts. Try again in a few minutes.",
+          },
+        },
+        429
+      )
+    }
+
+    const userRows = await db
+      .select({
+        id: users.id,
+        email: users.email,
+        display_name: users.display_name,
+        password_hash: users.password_hash,
+      })
+      .from(users)
+      .where(eq(users.email, email))
+      .limit(1)
+    const user = userRows[0]
+
+    const verified =
+      user?.password_hash &&
+      (await verifyPassword(password, user.password_hash))
+
+    if (!user || !verified) {
+      return c.json(
+        {
+          error: {
+            code: "INVALID_CREDENTIALS",
+            message: "Invalid email or password",
+          },
+        },
+        401
+      )
+    }
+
+    clearPasswordLoginRateLimit(ip, email)
+
+    const { sessionId, refreshToken } = await Sessions.createSession(db, {
+      userId: user.id,
+      userAgent,
+      ip,
+    })
+
+    const accessToken = await signAccessToken({
+      userId: user.id,
+      email: user.email,
+      sessionId,
+    })
+    const accessExpiresAt = getAccessExpiresAt()
+    const meta = await getUserMeta(db, user.id)
+
+    const response = c.newResponse(
+      JSON.stringify({
+        user: {
+          id: user.id,
+          email: user.email,
+          display_name: user.display_name,
+        },
+        accessExpiresAt,
         ...meta,
       }),
       200,

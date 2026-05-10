@@ -57,6 +57,10 @@ eventsRouter.get("/", async (c) => {
   const cursorMs = lastReadAt?.getTime() ?? 0
 
   return streamSSE(c, async (stream) => {
+    // Flush an SSE comment immediately so browsers/proxies consider the stream
+    // established even when there is no replayed notification to send.
+    await stream.write(": connected\n\n")
+
     // 1. Replay buffered history, skipping events already covered by the
     // persisted last_read_at cursor. Prevents the badge from re-inflating on
     // every SSE reconnect while still letting the client dedup by id if the

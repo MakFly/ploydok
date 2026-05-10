@@ -5,6 +5,7 @@ import { and, desc, eq, sql } from "drizzle-orm"
 import { totp_secrets, audit_log } from "@ploydok/db"
 import type { Db } from "@ploydok/db"
 import { env } from "../env"
+import { shouldUseSecureCookies } from "./jwt"
 import { getTotpSecret } from "./totp-storage"
 import { verifyCodeDetailed } from "./totp"
 import type { AuthUser } from "./middleware"
@@ -44,7 +45,7 @@ export function buildSecondFactorCookie(userId: string): string {
   const payload = b64urlEncode(JSON.stringify({ user_id: userId, verified_at: Date.now() }))
   const hmac = sign(payload)
   const value = `${payload}.${hmac}`
-  const isSecure = env.NODE_ENV === "prod"
+  const isSecure = shouldUseSecureCookies()
   const maxAge = TTL_MS / 1000
   const parts = [
     `${SECOND_FACTOR_COOKIE}=${encodeURIComponent(value)}`,

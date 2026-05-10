@@ -31,6 +31,7 @@ import { findRecentByPayloadHash, insertDelivery } from "../webhooks/deliveries"
 import { githubWebhookRateLimit } from "../webhooks/rate-limiters"
 import { enqueueProviderReposSync } from "../worker/handlers/sync-provider-repos"
 import { env } from "../env"
+import { shouldUseSecureCookies } from "../auth/jwt"
 
 // ---------------------------------------------------------------------------
 // Singleton cache + provider (per-process)
@@ -190,7 +191,6 @@ function normalizePem(value: string): string {
 const APP_STATE_COOKIE = "gh_app_state"
 const INSTALL_STATE_COOKIE = "gh_install_state"
 const APP_STATE_TTL_SECONDS = 10 * 60 // 10 minutes
-const SECURE = env.NODE_ENV === "prod"
 
 function signAppState(state: string): string {
   const mac = createHmac("sha256", env.SESSION_SECRET)
@@ -229,13 +229,13 @@ function buildCookieStr(
     "SameSite=Lax",
   ]
   if (httpOnly) parts.push("HttpOnly")
-  if (SECURE) parts.push("Secure")
+  if (shouldUseSecureCookies()) parts.push("Secure")
   return parts.join("; ")
 }
 
 function clearCookieStr(name: string): string {
   const parts = [`${name}=`, "Path=/", "Max-Age=0", "SameSite=Lax"]
-  if (SECURE) parts.push("Secure")
+  if (shouldUseSecureCookies()) parts.push("Secure")
   return parts.join("; ")
 }
 

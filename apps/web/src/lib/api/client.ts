@@ -7,8 +7,8 @@ import {
   SessionExpiredError,
 } from "./errors"
 import type { RefreshResult } from "./errors"
-
-const API_BASE = import.meta.env.VITE_API_URL ?? "http://localhost:3335"
+import { apiBaseUrl } from "./base"
+import { createIsomorphicFn } from "@tanstack/react-start"
 
 // ---------------------------------------------------------------------------
 // Module-scope state — shared in both runtimes:
@@ -72,13 +72,9 @@ export function getAccessExpiry(): number | null {
 // ---------------------------------------------------------------------------
 // SSR cookie helpers
 //
-// Why dynamic import of the package path instead of a static import:
-//   TanStack Start's import-protection plugin bans static imports of
-//   `**/*.server.*` files from anything reachable by the client entry. A
-//   dynamic import of `@tanstack/react-start/server` (a package subpath that
-//   resolves to `server.js`, which does not match the pattern) is fine, and
-//   the `typeof window === "undefined"` guard ensures the client never
-//   evaluates the import() at runtime.
+// The helpers below are intentionally isomorphic. TanStack Start replaces each
+// `createIsomorphicFn()` chain with the environment-specific implementation at
+// build time, so the client bundle never resolves `@tanstack/react-start/server`.
 // ---------------------------------------------------------------------------
 
 const DEBUG_AUTH =
@@ -92,40 +88,80 @@ const DEBUG_AUTH =
 const _ssrOverrides: WeakMap<Request, Map<string, string>> = new WeakMap()
 const _ssrState: WeakMap<Request, RuntimeState> = new WeakMap()
 
-type ReactStartServer = typeof import("@tanstack/react-start/server")
-let _serverModPromise: Promise<ReactStartServer | null> | null = null
+const getSsrRequest = createIsomorphicFn()
+  .client(() => null)
+  .server(async (): Promise<Request | null> => {
+    try {
+      const { getRequest } = await import("@tanstack/react-start/server")
+      return getRequest()
+    } catch (e) {
+      if (DEBUG_AUTH) console.log("[ssr-auth] getRequest unavailable:", e)
+      return null
+    }
+  })
 
-async function getServerMod(): Promise<ReactStartServer | null> {
-  if (typeof window !== "undefined") return null
-  if (!_serverModPromise) {
-    _serverModPromise = import("@tanstack/react-start/server").catch(
-      (e: unknown) => {
-        if (DEBUG_AUTH)
-          console.log("[ssr-auth] failed to load react-start/server:", e)
-        return null
+const getSsrCookies = createIsomorphicFn()
+  .client(() => ({}) as Record<string, string>)
+  .server(async (): Promise<Record<string, string>> => {
+    try {
+      const { getCookies } = await import("@tanstack/react-start/server")
+      return getCookies()
+    } catch (e) {
+      if (DEBUG_AUTH) console.log("[ssr-auth] getCookies threw:", e)
+      return {}
+    }
+  })
+
+const setSsrSetCookieHeader = createIsomorphicFn()
+  .client((_setCookies: Array<string>) => {})
+  .server(async (setCookies: Array<string>): Promise<void> => {
+    try {
+      const { setResponseHeader } = await import("@tanstack/react-start/server")
+      setResponseHeader("set-cookie", setCookies)
+      if (DEBUG_AUTH) {
+        console.log(
+          "[ssr-auth] forwarded",
+          setCookies.length,
+          "Set-Cookie headers to browser"
+        )
       }
-    )
+    } catch (e) {
+      if (DEBUG_AUTH) console.log("[ssr-auth] setResponseHeader threw:", e)
+    }
+  })
+
+async function getExistingSsrOverrides(): Promise<
+  Map<string, string> | undefined
+> {
+  const req = await getSsrRequest()
+  if (!req) return undefined
+  return _ssrOverrides.get(req)
+}
+
+async function getMutableSsrOverrides(): Promise<
+  Map<string, string> | undefined
+> {
+  const req = await getSsrRequest()
+  if (!req) return undefined
+  let overrides = _ssrOverrides.get(req)
+  if (!overrides) {
+    overrides = new Map()
+    _ssrOverrides.set(req, overrides)
   }
-  return _serverModPromise
+  return overrides
 }
 
 async function getRuntimeState(): Promise<RuntimeState> {
   if (typeof window !== "undefined") return _clientState
 
-  const mod = await getServerMod()
-  if (!mod) return createRuntimeState()
-
-  try {
-    const req = mod.getRequest()
-    let state = _ssrState.get(req)
-    if (!state) {
-      state = createRuntimeState()
-      _ssrState.set(req, state)
-    }
-    return state
-  } catch {
-    return createRuntimeState()
+  const req = await getSsrRequest()
+  if (!req) return createRuntimeState()
+  let state = _ssrState.get(req)
+  if (!state) {
+    state = createRuntimeState()
+    _ssrState.set(req, state)
   }
+  return state
 }
 
 async function invalidateRuntimeGetCache(path?: string): Promise<void> {
@@ -135,21 +171,10 @@ async function invalidateRuntimeGetCache(path?: string): Promise<void> {
 }
 
 async function buildSsrCookieHeader(): Promise<string> {
-  const mod = await getServerMod()
-  if (!mod) return ""
-
-  let base: Record<string, string> = {}
-  try {
-    base = mod.getCookies()
-  } catch (e) {
-    if (DEBUG_AUTH) console.log("[ssr-auth] getCookies threw:", e)
-    return ""
-  }
-
+  const base = await getSsrCookies()
   let overrides: Map<string, string> | undefined
   try {
-    const req = mod.getRequest()
-    overrides = _ssrOverrides.get(req)
+    overrides = await getExistingSsrOverrides()
   } catch {
     // outside an SSR request context — proceed with base only
   }
@@ -175,29 +200,12 @@ async function buildSsrCookieHeader(): Promise<string> {
 
 async function applySsrSetCookies(setCookies: Array<string>): Promise<void> {
   if (setCookies.length === 0) return
-  const mod = await getServerMod()
-  if (!mod) return
+
+  await setSsrSetCookieHeader(setCookies)
 
   try {
-    mod.setResponseHeader("set-cookie", setCookies)
-    if (DEBUG_AUTH) {
-      console.log(
-        "[ssr-auth] forwarded",
-        setCookies.length,
-        "Set-Cookie headers to browser"
-      )
-    }
-  } catch (e) {
-    if (DEBUG_AUTH) console.log("[ssr-auth] setResponseHeader threw:", e)
-  }
-
-  try {
-    const req = mod.getRequest()
-    let overrides = _ssrOverrides.get(req)
-    if (!overrides) {
-      overrides = new Map()
-      _ssrOverrides.set(req, overrides)
-    }
+    const overrides = await getMutableSsrOverrides()
+    if (!overrides) return
     for (const raw of setCookies) {
       const semi = raw.indexOf(";")
       const pair = semi === -1 ? raw : raw.slice(0, semi)
@@ -262,7 +270,7 @@ async function rawRequest(path: string, init: RequestInit): Promise<Response> {
       ck.includes("ploydok_refresh=")
     )
   }
-  const res = await fetch(`${API_BASE}${path}`, {
+  const res = await fetch(`${apiBaseUrl()}${path}`, {
     credentials: "include",
     ...init,
     headers,
@@ -344,6 +352,7 @@ function isPreSessionPath(path: string): boolean {
     path === "/auth/refresh" ||
     path === "/auth/csrf" ||
     path === "/auth/backup-codes/consume" ||
+    path === "/auth/setup/password" ||
     path.startsWith("/auth/login") ||
     path.startsWith("/auth/register")
   )

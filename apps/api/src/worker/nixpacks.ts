@@ -1,5 +1,5 @@
 // SPDX-License-Identifier: AGPL-3.0-only
-import { mkdir, chmod, readFile } from "node:fs/promises"
+import { mkdir, chmod, readFile, rename, rm } from "node:fs/promises"
 import { existsSync, mkdirSync } from "node:fs"
 import path from "node:path"
 import os from "node:os"
@@ -39,7 +39,21 @@ export async function ensureNixpacksInstalled(): Promise<string> {
   const binPath = path.join(binDir, "nixpacks")
   if (existsSync(binPath)) return binPath
 
-  // 3. Download from GitHub releases.
+  if (!nixpacksInstallPromise) {
+    nixpacksInstallPromise = downloadNixpacks(binDir, binPath).finally(() => {
+      nixpacksInstallPromise = null
+    })
+  }
+  return nixpacksInstallPromise
+}
+
+let nixpacksInstallPromise: Promise<string> | null = null
+
+async function downloadNixpacks(
+  binDir: string,
+  binPath: string
+): Promise<string> {
+  // Download from GitHub releases.
   // Release assets embed the version in the filename
   // (e.g. `nixpacks-v1.41.0-x86_64-unknown-linux-musl.tar.gz`),
   // so `releases/latest/download/...` without the version returns 404.
@@ -74,13 +88,20 @@ export async function ensureNixpacksInstalled(): Promise<string> {
     throw new Error(`nixpacks download failed (${res.status}): ${url}`)
   }
 
-  // Write tar.gz to a temp file, extract, and move the binary.
-  const tmpTar = path.join(binDir, tarName)
+  // Write/extract in a private temp dir, then atomically publish the binary.
+  // This prevents concurrent workers from executing a half-written nixpacks
+  // binary on first boot.
+  const tmpDir = path.join(
+    binDir,
+    `.nixpacks-install-${process.pid}-${Date.now()}`
+  )
+  await mkdir(tmpDir, { recursive: true })
+  const tmpTar = path.join(tmpDir, tarName)
   const buf = await res.arrayBuffer()
   await Bun.write(tmpTar, buf)
 
   // Extract with `tar` — available on any Linux/macOS host.
-  const tar = Bun.spawn(["tar", "-xzf", tmpTar, "-C", binDir], {
+  const tar = Bun.spawn(["tar", "-xzf", tmpTar, "-C", tmpDir], {
     stdout: "pipe",
     stderr: "pipe",
   })
@@ -91,6 +112,10 @@ export async function ensureNixpacksInstalled(): Promise<string> {
   }
 
   // The archive contains a single `nixpacks` binary at the root.
+  const tmpBin = path.join(tmpDir, "nixpacks")
+  await chmod(tmpBin, 0o755)
+  await rename(tmpBin, binPath)
+  await rm(tmpDir, { recursive: true, force: true })
   await chmod(binPath, 0o755)
   return binPath
 }
@@ -364,12 +389,15 @@ async function resolvePhpAwareNixpacksPlan(opts: {
     opts.ctx,
     opts.runtimeEnv ?? {}
   )
+  const shouldBootstrapSymfonyDoctrine =
+    shouldBootstrapSymfonyDoctrineMigrations(opts.ctx)
   const shouldSuppressLaravelPrestartWarnings = existsSync(
     path.join(opts.ctx, "artisan")
   )
   if (
     !resolution &&
     !shouldBootstrapSqlite &&
+    !shouldBootstrapSymfonyDoctrine &&
     !shouldSuppressLaravelPrestartWarnings
   ) {
     return null
@@ -396,6 +424,16 @@ async function resolvePhpAwareNixpacksPlan(opts: {
     changed = true
     opts.onLog?.(
       "[nixpacks] Laravel SQLite bootstrap enabled: create database file and run migrations before start; seeders are opt-in"
+    )
+  }
+
+  if (
+    shouldBootstrapSymfonyDoctrine &&
+    injectSymfonyDoctrineMigrationsStartBootstrap(plan)
+  ) {
+    changed = true
+    opts.onLog?.(
+      "[nixpacks] Symfony Doctrine migrations bootstrap enabled: run migrations before start when DATABASE_URL is present"
     )
   }
 
@@ -511,6 +549,13 @@ async function shouldBootstrapLaravelSqlite(
   return explicitConnection === "sqlite" || exampleConnection === "sqlite"
 }
 
+function shouldBootstrapSymfonyDoctrineMigrations(ctx: string): boolean {
+  if (existsSync(path.join(ctx, "artisan"))) return false
+  if (!existsSync(path.join(ctx, "bin", "console"))) return false
+  if (!existsSync(path.join(ctx, "migrations"))) return false
+  return true
+}
+
 function injectLaravelSqliteStartBootstrap(plan: JsonObject): boolean {
   const start = plan["start"]
   if (!isJsonObject(start)) return false
@@ -519,6 +564,19 @@ function injectLaravelSqliteStartBootstrap(plan: JsonObject): boolean {
   if (cmd.includes("PLOYDOK_LARAVEL_SQLITE_BOOTSTRAP")) return false
 
   start["cmd"] = `${LARAVEL_SQLITE_BOOTSTRAP_CMD}; ${cmd}`
+  return true
+}
+
+function injectSymfonyDoctrineMigrationsStartBootstrap(
+  plan: JsonObject
+): boolean {
+  const start = plan["start"]
+  if (!isJsonObject(start)) return false
+  const cmd = start["cmd"]
+  if (typeof cmd !== "string" || cmd.trim().length === 0) return false
+  if (cmd.includes("PLOYDOK_SYMFONY_DOCTRINE_BOOTSTRAP")) return false
+
+  start["cmd"] = `${SYMFONY_DOCTRINE_MIGRATIONS_BOOTSTRAP_CMD} && ${cmd}`
   return true
 }
 
@@ -559,6 +617,15 @@ const LARAVEL_SQLITE_BOOTSTRAP_CMD =
   `echo "[ploydok] Laravel seeders detected but not run; set PLOYDOK_LARAVEL_SEED=true to seed a fresh SQLite database"; ` +
   `fi ;; ` +
   `esac; ` +
+  `fi`
+
+const SYMFONY_DOCTRINE_MIGRATIONS_BOOTSTRAP_CMD =
+  `if [ -f bin/console ] && [ -d migrations ] && ` +
+  `[ -n "\${DATABASE_URL:-}" ]; then ` +
+  `export PLOYDOK_SYMFONY_DOCTRINE_BOOTSTRAP=1; ` +
+  `echo "[ploydok] preparing Symfony Doctrine migrations"; ` +
+  `php bin/console doctrine:migrations:migrate --no-interaction ` +
+  `--allow-no-migration --env="\${APP_ENV:-prod}"; ` +
   `fi`
 
 async function readEnvFileValue(

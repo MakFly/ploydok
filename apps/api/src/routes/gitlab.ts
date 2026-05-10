@@ -25,6 +25,7 @@ import { findRecentByPayloadHash, insertDelivery } from "../webhooks/deliveries"
 import { gitlabWebhookRateLimit } from "../webhooks/rate-limiters"
 import { childLogger } from "../logger"
 import { env } from "../env"
+import { shouldUseSecureCookies } from "../auth/jwt"
 import type { AuthUser } from "../auth/middleware"
 
 const log = childLogger("gitlab.routes")
@@ -59,7 +60,6 @@ function isAllowedEnvFilePath(path: string): boolean {
 
 const OAUTH_STATE_COOKIE = "gl_oauth_state"
 const OAUTH_STATE_TTL_SECONDS = 10 * 60
-const SECURE = env.NODE_ENV === "prod"
 
 function signState(state: string): string {
   const mac = createHmac("sha256", env.SESSION_SECRET)
@@ -98,13 +98,13 @@ function buildCookie(
     "SameSite=Lax",
   ]
   if (httpOnly) parts.push("HttpOnly")
-  if (SECURE) parts.push("Secure")
+  if (shouldUseSecureCookies()) parts.push("Secure")
   return parts.join("; ")
 }
 
 function clearCookie(name: string): string {
   const parts = [`${name}=`, "Path=/", "Max-Age=0", "SameSite=Lax"]
-  if (SECURE) parts.push("Secure")
+  if (shouldUseSecureCookies()) parts.push("Secure")
   return parts.join("; ")
 }
 

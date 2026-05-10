@@ -74,6 +74,7 @@ export const databases = pgTable("databases", {
     withTimezone: true,
     mode: "date",
   }),
+  creation_idempotency_key: text("creation_idempotency_key"),
   created_at: timestamp("created_at", { withTimezone: true, mode: "date" })
     .notNull()
     .$defaultFn(() => new Date()),

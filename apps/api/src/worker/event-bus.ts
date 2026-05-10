@@ -23,6 +23,7 @@ export type NotificationType =
   | "build.started"
   | "build.succeeded"
   | "build.failed"
+  | "build.cancelled"
   | "deploy.status_change"
   | "container.health"
   | "provider.sync.started"

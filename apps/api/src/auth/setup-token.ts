@@ -15,6 +15,7 @@ interface SetupToken {
 }
 
 let current: SetupToken | null = null
+let tokenlessBannerPrinted = false
 
 function hasActiveToken(): boolean {
   if (!current) return false
@@ -34,10 +35,28 @@ function buildSetupUrl(token: string): string {
 }
 
 export async function bootstrapSetupToken(db: Db): Promise<void> {
-  if (hasActiveToken()) return
-
   const existing = await db.select({ id: users.id }).from(users).limit(1)
   if (existing.length > 0) return
+
+  if (!env.PLOYDOK_SETUP_TOKEN_REQUIRED) {
+    if (!tokenlessBannerPrinted) {
+      tokenlessBannerPrinted = true
+      // eslint-disable-next-line no-console
+      console.warn(
+        [
+          "",
+          "┌─ Ploydok first boot ─────────────────────────────────────────────────────────┐",
+          `│ Open: ${env.WEB_ORIGIN}/setup`,
+          "│ Setup token disabled by PLOYDOK_SETUP_TOKEN_REQUIRED=0; rely on firewall/IP allowlist.",
+          "└──────────────────────────────────────────────────────────────────────────────┘",
+          "",
+        ].join("\n")
+      )
+    }
+    return
+  }
+
+  if (hasActiveToken()) return
 
   const fromEnv = Bun.env["PLOYDOK_SETUP_TOKEN"]?.trim()
   const value = fromEnv && fromEnv.length >= 16 ? fromEnv : newRandom()
@@ -93,14 +112,8 @@ export function clearSetupToken(): void {
   current = null
 }
 
-// Dev-only — exposes the raw token so the /setup page can auto-inject it on
-// localhost. NEVER call this from a route reachable in production.
-export function peekSetupTokenUnsafe(): string | null {
-  if (!hasActiveToken()) return null
-  return current!.value
-}
-
 // Test-only — never call from production code.
 export function __resetSetupTokenForTest(): void {
   current = null
+  tokenlessBannerPrinted = false
 }

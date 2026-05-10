@@ -33,8 +33,12 @@ cleanup() {
   docker rmi \
     local/ploydok-api:test-a \
     local/ploydok-api:test-b \
+    local/ploydok-web:test-a \
+    local/ploydok-web:test-b \
     local/ploydok-agent:test-a \
     local/ploydok-agent:test-b \
+    local/ploydok-adminer:test-a \
+    local/ploydok-adminer:test-b \
     local/ploydok-caddy:test-a >/dev/null 2>&1 || true
   rm -rf "$TMP"
 }
@@ -90,8 +94,12 @@ EOF
 
 docker build -q -t local/ploydok-api:test-a "$TMP/api" >/dev/null
 docker build -q -t local/ploydok-api:test-b "$TMP/api" >/dev/null
+docker build -q -t local/ploydok-web:test-a "$TMP/api" >/dev/null
+docker build -q -t local/ploydok-web:test-b "$TMP/api" >/dev/null
 docker build -q -t local/ploydok-agent:test-a "$TMP/agent" >/dev/null
 docker build -q -t local/ploydok-agent:test-b "$TMP/agent" >/dev/null
+docker build -q -t local/ploydok-adminer:test-a "$TMP/api" >/dev/null
+docker build -q -t local/ploydok-adminer:test-b "$TMP/api" >/dev/null
 docker build -q -t local/ploydok-caddy:test-a "$TMP/caddy" >/dev/null
 
 cat >"$TMP/data/.env" <<EOF
@@ -107,8 +115,12 @@ services:
     image: local/ploydok-api:test-a
     ports:
       - "127.0.0.1:${API_PORT}:3335"
+  web:
+    image: local/ploydok-web:test-a
   agent:
     image: local/ploydok-agent:test-a
+  adminer:
+    image: local/ploydok-adminer:test-a
   caddy:
     image: local/ploydok-caddy:test-a
     ports:

@@ -7,9 +7,9 @@ Wants=network-online.target
 [Service]
 Type=oneshot
 RemainAfterExit=yes
-WorkingDirectory=${PLOYDOK_DATA_DIR}
-ExecStart=/usr/bin/docker compose --env-file ${PLOYDOK_DATA_DIR}/.env -f ${PLOYDOK_DATA_DIR}/docker-compose.yml up -d
-ExecStop=/usr/bin/docker compose --env-file ${PLOYDOK_DATA_DIR}/.env -f ${PLOYDOK_DATA_DIR}/docker-compose.yml down
+WorkingDirectory=${PLOYDOK_INSTALL_DIR}
+ExecStart=/usr/bin/docker compose --env-file ${PLOYDOK_DATA_DIR}/.env -f ${PLOYDOK_INSTALL_DIR}/docker-compose.yml up -d
+ExecStop=/usr/bin/docker compose --env-file ${PLOYDOK_DATA_DIR}/.env -f ${PLOYDOK_INSTALL_DIR}/docker-compose.yml down
 TimeoutStartSec=0
 
 [Install]

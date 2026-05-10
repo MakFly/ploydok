@@ -3,6 +3,7 @@
 set -Eeuo pipefail
 
 DATA_DIR="/var/lib/ploydok"
+INSTALL_DIR="/opt/ploydok"
 RESTORE_PROXY=0
 DRY_RUN="${PLOYDOK_INSTALL_DRY_RUN:-0}"
 ROOT_PREFIX="${PLOYDOK_INSTALL_ROOT:-}"
@@ -44,9 +45,21 @@ usage() {
 Usage: ploydok-cli <command> [options]
 
 Commands:
-  uninstall [--restore-previous-proxy] [--data-dir=/var/lib/ploydok] [--yes]
-  upgrade [--version=<tag>] [--image-registry=<registry>] [--data-dir=/var/lib/ploydok] [--include-data-plane] [--skip-migrations]
+  uninstall [--restore-previous-proxy] [--install-dir=/opt/ploydok] [--data-dir=/var/lib/ploydok] [--yes]
+  upgrade [--version=<tag>] [--image-registry=<registry>] [--install-dir=/opt/ploydok] [--data-dir=/var/lib/ploydok] [--include-data-plane] [--skip-migrations]
 USAGE
+}
+
+compose_file_path() {
+  local install_compose data_compose
+  install_compose="$(real_path "$INSTALL_DIR/docker-compose.yml")"
+  data_compose="$(real_path "$DATA_DIR/docker-compose.yml")"
+  if [[ -f "$install_compose" || ! -f "$data_compose" ]]; then
+    printf '%s\n' "$install_compose"
+  else
+    # Backward compatibility for installs created before compose/config split.
+    printf '%s\n' "$data_compose"
+  fi
 }
 
 cmd="${1:-}"
@@ -59,6 +72,7 @@ case "$cmd" in
     for arg in "$@"; do
       case "$arg" in
         --restore-previous-proxy) RESTORE_PROXY=1 ;;
+        --install-dir=*) INSTALL_DIR="${arg#*=}" ;;
         --data-dir=*) DATA_DIR="${arg#*=}" ;;
         --yes) YES=1 ;;
         *) echo "Unknown option: $arg" >&2; exit 1 ;;
@@ -69,8 +83,9 @@ case "$cmd" in
       exit 2
     fi
     run systemctl disable --now ploydok.target
-    if [[ -f "$(real_path "$DATA_DIR/docker-compose.yml")" ]]; then
-      run docker compose --env-file "$(real_path "$DATA_DIR/.env")" -f "$(real_path "$DATA_DIR/docker-compose.yml")" down
+    compose_file="$(compose_file_path)"
+    if [[ -f "$compose_file" ]]; then
+      run docker compose --env-file "$(real_path "$DATA_DIR/.env")" -f "$compose_file" down
     fi
     backup="/var/backups/ploydok-data-$(date -u +%Y%m%dT%H%M%SZ).tar.gz"
     if [[ -d "$(real_path "$DATA_DIR")" ]]; then
@@ -96,6 +111,7 @@ case "$cmd" in
       case "$arg" in
         --version=*) VERSION="${arg#*=}" ;;
         --image-registry=*) REGISTRY="${arg#*=}" ;;
+        --install-dir=*) INSTALL_DIR="${arg#*=}" ;;
         --data-dir=*) DATA_DIR="${arg#*=}" ;;
         --include-data-plane) INCLUDE_DATA_PLANE=1 ;;
         --skip-migrations) SKIP_MIGRATIONS=1 ;;
@@ -103,7 +119,7 @@ case "$cmd" in
       esac
     done
     [[ -n "$VERSION" ]] || { echo "--version is required" >&2; exit 1; }
-    compose_file="$(real_path "$DATA_DIR/docker-compose.yml")"
+    compose_file="$(compose_file_path)"
     env_file="$(real_path "$DATA_DIR/.env")"
     [[ -f "$compose_file" ]] || { echo "missing compose file: $compose_file" >&2; exit 1; }
     [[ -f "$env_file" ]] || { echo "missing env file: $env_file" >&2; exit 1; }
@@ -114,7 +130,9 @@ case "$cmd" in
     [[ -n "$REGISTRY" ]] || { echo "could not infer image registry; pass --image-registry=<registry>" >&2; exit 1; }
 
     verify_image "$REGISTRY/ploydok-api:$VERSION"
+    verify_image "$REGISTRY/ploydok-web:$VERSION"
     verify_image "$REGISTRY/ploydok-agent:$VERSION"
+    verify_image "$REGISTRY/ploydok-adminer:$VERSION"
     if [[ "$INCLUDE_DATA_PLANE" == "1" ]]; then
       verify_image "$REGISTRY/ploydok-caddy:$VERSION"
     fi
@@ -134,19 +152,19 @@ case "$cmd" in
 
     if [[ "$DRY_RUN" == "1" ]]; then
       if [[ "$INCLUDE_DATA_PLANE" == "1" ]]; then
-        echo "[ploydok-cli] dry-run: update $compose_file api/agent/caddy images to $VERSION"
+        echo "[ploydok-cli] dry-run: update $compose_file api/web/agent/adminer/caddy images to $VERSION"
       else
-        echo "[ploydok-cli] dry-run: update $compose_file api/agent images to $VERSION"
+        echo "[ploydok-cli] dry-run: update $compose_file api/web/agent/adminer images to $VERSION"
       fi
     else
       if [[ "$INCLUDE_DATA_PLANE" == "1" ]]; then
-        sed -E -i "s#(image: .*/ploydok-(api|agent|caddy):).*#\\1$VERSION#" "$compose_file"
+        sed -E -i "s#(image: .*/ploydok-(api|web|agent|adminer|caddy):).*#\\1$VERSION#" "$compose_file"
       else
-        sed -E -i "s#(image: .*/ploydok-(api|agent):).*#\\1$VERSION#" "$compose_file"
+        sed -E -i "s#(image: .*/ploydok-(api|web|agent|adminer):).*#\\1$VERSION#" "$compose_file"
       fi
     fi
 
-    services=(api agent)
+    services=(api web agent adminer)
     if [[ "$INCLUDE_DATA_PLANE" == "1" ]]; then
       services+=(caddy)
     fi

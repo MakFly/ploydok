@@ -9,6 +9,7 @@ import { env } from "./env"
 import { createDb } from "@ploydok/db"
 import { users, passkeys, totp_secrets } from "@ploydok/db"
 import { createAuthRouter } from "./routes/auth"
+import { shouldUseSecureCookies } from "./auth/jwt"
 import { requireAuth, type AuthUser } from "./auth/middleware"
 import { createApiTokensRouter } from "./routes/api-tokens"
 import { countActive } from "./auth/backup-codes"
@@ -33,6 +34,7 @@ import { monitoringRouter, startMonitoringLoop } from "./routes/monitoring"
 import { notificationsRouter } from "./routes/notifications"
 import { secretsRouter } from "./routes/secrets"
 import { createDatabasesRouter } from "./routes/databases"
+import { createAdminerRouter } from "./routes/adminer"
 import { createBackupsRouter } from "./routes/backups"
 import { createAppsDatabasesLinkRouter } from "./routes/apps-databases-link"
 import { appsProtectionRouter } from "./routes/apps-protection"
@@ -166,7 +168,7 @@ app.use(
     },
     credentials: true,
     allowMethods: ["GET", "POST", "PUT", "PATCH", "DELETE"],
-    allowHeaders: ["content-type", "x-csrf-token"],
+    allowHeaders: ["content-type", "x-csrf-token", "x-totp-code"],
   })
 )
 
@@ -217,10 +219,22 @@ app.use("*", async (c, next) => {
     return next()
   }
 
+  if (c.req.path === "/auth/login/password") {
+    return next()
+  }
+
+  // Adminer is proxied through a high-entropy, authenticated, short-lived
+  // session URL. Adminer forms cannot attach Ploydok's double-submit CSRF
+  // header, so CSRF is enforced at session creation instead.
+  if (c.req.path.startsWith("/adminer/sessions/")) {
+    return next()
+  }
+
   // /auth/setup/* est le first-boot wizard. Aucune session active, pas de
   // cookie CSRF possible. La sécurité repose sur : token éphémère printé dans
   // les logs API + Origin check + count(users)===0 anti-replay.
   if (
+    c.req.path === "/auth/setup/password" ||
     c.req.path === "/auth/setup/options" ||
     c.req.path === "/auth/setup/verify"
   ) {
@@ -345,7 +359,7 @@ app.get("/auth/csrf", (c) => {
   const token = crypto.randomUUID()
   // httpOnly: false is intentional for the double-submit pattern —
   // JavaScript must be able to read the cookie to attach it as a header.
-  const secure = env.NODE_ENV === "prod" ? "; Secure" : ""
+  const secure = shouldUseSecureCookies() ? "; Secure" : ""
   c.header("Set-Cookie", `csrf=${token}; Path=/; SameSite=Lax${secure}`)
   return c.json({ token })
 })
@@ -443,6 +457,11 @@ app.route("/apps", secretsRouter)
 app.use("/databases/*", requireAuth(db))
 app.use("/databases", requireAuth(db))
 app.route("/databases", createDatabasesRouter(db))
+
+// Adminer proxy — all requests require the normal Ploydok session plus a
+// short-lived Adminer session bound to the same user.
+app.use("/adminer/*", requireAuth(db))
+app.route("/adminer", createAdminerRouter())
 
 // Organizations / workspaces — all endpoints require auth.
 app.use("/organizations/*", requireAuth(db))

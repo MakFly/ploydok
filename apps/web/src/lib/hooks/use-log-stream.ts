@@ -1,13 +1,13 @@
 // SPDX-License-Identifier: AGPL-3.0-only
 import * as React from "react"
 import { apiFetch } from "../api"
+import { apiBaseUrl, apiWebSocketBaseUrl } from "../api/base"
 
 // ---------------------------------------------------------------------------
 // Constants
 // ---------------------------------------------------------------------------
 
 const ABSOLUTE_MAX_LINES = 10_000
-const API_BASE = import.meta.env.VITE_API_URL ?? "http://localhost:3335"
 
 // ---------------------------------------------------------------------------
 // Types
@@ -349,7 +349,7 @@ async function loadArchivedBuildLogs(
   buildId: string
 ): Promise<FallbackResult> {
   const path = `/apps/${appId}/logs?buildId=${encodeURIComponent(buildId)}`
-  const res = await fetch(`${API_BASE}${path}`, { credentials: "include" })
+  const res = await fetch(`${apiBaseUrl()}${path}`, { credentials: "include" })
   if (!res.ok) throw new Error(`Failed to load logs (${res.status})`)
   const text = await res.text()
   const lines = text.split(/\r?\n/).filter((l) => l.length > 0)
@@ -445,7 +445,7 @@ export function useLogStream({
       }
     }
 
-    const wsBase = API_BASE.replace(/^http/, "ws")
+    const wsBase = apiWebSocketBaseUrl()
     const wsPath =
       buildId && buildId !== "latest"
         ? `${wsBase}/ws/apps/${appId}/build/${buildId}`

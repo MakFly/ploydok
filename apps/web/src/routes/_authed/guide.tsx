@@ -2,6 +2,7 @@
 import * as React from "react";
 import { Link, createFileRoute } from "@tanstack/react-router";
 import { ShellPage } from "../../components/layout/AppShell";
+import { apiBaseUrl } from "../../lib/api/base";
 import { useGitHubAppConfig, useInstallations } from "../../lib/github";
 
 export const Route = createFileRoute("/_authed/guide")({
@@ -11,10 +12,11 @@ export const Route = createFileRoute("/_authed/guide")({
 function GuidePage(): React.JSX.Element {
   const { data: appConfig } = useGitHubAppConfig();
   const { data: installations } = useInstallations();
+  const { apiOrigin, webOrigin } = usePublicOrigins();
 
-  const installUrl = appConfig?.install_url ?? installations?.installUrl ?? "http://localhost:3335/github/installations/start";
-  const setupUrl = "http://localhost:3335/github/app/setup";
-  const callbackUrl = "http://localhost:3335/github/app/callback";
+  const installUrl = appConfig?.install_url ?? installations?.installUrl ?? `${apiOrigin}/github/installations/start`;
+  const setupUrl = `${apiOrigin}/github/app/setup`;
+  const callbackUrl = `${apiOrigin}/github/app/callback`;
 
   return (
     <ShellPage
@@ -74,9 +76,9 @@ function GuidePage(): React.JSX.Element {
         >
           <Checklist
             items={[
-              "`WEB_ORIGIN` must be `http://localhost:5173` in the API environment.",
-              "`GITHUB_APP_CALLBACK_URL` should resolve to `http://localhost:3335/github/app/callback` unless you deliberately expose the API elsewhere.",
-              "Your local API must already be running on port `3335` and the web app on `5173`.",
+              `\`WEB_ORIGIN\` must be \`${webOrigin}\` in the API environment.`,
+              `\`GITHUB_APP_CALLBACK_URL\` should resolve to \`${callbackUrl}\`.`,
+              "The API origin and web origin must match what users can reach from their browser.",
               "If you changed callback or setup URLs after the app was already created, recreate the GitHub App or update its settings manually in GitHub.",
             ]}
           />
@@ -109,9 +111,9 @@ function GuidePage(): React.JSX.Element {
           <CodeBlock
             title="Expected app configuration in GitHub"
             lines={[
-              "Homepage URL: http://localhost:5173",
-              "Callback URL: http://localhost:3335/github/app/callback",
-              "Setup URL: http://localhost:3335/github/app/setup",
+              `Homepage URL: ${webOrigin}`,
+              `Callback URL: ${callbackUrl}`,
+              `Setup URL: ${setupUrl}`,
               "Request user authorization (OAuth) during installation: disabled",
             ]}
           />
@@ -152,10 +154,10 @@ function GuidePage(): React.JSX.Element {
           <CodeBlock
             title="Expected redirect chain"
             lines={[
-              "1. http://localhost:3335/github/installations/start",
+              `1. ${installUrl}`,
               "2. https://github.com/apps/<slug>/installations/new?state=<signed-state>",
-              "3. http://localhost:3335/github/app/setup?installation_id=...&setup_action=install&state=...",
-              "4. http://localhost:5173/settings/git-providers/github?installation_id=...&setup_action=install&installed=1",
+              `3. ${setupUrl}?installation_id=...&setup_action=install&state=...`,
+              `4. ${webOrigin}/settings/git-providers/github?installation_id=...&setup_action=install&installed=1`,
             ]}
           />
 
@@ -180,9 +182,9 @@ function GuidePage(): React.JSX.Element {
         >
           <Checklist
             items={[
-              "Open the GitHub App settings and confirm `Setup URL` is exactly `http://localhost:3335/github/app/setup`.",
+              `Open the GitHub App settings and confirm \`Setup URL\` is exactly \`${setupUrl}\`.`,
               "Confirm `Request user authorization (OAuth) during installation` is disabled.",
-              "Confirm the callback URL is still `http://localhost:3335/github/app/callback`.",
+              `Confirm the callback URL is still \`${callbackUrl}\`.`,
               "If the app was created before these values were fixed, recreate the app from Ploydok or update the GitHub App settings manually.",
               "If the setup callback returns to Ploydok with `install_error=state_mismatch`, restart the install flow from Ploydok instead of reusing an old GitHub tab.",
               "If Ploydok shows the app as configured but no installation appears, use the Refresh button on Settings > GitHub and check whether the install landed on the expected account.",
@@ -193,8 +195,8 @@ function GuidePage(): React.JSX.Element {
             <CodeBlock
               title="Good local values"
               lines={[
-                "WEB_ORIGIN=http://localhost:5173",
-                "GITHUB_APP_CALLBACK_URL=http://localhost:3335/github/app/callback",
+                `WEB_ORIGIN=${webOrigin}`,
+                `GITHUB_APP_CALLBACK_URL=${callbackUrl}`,
               ]}
             />
             <CodeBlock
@@ -214,8 +216,8 @@ function GuidePage(): React.JSX.Element {
             Keep these values aligned between the API environment, the manifest flow, and the GitHub App settings page.
           </p>
           <div className="mt-4 grid gap-3 text-sm">
-            <StatusRow label="Ploydok web origin" value="http://localhost:5173" mono />
-            <StatusRow label="Ploydok API origin" value="http://localhost:3335" mono />
+            <StatusRow label="Ploydok web origin" value={webOrigin} mono />
+            <StatusRow label="Ploydok API origin" value={apiOrigin} mono />
             <StatusRow label="GitHub App callback" value={callbackUrl} mono />
             <StatusRow label="GitHub App setup URL" value={setupUrl} mono />
             <StatusRow label="Install start URL" value={installUrl} mono />
@@ -224,6 +226,22 @@ function GuidePage(): React.JSX.Element {
       </div>
     </ShellPage>
   );
+}
+
+function usePublicOrigins(): { apiOrigin: string; webOrigin: string } {
+  const [origins, setOrigins] = React.useState({
+    apiOrigin: "https://<your-instance>",
+    webOrigin: "https://<your-instance>",
+  });
+
+  React.useEffect(() => {
+    const base = apiBaseUrl().replace(/\/$/, "");
+    const webOrigin = window.location.origin;
+    const apiOrigin = /^https?:\/\//.test(base) ? base : webOrigin;
+    setOrigins({ apiOrigin, webOrigin });
+  }, []);
+
+  return origins;
 }
 
 function GuideSection({

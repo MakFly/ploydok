@@ -73,7 +73,10 @@ import { ensureDefaultOrganizationForUser } from "../services/organizations"
 import { ensureFrameworkEnvVars } from "../services/framework-env"
 import { encryptSecret } from "../secrets/crypto"
 import { getConnectionString } from "../databases/spawner"
-import { parseConnectionString } from "./apps-databases-link"
+import {
+  DEFAULT_DATABASE_ENV_PREFIX,
+  parseConnectionString,
+} from "./apps-databases-link"
 
 // ---------------------------------------------------------------------------
 // Validation schemas
@@ -222,6 +225,12 @@ const RelativeWorkspacePathSchema = z
   )
 
 const StaticOutputDirSchema = RelativeWorkspacePathSchema.default("dist")
+const IdempotencyKeySchema = z
+  .string()
+  .trim()
+  .min(8)
+  .max(160)
+  .regex(/^[A-Za-z0-9._:-]+$/, "Invalid idempotency key")
 
 // Base object schema (no .refine so it stays composable with .omit/.extend).
 const CreateAppBodyBase = z.object({
@@ -262,6 +271,7 @@ const CreateAppBodyBase = z.object({
   restartPolicy: RestartPolicySchema.optional(),
   healthcheck: HealthcheckConfigSchema.partial().optional(),
   domain: z.string().optional(),
+  idempotencyKey: IdempotencyKeySchema.optional(),
   initialSecrets: z
     .array(
       z.object({
@@ -271,8 +281,14 @@ const CreateAppBodyBase = z.object({
           .max(128)
           .regex(/^[A-Z_][A-Z0-9_]*$/),
         value: z.string().max(16_384),
-        scope: z.enum(["shared", "prod", "preview"]).optional().default("shared"),
-        phase: z.enum(["runtime", "build", "both"]).optional().default("runtime"),
+        scope: z
+          .enum(["shared", "prod", "preview"])
+          .optional()
+          .default("shared"),
+        phase: z
+          .enum(["runtime", "build", "both"])
+          .optional()
+          .default("runtime"),
       })
     )
     .max(50)
@@ -285,7 +301,7 @@ const CreateAppBodyBase = z.object({
         .min(1)
         .max(32)
         .regex(/^[A-Z0-9_]+$/)
-        .default("DB"),
+        .default(DEFAULT_DATABASE_ENV_PREFIX),
     })
     .optional(),
   /** Per-app GC override. null clears the override (falls back to default 3). */
@@ -301,6 +317,7 @@ const PatchAppBody = CreateAppBodyBase.omit({
   projectId: true,
   initialSecrets: true,
   initialDatabaseLink: true,
+  idempotencyKey: true,
 })
   .extend({
     auto_deploy_enabled: z.boolean().optional(),
@@ -343,6 +360,124 @@ export function slugify(name: string): string {
     .slice(0, 32)
 }
 
+function normalizeHostname(value: string | null | undefined): string {
+  const raw = value?.trim()
+  if (!raw) return ""
+  try {
+    const parsed = new URL(raw.includes("://") ? raw : `http://${raw}`)
+    return parsed.hostname.replace(/\.$/, "").toLowerCase()
+  } catch {
+    return raw
+      .replace(/^\w+:\/\//, "")
+      .replace(/:\d+$/, "")
+      .replace(/\.$/, "")
+      .toLowerCase()
+  }
+}
+
+function isIpv4Host(host: string): boolean {
+  const parts = host.split(".")
+  return (
+    parts.length === 4 &&
+    parts.every((part) => {
+      if (!/^\d{1,3}$/.test(part)) return false
+      const n = Number(part)
+      return n >= 0 && n <= 255
+    })
+  )
+}
+
+export function deriveDefaultAppDomainBase(opts: {
+  explicitBase?: string | null | undefined
+  publicHost?: string | null | undefined
+}): string {
+  const explicitBase = normalizeHostname(opts.explicitBase)
+  if (explicitBase) return explicitBase
+
+  const publicHost = normalizeHostname(opts.publicHost)
+  if (isIpv4Host(publicHost)) {
+    return `${publicHost.replace(/\./g, "-")}.sslip.io`
+  }
+
+  if (
+    !publicHost ||
+    publicHost === "localhost" ||
+    publicHost.endsWith(".local")
+  ) {
+    return "demo.ploydok.local"
+  }
+
+  return `apps.${publicHost}`
+}
+
+function dnsSafeToken(value: string, length: number): string {
+  const token = value
+    .toLowerCase()
+    .replace(/[^a-z0-9]+/g, "-")
+    .replace(/^-+|-+$/g, "")
+    .slice(0, length)
+  return (
+    token ||
+    nanoid(length)
+      .toLowerCase()
+      .replace(/[^a-z0-9]+/g, "a")
+  )
+}
+
+export function buildDefaultAppDomain(params: {
+  slug: string
+  appId: string
+  explicitBase?: string | null | undefined
+  publicHost?: string | null | undefined
+}): string {
+  const base = deriveDefaultAppDomainBase({
+    explicitBase: params.explicitBase,
+    publicHost: params.publicHost,
+  })
+  const suffix = dnsSafeToken(params.appId, 8)
+  const safeSlug = slugify(params.slug) || "app"
+  const maxSlugLength = Math.max(1, 63 - suffix.length - 1)
+  const label = `${safeSlug.slice(0, maxSlugLength)}-${suffix}`
+  return `${label}.${base}`
+}
+
+function defaultAppDomain(slug: string, appId: string): string {
+  return buildDefaultAppDomain({
+    slug,
+    appId,
+    explicitBase: env.PLOYDOK_DOMAIN_BASE,
+    publicHost: env.PLOYDOK_PUBLIC_HOST,
+  })
+}
+
+function isUniqueConstraintError(err: unknown, constraint: string): boolean {
+  if (!err || typeof err !== "object") return false
+  const record = err as Record<string, unknown>
+  return (
+    record["code"] === "23505" &&
+    (record["constraint"] === constraint ||
+      String(record["message"] ?? "").includes(constraint))
+  )
+}
+
+async function findAppByCreationKey(
+  db: Db,
+  projectId: string,
+  key: string
+): Promise<AppRow | null> {
+  const rows = await db
+    .select()
+    .from(apps)
+    .where(
+      and(
+        eq(apps.project_id, projectId),
+        eq(apps.creation_idempotency_key, key)
+      )
+    )
+    .limit(1)
+  return rows[0] ?? null
+}
+
 function getUser(c: { get: (key: string) => unknown }): AuthUser {
   return c.get("user") as AuthUser
 }
@@ -372,7 +507,8 @@ export function deriveCurrentBuildMetadata(
   )
 
   const metadata: { currentCommitSha?: string; latestBuildId?: string } = {}
-  if (currentBuild?.commit_sha) metadata.currentCommitSha = currentBuild.commit_sha
+  if (currentBuild?.commit_sha)
+    metadata.currentCommitSha = currentBuild.commit_sha
   if (buildRows[0]?.id) metadata.latestBuildId = buildRows[0].id
   return metadata
 }
@@ -543,6 +679,18 @@ export function createAppsRouter(db: Db): Hono {
   const appsWrite = requireScope("apps:write")
   const appsDeploy = requireScope("apps:deploy")
 
+  router.get("/default-domain-config", appsRead, (c) => {
+    const domainBase = deriveDefaultAppDomainBase({
+      explicitBase: env.PLOYDOK_DOMAIN_BASE,
+      publicHost: env.PLOYDOK_PUBLIC_HOST,
+    })
+    return c.json({
+      domainBase,
+      publicScheme: env.PLOYDOK_PUBLIC_SCHEME,
+      publicPort: env.PLOYDOK_PUBLIC_PORT ?? null,
+    })
+  })
+
   // -------------------------------------------------------------------------
   // POST /apps — Create a new app
   // -------------------------------------------------------------------------
@@ -622,6 +770,14 @@ export function createAppsRouter(db: Db): Hono {
       projectId = organization.id
     }
 
+    const creationKey = body.idempotencyKey ?? null
+    if (creationKey) {
+      const existing = await findAppByCreationKey(db, projectId, creationKey)
+      if (existing) {
+        return c.json({ app: serializeApp(existing) }, 200)
+      }
+    }
+
     let initialDatabaseVars: Record<string, string> | null = null
     let initialDatabaseId: string | null = null
     let initialDatabaseEnvPrefix: string | null = null
@@ -694,9 +850,8 @@ export function createAppsRouter(db: Db): Hono {
     const baseSlug = slugify(body.name) || "app"
     const slug = await uniqueSlug(db, projectId, baseSlug)
 
-    // 3. Compute domain if absent
-    const domainBase = Bun.env["PLOYDOK_DOMAIN_BASE"] ?? "demo.ploydok.local"
-    const domain = body.domain ?? `${slug}.${domainBase}`
+    // 3. Compute a directly reachable preview domain if absent.
+    const domain = body.domain ?? defaultAppDomain(slug, id)
 
     // 4. Build healthcheck fields
     const hc = body.healthcheck ?? {}
@@ -704,51 +859,69 @@ export function createAppsRouter(db: Db): Hono {
     const resolvedRuntimePort: number | null = body.runtimePort ?? null
 
     // 5. INSERT
-    const newApp = await insertApp(db, {
-      id,
-      project_id: projectId,
-      name: body.name,
-      slug,
-      status: "created",
-      created_at: now,
-      updated_at: now,
-      git_provider: body.gitProvider,
-      repo_full_name: body.repoFullName ?? null,
-      branch: body.branch ?? null,
-      github_installation_id: body.installationId ?? null,
-      gitlab_project_id: body.gitlabProjectId ?? null,
-      image_ref: body.imageRef ?? null,
-      image_pull_policy: body.imagePullPolicy ?? null,
-      registry_credential_id: body.registryCredentialId ?? null,
-      track_latest: body.trackLatest ?? false,
-      plan: body.plan ?? "custom",
-      cpu_limit: body.cpuLimit ?? null,
-      mem_limit_bytes: body.memLimitMB ? body.memLimitMB * 1024 * 1024 : null,
-      pids_limit: body.pidsLimit ?? null,
-      root_dir: body.rootDir ?? null,
-      dockerfile_path: body.dockerfilePath ?? null,
-      nixpacks_config_path: body.nixpacksConfigPath ?? null,
-      node_version: body.nodeVersion ?? null,
-      install_command: body.installCommand ?? null,
-      build_command: body.buildCommand ?? null,
-      start_command: body.startCommand ?? null,
-      watch_paths: body.watchPaths ? JSON.stringify(body.watchPaths) : null,
-      build_method:
-        body.buildMethod === "docker"
-          ? "dockerfile"
-          : (body.buildMethod ?? "auto"),
-      static_output_dir: body.staticOutputDir ?? "dist",
-      static_spa_fallback: body.staticSpaFallback ?? true,
-      runtime_port: resolvedRuntimePort,
-      restart_policy: body.restartPolicy ?? "unless-stopped",
-      domain,
-      healthcheck_path: hc.path ?? "/",
-      healthcheck_port: hc.port ?? resolvedRuntimePort ?? null,
-      healthcheck_interval_s: hc.intervalS ?? 5,
-      healthcheck_timeout_s: hc.timeoutS ?? 3,
-      healthcheck_retries: hc.retries ?? 6,
-      healthcheck_start_period_s: hc.startPeriodS ?? 0,
-    })
+    let newApp: AppRow
+    try {
+      newApp = await insertApp(db, {
+        id,
+        project_id: projectId,
+        name: body.name,
+        slug,
+        status: "created",
+        created_at: now,
+        updated_at: now,
+        git_provider: body.gitProvider,
+        repo_full_name: body.repoFullName ?? null,
+        branch: body.branch ?? null,
+        github_installation_id: body.installationId ?? null,
+        gitlab_project_id: body.gitlabProjectId ?? null,
+        image_ref: body.imageRef ?? null,
+        image_pull_policy: body.imagePullPolicy ?? null,
+        registry_credential_id: body.registryCredentialId ?? null,
+        track_latest: body.trackLatest ?? false,
+        plan: body.plan ?? "custom",
+        cpu_limit: body.cpuLimit ?? null,
+        mem_limit_bytes: body.memLimitMB ? body.memLimitMB * 1024 * 1024 : null,
+        pids_limit: body.pidsLimit ?? null,
+        root_dir: body.rootDir ?? null,
+        dockerfile_path: body.dockerfilePath ?? null,
+        nixpacks_config_path: body.nixpacksConfigPath ?? null,
+        node_version: body.nodeVersion ?? null,
+        install_command: body.installCommand ?? null,
+        build_command: body.buildCommand ?? null,
+        start_command: body.startCommand ?? null,
+        watch_paths: body.watchPaths ? JSON.stringify(body.watchPaths) : null,
+        build_method:
+          body.buildMethod === "docker"
+            ? "dockerfile"
+            : (body.buildMethod ?? "auto"),
+        static_output_dir: body.staticOutputDir ?? "dist",
+        static_spa_fallback: body.staticSpaFallback ?? true,
+        runtime_port: resolvedRuntimePort,
+        restart_policy: body.restartPolicy ?? "unless-stopped",
+        domain,
+        healthcheck_path: hc.path ?? "/",
+        healthcheck_port: hc.port ?? resolvedRuntimePort ?? null,
+        healthcheck_interval_s: hc.intervalS ?? 5,
+        healthcheck_timeout_s: hc.timeoutS ?? 3,
+        healthcheck_retries: hc.retries ?? 6,
+        healthcheck_start_period_s: hc.startPeriodS ?? 0,
+        creation_idempotency_key: creationKey,
+      })
+    } catch (err) {
+      if (
+        creationKey &&
+        isUniqueConstraintError(
+          err,
+          "apps_project_creation_idempotency_key_unique"
+        )
+      ) {
+        const existing = await findAppByCreationKey(db, projectId, creationKey)
+        if (existing) {
+          return c.json({ app: serializeApp(existing) }, 200)
+        }
+      }
+      throw err
+    }
 
     const initialSecretRows = initialDatabaseVars
       ? (body.initialSecrets ?? []).filter(
@@ -1443,6 +1616,21 @@ export function createAppsRouter(db: Db): Hono {
       finishedAt: new Date(),
       errorMessage: `Cancelled by user ${user.email ?? user.id}`,
     })
+
+    try {
+      eventBus.publish(`user:${user.id}`, {
+        type: "build.cancelled",
+        appId,
+        buildId,
+        message: "Build annulé",
+        data: { status: "cancelled" },
+      })
+    } catch (pubErr) {
+      childLogger("apps-cancel-build").warn(
+        { pubErr, appId, buildId, userId: user.id },
+        "eventBus publish build.cancelled failed (non-fatal)"
+      )
+    }
 
     childLogger("apps-cancel-build").info(
       { appId, buildId, userId: user.id },

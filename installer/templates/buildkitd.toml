@@ -1,0 +1,13 @@
+# SPDX-License-Identifier: AGPL-3.0-only
+
+[worker.oci]
+  enabled = true
+  snapshotter = "overlayfs"
+
+[registry."registry:5000"]
+  http = true
+  insecure = true
+
+[registry."127.0.0.1:5000"]
+  http = true
+  insecure = true
