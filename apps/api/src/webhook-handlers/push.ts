@@ -1,6 +1,7 @@
 // SPDX-License-Identifier: AGPL-3.0-only
 import { eq, and } from "drizzle-orm"
-import { apps } from "@ploydok/db"
+import { nanoid } from "nanoid"
+import { apps, builds } from "@ploydok/db"
 import type { Db } from "@ploydok/db"
 import type { ParsedPushEvent } from "@ploydok/shared"
 import { childLogger } from "../logger"
@@ -12,6 +13,33 @@ import {
   findRecentEnqueuedDeliveryByApp,
   countDeliveriesByApp,
 } from "@ploydok/db/queries"
+
+/**
+ * Wave-2 contract: every deploy.requested job must reference a `builds`
+ * row (the worker `claimQueuedRow`s it). Pre-create the row here so the
+ * webhook handler hands the worker a buildId instead of the legacy
+ * `{appId, commitSha}` payload (which the worker drops as unauthorized).
+ */
+async function createPendingBuild(
+  db: Db,
+  params: {
+    appId: string
+    commitSha: string | null
+    commitMessage: string | null
+    source: "webhook:github" | "webhook:gitlab"
+  }
+): Promise<string> {
+  const id = nanoid()
+  await db.insert(builds).values({
+    id,
+    app_id: params.appId,
+    status: "pending",
+    commit_sha: params.commitSha,
+    commit_message: params.commitMessage,
+    source: params.source,
+  })
+  return id
+}
 
 const log = childLogger("webhook.push")
 
@@ -141,15 +169,18 @@ export async function handlePushGeneric(
       )
 
       const { jobId } = resolveCoalesceJobId({ coalesce: false, appId: app.id, branch: event.branch })
+      const buildId = await createPendingBuild(db, {
+        appId: app.id,
+        commitSha: event.commitSha,
+        commitMessage: event.commitMessage,
+        source: event.provider === "github" ? "webhook:github" : "webhook:gitlab",
+      })
       await deployQueue.add(
         "deploy.requested",
         {
-          appId: app.id,
+          buildId,
           commitSha: event.commitSha,
           commitMessage: event.commitMessage,
-          provider: event.provider,
-          authRef: event.authRef,
-          deliveryId: newDeliveryId,
           kind: "tag",
           tag: tagName,
         },
@@ -162,7 +193,7 @@ export async function handlePushGeneric(
         },
       )
 
-      log.info({ appId: app.id, tagName, commitSha: event.commitSha, jobId }, "tag deploy.requested enqueued")
+      log.info({ appId: app.id, buildId, tagName, commitSha: event.commitSha, jobId }, "tag deploy.requested enqueued")
       continue
     }
 
@@ -233,15 +264,19 @@ export async function handlePushGeneric(
       event.rawBody,
     )
 
+    const buildId = await createPendingBuild(db, {
+      appId: app.id,
+      commitSha: event.commitSha,
+      commitMessage: event.commitMessage,
+      source: event.provider === "github" ? "webhook:github" : "webhook:gitlab",
+    })
+
     await deployQueue.add(
       "deploy.requested",
       {
-        appId: app.id,
+        buildId,
         commitSha: event.commitSha,
         commitMessage: event.commitMessage,
-        provider: event.provider,
-        authRef: event.authRef,
-        deliveryId: newDeliveryId,
       },
       {
         jobId,
@@ -253,7 +288,7 @@ export async function handlePushGeneric(
     )
 
     log.info(
-      { appId: app.id, commitSha: event.commitSha, jobId, coalesced: app.coalesce_pushes },
+      { appId: app.id, buildId, commitSha: event.commitSha, jobId, coalesced: app.coalesce_pushes },
       "deploy.requested enqueued",
     )
   }
