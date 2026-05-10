@@ -39,6 +39,9 @@ function makeDb(apps: unknown[]) {
         where: () => Promise.resolve(apps),
       }),
     })),
+    insert: mock(() => ({
+      values: () => Promise.resolve(),
+    })),
   } as unknown as Parameters<typeof handlePushGeneric>[0]
 }
 
@@ -85,7 +88,9 @@ describe("handlePushGeneric — tag push", () => {
     const jobData = addCall[1]
     expect(jobData.kind).toBe("tag")
     expect(jobData.tag).toBe("v1.2.0")
-    expect(jobData.appId).toBe("app-123")
+    // Wave-2 contract: payload references a pre-created build row, not appId.
+    expect(typeof jobData.buildId).toBe("string")
+    expect(jobData.buildId).not.toBe("")
     expect(insertDeliveryMock).toHaveBeenCalledTimes(1)
     const insertCall = insertDeliveryMock.mock.calls[0] as unknown as [unknown, Record<string, unknown>]
     const deliveryRow = insertCall[1]
