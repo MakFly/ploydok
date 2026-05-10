@@ -8,7 +8,7 @@ import {
 } from "@workspace/ui/components/card"
 import { Badge } from "@workspace/ui/components/badge"
 import { Button } from "@workspace/ui/components/button"
-import { useQuery } from "@tanstack/react-query"
+import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query"
 import { apiFetch } from "../../../../../../lib/api/client"
 import { ApiError } from "../../../../../../lib/api/errors"
 
@@ -37,7 +37,7 @@ function PreviewsPage() {
     isLoading,
     isError,
   } = useQuery({
-    queryKey: ["app", appId, "previews"],
+    queryKey: ["apps", appId, "previews"],
     queryFn: async () => {
       try {
         return await apiFetch<Array<PreviewDeployment>>(`/apps/${appId}/previews`)
@@ -165,22 +165,28 @@ function PreviewCard({
   preview: PreviewDeployment
   appId: string
 }) {
+  const queryClient = useQueryClient()
+  const teardownPreview = useMutation({
+    mutationFn: () =>
+      apiFetch(`/apps/${appId}/previews/${preview.pr_number}/teardown`, {
+        method: "POST",
+      }),
+    onSuccess: () => {
+      void queryClient.invalidateQueries({
+        queryKey: ["apps", appId, "previews"],
+      })
+    },
+    onError: (err) => {
+      console.error("Failed to teardown preview:", err)
+    },
+  })
+
   const statusColor: Record<string, string> = {
     pending: "bg-yellow-100 text-yellow-800",
     building: "bg-blue-100 text-blue-800",
     running: "bg-green-100 text-green-800",
     torn_down: "bg-gray-100 text-gray-800",
     failed: "bg-red-100 text-red-800",
-  }
-
-  const handleTeardown = async () => {
-    try {
-      await apiFetch(`/apps/${appId}/previews/${preview.pr_number}/teardown`, {
-        method: "POST",
-      })
-    } catch (err) {
-      console.error("Failed to teardown preview:", err)
-    }
   }
 
   const expiresAt = preview.expires_at
@@ -233,10 +239,11 @@ function PreviewCard({
           <Button
             variant="destructive"
             size="sm"
-            onClick={handleTeardown}
+            onClick={() => teardownPreview.mutate()}
+            disabled={teardownPreview.isPending}
             className="w-full"
           >
-            Teardown
+            {teardownPreview.isPending ? "Tearing down..." : "Teardown"}
           </Button>
         )}
       </CardContent>

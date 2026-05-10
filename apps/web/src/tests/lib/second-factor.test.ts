@@ -1,12 +1,14 @@
 // SPDX-License-Identifier: AGPL-3.0-only
 import { beforeEach, describe, expect, it } from "bun:test"
 import {
-  ApiError,
-  SecondFactorRequiredError,
   apiFetch,
   invalidateGetCache,
   resetCsrfToken,
-} from "../../lib/api"
+} from "../../lib/api/client"
+import {
+  ApiError,
+  SecondFactorRequiredError,
+} from "../../lib/api/errors"
 
 const BASE = "http://localhost:3335"
 

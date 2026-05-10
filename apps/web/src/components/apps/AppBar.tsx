@@ -5,6 +5,8 @@ import { Button } from "@workspace/ui/components/button"
 import { RiTerminalBoxLine } from "@remixicon/react"
 import { Tabs, TabsList, TabsTrigger } from "@workspace/ui/components/tabs"
 import { useTabShortcuts } from "../../lib/hooks/use-tab-shortcuts"
+import { resolveDisplayedAppState } from "../../lib/app-runtime"
+import { useMonitoring } from "../../lib/monitoring"
 import {
   organizationPath,
   useCurrentOrganizationSlug,
@@ -37,6 +39,12 @@ export function AppBar({ app }: { app: AppDetail }): React.JSX.Element {
   const currentOrgSlug = useCurrentOrganizationSlug()
   useTabShortcuts(app.id, currentOrgSlug)
   const pathname = useRouterState({ select: (s) => s.location.pathname })
+  const { data: monitoring } = useMonitoring()
+  const displayedState = resolveDisplayedAppState(app, monitoring?.containers)
+  const displayedApp = React.useMemo(
+    () => ({ ...app, status: displayedState.status ?? app.status }),
+    [app, displayedState.status]
+  )
 
   const resolvedItems = React.useMemo(
     () =>
@@ -45,10 +53,10 @@ export function AppBar({ app }: { app: AppDetail }): React.JSX.Element {
           ? organizationPath(currentOrgSlug, `apps/${app.id}/${item.segment}`)
           : `/apps/${app.id}/${item.segment}`
         const disabled =
-          item.requiresRunning === true && app.status !== "running"
+          item.requiresRunning === true && displayedApp.status !== "running"
         return { ...item, to, disabled }
       }),
-    [app.id, app.status, currentOrgSlug]
+    [app.id, currentOrgSlug, displayedApp.status]
   )
 
   const activeValue =
@@ -59,19 +67,19 @@ export function AppBar({ app }: { app: AppDetail }): React.JSX.Element {
   const shellHref = currentOrgSlug
     ? organizationPath(currentOrgSlug, `apps/${app.id}/shell`)
     : `/apps/${app.id}/shell`
-  const shellDisabled = app.status !== "running"
+  const shellDisabled = displayedApp.status !== "running"
 
   return (
     <div className="flex w-full shrink-0 flex-col gap-3 px-4 py-3 md:px-8">
       <div className="flex flex-wrap items-center justify-end gap-1.5">
-        <AppHeaderActions app={app} />
+        <AppHeaderActions app={displayedApp} />
         {shellDisabled ? (
           <Button
             size="sm"
             variant="ghost"
             disabled
             className="gap-1.5"
-            title={`Available when the app is running (current: ${app.status})`}
+            title={`Available when the app is running (current: ${displayedApp.status})`}
           >
             <RiTerminalBoxLine className="size-4" aria-hidden="true" />
             Shell
@@ -95,7 +103,7 @@ export function AppBar({ app }: { app: AppDetail }): React.JSX.Element {
                 key={item.value}
                 value={item.value}
                 disabled
-                title={`Available when the app is running (current: ${app.status})`}
+                title={`Available when the app is running (current: ${displayedApp.status})`}
               >
                 {item.label}
               </TabsTrigger>

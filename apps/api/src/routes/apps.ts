@@ -492,6 +492,34 @@ function nullToUndefined<T>(value: T | null): T | undefined {
   return value ?? undefined
 }
 
+async function resolveDeployJobAppIdFromPayload(
+  db: Db,
+  data: unknown
+): Promise<string | null> {
+  let payload: unknown
+  try {
+    payload = typeof data === "string" ? JSON.parse(data) : data
+  } catch {
+    return null
+  }
+
+  if (!payload || typeof payload !== "object") return null
+
+  const buildId = (payload as { buildId?: unknown }).buildId
+  if (typeof buildId === "string") {
+    const rows = await db
+      .select({ app_id: builds.app_id })
+      .from(builds)
+      .where(eq(builds.id, buildId))
+      .limit(1)
+
+    return rows[0]?.app_id ?? null
+  }
+
+  const appId = (payload as { appId?: unknown }).appId
+  return typeof appId === "string" ? appId : null
+}
+
 function buildPublicUrl(domain: string | null): string | null {
   if (!domain) return null
   const port = env.PLOYDOK_PUBLIC_PORT ? `:${env.PLOYDOK_PUBLIC_PORT}` : ""
@@ -557,6 +585,11 @@ function serializeApp(
     currentCommitSha: buildMetadata.currentCommitSha,
     latestBuildId: buildMetadata.latestBuildId,
     keepPerRepo: nullToUndefined(row.keep_per_repo),
+    autoDeployEnabled: row.auto_deploy_enabled,
+    postCommitStatus: row.post_commit_status,
+    coalescePushes: row.coalesce_pushes,
+    deployOnTag: row.deploy_on_tag,
+    tagPattern: nullToUndefined(row.tag_pattern),
     healthcheck: {
       path: row.healthcheck_path,
       port: row.healthcheck_port,
@@ -1651,8 +1684,8 @@ export function createAppsRouter(db: Db): Hono {
         "prioritized",
       ])
       for (const j of jobs) {
-        const data = j.data as { appId?: string }
-        if (data.appId === appId) {
+        const jobAppId = await resolveDeployJobAppIdFromPayload(db, j.data)
+        if (jobAppId === appId) {
           await j.remove().catch(() => {})
         }
       }

@@ -16,6 +16,7 @@ const toastMock = toast as unknown as {
   error: () => string
   success: () => string
 }
+const originalFetch = globalThis.fetch
 let successCalls = 0
 let loadingCalls = 0
 
@@ -70,6 +71,7 @@ describe("useDeleteApp", () => {
     cleanup()
     invalidateGetCache()
     resetCsrfToken()
+    globalThis.fetch = originalFetch
   })
 
   it("marks cached app lists as deleting until the delete SSE confirmation arrives", async () => {

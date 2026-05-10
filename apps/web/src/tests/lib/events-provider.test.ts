@@ -5,7 +5,7 @@
 // of the EventSource lifecycle by mocking the global EventSource and stepping
 // through the same hook lifecycle that React would.
 
-import { afterEach, beforeEach, describe, expect, it, mock } from "bun:test"
+import { afterEach, beforeEach, describe, expect, it } from "bun:test"
 
 interface MockESInstance {
   url: string
@@ -27,6 +27,7 @@ const STATIC_CLOSED = 2
 
 let instances: Array<MockESInstance> = []
 let triggerRefreshCount = 0
+const originalWindow = globalThis.window
 
 function installMockEventSource(): void {
   instances = []
@@ -59,22 +60,11 @@ beforeEach(() => {
   installMockEventSource()
   triggerRefreshCount = 0
   ;(globalThis as { window?: unknown }).window = globalThis as unknown as Window
-  mock.module("../../lib/api", () => ({
-    triggerRefresh: () => {
-      triggerRefreshCount += 1
-      return Promise.resolve()
-    },
-  }))
-  mock.module("../../lib/api/base", () => ({
-    apiBaseUrl: () => "http://localhost:3335",
-  }))
-  mock.module("../../lib/backend-status", () => ({
-    useBackendUnavailable: () => ({ active: false }),
-  }))
 })
 
 afterEach(() => {
   delete (globalThis as { EventSource?: unknown }).EventSource
+  ;(globalThis as { window?: unknown }).window = originalWindow
 })
 
 async function flush(): Promise<void> {
@@ -106,8 +96,10 @@ describe("EventsProvider — SSE auto-reconnect", () => {
     // Direct micro-test: simulate the openConnection sequence by calling
     // the mocked refresh + constructing an EventSource the same way the
     // provider does, to assert the order of operations is preserved.
-    const { triggerRefresh } = await import("../../lib/api")
-    const { apiBaseUrl } = await import("../../lib/api/base")
+    const triggerRefresh = async () => {
+      triggerRefreshCount += 1
+    }
+    const apiBaseUrl = () => "http://localhost:3335"
 
     await triggerRefresh()
     const es = new (globalThis as unknown as {
