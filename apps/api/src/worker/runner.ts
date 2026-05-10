@@ -737,6 +737,17 @@ export async function runBlueGreen(
     channel,
     `[runner] starting container ${newName} from ${imageRef}`
   )
+  workerLog.info(
+    {
+      appId,
+      currentColor,
+      newColor,
+      newName,
+      oldNames,
+      imageRef,
+    },
+    "blue-green: target slot resolved"
+  )
   const containerEnv = { ...containerEnvWithPort(opts.env, runtimePort) }
 
   // -- Agent client ----------------------------------------------------------
@@ -891,6 +902,15 @@ export async function runBlueGreen(
     )
     await purgeCloudflareForApp(db, appId)
     logBus.publish(channel, `[runner] Caddy upstream updated`)
+    workerLog.info(
+      {
+        appId,
+        newName,
+        oldNames,
+        gracePeriodMs: GRACE_MS,
+      },
+      "blue-green: caddy upstream switched, blue↔green complete"
+    )
 
     // 5. Mark app live immediately — new container serves traffic from this
     //    point. The grace period + old-container stop below are cleanup and
