@@ -1,14 +1,14 @@
 // SPDX-License-Identifier: AGPL-3.0-only
 
+import { createIsomorphicFn } from "@tanstack/react-start"
 import {
   ApiError,
   BackendUnavailableError,
   SecondFactorRequiredError,
   SessionExpiredError,
 } from "./errors"
-import type { RefreshResult } from "./errors"
 import { apiBaseUrl } from "./base"
-import { createIsomorphicFn } from "@tanstack/react-start"
+import type { RefreshResult } from "./errors"
 
 // ---------------------------------------------------------------------------
 // Module-scope state — shared in both runtimes:

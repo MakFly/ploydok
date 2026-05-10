@@ -18,25 +18,24 @@ import type { ApiError } from "../api"
 import type {
   AppConfig,
   Build,
+  BuildStatus,
   CaddyExtraHandlers,
   CdnConfig,
-  CloudflareManagedCdn,
-  CloudflareManagedCdnStatus,
+  CloudflareManagedCdn, CloudflareManagedCdnStatus 
 } from "@ploydok/shared"
 import type {
   AppDetail,
   AppListItem,
   AppStatusEventPayload,
   AppsResponse,
-  BuildWithApp,
   BuildStatusEventPayload,
+  BuildWithApp,
   BuildsResponse,
   RawAppDetail,
   RegistryUsage,
   UseAppOptions,
   UseBuildsOptions,
 } from "./types"
-import type { BuildStatus } from "@ploydok/shared"
 
 export function useApps(organizationId?: string) {
   const qc = useQueryClient()
@@ -330,7 +329,7 @@ export function useBuilds(appId: string, opts?: UseBuildsOptions) {
     staleTime: 10_000,
     enabled: Boolean(appId),
     refetchInterval: (query) =>
-      hasActiveBuilds(query.state.data as Array<Build> | undefined)
+      hasActiveBuilds(query.state.data)
         ? 3_000
         : false,
     ...(opts?.initialData !== undefined
@@ -414,7 +413,7 @@ export function patchBuildsWithSseEvent(
   }
 
   const next = [...source]
-  next[existingIndex] = patch(next[existingIndex]!)
+  next[existingIndex] = patch(next[existingIndex])
   return next
 }
 
