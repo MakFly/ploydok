@@ -1,15 +1,17 @@
 // SPDX-License-Identifier: AGPL-3.0-only
 import { beforeEach, describe, expect, it } from "bun:test";
 import {
-  ApiError,
-  BackendUnavailableError,
-  SessionExpiredError,
   apiFetch,
-  criticalRetryDelay,
   invalidateGetCache,
   resetCsrfToken,
+} from "../../lib/api/client";
+import {
+  ApiError,
+  BackendUnavailableError,
+  criticalRetryDelay,
+  SessionExpiredError,
   shouldRetryCriticalQuery,
-} from "../../lib/api";
+} from "../../lib/api/errors";
 
 const BASE = "http://localhost:3335";
 

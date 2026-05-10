@@ -16,7 +16,7 @@ import type {
   RawAppDetail,
 } from "./apps"
 import type { ApiError } from "./api"
-import type { QueryClient } from "@tanstack/react-query"
+import type { QueryClient, QueryKey } from "@tanstack/react-query"
 
 // ---------------------------------------------------------------------------
 // useTrackAppRestart
@@ -287,6 +287,7 @@ export function useStopApp(appId: string) {
     onMutate: async () => {
       await qc.cancelQueries({ queryKey: ["apps", appId] })
       const snapshot = qc.getQueryData<AppDetail>(["apps", appId])
+      const listSnapshot = snapshotAppListCaches(qc)
       if (snapshot) {
         qc.setQueryData<AppDetail>(["apps", appId], {
           ...snapshot,
@@ -295,15 +296,20 @@ export function useStopApp(appId: string) {
       }
       markAppStoppedInListCaches(qc, appId)
       trackStop()
-      return { snapshot }
+      return { snapshot, listSnapshot }
     },
     onError: (err, _vars, context) => {
       toast.dismiss(`stop-app:${appId}`)
       notifyMutationError(err, "Stop failed")
-      const ctx = context as { snapshot?: AppDetail } | undefined
+      const ctx =
+        context as
+          | { snapshot?: AppDetail; listSnapshot?: AppListCacheSnapshot }
+          | undefined
       if (ctx?.snapshot) {
         qc.setQueryData(["apps", appId], ctx.snapshot)
       }
+      restoreAppListCaches(qc, ctx?.listSnapshot)
+      void qc.invalidateQueries({ queryKey: ["apps"] })
     },
     onSuccess: () => {},
     onSettled: () => {
@@ -375,8 +381,8 @@ export function markAppDeletingInListCaches(
   qc: QueryClient,
   appId: string
 ): void {
-  qc.setQueriesData<Array<AppListItem>>({ queryKey: ["apps"] }, (current) => {
-    if (!Array.isArray(current)) return current
+  qc.setQueriesData<unknown>({ queryKey: ["apps"] }, (current: unknown) => {
+    if (!isAppListCache(current)) return current
     return current.map((app) =>
       app.id === appId ? { ...app, status: "deleting" } : app
     )
@@ -387,8 +393,8 @@ export function removeAppFromListCaches(
   qc: QueryClient,
   appId: string
 ): void {
-  qc.setQueriesData<Array<AppListItem>>({ queryKey: ["apps"] }, (current) => {
-    if (!Array.isArray(current)) return current
+  qc.setQueriesData<unknown>({ queryKey: ["apps"] }, (current: unknown) => {
+    if (!isAppListCache(current)) return current
     return current.filter((app) => app.id !== appId)
   })
 }
@@ -397,11 +403,44 @@ export function markAppStoppedInListCaches(
   qc: QueryClient,
   appId: string
 ): void {
-  qc.setQueriesData<Array<AppListItem>>({ queryKey: ["apps"] }, (current) => {
-    if (!Array.isArray(current)) return current
+  qc.setQueriesData<unknown>({ queryKey: ["apps"] }, (current: unknown) => {
+    if (!isAppListCache(current)) return current
     return current.map((app) =>
       app.id === appId ? { ...app, status: "stopped" } : app
     )
+  })
+}
+
+type AppListCacheSnapshot = Array<[QueryKey, Array<AppListItem>]>
+
+function isAppListCache(value: unknown): value is Array<AppListItem> {
+  return (
+    Array.isArray(value) &&
+    value.every(
+      (item) =>
+        item &&
+        typeof item === "object" &&
+        typeof (item as { id?: unknown }).id === "string" &&
+        typeof (item as { name?: unknown }).name === "string"
+    )
+  )
+}
+
+function snapshotAppListCaches(qc: QueryClient): AppListCacheSnapshot {
+  return qc
+    .getQueriesData<unknown>({ queryKey: ["apps"] })
+    .filter(
+      (entry): entry is [QueryKey, Array<AppListItem>] =>
+        isAppListCache(entry[1])
+    )
+}
+
+function restoreAppListCaches(
+  qc: QueryClient,
+  snapshot: AppListCacheSnapshot | undefined
+): void {
+  snapshot?.forEach(([queryKey, data]) => {
+    qc.setQueryData(queryKey, data)
   })
 }
 
@@ -427,8 +466,10 @@ export function useDeleteApp(appId: string) {
       )
     },
     onMutate: () => {
+      const listSnapshot = snapshotAppListCaches(qc)
       markAppDeletingInListCaches(qc, appId)
       trackDelete()
+      return { listSnapshot }
     },
     onSuccess: () => {
       // Bust apiFetch's module-level GET cache for the apps list — without
@@ -440,9 +481,13 @@ export function useDeleteApp(appId: string) {
       invalidateGetCache()
       void qc.invalidateQueries({ queryKey: ["apps"] })
     },
-    onError: (error) => {
+    onError: (error, _vars, context) => {
       toast.dismiss(`delete-app:${appId}`)
       notifyMutationError(error, "Delete failed")
+      const ctx =
+        context as { listSnapshot?: AppListCacheSnapshot } | undefined
+      restoreAppListCaches(qc, ctx?.listSnapshot)
+      void qc.invalidateQueries({ queryKey: ["apps"] })
     },
   })
 }
@@ -512,7 +557,9 @@ export function useUpdateAppSettings(appId: string) {
     },
     onSuccess: ({ app, restartTriggered }, _vars, ctx) => {
       toast.success("Settings saved", { id: ctx.toastId })
-      qc.setQueryData(["apps", appId], app)
+      qc.setQueryData<AppDetail | undefined>(["apps", appId], (previous) =>
+        previous ? { ...previous, ...app } : app
+      )
       void qc.invalidateQueries({ queryKey: ["apps"] })
       // The PATCH may have triggered a background restart (e.g. restartPolicy
       // changed on a running app). Show a separate toast that tracks the
