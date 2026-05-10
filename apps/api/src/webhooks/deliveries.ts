@@ -39,7 +39,7 @@ export interface InsertDeliveryRow {
   decision_reason?: string | null
   build_id?: string | null
   payload_hash: string
-  payload_raw?: Buffer | null
+  payload_raw?: Uint8Array | null
   payload_truncated?: boolean
   source?: "webhook" | "replay"
 }
@@ -47,14 +47,20 @@ export interface InsertDeliveryRow {
 /**
  * Gzip-compress a Buffer.  Returns { data, truncated } — truncated=true when
  * the raw input exceeded MAX_PAYLOAD_RAW_BYTES (1 MB cap applied before compress).
+ *
+ * `data` is a Uint8Array (not a Bun Buffer) because postgres.js binds bytea
+ * params via Buffer.byteLength on the raw value, and Bun's Buffer subclass
+ * sometimes fails the binder's instanceof check while a plain Uint8Array
+ * always works. The Drizzle customType toDriver doesn't run on this code
+ * path under @drizzle/pg-core+postgres.js, so we coerce here.
  */
-export async function compressPayload(raw: Buffer): Promise<{ data: Buffer; truncated: boolean }> {
+export async function compressPayload(raw: Buffer): Promise<{ data: Uint8Array; truncated: boolean }> {
   const truncated = raw.byteLength > MAX_PAYLOAD_RAW_BYTES
   const input = truncated ? raw.subarray(0, MAX_PAYLOAD_RAW_BYTES) : raw
   // Copy into a plain ArrayBuffer to satisfy strict Bun.gzipSync typing
   const ab = input.buffer.slice(input.byteOffset, input.byteOffset + input.byteLength) as ArrayBuffer
   const compressed = Bun.gzipSync(new Uint8Array(ab))
-  return { data: Buffer.from(compressed), truncated }
+  return { data: new Uint8Array(compressed), truncated }
 }
 
 /**
@@ -81,7 +87,7 @@ export async function insertDelivery(
 ): Promise<string> {
   const id = nanoid()
 
-  let payloadRaw: Buffer | null = null
+  let payloadRaw: Uint8Array | null = null
   let payloadTruncated = row.payload_truncated ?? false
   let payloadRawExpiresAt: Date | null = null
 

@@ -14,7 +14,7 @@ describe("compressPayload", () => {
     expect(data.byteLength).toBeGreaterThan(0)
     // gzip output is always smaller-or-similar for real data, but the header
     // makes tiny payloads grow — just check it's a Buffer
-    expect(Buffer.isBuffer(data)).toBe(true)
+    expect(data instanceof Uint8Array).toBe(true)
   })
 
   it("truncates input to 1 MB and sets truncated=true", async () => {
