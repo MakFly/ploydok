@@ -11,9 +11,16 @@ import {
 import { apps } from './apps'
 import { builds } from './builds'
 
+// postgres.js (Bun) doesn't auto-JSON-stringify objects bound to jsonb cols
+// — it bypasses its own serializer registration, sees a JS object on the bind
+// step, and crashes Buffer.byteLength. Coerce to string here so the driver
+// always sees a string (postgres parses it back to jsonb on the way in).
 const jsonb = customType<{ data: unknown; notNull: false; default: false }>({
   dataType() {
     return 'jsonb'
+  },
+  toDriver(value: unknown): string {
+    return JSON.stringify(value)
   },
 })
 
