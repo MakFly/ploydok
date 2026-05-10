@@ -4,11 +4,23 @@ import { createFileRoute, useParams } from "@tanstack/react-router"
 import {
   RiAddLine,
   RiDatabase2Line,
+  RiDownloadLine,
   RiFileList3Line,
   RiTableLine,
   RiUploadLine,
 } from "@remixicon/react"
 import { toast } from "sonner"
+import { Alert, AlertDescription } from "@workspace/ui/components/alert"
+import {
+  AlertDialog,
+  AlertDialogAction,
+  AlertDialogCancel,
+  AlertDialogContent,
+  AlertDialogDescription,
+  AlertDialogFooter,
+  AlertDialogHeader,
+  AlertDialogTitle,
+} from "@workspace/ui/components/alert-dialog"
 import { Button } from "@workspace/ui/components/button"
 import {
   Select,
@@ -32,6 +44,7 @@ import { LinkDatabaseDialog } from "../../../../../../components/databases/LinkD
 import { useImportEnvContent, useSecrets } from "../../../../../../lib/secrets"
 import { useApp } from "../../../../../../lib/apps"
 import type {
+  ImportEnvMode,
   SecretMeta,
   SecretPhase,
   SecretScope,
@@ -237,21 +250,116 @@ function DeveloperEnvEditor({
 }): React.JSX.Element {
   const [content, setContent] = React.useState("")
   const [phase, setPhase] = React.useState<SecretPhase>("runtime")
+  const [mode, setMode] = React.useState<ImportEnvMode>("merge")
+  const [showLoadConfirm, setShowLoadConfirm] = React.useState(false)
+  const [showReplaceConfirm, setShowReplaceConfirm] = React.useState(false)
   const { mutate: importContent, isPending } = useImportEnvContent(appId)
   const manualCount = secrets.filter((s) => s.managed_by === "manual").length
   const linkedCount = secrets.length - manualCount
+  const targetManualSecrets = React.useMemo(
+    () =>
+      secrets.filter(
+        (secret) => secret.managed_by === "manual" && secret.phase === phase
+      ),
+    [phase, secrets]
+  )
+  const currentKeysContent = React.useMemo(() => {
+    const keys = new Set(targetManualSecrets.map((secret) => secret.key))
+    return [...keys]
+      .sort((a, b) => a.localeCompare(b))
+      .map((key) => `${key}=`)
+      .join("\n")
+  }, [targetManualSecrets])
+  const isSecretScope = React.useCallback(
+    (value: string | undefined): value is SecretScope =>
+      value !== undefined && SCOPES.includes(value as SecretScope),
+    []
+  )
+  const isSecretPhase = React.useCallback(
+    (value: string | undefined): value is SecretPhase =>
+      value !== undefined && PHASES.includes(value as SecretPhase),
+    []
+  )
+  const targetKeysInContent = React.useMemo(() => {
+    const keys = new Set<string>()
+    let currentScope: SecretScope = scope
+    let currentPhase: SecretPhase = phase
 
-  function handleImport(e: React.FormEvent) {
-    e.preventDefault()
-    if (!content.trim()) return
+    for (const rawLine of content.split(/\r?\n/)) {
+      let line = rawLine.trim()
+      if (!line) continue
+
+      if (line.startsWith("#")) {
+        const scopeDirective = line.match(/^#\s*@scope\s+(\w+)/)
+        if (scopeDirective && isSecretScope(scopeDirective[1])) {
+          currentScope = scopeDirective[1]
+        }
+        const phaseDirective = line.match(/^#\s*@phase\s+(\w+)/)
+        if (phaseDirective && isSecretPhase(phaseDirective[1])) {
+          currentPhase = phaseDirective[1]
+        }
+        continue
+      }
+
+      let lineScope = currentScope
+      let linePhase = currentPhase
+      const prefixed = line.match(/^((?:@\w+\s+)+)(.*)$/)
+      if (prefixed) {
+        for (const prefix of prefixed[1].trim().split(/\s+/)) {
+          const value = prefix.slice(1)
+          if (isSecretScope(value)) lineScope = value
+          if (isSecretPhase(value)) linePhase = value
+        }
+        line = prefixed[2].trimStart()
+      }
+
+      const match = line.match(/^([A-Z][A-Z0-9_]*)=/)
+      if (match && lineScope === scope && linePhase === phase) {
+        keys.add(match[1])
+      }
+    }
+
+    return keys
+  }, [content, isSecretPhase, isSecretScope, phase, scope])
+  const removedKeys = React.useMemo(
+    () =>
+      targetManualSecrets
+        .filter((secret) => !targetKeysInContent.has(secret.key))
+        .map((secret) => secret.key)
+        .sort((a, b) => a.localeCompare(b)),
+    [targetManualSecrets, targetKeysInContent]
+  )
+
+  function loadCurrentKeys() {
+    setContent(currentKeysContent)
+    setShowLoadConfirm(false)
+  }
+
+  function handleLoadCurrentKeys() {
+    if (content.trim()) {
+      setShowLoadConfirm(true)
+      return
+    }
+
+    loadCurrentKeys()
+  }
+
+  function submitImport(submitMode: ImportEnvMode) {
+    if (submitMode === "merge" && !content.trim()) return
 
     importContent(
-      { content, scope, phase },
+      { content, scope, phase, mode: submitMode },
       {
-        onSuccess: ({ imported }) => {
-          toast.success(
-            `Imported ${imported} variable${imported === 1 ? "" : "s"}`
-          )
+        onSuccess: ({ imported, removed }) => {
+          if (submitMode === "replace") {
+            toast.success(
+              `Imported ${imported} · Removed ${removed} variable${removed === 1 ? "" : "s"}`
+            )
+          } else {
+            toast.success(
+              `Imported ${imported} variable${imported === 1 ? "" : "s"}`
+            )
+          }
           setContent("")
         },
         onError: (err) => {
@@ -261,108 +369,233 @@ function DeveloperEnvEditor({
     )
   }
 
-  return (
-    <div className="grid gap-4 lg:grid-cols-[minmax(0,1fr)_280px]">
-      <form
-        onSubmit={handleImport}
-        className="flex min-w-0 flex-col gap-3 rounded-lg border bg-background p-4"
-      >
-        <div className="flex flex-col gap-3 sm:flex-row sm:items-center sm:justify-between">
-          <div>
-            <h3 className="text-sm font-medium">Bulk import</h3>
-            <p className="mt-1 text-xs text-muted-foreground">
-              Paste .env lines. Prefixes like @prod @build override these
-              defaults.
-            </p>
-          </div>
-          <div className="flex items-center gap-2">
-            <Select
-              value={phase}
-              onValueChange={(value) => setPhase(value as SecretPhase)}
-            >
-              <SelectTrigger className="h-8 w-[132px]">
-                <SelectValue />
-              </SelectTrigger>
-              <SelectContent>
-                {PHASES.map((p) => (
-                  <SelectItem key={p} value={p}>
-                    {p}
-                  </SelectItem>
-                ))}
-              </SelectContent>
-            </Select>
-            <Button
-              type="submit"
-              size="sm"
-              disabled={isPending || !content.trim()}
-            >
-              {isPending ? "Importing..." : "Import"}
-            </Button>
-          </div>
-        </div>
-        <Textarea
-          value={content}
-          onChange={(e) => setContent(e.target.value)}
-          spellCheck={false}
-          className="min-h-[260px] resize-y font-mono text-xs"
-          placeholder={[
-            "APP_ENV=production",
-            "APP_DEBUG=false",
-            "@prod @runtime DATABASE_POOL=10",
-            "# @phase build",
-            "NPM_TOKEN=...",
-          ].join("\n")}
-        />
-      </form>
+  function handleImport(e: React.FormEvent) {
+    e.preventDefault()
 
-      <aside className="rounded-lg border bg-muted/20 p-4">
-        <h3 className="text-sm font-medium">Current scope</h3>
-        <dl className="mt-3 grid grid-cols-2 gap-2 text-xs">
-          <div className="rounded-md border bg-background p-2">
-            <dt className="text-muted-foreground">Scope</dt>
-            <dd className="mt-1 font-mono">{scope}</dd>
+    if (mode === "replace") {
+      setShowReplaceConfirm(true)
+      return
+    }
+
+    if (!content.trim()) return
+    submitImport("merge")
+  }
+
+  function getSubmitLabel() {
+    if (isPending) {
+      return mode === "replace" ? "Replacing..." : "Importing..."
+    }
+
+    return mode === "replace" ? "Replace" : "Import"
+  }
+
+  return (
+    <>
+      <div className="grid gap-4 lg:grid-cols-[minmax(0,1fr)_280px]">
+        <form
+          onSubmit={handleImport}
+          className="flex min-w-0 flex-col gap-3 rounded-lg border bg-background p-4"
+        >
+          <div className="flex flex-col gap-3 xl:flex-row xl:items-center xl:justify-between">
+            <div>
+              <h3 className="text-sm font-medium">Bulk import</h3>
+              <p className="mt-1 text-xs text-muted-foreground">
+                Paste .env lines. Prefixes like @prod @build override these
+                defaults.
+              </p>
+            </div>
+            <div className="flex flex-wrap items-center gap-2">
+              <Select
+                value={phase}
+                onValueChange={(value) => setPhase(value as SecretPhase)}
+              >
+                <SelectTrigger className="h-8 w-[132px]">
+                  <SelectValue />
+                </SelectTrigger>
+                <SelectContent>
+                  {PHASES.map((p) => (
+                    <SelectItem key={p} value={p}>
+                      {p}
+                    </SelectItem>
+                  ))}
+                </SelectContent>
+              </Select>
+              <Tabs
+                value={mode}
+                onValueChange={(value) => setMode(value as ImportEnvMode)}
+                className="gap-0"
+              >
+                <TabsList>
+                  <TabsTrigger value="merge" className="text-xs">
+                    Append
+                  </TabsTrigger>
+                  <TabsTrigger value="replace" className="text-xs">
+                    Replace (sync)
+                  </TabsTrigger>
+                </TabsList>
+              </Tabs>
+              <Button
+                type="button"
+                variant="outline"
+                size="sm"
+                onClick={handleLoadCurrentKeys}
+                disabled={!currentKeysContent}
+                className="gap-1.5"
+              >
+                <RiDownloadLine className="size-3.5" />
+                Load current keys
+              </Button>
+              <Button
+                type="submit"
+                size="sm"
+                disabled={isPending || (mode === "merge" && !content.trim())}
+              >
+                {getSubmitLabel()}
+              </Button>
+            </div>
           </div>
-          <div className="rounded-md border bg-background p-2">
-            <dt className="text-muted-foreground">Keys</dt>
-            <dd className="mt-1 font-mono">{secrets.length}</dd>
+          <Textarea
+            value={content}
+            onChange={(e) => setContent(e.target.value)}
+            spellCheck={false}
+            className="min-h-[260px] resize-y font-mono text-xs"
+            placeholder={[
+              "APP_ENV=production",
+              "APP_DEBUG=false",
+              "@prod @runtime DATABASE_POOL=10",
+              "# @phase build",
+              "NPM_TOKEN=...",
+            ].join("\n")}
+          />
+          {mode === "replace" && (
+            <Alert variant="destructive">
+              <AlertDescription className="text-xs">
+                Replace mode: keys missing from this file will be deleted for
+                (scope={scope}, phase={phase}).
+              </AlertDescription>
+            </Alert>
+          )}
+        </form>
+
+        <aside className="rounded-lg border bg-muted/20 p-4">
+          <h3 className="text-sm font-medium">Current scope</h3>
+          <dl className="mt-3 grid grid-cols-2 gap-2 text-xs">
+            <div className="rounded-md border bg-background p-2">
+              <dt className="text-muted-foreground">Scope</dt>
+              <dd className="mt-1 font-mono">{scope}</dd>
+            </div>
+            <div className="rounded-md border bg-background p-2">
+              <dt className="text-muted-foreground">Keys</dt>
+              <dd className="mt-1 font-mono">{secrets.length}</dd>
+            </div>
+            <div className="rounded-md border bg-background p-2">
+              <dt className="text-muted-foreground">Manual</dt>
+              <dd className="mt-1 font-mono">{manualCount}</dd>
+            </div>
+            <div className="rounded-md border bg-background p-2">
+              <dt className="text-muted-foreground">Linked</dt>
+              <dd className="mt-1 font-mono">{linkedCount}</dd>
+            </div>
+          </dl>
+          <div className="mt-4 flex flex-col gap-2">
+            <h4 className="text-xs font-medium text-muted-foreground">
+              Existing keys
+            </h4>
+            <div className="max-h-48 overflow-auto rounded-md border bg-background">
+              {secrets.length === 0 ? (
+                <p className="p-3 text-xs text-muted-foreground">
+                  No keys yet.
+                </p>
+              ) : (
+                <ul className="divide-y">
+                  {secrets.map((secret) => (
+                    <li
+                      key={`${secret.key}-${secret.scope}-${secret.phase}`}
+                      className="flex items-center justify-between gap-2 px-3 py-2"
+                    >
+                      <span className="truncate font-mono text-xs">
+                        {secret.key}
+                      </span>
+                      <span className="shrink-0 text-[11px] text-muted-foreground">
+                        {secret.phase}
+                      </span>
+                    </li>
+                  ))}
+                </ul>
+              )}
+            </div>
           </div>
-          <div className="rounded-md border bg-background p-2">
-            <dt className="text-muted-foreground">Manual</dt>
-            <dd className="mt-1 font-mono">{manualCount}</dd>
-          </div>
-          <div className="rounded-md border bg-background p-2">
-            <dt className="text-muted-foreground">Linked</dt>
-            <dd className="mt-1 font-mono">{linkedCount}</dd>
-          </div>
-        </dl>
-        <div className="mt-4 space-y-2">
-          <h4 className="text-xs font-medium text-muted-foreground">
-            Existing keys
-          </h4>
-          <div className="max-h-48 overflow-auto rounded-md border bg-background">
-            {secrets.length === 0 ? (
-              <p className="p-3 text-xs text-muted-foreground">No keys yet.</p>
-            ) : (
-              <ul className="divide-y">
-                {secrets.map((secret) => (
-                  <li
-                    key={`${secret.key}-${secret.scope}-${secret.phase}`}
-                    className="flex items-center justify-between gap-2 px-3 py-2"
-                  >
-                    <span className="truncate font-mono text-xs">
-                      {secret.key}
-                    </span>
-                    <span className="shrink-0 text-[11px] text-muted-foreground">
-                      {secret.phase}
-                    </span>
-                  </li>
-                ))}
-              </ul>
-            )}
-          </div>
-        </div>
-      </aside>
-    </div>
+        </aside>
+      </div>
+
+      <AlertDialog open={showLoadConfirm} onOpenChange={setShowLoadConfirm}>
+        <AlertDialogContent>
+          <AlertDialogHeader>
+            <AlertDialogTitle>Replace editor contents?</AlertDialogTitle>
+            <AlertDialogDescription>
+              Loading current keys will overwrite the text currently in the .env
+              editor.
+            </AlertDialogDescription>
+          </AlertDialogHeader>
+          <AlertDialogFooter>
+            <AlertDialogCancel>Cancel</AlertDialogCancel>
+            <AlertDialogAction onClick={loadCurrentKeys}>
+              Load current keys
+            </AlertDialogAction>
+          </AlertDialogFooter>
+        </AlertDialogContent>
+      </AlertDialog>
+
+      <AlertDialog
+        open={showReplaceConfirm}
+        onOpenChange={setShowReplaceConfirm}
+      >
+        <AlertDialogContent>
+          <AlertDialogHeader>
+            <AlertDialogTitle>Replace environment variables?</AlertDialogTitle>
+            <AlertDialogDescription asChild>
+              <div className="flex flex-col gap-3 text-sm text-muted-foreground">
+                <p>
+                  This will sync secrets for scope{" "}
+                  <span className="font-mono text-foreground">{scope}</span> and
+                  phase{" "}
+                  <span className="font-mono text-foreground">{phase}</span>.
+                </p>
+                <p>
+                  {removedKeys.length} current manual{" "}
+                  {removedKeys.length === 1 ? "key is" : "keys are"} missing
+                  from this file and will be deleted.
+                </p>
+                {removedKeys.length > 0 && (
+                  <ul className="max-h-32 overflow-auto rounded-md border bg-background p-2 font-mono text-xs text-foreground">
+                    {removedKeys.slice(0, 12).map((key) => (
+                      <li key={key}>{key}</li>
+                    ))}
+                    {removedKeys.length > 12 && (
+                      <li className="text-muted-foreground">
+                        +{removedKeys.length - 12} more
+                      </li>
+                    )}
+                  </ul>
+                )}
+              </div>
+            </AlertDialogDescription>
+          </AlertDialogHeader>
+          <AlertDialogFooter>
+            <AlertDialogCancel>Cancel</AlertDialogCancel>
+            <AlertDialogAction
+              onClick={() => {
+                setShowReplaceConfirm(false)
+                submitImport("replace")
+              }}
+              className="text-destructive-foreground bg-destructive hover:bg-destructive/90"
+            >
+              Replace
+            </AlertDialogAction>
+          </AlertDialogFooter>
+        </AlertDialogContent>
+      </AlertDialog>
+    </>
   )
 }
 

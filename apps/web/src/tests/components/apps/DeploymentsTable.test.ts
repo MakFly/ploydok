@@ -4,7 +4,11 @@
  * Validates status, duration formatting, truncation, and rollback availability.
  */
 import { describe, expect, it } from "bun:test"
-import { formatDuration, truncate } from "../../../components/apps/DeploymentsTable"
+import {
+  formatBuildTriggerSource,
+  formatDuration,
+  truncate,
+} from "../../../components/apps/DeploymentsTable"
 import type { Build } from "@ploydok/shared"
 
 // ---------------------------------------------------------------------------
@@ -125,5 +129,19 @@ describe("commit SHA display", () => {
 
   it("shows — when sha is undefined", () => {
     expect(displaySha(undefined)).toBe("—")
+  })
+})
+
+describe("deployment trigger source labels", () => {
+  it("labels manual API deployments", () => {
+    expect(formatBuildTriggerSource("api")).toBe("Manual")
+  })
+
+  it("labels GitHub webhook deployments", () => {
+    expect(formatBuildTriggerSource("webhook:github")).toBe("GitHub")
+  })
+
+  it("returns Unknown for absent source", () => {
+    expect(formatBuildTriggerSource(null)).toBe("Unknown")
   })
 })

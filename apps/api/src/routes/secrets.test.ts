@@ -1,6 +1,9 @@
 // SPDX-License-Identifier: AGPL-3.0-only
-import { describe, it, expect, mock, beforeEach } from "bun:test"
-import { createSecretsRouter } from "./secrets"
+import { describe, it, expect, mock } from "bun:test"
+import { Hono } from "hono"
+import { audit_log, secrets } from "@ploydok/db"
+import type { Db } from "@ploydok/db"
+import type { AuthUser } from "../auth/middleware"
 
 // ---------------------------------------------------------------------------
 // Mocks
@@ -12,16 +15,20 @@ mock.module("../secrets/crypto", () => ({
     enc: Buffer.from(`enc:${value}`),
     nonce: Buffer.from("testnonce123"),
   })),
-  decryptSecret: mock(async (enc: Buffer) => enc.toString().replace("enc:", "")),
+  decryptSecret: mock(async (enc: Buffer) =>
+    enc.toString().replace("enc:", "")
+  ),
 }))
 
 mock.module("../auth/second-factor", () => ({
-  requireTotpVerified: mock(() => async (_c: unknown, next: () => Promise<void>) => {
-    await next()
-  }),
+  requireTotpVerified: mock(
+    () => async (_c: unknown, next: () => Promise<void>) => {
+      await next()
+    }
+  ),
 }))
 
-mock.module("../queries/apps", () => ({
+mock.module("@ploydok/db/queries", () => ({
   getAppForUser: mock(async (_db: unknown, appId: string, userId: string) => {
     if (appId === "app1" && userId === "user1") {
       return { id: "app1", project_id: "proj1", name: "Test App" }
@@ -38,95 +45,403 @@ mock.module("../logger", () => ({
   })),
 }))
 
+const { createSecretsRouter } = await import("./secrets")
+
 // ---------------------------------------------------------------------------
 // Fake DB
 // ---------------------------------------------------------------------------
 
-function buildFakeDb(secretsStore: Record<string, unknown[]> = {}) {
-  const auditInserted: unknown[] = []
+type StoredSecret = {
+  id: string
+  app_id: string
+  project_id: string
+  scope: "shared" | "prod" | "preview" | "dev"
+  phase: "build" | "runtime" | "both"
+  key: string
+  value_ciphertext: Buffer
+  nonce: Buffer
+  linked_database_id: string | null
+  created_at: Date
+}
 
-  const fakeDb: Record<string, unknown> = {
-    _secrets: secretsStore,
-    _audit: auditInserted,
-    select: mock(() => fakeDb),
-    from: mock(() => fakeDb),
-    where: mock(() => Promise.resolve([])),
+type SecretColumn = keyof StoredSecret
+
+type ConditionFilters = {
+  equals: Partial<Record<SecretColumn, unknown>>
+  isNull: Set<SecretColumn>
+  notIn: Partial<Record<SecretColumn, Array<unknown>>>
+}
+
+const secretColumns = new Set<SecretColumn>([
+  "id",
+  "app_id",
+  "project_id",
+  "scope",
+  "phase",
+  "key",
+  "value_ciphertext",
+  "nonce",
+  "linked_database_id",
+  "created_at",
+])
+
+const fakeUser: AuthUser = {
+  id: "user1",
+  email: "user@example.com",
+  display_name: "User",
+  session_id: "session1",
+}
+
+function isRecord(value: unknown): value is Record<string, unknown> {
+  return typeof value === "object" && value !== null
+}
+
+function queryChunks(value: unknown): Array<unknown> {
+  if (isRecord(value) && Array.isArray(value.queryChunks)) {
+    return value.queryChunks
+  }
+
+  return []
+}
+
+function stringChunk(value: unknown): string | null {
+  if (!isRecord(value) || !Array.isArray(value.value)) {
+    return null
+  }
+
+  const parts = value.value
+  if (!parts.every((part) => typeof part === "string")) {
+    return null
+  }
+
+  return parts.join("")
+}
+
+function columnName(value: unknown): SecretColumn | null {
+  if (!isRecord(value) || typeof value.name !== "string") {
+    return null
+  }
+
+  return secretColumns.has(value.name as SecretColumn)
+    ? (value.name as SecretColumn)
+    : null
+}
+
+function paramValue(value: unknown): unknown {
+  if (isRecord(value) && "encoder" in value && "value" in value) {
+    return value.value
+  }
+
+  return undefined
+}
+
+function extractFilters(condition: unknown): ConditionFilters {
+  const filters: ConditionFilters = {
+    equals: {},
+    isNull: new Set(),
+    notIn: {},
+  }
+
+  collectFilters(condition, filters)
+  return filters
+}
+
+function collectFilters(condition: unknown, filters: ConditionFilters) {
+  const chunks = queryChunks(condition)
+
+  for (const chunk of chunks) {
+    if (queryChunks(chunk).length > 0) {
+      collectFilters(chunk, filters)
+    }
+  }
+
+  for (let index = 0; index < chunks.length; index += 1) {
+    const name = columnName(chunks[index])
+    if (!name) continue
+
+    const operator = stringChunk(chunks[index + 1])?.trim()
+    if (operator === "=") {
+      filters.equals[name] = paramValue(chunks[index + 2])
+      continue
+    }
+
+    if (operator === "is null") {
+      filters.isNull.add(name)
+      continue
+    }
+
+    if (operator === "not in") {
+      const values = chunks[index + 2]
+      filters.notIn[name] = Array.isArray(values)
+        ? values.map((value) => paramValue(value))
+        : []
+    }
+  }
+}
+
+function matchesFilters(row: StoredSecret, filters: ConditionFilters) {
+  for (const [key, value] of Object.entries(filters.equals)) {
+    if (row[key as SecretColumn] !== value) return false
+  }
+
+  for (const key of filters.isNull) {
+    if (row[key] !== null) return false
+  }
+
+  for (const [key, values] of Object.entries(filters.notIn)) {
+    if (values.includes(row[key as SecretColumn])) return false
+  }
+
+  return true
+}
+
+function secretRow(key: string, overrides: Partial<StoredSecret> = {}) {
+  return {
+    id: `${key.toLowerCase()}-id`,
+    app_id: "app1",
+    project_id: "proj1",
+    scope: "shared",
+    phase: "runtime",
+    key,
+    value_ciphertext: Buffer.from(`enc:${key.toLowerCase()}`),
+    nonce: Buffer.from("nonce"),
+    linked_database_id: null,
+    created_at: new Date("2026-01-01T00:00:00.000Z"),
+    ...overrides,
+  } satisfies StoredSecret
+}
+
+function buildFakeDb(initialSecrets: Array<StoredSecret>) {
+  const rows = [...initialSecrets]
+  const auditRows: Array<unknown> = []
+
+  function selectedRows(table: unknown, condition: unknown) {
+    if (table !== secrets) return []
+
+    const filters = extractFilters(condition)
+    return rows.filter((row) => matchesFilters(row, filters))
+  }
+
+  const db = {
+    select: mock(() => {
+      let table: unknown
+      let condition: unknown
+      const chain = {
+        from(nextTable: unknown) {
+          table = nextTable
+          return chain
+        },
+        leftJoin() {
+          return chain
+        },
+        where(nextCondition: unknown) {
+          condition = nextCondition
+          return chain
+        },
+        limit(count: number) {
+          return Promise.resolve(selectedRows(table, condition).slice(0, count))
+        },
+      }
+      return chain
+    }),
     insert: mock((table: unknown) => ({
-      values: mock(async (vals: unknown) => {
-        if (table === "secrets_table") secretsStore["list"] = [...(secretsStore["list"] ?? []), vals]
-        else auditInserted.push(vals)
-        return vals
+      values: mock(async (values: unknown) => {
+        if (table === secrets) {
+          rows.push(values as StoredSecret)
+        }
+        if (table === audit_log) {
+          auditRows.push(values)
+        }
+        return values
       }),
     })),
-    update: mock(() => ({
-      set: mock(() => ({
-        where: mock(() => Promise.resolve()),
+    update: mock((table: unknown) => ({
+      set: mock((values: Partial<StoredSecret>) => ({
+        where: mock(async (condition: unknown) => {
+          if (table !== secrets) return
+
+          const filters = extractFilters(condition)
+          for (const row of rows) {
+            if (matchesFilters(row, filters)) {
+              Object.assign(row, values)
+            }
+          }
+        }),
       })),
     })),
-    delete: mock(() => ({
-      where: mock(() => Promise.resolve()),
+    delete: mock((table: unknown) => ({
+      where: mock((condition: unknown) => {
+        const removed: Array<StoredSecret> = []
+        if (table === secrets) {
+          const filters = extractFilters(condition)
+          for (let index = rows.length - 1; index >= 0; index -= 1) {
+            const row = rows[index]
+            if (row && matchesFilters(row, filters)) {
+              removed.push(row)
+              rows.splice(index, 1)
+            }
+          }
+        }
+
+        return {
+          returning: mock(async () => removed.map((row) => ({ id: row.id }))),
+        }
+      }),
     })),
   }
-  return fakeDb
+
+  return { db: db as unknown as Db, rows, auditRows }
 }
 
-// ---------------------------------------------------------------------------
-// Helpers to build Hono requests
-// ---------------------------------------------------------------------------
-
-function makeRequest(
-  method: string,
-  path: string,
-  {
-    body,
-    headers = {},
-    userId = "user1",
-  }: { body?: unknown; headers?: Record<string, string>; userId?: string } = {},
-) {
-  const url = `http://localhost${path}`
-  const reqHeaders: Record<string, string> = {
-    "content-type": "application/json",
-    ...headers,
-  }
-
-  const req = new Request(url, {
-    method,
-    headers: reqHeaders,
-    body: body ? JSON.stringify(body) : undefined,
+function buildApp(db: Db) {
+  const app = new Hono()
+  app.use("*", async (c, next) => {
+    ;(c as { set: (key: string, value: AuthUser) => void }).set(
+      "user",
+      fakeUser
+    )
+    await next()
   })
-
-  return req
+  app.route("/", createSecretsRouter(db))
+  return app
 }
 
-async function callRouter(
-  router: ReturnType<typeof createSecretsRouter>,
-  method: string,
-  path: string,
-  opts: { body?: unknown; headers?: Record<string, string>; userId?: string } = {},
-) {
-  const req = makeRequest(method, path, opts)
-
-  // Inject user context (simulate requireAuth middleware)
-  const userId = opts.userId ?? "user1"
-  const response = await router.request(req, {}, {
-    // Hono execution context — inject user via a middleware workaround
+function importRequest(path: string, content: string) {
+  return new Request(`http://localhost${path}`, {
+    method: "POST",
+    headers: { "content-type": "application/json" },
+    body: JSON.stringify({ content }),
   })
-  return response
 }
 
 // ---------------------------------------------------------------------------
 // Tests
 // ---------------------------------------------------------------------------
 
-describe("GET /:id/secrets", () => {
-  it("returns 404 for unknown app", async () => {
-    const db = buildFakeDb()
-    const router = createSecretsRouter(db as unknown as Parameters<typeof createSecretsRouter>[0])
+describe("POST /:id/secrets/import", () => {
+  it("replace removes manual keys absent from the targeted scope and phase", async () => {
+    const { db, rows, auditRows } = buildFakeDb([
+      secretRow("FOO"),
+      secretRow("REMOVE_ME"),
+    ])
+    const app = buildApp(db)
 
-    // Inject user via direct request with fake user in context
-    // Since we can't inject middleware state directly, we test the pattern
-    // The mock for getAppForUser returns null for unknown apps
-    expect(true).toBe(true) // Placeholder — real integration test needs full app mount
+    const res = await app.fetch(
+      importRequest(
+        "/app1/secrets/import?scope=shared&phase=runtime&mode=replace",
+        "FOO=updated"
+      )
+    )
+
+    expect(res.status).toBe(200)
+    expect(await res.json()).toEqual({ imported: 1, removed: 1 })
+    expect(rows.map((row) => row.key).sort()).toEqual(["FOO"])
+    expect(rows[0]?.value_ciphertext.toString()).toBe("enc:updated")
+    expect(auditRows).toContainEqual(
+      expect.objectContaining({ action: "secret.synced" })
+    )
+  })
+
+  it("replace accepts empty content to remove all targeted manual keys", async () => {
+    const { db, rows } = buildFakeDb([
+      secretRow("REMOVE_ONE"),
+      secretRow("REMOVE_TWO"),
+      secretRow("BUILD_ONLY", { phase: "build" }),
+    ])
+    const app = buildApp(db)
+
+    const res = await app.fetch(
+      importRequest(
+        "/app1/secrets/import?scope=shared&phase=runtime&mode=replace",
+        ""
+      )
+    )
+
+    expect(res.status).toBe(200)
+    expect(await res.json()).toEqual({ imported: 0, removed: 2 })
+    expect(rows.map((row) => row.key)).toEqual(["BUILD_ONLY"])
+  })
+
+  it("replace preserves database-linked keys even when absent", async () => {
+    const { db, rows } = buildFakeDb([
+      secretRow("FOO"),
+      secretRow("DATABASE_URL", { linked_database_id: "db1" }),
+    ])
+    const app = buildApp(db)
+
+    const res = await app.fetch(
+      importRequest(
+        "/app1/secrets/import?scope=shared&phase=runtime&mode=replace",
+        "FOO=updated"
+      )
+    )
+
+    expect(res.status).toBe(200)
+    expect(await res.json()).toEqual({ imported: 1, removed: 0 })
+    expect(rows.map((row) => row.key).sort()).toEqual(["DATABASE_URL", "FOO"])
+  })
+
+  it("replace does not touch other scopes or phases", async () => {
+    const { db, rows } = buildFakeDb([
+      secretRow("FOO"),
+      secretRow("REMOVE_ME"),
+      secretRow("BUILD_ONLY", { phase: "build" }),
+      secretRow("PROD_ONLY", { scope: "prod" }),
+    ])
+    const app = buildApp(db)
+
+    const res = await app.fetch(
+      importRequest(
+        "/app1/secrets/import?scope=shared&phase=runtime&mode=replace",
+        "FOO=updated"
+      )
+    )
+
+    expect(res.status).toBe(200)
+    expect(await res.json()).toEqual({ imported: 1, removed: 1 })
+    expect(
+      rows.map((row) => `${row.scope}:${row.phase}:${row.key}`).sort()
+    ).toEqual([
+      "prod:runtime:PROD_ONLY",
+      "shared:build:BUILD_ONLY",
+      "shared:runtime:FOO",
+    ])
+  })
+
+  it("merge mode keeps existing keys by default", async () => {
+    const { db, rows, auditRows } = buildFakeDb([
+      secretRow("FOO"),
+      secretRow("KEEP_ME"),
+    ])
+    const app = buildApp(db)
+
+    const res = await app.fetch(
+      importRequest(
+        "/app1/secrets/import?scope=shared&phase=runtime",
+        "FOO=updated"
+      )
+    )
+
+    expect(res.status).toBe(200)
+    expect(await res.json()).toEqual({ imported: 1, removed: 0 })
+    expect(rows.map((row) => row.key).sort()).toEqual(["FOO", "KEEP_ME"])
+    expect(auditRows).toContainEqual(
+      expect.objectContaining({ action: "secret.imported" })
+    )
+  })
+
+  it("rejects invalid import modes", async () => {
+    const { db } = buildFakeDb([])
+    const app = buildApp(db)
+
+    const res = await app.fetch(
+      importRequest(
+        "/app1/secrets/import?scope=shared&phase=runtime&mode=overwrite",
+        "FOO=bar"
+      )
+    )
+
+    expect(res.status).toBe(400)
   })
 })
 
@@ -154,7 +469,8 @@ describe("parseDotenv (via import)", () => {
   it("strips inline comments from unquoted values", () => {
     const raw = "bar # inline comment"
     const commentIdx = raw.indexOf(" #")
-    const value = commentIdx !== -1 ? raw.slice(0, commentIdx).trim() : raw.trim()
+    const value =
+      commentIdx !== -1 ? raw.slice(0, commentIdx).trim() : raw.trim()
     expect(value).toBe("bar")
   })
 

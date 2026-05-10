@@ -115,6 +115,35 @@ interface AppForDeploy {
 
 import { isSymfonyFlexWorkspace } from "./symfony-detect"
 
+interface DeployLog {
+  info(bindings: Record<string, unknown>, message: string): void
+  warn(bindings: Record<string, unknown>, message: string): void
+}
+
+function removeLocalImageAfterPush(imageRef: string, log: DeployLog): void {
+  void (async () => {
+    const proc = Bun.spawn(["docker", "rmi", imageRef], {
+      stdout: "pipe",
+      stderr: "pipe",
+    })
+    const stdout = await new Response(proc.stdout).text()
+    const stderr = await new Response(proc.stderr).text()
+    const exitCode = await proc.exited
+
+    if (exitCode === 0) {
+      log.info({ imageRef }, "local image removed after push")
+      return
+    }
+
+    log.warn(
+      { imageRef, exitCode, stdout: stdout.trim(), stderr: stderr.trim() },
+      "local image removal after push failed"
+    )
+  })().catch((err) => {
+    log.warn({ err, imageRef }, "local image removal after push failed")
+  })
+}
+
 /**
  * Fetch the app row + project owner_id needed for a deploy.
  * Throws if the app doesn't exist.
@@ -1054,6 +1083,7 @@ export async function handleDeploy(
           `docker push failed (exit ${pushCode}) for ${imageRef}: ${pushStderr.trim()}`
         )
       }
+      removeLocalImageAfterPush(imageRef, log)
       log.info({ buildId, imageRef }, "railpack build + push done")
       await updateBuildStatus(db, buildId, "running", { imageTag: imageRef })
 
@@ -1167,6 +1197,7 @@ export async function handleDeploy(
           `docker push failed (exit ${pushCode}) for ${imageRef}: ${pushStderr.trim()}`
         )
       }
+      removeLocalImageAfterPush(imageRef, log)
 
       log.info({ buildId, imageRef }, "nixpacks build + push done")
       await updateBuildStatus(db, buildId, "running", { imageTag: imageRef })
@@ -1507,11 +1538,7 @@ export async function handleDeploy(
     // deterministic so a worker retry doesn't enqueue duplicates.
     // BullMQ rejects ":" in custom job IDs, so we use "_" as separator.
     logArchiveQueue
-      .add(
-        "archive",
-        { buildId },
-        { jobId: `archive_${buildId}` }
-      )
+      .add("archive", { buildId }, { jobId: `archive_${buildId}` })
       .catch((enqErr: unknown) => {
         const msg = enqErr instanceof Error ? enqErr.message : String(enqErr)
         log.warn({ err: msg, buildId }, "failed to push logs.archive to BullMQ")

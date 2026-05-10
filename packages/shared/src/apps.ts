@@ -97,7 +97,8 @@ const APP_VOLUME_NAME_REGEX = /^[a-z0-9][a-z0-9._-]{0,63}$/
 export function isValidAppVolumeMountPath(value: string): boolean {
   if (value.length < 2 || value.length > 512) return false
   if (!value.startsWith("/")) return false
-  if (value === "/" || value.includes("\0") || value.includes("\\")) return false
+  if (value === "/" || value.includes("\0") || value.includes("\\"))
+    return false
 
   const segments = value.slice(1).split("/")
   return segments.every(
@@ -192,6 +193,8 @@ export const BuildSchema = z.object({
   containerId: z.string().optional(),
   commitSha: z.string().optional(),
   commitMessage: z.string().nullable().optional(),
+  requestedByUserId: z.string().nullable().optional(),
+  source: z.string().nullable().optional(),
   errorMessage: z.string().nullable().optional(),
   // Set when post-deploy hook fails (status = succeeded_with_warning)
   postDeployError: z.string().nullable().optional(),

@@ -66,6 +66,28 @@ const BUILD_METHOD_CLASS: Record<string, string> = {
   railpack: "bg-emerald-500/10 text-emerald-600 dark:text-emerald-400",
 }
 
+const TRIGGER_SOURCE_LABEL: Record<string, string> = {
+  api: "Manual",
+  "webhook:github": "GitHub",
+  "webhook:gitlab": "GitLab",
+  "auto:push": "Auto push",
+  "auto:tag": "Auto tag",
+  "cron:gc": "Cleanup",
+  "cron:cleanup": "Cleanup",
+  system: "System",
+}
+
+const TRIGGER_SOURCE_CLASS: Record<string, string> = {
+  api: "bg-blue-500/10 text-blue-600 dark:text-blue-400",
+  "webhook:github": "bg-neutral-500/10 text-neutral-700 dark:text-neutral-300",
+  "webhook:gitlab": "bg-orange-500/10 text-orange-600 dark:text-orange-400",
+  "auto:push": "bg-emerald-500/10 text-emerald-600 dark:text-emerald-400",
+  "auto:tag": "bg-emerald-500/10 text-emerald-600 dark:text-emerald-400",
+  "cron:gc": "bg-amber-500/10 text-amber-600 dark:text-amber-400",
+  "cron:cleanup": "bg-amber-500/10 text-amber-600 dark:text-amber-400",
+  system: "bg-muted text-muted-foreground",
+}
+
 export function formatDuration(startMs?: number, endMs?: number): string {
   if (!startMs) return "—"
   const diff = ((endMs ?? Date.now()) - startMs) / 1000
@@ -79,6 +101,21 @@ export function formatDuration(startMs?: number, endMs?: number): string {
 export function truncate(text: string, maxLen: number): string {
   if (text.length <= maxLen) return text
   return text.slice(0, maxLen - 1) + "…"
+}
+
+export function formatBuildTriggerSource(source?: string | null): string {
+  if (!source) return "Unknown"
+  return TRIGGER_SOURCE_LABEL[source] ?? source
+}
+
+function triggerSourceClass(source?: string | null): string {
+  if (!source) return "bg-muted text-muted-foreground"
+  return TRIGGER_SOURCE_CLASS[source] ?? "bg-muted text-muted-foreground"
+}
+
+function shortenUserId(userId?: string | null): string | null {
+  if (!userId) return null
+  return userId.length > 8 ? userId.slice(0, 8) : userId
 }
 
 // Live-ticking duration cell. `formatDuration` reads `Date.now()` when the
@@ -320,6 +357,34 @@ function makeColumns(
           >
             {label}
           </span>
+        )
+      },
+    },
+    {
+      id: "triggered-by",
+      header: "Triggered by",
+      cell: ({ row }) => {
+        const source = row.original.source
+        const requestedBy = shortenUserId(row.original.requestedByUserId)
+        return (
+          <div className="flex min-w-0 flex-col items-start gap-1">
+            <span
+              className={[
+                "inline-flex w-fit items-center rounded-full px-2 py-0.5 text-xs font-medium",
+                triggerSourceClass(source),
+              ].join(" ")}
+            >
+              {formatBuildTriggerSource(source)}
+            </span>
+            {requestedBy ? (
+              <span
+                className="font-mono text-[11px] text-muted-foreground"
+                title={row.original.requestedByUserId ?? undefined}
+              >
+                {requestedBy}
+              </span>
+            ) : null}
+          </div>
         )
       },
     },

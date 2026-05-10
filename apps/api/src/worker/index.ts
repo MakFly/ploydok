@@ -61,10 +61,7 @@ import {
   startCleanupPreviewsCron,
   stopCleanupPreviewsCron,
 } from "./jobs/cleanup-previews"
-import {
-  startAuditAnchorCron,
-  stopAuditAnchorCron,
-} from "./jobs/audit-anchor"
+import { startAuditAnchorCron, stopAuditAnchorCron } from "./jobs/audit-anchor"
 import { handleSyncProviderRepos } from "./handlers/sync-provider-repos"
 import type { SyncProviderReposPayload } from "./handlers/sync-provider-repos"
 import { handlePreviewDeploy } from "./handlers/preview-deploy"
@@ -88,6 +85,10 @@ import {
   startCaddyReconcileCron,
   stopCaddyReconcileCron,
 } from "./jobs/caddy-reconcile"
+import {
+  startCleanupBuildCachesCron,
+  stopCleanupBuildCachesCron,
+} from "./jobs/cleanup-build-caches"
 import { handleArchiveBuildLog } from "./handlers/archive-build-log"
 import type { ArchiveBuildLogPayload } from "./handlers/archive-build-log"
 import { withAppDeployLock } from "./app-deploy-lock"
@@ -423,7 +424,10 @@ export function startWorker(
     new Worker(
       "cve.refresh",
       async (job) => {
-        logger.info({ jobId: job.id, data: job.data }, "cve.refresh job started")
+        logger.info(
+          { jobId: job.id, data: job.data },
+          "cve.refresh job started"
+        )
         await capturePlatformManifests(db)
         const result = await refreshAdvisories(db, connection)
         logger.info({ jobId: job.id, ...result }, "cve.refresh done")
@@ -465,6 +469,7 @@ export function startWorker(
   startCveRefreshCron(db)
   startPurgeBuildLogsCron(db)
   startCaddyReconcileCron(db)
+  startCleanupBuildCachesCron()
 
   const abortHandler = () => stop()
   opts?.signal?.addEventListener("abort", abortHandler)
@@ -484,6 +489,7 @@ export function startWorker(
     stopCveRefreshCron()
     stopPurgeBuildLogsCron()
     stopCaddyReconcileCron()
+    stopCleanupBuildCachesCron()
     await Promise.all(workers.map((w) => w.close())).catch((err) => {
       logger.error({ err }, "error closing BullMQ workers")
     })

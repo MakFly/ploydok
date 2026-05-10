@@ -45,6 +45,14 @@ const DECISION_STYLE: Record<
     label: "Skipped",
     className: "bg-muted text-muted-foreground",
   },
+  skipped_tag_disabled: {
+    label: "Skipped",
+    className: "bg-muted text-muted-foreground",
+  },
+  skipped_tag_pattern: {
+    label: "Skipped",
+    className: "bg-muted text-muted-foreground",
+  },
   invalid_signature: {
     label: "Invalid sig.",
     className: "bg-destructive/10 text-destructive",
@@ -60,8 +68,7 @@ function DecisionBadge({
 }: {
   decision: DeliveryDecision
 }): React.JSX.Element {
-  const style =
-    DECISION_STYLE[decision] ?? DECISION_STYLE.skipped_disabled
+  const style = DECISION_STYLE[decision] ?? DECISION_STYLE.skipped_disabled
 
   return (
     <span
@@ -123,7 +130,7 @@ export function WebhookDeliveriesTable({
 }: WebhookDeliveriesTableProps): React.JSX.Element {
   const [deliveries, setDeliveries] = React.useState<Array<WebhookDelivery>>([])
   const [nextCursor, setNextCursor] = React.useState<string | undefined>(
-    undefined,
+    undefined
   )
   const [loading, setLoading] = React.useState(true)
   const [loadingMore, setLoadingMore] = React.useState(false)
@@ -143,7 +150,9 @@ export function WebhookDeliveriesTable({
       })
       .catch((err: unknown) => {
         if (cancelled) return
-        setError(err instanceof Error ? err.message : "Failed to load deliveries")
+        setError(
+          err instanceof Error ? err.message : "Failed to load deliveries"
+        )
       })
       .finally(() => {
         if (!cancelled) setLoading(false)
@@ -182,7 +191,9 @@ export function WebhookDeliveriesTable({
         setNextCursor(page.nextCursor)
       })
       .catch((err: unknown) => {
-        setError(err instanceof Error ? err.message : "Failed to reload deliveries")
+        setError(
+          err instanceof Error ? err.message : "Failed to reload deliveries"
+        )
       })
       .finally(() => setLoading(false))
   }
@@ -275,8 +286,8 @@ export function WebhookDeliveriesTable({
           </thead>
           <tbody className="divide-y divide-border/60">
             {deliveries.map((d) => (
-              <tr key={d.id} className="hover:bg-muted/20 transition-colors">
-                <td className="px-3 py-2.5 text-muted-foreground whitespace-nowrap">
+              <tr key={d.id} className="transition-colors hover:bg-muted/20">
+                <td className="px-3 py-2.5 whitespace-nowrap text-muted-foreground">
                   <time dateTime={d.receivedAt} title={safeIso(d.receivedAt)}>
                     {relativeTime(d.receivedAt)}
                   </time>
@@ -284,21 +295,25 @@ export function WebhookDeliveriesTable({
                 <td className="px-3 py-2.5 font-mono whitespace-nowrap">
                   {d.event}
                 </td>
-                <td className="max-w-[120px] px-3 py-2.5 truncate">
-                  {d.ref ? refToBranch(d.ref) : <span className="italic text-muted-foreground">—</span>}
+                <td className="max-w-[120px] truncate px-3 py-2.5">
+                  {d.ref ? (
+                    refToBranch(d.ref)
+                  ) : (
+                    <span className="text-muted-foreground italic">—</span>
+                  )}
                 </td>
                 <td className="px-3 py-2.5">
                   {d.commitSha ? (
                     <span className="font-mono">{d.commitSha.slice(0, 7)}</span>
                   ) : null}
                   {d.commitMessage && (
-                    <span className="ml-1.5 text-muted-foreground truncate max-w-[120px] inline-block align-bottom">
+                    <span className="ml-1.5 inline-block max-w-[120px] truncate align-bottom text-muted-foreground">
                       {d.commitMessage.slice(0, 40)}
                       {d.commitMessage.length > 40 ? "…" : ""}
                     </span>
                   )}
                   {!d.commitSha && !d.commitMessage && (
-                    <span className="italic text-muted-foreground">—</span>
+                    <span className="text-muted-foreground italic">—</span>
                   )}
                 </td>
                 <td className="px-3 py-2.5">
@@ -309,7 +324,7 @@ export function WebhookDeliveriesTable({
                     type="button"
                     aria-label="Show delivery details"
                     onClick={() => handleOpenDelivery(d)}
-                    className="inline-flex h-6 w-6 items-center justify-center rounded hover:bg-muted text-muted-foreground hover:text-foreground transition-colors"
+                    className="inline-flex h-6 w-6 items-center justify-center rounded text-muted-foreground transition-colors hover:bg-muted hover:text-foreground"
                   >
                     •••
                   </button>

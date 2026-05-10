@@ -16,7 +16,9 @@ export interface ListDeliveriesResult {
 
 export interface DeliverySummary {
   id: string
+  app_id: string | null
   provider: string
+  delivery_external_id: string | null
   event: string
   ref: string | null
   commit_sha: string | null
@@ -30,6 +32,7 @@ export interface DeliverySummary {
   retry_count: number
   parent_delivery_id: string | null
   source: string
+  payload_sample?: unknown
 }
 
 // ---------------------------------------------------------------------------
@@ -108,7 +111,9 @@ export async function listDeliveriesByApp(
   const rows = await db
     .select({
       id: webhook_deliveries.id,
+      app_id: webhook_deliveries.app_id,
       provider: webhook_deliveries.provider,
+      delivery_external_id: webhook_deliveries.delivery_external_id,
       event: webhook_deliveries.event,
       ref: webhook_deliveries.ref,
       commit_sha: webhook_deliveries.commit_sha,
@@ -122,6 +127,7 @@ export async function listDeliveriesByApp(
       retry_count: webhook_deliveries.retry_count,
       parent_delivery_id: webhook_deliveries.parent_delivery_id,
       source: webhook_deliveries.source,
+      payload_sample: webhook_deliveries.payload_sample,
     })
     .from(webhook_deliveries)
     .where(
@@ -141,7 +147,9 @@ export async function listDeliveriesByApp(
   return {
     deliveries: page.map((r) => ({
       id: r.id,
+      app_id: r.app_id,
       provider: r.provider,
+      delivery_external_id: r.delivery_external_id,
       event: r.event,
       ref: r.ref,
       commit_sha: r.commit_sha,
@@ -163,6 +171,7 @@ export async function listDeliveriesByApp(
       retry_count: r.retry_count,
       parent_delivery_id: r.parent_delivery_id,
       source: r.source,
+      payload_sample: r.payload_sample,
     })),
     next_cursor:
       hasMore && page[page.length - 1]
@@ -212,7 +221,9 @@ export async function getDeliveryById(
   const rows = await db
     .select({
       id: webhook_deliveries.id,
+      app_id: webhook_deliveries.app_id,
       provider: webhook_deliveries.provider,
+      delivery_external_id: webhook_deliveries.delivery_external_id,
       event: webhook_deliveries.event,
       ref: webhook_deliveries.ref,
       commit_sha: webhook_deliveries.commit_sha,
@@ -242,7 +253,9 @@ export async function getDeliveryById(
 
   return {
     id: r.id,
+    app_id: r.app_id,
     provider: r.provider,
+    delivery_external_id: r.delivery_external_id,
     event: r.event,
     ref: r.ref,
     commit_sha: r.commit_sha,
