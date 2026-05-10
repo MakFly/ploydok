@@ -4,7 +4,8 @@ import { execFile } from "node:child_process"
 import { promisify } from "node:util"
 import { Hono } from "hono"
 import { z } from "zod"
-import { and, eq } from "drizzle-orm"
+import { and, eq, isNull, notInArray } from "drizzle-orm"
+import type { SQL } from "drizzle-orm"
 import { nanoid } from "nanoid"
 import { secrets, audit_log, databases, users } from "@ploydok/db"
 import { createDb } from "@ploydok/db"
@@ -24,6 +25,7 @@ const SECRET_KEY_REGEX = /^[A-Z][A-Z0-9_]*$/
 
 const ScopeEnum = z.enum(["shared", "prod", "preview", "dev"])
 const PhaseEnum = z.enum(["build", "runtime", "both"])
+const ImportModeEnum = z.enum(["merge", "replace"])
 
 const CreateSecretBody = z.object({
   key: z.string().regex(SECRET_KEY_REGEX, "Key must be UPPER_SNAKE_CASE"),
@@ -38,6 +40,7 @@ const ExportSecretBody = z.object({
 
 type Scope = z.infer<typeof ScopeEnum>
 type Phase = z.infer<typeof PhaseEnum>
+type ImportMode = z.infer<typeof ImportModeEnum>
 
 type AppEnv = { Variables: { user?: AuthUser } }
 
@@ -423,6 +426,20 @@ export function createSecretsRouter(db: Db): Hono<any, any, any> {
 
     const defaultScopeParam = (c.req.query("scope") ?? "shared") as Scope
     const defaultPhaseParam = (c.req.query("phase") ?? "runtime") as Phase
+    const modeParam = c.req.query("mode")
+    let mode: ImportMode = "merge"
+    if (modeParam !== undefined) {
+      const parsedMode = ImportModeEnum.safeParse(modeParam)
+      if (!parsedMode.success) {
+        return c.json(
+          {
+            error: { code: "VALIDATION_ERROR", message: "Invalid import mode" },
+          },
+          400
+        )
+      }
+      mode = parsedMode.data
+    }
     const parsedDefaultScope = ScopeEnum.safeParse(defaultScopeParam)
     if (!parsedDefaultScope.success) {
       return c.json(
@@ -461,7 +478,7 @@ export function createSecretsRouter(db: Db): Hono<any, any, any> {
       rawContent = await (file as File).text()
     } else if (contentType.includes("application/json")) {
       const json = await c.req.json<{ content?: string }>()
-      if (!json.content) {
+      if (typeof json.content !== "string") {
         return c.json(
           {
             error: {
@@ -479,8 +496,8 @@ export function createSecretsRouter(db: Db): Hono<any, any, any> {
     }
 
     const parsed = parseDotenv(rawContent, defaultScope, defaultPhase)
-    if (parsed.length === 0) {
-      return c.json({ imported: 0 })
+    if (parsed.length === 0 && mode === "merge") {
+      return c.json({ imported: 0, removed: 0 })
     }
 
     for (const { key, scope, phase } of parsed) {
@@ -551,16 +568,37 @@ export function createSecretsRouter(db: Db): Hono<any, any, any> {
       imported++
     }
 
-    await insertAuditLog(
-      db,
-      user.id,
-      "secret.imported",
-      appId,
-      `count:${imported}`
-    )
-    log.info({ appId, imported }, "secrets imported")
+    let removed = 0
+    if (mode === "replace") {
+      const targetKeys = new Set(
+        parsed
+          .filter(
+            ({ scope, phase }) =>
+              scope === defaultScope && phase === defaultPhase
+          )
+          .map(({ key }) => key)
+      )
+      const deleteConditions: SQL[] = [
+        eq(secrets.app_id, appId!),
+        eq(secrets.scope, defaultScope),
+        eq(secrets.phase, defaultPhase),
+        isNull(secrets.linked_database_id),
+      ]
+      if (targetKeys.size > 0) {
+        deleteConditions.push(notInArray(secrets.key, [...targetKeys]))
+      }
+      const removedRows = await db
+        .delete(secrets)
+        .where(and(...deleteConditions))
+        .returning({ id: secrets.id })
+      removed = removedRows.length
+    }
 
-    return c.json({ imported })
+    const auditAction = mode === "replace" ? "secret.synced" : "secret.imported"
+    await insertAuditLog(db, user.id, auditAction, appId, `count:${imported}`)
+    log.info({ appId, imported, removed, mode }, "secrets imported")
+
+    return c.json({ imported, removed })
   })
 
   // GET /:id/secrets/export?scope=&age_recipient=

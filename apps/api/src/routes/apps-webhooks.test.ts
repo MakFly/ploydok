@@ -2,7 +2,13 @@
 import { describe, it, expect, beforeEach, mock } from "bun:test"
 import { Hono } from "hono"
 import { nanoid } from "nanoid"
-import { users, projects, apps, audit_log, webhook_deliveries } from "@ploydok/db"
+import {
+  users,
+  projects,
+  apps,
+  audit_log,
+  webhook_deliveries,
+} from "@ploydok/db"
 import type { Db } from "@ploydok/db"
 import { makeTestDb as makePgTestDb, TEST_PG_URL } from "../test/db-helpers"
 import { createAppsRouter } from "./apps"
@@ -34,7 +40,7 @@ mock.module("../auth/second-factor", () => ({
       if (!totpShouldPass) {
         return (c as { json: (body: unknown, status: number) => unknown }).json(
           { code: "totp_required", message: "Second factor required" },
-          403,
+          403
         )
       }
       return next()
@@ -49,8 +55,12 @@ mock.module("../auth/middleware", () => ({
   requireSecondFactor: mock((_db: unknown) => {
     return async (_c: unknown, next: () => Promise<void>) => next()
   }),
-  requireAuth: mock(() => async (_c: unknown, next: () => Promise<void>) => next()),
-  getUser: mock((c: unknown) => (c as { get: (k: string) => unknown }).get("user")),
+  requireAuth: mock(
+    () => async (_c: unknown, next: () => Promise<void>) => next()
+  ),
+  getUser: mock((c: unknown) =>
+    (c as { get: (k: string) => unknown }).get("user")
+  ),
 }))
 
 // ---------------------------------------------------------------------------
@@ -58,7 +68,8 @@ mock.module("../auth/middleware", () => ({
 // ---------------------------------------------------------------------------
 
 const skip = !TEST_PG_URL
-if (skip) console.log("[apps-webhooks.test] PLOYDOK_TEST_PG_URL not set — skipping")
+if (skip)
+  console.log("[apps-webhooks.test] PLOYDOK_TEST_PG_URL not set — skipping")
 
 // ---------------------------------------------------------------------------
 // Test helpers
@@ -71,7 +82,10 @@ async function makeTestDb() {
 
 type TestDb = Db
 
-async function createTestUser(db: TestDb, overrides: Partial<{ id: string; email: string }> = {}) {
+async function createTestUser(
+  db: TestDb,
+  overrides: Partial<{ id: string; email: string }> = {}
+) {
   const id = overrides.id ?? nanoid()
   const now = new Date()
   await db.insert(users).values({
@@ -99,7 +113,11 @@ async function createTestProject(db: TestDb, ownerId: string) {
   return { id }
 }
 
-async function createTestApp(db: TestDb, projectId: string, overrides: Partial<{ id: string }> = {}) {
+async function createTestApp(
+  db: TestDb,
+  projectId: string,
+  overrides: Partial<{ id: string }> = {}
+) {
   const id = overrides.id ?? nanoid()
   const slug = `app-${id.slice(0, 8)}`
   const now = new Date()
@@ -134,7 +152,11 @@ async function createTestApp(db: TestDb, projectId: string, overrides: Partial<{
   return { id, slug }
 }
 
-async function insertDelivery(db: TestDb, appId: string, overrides: Partial<typeof webhook_deliveries.$inferInsert> = {}) {
+async function insertDelivery(
+  db: TestDb,
+  appId: string,
+  overrides: Partial<typeof webhook_deliveries.$inferInsert> = {}
+) {
   const id = nanoid()
   await db.insert(webhook_deliveries).values({
     id,
@@ -172,7 +194,12 @@ function buildTestApp(db: TestDb, authedUser?: AuthUser): Hono {
 }
 
 function fakeUser(id: string): AuthUser {
-  return { id, email: `${id}@test.com`, display_name: "Test User", session_id: "sess-test" }
+  return {
+    id,
+    email: `${id}@test.com`,
+    display_name: "Test User",
+    session_id: "sess-test",
+  }
 }
 
 // ---------------------------------------------------------------------------
@@ -194,17 +221,24 @@ describe.skipIf(skip)("GET /apps/:id/webhook-deliveries", () => {
   })
 
   it("returns 200 with deliveries for owned app", async () => {
-    const deliveryId = await insertDelivery(db, appId)
+    const payloadSample = { ref: "refs/heads/main" }
+    const deliveryId = await insertDelivery(db, appId, {
+      payload_sample: payloadSample,
+    })
     const honoApp = buildTestApp(db, fakeUser(userId))
 
     const res = await honoApp.request(`/apps/${appId}/webhook-deliveries`)
     expect(res.status).toBe(200)
 
-    const body = (await res.json()) as { deliveries: unknown[]; next_cursor: string | null }
+    const body = (await res.json()) as {
+      deliveries: Array<{ id: string; payload_sample: unknown }>
+      next_cursor: string | null
+    }
     expect(Array.isArray(body.deliveries)).toBe(true)
     expect(body.deliveries.length).toBeGreaterThanOrEqual(1)
-    const found = (body.deliveries as Array<{ id: string }>).find((d) => d.id === deliveryId)
+    const found = body.deliveries.find((d) => d.id === deliveryId)
     expect(found).toBeTruthy()
+    expect(found?.payload_sample).toEqual(payloadSample)
   })
 
   it("returns 200 with pagination cursor when more items exist", async () => {
@@ -216,8 +250,13 @@ describe.skipIf(skip)("GET /apps/:id/webhook-deliveries", () => {
     }
     const honoApp = buildTestApp(db, fakeUser(userId))
 
-    const res = await honoApp.request(`/apps/${appId}/webhook-deliveries?limit=2`)
-    const body = (await res.json()) as { deliveries: unknown[]; next_cursor: string | null }
+    const res = await honoApp.request(
+      `/apps/${appId}/webhook-deliveries?limit=2`
+    )
+    const body = (await res.json()) as {
+      deliveries: unknown[]
+      next_cursor: string | null
+    }
     expect(body.deliveries.length).toBe(2)
     expect(body.next_cursor).not.toBeNull()
   })
@@ -253,16 +292,22 @@ describe.skipIf(skip)("GET /apps/:id/webhook-deliveries/:deliveryId", () => {
     const deliveryId = await insertDelivery(db, appId)
     const honoApp = buildTestApp(db, fakeUser(userId))
 
-    const res = await honoApp.request(`/apps/${appId}/webhook-deliveries/${deliveryId}`)
+    const res = await honoApp.request(
+      `/apps/${appId}/webhook-deliveries/${deliveryId}`
+    )
     expect(res.status).toBe(200)
 
-    const body = (await res.json()) as { delivery: { id: string; payload_sample: unknown } }
+    const body = (await res.json()) as {
+      delivery: { id: string; payload_sample: unknown }
+    }
     expect(body.delivery.id).toBe(deliveryId)
   })
 
   it("returns 404 for unknown delivery", async () => {
     const honoApp = buildTestApp(db, fakeUser(userId))
-    const res = await honoApp.request(`/apps/${appId}/webhook-deliveries/nonexistent`)
+    const res = await honoApp.request(
+      `/apps/${appId}/webhook-deliveries/nonexistent`
+    )
     expect(res.status).toBe(404)
   })
 })
@@ -317,7 +362,11 @@ describe.skipIf(skip)("PATCH /apps/:id — webhook toggles", () => {
 
     const { eq } = await import("drizzle-orm")
     const { apps: appsTable } = await import("@ploydok/db")
-    const rows = await db.select().from(appsTable).where(eq(appsTable.id, appId)).limit(1)
+    const rows = await db
+      .select()
+      .from(appsTable)
+      .where(eq(appsTable.id, appId))
+      .limit(1)
     const row = rows[0]!
     expect(row.auto_deploy_enabled).toBe(false)
     expect(row.post_commit_status).toBe(false)
@@ -360,7 +409,9 @@ describe.skipIf(skip)("POST /apps/:id/webhook-secret/rotate", () => {
   it("returns 403 without TOTP (totp_required)", async () => {
     totpShouldPass = false
     const honoApp = buildTestApp(db, fakeUser(userId))
-    const res = await honoApp.request(`/apps/${appId}/webhook-secret/rotate`, { method: "POST" })
+    const res = await honoApp.request(`/apps/${appId}/webhook-secret/rotate`, {
+      method: "POST",
+    })
     expect(res.status).toBe(403)
     const body = (await res.json()) as { code: string }
     expect(body.code).toBe("totp_required")
@@ -369,7 +420,9 @@ describe.skipIf(skip)("POST /apps/:id/webhook-secret/rotate", () => {
   it("returns 200 + secret on first rotation with TOTP", async () => {
     totpShouldPass = true
     const honoApp = buildTestApp(db, fakeUser(userId))
-    const res = await honoApp.request(`/apps/${appId}/webhook-secret/rotate`, { method: "POST" })
+    const res = await honoApp.request(`/apps/${appId}/webhook-secret/rotate`, {
+      method: "POST",
+    })
     expect(res.status).toBe(200)
 
     const body = (await res.json()) as { secret: string }
@@ -379,7 +432,11 @@ describe.skipIf(skip)("POST /apps/:id/webhook-secret/rotate", () => {
     // Verify DB was updated
     const { eq } = await import("drizzle-orm")
     const { apps: appsTable } = await import("@ploydok/db")
-    const rows = await db.select().from(appsTable).where(eq(appsTable.id, appId)).limit(1)
+    const rows = await db
+      .select()
+      .from(appsTable)
+      .where(eq(appsTable.id, appId))
+      .limit(1)
     const row = rows[0]!
     expect(row.webhook_secret).toBeTruthy()
     expect(row.webhook_secret_old_expires_at).toBeTruthy()
@@ -390,13 +447,17 @@ describe.skipIf(skip)("POST /apps/:id/webhook-secret/rotate", () => {
     const honoApp = buildTestApp(db, fakeUser(userId))
 
     // First rotation — succeeds
-    const res1 = await honoApp.request(`/apps/${appId}/webhook-secret/rotate`, { method: "POST" })
+    const res1 = await honoApp.request(`/apps/${appId}/webhook-secret/rotate`, {
+      method: "POST",
+    })
     expect(res1.status).toBe(200)
 
     // Set webhook_secret_old so the cooldown check triggers
     // (first rotation moves null → webhook_secret, sets old_expires_at)
     // Second rotation should be blocked because old_expires_at is in the future
-    const res2 = await honoApp.request(`/apps/${appId}/webhook-secret/rotate`, { method: "POST" })
+    const res2 = await honoApp.request(`/apps/${appId}/webhook-secret/rotate`, {
+      method: "POST",
+    })
     expect(res2.status).toBe(409)
     const body = (await res2.json()) as { code: string }
     expect(body.code).toBe("rotation_cooldown")
@@ -405,7 +466,10 @@ describe.skipIf(skip)("POST /apps/:id/webhook-secret/rotate", () => {
   it("returns 404 for non-existent app", async () => {
     totpShouldPass = true
     const honoApp = buildTestApp(db, fakeUser(userId))
-    const res = await honoApp.request(`/apps/nonexistent/webhook-secret/rotate`, { method: "POST" })
+    const res = await honoApp.request(
+      `/apps/nonexistent/webhook-secret/rotate`,
+      { method: "POST" }
+    )
     expect(res.status).toBe(404)
   })
 })
@@ -414,91 +478,107 @@ describe.skipIf(skip)("POST /apps/:id/webhook-secret/rotate", () => {
 // POST /apps/:id/webhook-deliveries/:deliveryId/replay
 // ---------------------------------------------------------------------------
 
-describe.skipIf(skip)("POST /apps/:id/webhook-deliveries/:deliveryId/replay", () => {
-  let db: TestDb
-  let userId: string
-  let appId: string
+describe.skipIf(skip)(
+  "POST /apps/:id/webhook-deliveries/:deliveryId/replay",
+  () => {
+    let db: TestDb
+    let userId: string
+    let appId: string
 
-  beforeEach(async () => {
-    db = await makeTestDb()
-    const user = await createTestUser(db)
-    userId = user.id
-    const project = await createTestProject(db, userId)
-    const appResult = await createTestApp(db, project.id)
-    appId = appResult.id
-    totpShouldPass = true
-  })
+    beforeEach(async () => {
+      db = await makeTestDb()
+      const user = await createTestUser(db)
+      userId = user.id
+      const project = await createTestProject(db, userId)
+      const appResult = await createTestApp(db, project.id)
+      appId = appResult.id
+      totpShouldPass = true
+    })
 
-  it("returns 403 when TOTP is missing/invalid", async () => {
-    totpShouldPass = false
-    const deliveryId = await insertDelivery(db, appId)
-    const honoApp = buildTestApp(db, fakeUser(userId))
+    it("returns 403 when TOTP is missing/invalid", async () => {
+      totpShouldPass = false
+      const deliveryId = await insertDelivery(db, appId)
+      const honoApp = buildTestApp(db, fakeUser(userId))
 
-    const res = await honoApp.request(
-      `/apps/${appId}/webhook-deliveries/${deliveryId}/replay`,
-      { method: "POST" },
-    )
-    expect(res.status).toBe(403)
-    const body = (await res.json()) as { code: string }
-    expect(body.code).toBe("totp_required")
-  })
+      const res = await honoApp.request(
+        `/apps/${appId}/webhook-deliveries/${deliveryId}/replay`,
+        { method: "POST" }
+      )
+      expect(res.status).toBe(403)
+      const body = (await res.json()) as { code: string }
+      expect(body.code).toBe("totp_required")
+    })
 
-  it("returns 422 when payload_raw is missing (expired)", async () => {
-    totpShouldPass = true
-    // Insert delivery without payload_raw (null)
-    const deliveryId = await insertDelivery(db, appId, { payload_raw: null })
-    const honoApp = buildTestApp(db, fakeUser(userId))
+    it("returns 422 when payload_raw is missing (expired)", async () => {
+      totpShouldPass = true
+      // Insert delivery without payload_raw (null)
+      const deliveryId = await insertDelivery(db, appId, { payload_raw: null })
+      const honoApp = buildTestApp(db, fakeUser(userId))
 
-    const res = await honoApp.request(
-      `/apps/${appId}/webhook-deliveries/${deliveryId}/replay`,
-      { method: "POST" },
-    )
-    expect(res.status).toBe(422)
-    const body = (await res.json()) as { code: string }
-    expect(body.code).toBe("replay_payload_missing")
-  })
+      const res = await honoApp.request(
+        `/apps/${appId}/webhook-deliveries/${deliveryId}/replay`,
+        { method: "POST" }
+      )
+      expect(res.status).toBe(422)
+      const body = (await res.json()) as { code: string }
+      expect(body.code).toBe("replay_payload_missing")
+    })
 
-  it("returns 429 when replay limit (10) is exceeded", async () => {
-    totpShouldPass = true
+    it("returns 429 when replay limit (10) is exceeded", async () => {
+      totpShouldPass = true
 
-    // Create a parent delivery with a payload_raw buffer (gzip of valid JSON)
-    const rawPayload = Buffer.from(JSON.stringify({ ref: "refs/heads/main", repository: { full_name: "owner/repo" } }))
-    const compressed = Bun.gzipSync(new Uint8Array(rawPayload.buffer, rawPayload.byteOffset, rawPayload.byteLength))
-    const parentId = await insertDelivery(db, appId, { payload_raw: new Uint8Array(compressed) })
-
-    // Insert 10 existing replay deliveries referencing the parent
-    for (let i = 0; i < 10; i++) {
-      const replayId = nanoid()
-      await db.insert(webhook_deliveries).values({
-        id: replayId,
-        app_id: appId,
-        provider: "github",
-        event: "push",
-        ref: "refs/heads/main",
-        commit_sha: "abc123",
-        commit_message: "test",
-        signature_valid: true,
-        decision: "enqueued",
-        decision_reason: "replay",
-        payload_hash: "hash-replay-" + i,
-        payload_sample: null,
-        payload_raw: null,
-        source: "replay",
-        parent_delivery_id: parentId,
-        received_at: new Date(),
+      // Create a parent delivery with a payload_raw buffer (gzip of valid JSON)
+      const rawPayload = Buffer.from(
+        JSON.stringify({
+          ref: "refs/heads/main",
+          repository: { full_name: "owner/repo" },
+        })
+      )
+      const compressed = Bun.gzipSync(
+        new Uint8Array(
+          rawPayload.buffer,
+          rawPayload.byteOffset,
+          rawPayload.byteLength
+        )
+      )
+      const parentId = await insertDelivery(db, appId, {
+        payload_raw: new Uint8Array(compressed),
       })
-    }
 
-    const honoApp = buildTestApp(db, fakeUser(userId))
-    const res = await honoApp.request(
-      `/apps/${appId}/webhook-deliveries/${parentId}/replay`,
-      { method: "POST" },
-    )
-    expect(res.status).toBe(429)
-    const body = (await res.json()) as { code: string }
-    expect(body.code).toBe("replay_limit_reached")
-  })
-})
+      // Insert 10 existing replay deliveries referencing the parent
+      for (let i = 0; i < 10; i++) {
+        const replayId = nanoid()
+        await db.insert(webhook_deliveries).values({
+          id: replayId,
+          app_id: appId,
+          provider: "github",
+          event: "push",
+          ref: "refs/heads/main",
+          commit_sha: "abc123",
+          commit_message: "test",
+          signature_valid: true,
+          decision: "enqueued",
+          decision_reason: "replay",
+          payload_hash: "hash-replay-" + i,
+          payload_sample: null,
+          payload_raw: null,
+          source: "replay",
+          parent_delivery_id: parentId,
+          received_at: new Date(),
+        })
+      }
+
+      const honoApp = buildTestApp(db, fakeUser(userId))
+      const res = await honoApp.request(
+        `/apps/${appId}/webhook-deliveries/${parentId}/replay`,
+        { method: "POST" }
+      )
+      expect(res.status).toBe(429)
+      const body = (await res.json()) as { code: string }
+      expect(body.code).toBe("replay_limit_reached")
+    })
+  }
+)
 
 // ---------------------------------------------------------------------------
 // verifySignature dual-accept (GitHub)
@@ -516,9 +596,17 @@ describe("verifySignature dual-accept (GitHub)", () => {
   it("accepts signature from current secret", async () => {
     const { verifySignatureWithFallback } = await import("../github/webhook")
     const sig = makeGhSig(body, currentSecret)
-    const result = await verifySignatureWithFallback(body, sig, "global-secret", {
-      current: Buffer.concat([Buffer.alloc(12, 0xab), Buffer.from(currentSecret)]),
-    })
+    const result = await verifySignatureWithFallback(
+      body,
+      sig,
+      "global-secret",
+      {
+        current: Buffer.concat([
+          Buffer.alloc(12, 0xab),
+          Buffer.from(currentSecret),
+        ]),
+      }
+    )
     expect(result.valid).toBe(true)
     expect(result.usedOldSecret).toBe(false)
   })
@@ -527,11 +615,19 @@ describe("verifySignature dual-accept (GitHub)", () => {
     const { verifySignatureWithFallback } = await import("../github/webhook")
     const sig = makeGhSig(body, oldSecret)
     const futureExpiry = new Date(Date.now() + 60_000)
-    const result = await verifySignatureWithFallback(body, sig, "global-secret", {
-      current: Buffer.concat([Buffer.alloc(12, 0xab), Buffer.from(currentSecret)]),
-      old: Buffer.concat([Buffer.alloc(12, 0xab), Buffer.from(oldSecret)]),
-      oldExpiresAt: futureExpiry,
-    })
+    const result = await verifySignatureWithFallback(
+      body,
+      sig,
+      "global-secret",
+      {
+        current: Buffer.concat([
+          Buffer.alloc(12, 0xab),
+          Buffer.from(currentSecret),
+        ]),
+        old: Buffer.concat([Buffer.alloc(12, 0xab), Buffer.from(oldSecret)]),
+        oldExpiresAt: futureExpiry,
+      }
+    )
     expect(result.valid).toBe(true)
     expect(result.usedOldSecret).toBe(true)
   })
@@ -540,11 +636,19 @@ describe("verifySignature dual-accept (GitHub)", () => {
     const { verifySignatureWithFallback } = await import("../github/webhook")
     const sig = makeGhSig(body, oldSecret)
     const pastExpiry = new Date(Date.now() - 1000)
-    const result = await verifySignatureWithFallback(body, sig, "global-secret", {
-      current: Buffer.concat([Buffer.alloc(12, 0xab), Buffer.from(currentSecret)]),
-      old: Buffer.concat([Buffer.alloc(12, 0xab), Buffer.from(oldSecret)]),
-      oldExpiresAt: pastExpiry,
-    })
+    const result = await verifySignatureWithFallback(
+      body,
+      sig,
+      "global-secret",
+      {
+        current: Buffer.concat([
+          Buffer.alloc(12, 0xab),
+          Buffer.from(currentSecret),
+        ]),
+        old: Buffer.concat([Buffer.alloc(12, 0xab), Buffer.from(oldSecret)]),
+        oldExpiresAt: pastExpiry,
+      }
+    )
     expect(result.valid).toBe(false)
   })
 

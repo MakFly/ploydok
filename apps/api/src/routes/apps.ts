@@ -671,6 +671,8 @@ type BuildRow = {
   started_at: Date | null
   finished_at: Date | null
   created_at: Date | null
+  requested_by_user_id: string | null
+  source: string
 }
 
 function serializeBuild(row: BuildRow) {
@@ -685,6 +687,8 @@ function serializeBuild(row: BuildRow) {
     commitMessage: row.commit_message,
     errorMessage: row.error_message ?? null,
     postDeployError: row.post_deploy_error ?? null,
+    requestedByUserId: row.requested_by_user_id ?? null,
+    source: row.source,
     startedAt:
       row.started_at instanceof Date
         ? row.started_at.getTime()

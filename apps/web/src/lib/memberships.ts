@@ -21,6 +21,21 @@ export interface Member extends MemberListItem {
 
 export interface Invitation extends InvitationRow {}
 
+interface MembersApiResponse {
+  members: Array<MemberListItem & { is_me: boolean }>
+  pending_invitations: Array<InvitationRow>
+}
+
+export function mapMembersResponse(response: MembersApiResponse): {
+  members: Array<MemberListItem & { is_me: boolean }>
+  invitations: Array<InvitationRow>
+} {
+  return {
+    members: response.members,
+    invitations: response.pending_invitations,
+  }
+}
+
 // ── Query keys ────────────────────────────────────────────────────────────────
 
 export const membershipKeys = {
@@ -37,14 +52,10 @@ export function useMembers(orgSlug: string) {
   return useQuery({
     queryKey: membershipKeys.list(orgSlug),
     queryFn: async () => {
-      const response = await apiFetch<{
-        members: Array<MemberListItem & { is_me: boolean }>
-        invitations: Array<InvitationRow>
-      }>(`/orgs/${orgSlug}/members`)
-      return {
-        members: response.members,
-        invitations: response.invitations,
-      }
+      const response = await apiFetch<MembersApiResponse>(
+        `/orgs/${orgSlug}/members`
+      )
+      return mapMembersResponse(response)
     },
     enabled: Boolean(orgSlug),
   })

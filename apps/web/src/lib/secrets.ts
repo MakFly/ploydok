@@ -9,6 +9,7 @@ import type { ApiError } from "./api"
 
 export type SecretScope = "shared" | "prod" | "preview" | "dev"
 export type SecretPhase = "build" | "runtime" | "both"
+export type ImportEnvMode = "merge" | "replace"
 
 export interface SecretMeta {
   key: string
@@ -30,6 +31,11 @@ export interface CreateSecretPayload {
   value: string
   scope: SecretScope
   phase?: SecretPhase
+}
+
+export interface ImportEnvResult {
+  imported: number
+  removed: number
 }
 
 // ---------------------------------------------------------------------------
@@ -156,23 +162,26 @@ export function useImportEnv(appId: string) {
   const qc = useQueryClient()
 
   return useMutation<
-    { imported: number },
+    ImportEnvResult,
     ApiError,
-    { file: File; scope?: SecretScope; phase?: SecretPhase }
+    {
+      file: File
+      scope?: SecretScope
+      phase?: SecretPhase
+      mode?: ImportEnvMode
+    }
   >({
-    mutationFn: async ({ file, scope, phase }) => {
+    mutationFn: async ({ file, scope, phase, mode }) => {
       const content = await file.text()
       const params = new URLSearchParams()
       if (scope) params.set("scope", scope)
       if (phase) params.set("phase", phase)
+      if (mode) params.set("mode", mode)
       const qs = params.size > 0 ? `?${params.toString()}` : ""
-      return apiFetch<{ imported: number }>(
-        `/apps/${appId}/secrets/import${qs}`,
-        {
-          method: "POST",
-          body: { content },
-        }
-      )
+      return apiFetch<ImportEnvResult>(`/apps/${appId}/secrets/import${qs}`, {
+        method: "POST",
+        body: { content },
+      })
     },
     onSuccess: () => {
       qc.invalidateQueries({ queryKey: ["apps", appId, "secrets"] })
@@ -184,22 +193,25 @@ export function useImportEnvContent(appId: string) {
   const qc = useQueryClient()
 
   return useMutation<
-    { imported: number },
+    ImportEnvResult,
     ApiError,
-    { content: string; scope?: SecretScope; phase?: SecretPhase }
+    {
+      content: string
+      scope?: SecretScope
+      phase?: SecretPhase
+      mode?: ImportEnvMode
+    }
   >({
-    mutationFn: async ({ content, scope, phase }) => {
+    mutationFn: async ({ content, scope, phase, mode }) => {
       const params = new URLSearchParams()
       if (scope) params.set("scope", scope)
       if (phase) params.set("phase", phase)
+      if (mode) params.set("mode", mode)
       const qs = params.size > 0 ? `?${params.toString()}` : ""
-      return apiFetch<{ imported: number }>(
-        `/apps/${appId}/secrets/import${qs}`,
-        {
-          method: "POST",
-          body: { content },
-        }
-      )
+      return apiFetch<ImportEnvResult>(`/apps/${appId}/secrets/import${qs}`, {
+        method: "POST",
+        body: { content },
+      })
     },
     onSuccess: () => {
       qc.invalidateQueries({ queryKey: ["apps", appId, "secrets"] })

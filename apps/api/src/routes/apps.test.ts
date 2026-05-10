@@ -1111,7 +1111,13 @@ async function createTestBuild(
   db: TestDb,
   appId: string,
   status: "pending" | "running" | "succeeded" | "failed" | "cancelled",
-  opts: { imageTag?: string; commitSha?: string; commitMessage?: string } = {}
+  opts: {
+    imageTag?: string
+    commitSha?: string
+    commitMessage?: string
+    requestedByUserId?: string | null
+    source?: (typeof builds.$inferInsert)["source"]
+  } = {}
 ) {
   const id = nanoid()
   const now = new Date()
@@ -1127,6 +1133,8 @@ async function createTestBuild(
     commit_message: opts.commitMessage ?? null,
     log_path: null,
     error_message: null,
+    requested_by_user_id: opts.requestedByUserId ?? null,
+    source: opts.source ?? "api",
     started_at: startedAt,
     finished_at: now,
     created_at: now,
@@ -1181,6 +1189,27 @@ describe.skipIf(skip)("GET /apps/:id/builds", () => {
       builds: { commitMessage: string | null }[]
     }
     expect(body.builds[0]!.commitMessage).toBeNull()
+  })
+
+  it("exposes trigger source and requester from build row", async () => {
+    const { id: appId } = await createTestApp(db, { userId, projectId })
+    await createTestBuild(db, appId, "succeeded", {
+      requestedByUserId: userId,
+      source: "webhook:github",
+    })
+
+    const honoApp = buildTestApp(db, fakeUser(userId, `u@t.com`))
+    const res = await honoApp.request(`/apps/${appId}/builds`)
+
+    expect(res.status).toBe(200)
+    const body = (await res.json()) as {
+      builds: Array<{
+        requestedByUserId: string | null
+        source: string | null
+      }>
+    }
+    expect(body.builds[0]!.requestedByUserId).toBe(userId)
+    expect(body.builds[0]!.source).toBe("webhook:github")
   })
 })
 
