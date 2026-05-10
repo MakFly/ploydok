@@ -147,7 +147,7 @@ if (import.meta.main) {
     websocket: wsHandler,
     idleTimeout: 0,
   })
-  log.info({ port: env.PORT }, `api listening on :${env.PORT}`)
+  log.info({ port: env.PORT, marker: "ci-cd-loop-test-1" }, `api listening on :${env.PORT}`)
 
   const workerDb = createDb(env.DATABASE_URL)
   const worker = startWorker(workerDb)
