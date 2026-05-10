@@ -19,15 +19,16 @@ const jsonb = customType<{ data: unknown; notNull: false; default: false }>({
 
 // postgres.js (Bun) chokes on Buffer instances coming through Drizzle's default
 // path — the prepared statement bind step sees a plain Object and bails with
-// `byteLength` errors. Coercing to a Uint8Array on the way out is the fix.
-const bytea = customType<{ data: Buffer; notNull: false; default: false }>({
+// `byteLength` errors. We type the bind value as Uint8Array (Buffer is a
+// subclass) so callers must pass Uint8Array — that satisfies postgres.js
+// instanceof check directly, no toDriver gymnastics needed.
+const bytea = customType<{
+  data: Uint8Array
+  notNull: false
+  default: false
+}>({
   dataType() {
     return 'bytea'
-  },
-  toDriver(value: Buffer): Uint8Array {
-    if (value instanceof Uint8Array) return value
-    const view = value as unknown as ArrayBufferView
-    return new Uint8Array(view.buffer, view.byteOffset, view.byteLength)
   },
 })
 

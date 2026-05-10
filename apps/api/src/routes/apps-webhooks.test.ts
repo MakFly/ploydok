@@ -464,7 +464,7 @@ describe.skipIf(skip)("POST /apps/:id/webhook-deliveries/:deliveryId/replay", ()
     // Create a parent delivery with a payload_raw buffer (gzip of valid JSON)
     const rawPayload = Buffer.from(JSON.stringify({ ref: "refs/heads/main", repository: { full_name: "owner/repo" } }))
     const compressed = Bun.gzipSync(new Uint8Array(rawPayload.buffer, rawPayload.byteOffset, rawPayload.byteLength))
-    const parentId = await insertDelivery(db, appId, { payload_raw: Buffer.from(compressed) })
+    const parentId = await insertDelivery(db, appId, { payload_raw: new Uint8Array(compressed) })
 
     // Insert 10 existing replay deliveries referencing the parent
     for (let i = 0; i < 10; i++) {
