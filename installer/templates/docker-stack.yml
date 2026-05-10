@@ -1,0 +1,289 @@
+# SPDX-License-Identifier: AGPL-3.0-only
+#
+# Ploydok control-plane Swarm stack.
+#
+# Used by `docker stack deploy -c docker-stack.yml ploydok` on hosts that
+# joined a Swarm (single-node is fine — `docker swarm init`). Replaces the
+# legacy compose file for production deployments. The compose template
+# remains for local dev (`make infra-up`) where Swarm features are unwanted.
+#
+# Differences vs docker-compose.yml:
+#   - `deploy:` directives drive replicas, rolling updates and restarts
+#     (Swarm ignores top-level `restart:`).
+#   - Caddy publishes 80/443 in mode: host so ACME's same-source-IP rule
+#     still works (the Swarm routing-mesh would otherwise NAT inbound
+#     traffic to a random task).
+#   - api/web run with replicas: 2 + start-first updates → zero-downtime
+#     rolling deploys when `docker stack deploy --resolve-image always` is
+#     re-run after a new GHCR image lands.
+#   - postgres / redis / registry / agent / buildkitd / caddy stay at
+#     replicas: 1 (stateful or singleton).
+#   - Watchtower is gone — replaced by `ploydok-update.timer` on the host.
+
+version: "3.8"
+
+services:
+  api:
+    image: ${PLOYDOK_IMAGE_REGISTRY}/ploydok-api:${PLOYDOK_VERSION}
+    env_file: ${PLOYDOK_DATA_DIR}/.env
+    volumes:
+      - ${PLOYDOK_DATA_DIR}/logs:/var/log/ploydok
+      - ${PLOYDOK_DATA_DIR}/builds:/var/lib/ploydok/builds
+      - ${PLOYDOK_DATA_DIR}/static:/var/lib/ploydok/static
+      - ${PLOYDOK_DATA_DIR}/certs:/var/lib/ploydok/certs:ro
+      - ${PLOYDOK_DATA_DIR}/pki:/var/lib/ploydok/pki:ro
+      - ${PLOYDOK_DATA_DIR}/agent:/run/ploydok
+      - /var/run/docker.sock:/var/run/docker.sock
+    ports:
+      - target: 3335
+        published: 3335
+        host_ip: 127.0.0.1
+        protocol: tcp
+        mode: host
+    networks:
+      - ploydok
+    healthcheck:
+      test: ["CMD", "wget", "-qO-", "http://localhost:3335/health"]
+      interval: 10s
+      timeout: 3s
+      retries: 3
+      start_period: 30s
+    deploy:
+      replicas: 2
+      update_config:
+        parallelism: 1
+        order: start-first
+        failure_action: rollback
+        monitor: 30s
+        delay: 5s
+      rollback_config:
+        parallelism: 1
+        order: start-first
+      restart_policy:
+        condition: on-failure
+        delay: 5s
+        max_attempts: 5
+        window: 60s
+      labels:
+        ploydok.kind: app
+        ploydok.component: api
+
+  web:
+    image: ${PLOYDOK_IMAGE_REGISTRY}/ploydok-web:${PLOYDOK_VERSION}
+    environment:
+      PLOYDOK_API_URL: http://api:3335
+    networks:
+      - ploydok
+    healthcheck:
+      test: ["CMD", "wget", "-qO-", "http://localhost:3000/"]
+      interval: 10s
+      timeout: 3s
+      retries: 3
+      start_period: 20s
+    deploy:
+      replicas: 2
+      update_config:
+        parallelism: 1
+        order: start-first
+        failure_action: rollback
+        monitor: 30s
+        delay: 5s
+      rollback_config:
+        parallelism: 1
+        order: start-first
+      restart_policy:
+        condition: on-failure
+        delay: 5s
+        max_attempts: 5
+        window: 60s
+      labels:
+        ploydok.kind: app
+        ploydok.component: web
+
+  agent:
+    image: ${PLOYDOK_IMAGE_REGISTRY}/ploydok-agent:${PLOYDOK_VERSION}
+    environment:
+      PLOYDOK_AGENT_ADDR: 0.0.0.0:50051
+      PLOYDOK_AGENT_PKI_DIR: /var/lib/ploydok/pki
+      PLOYDOK_VALIDATOR_CONFIG: /etc/ploydok/validator.toml
+    volumes:
+      - /var/run/docker.sock:/var/run/docker.sock
+      - ${PLOYDOK_DATA_DIR}/agent:/run/ploydok
+      - ${PLOYDOK_DATA_DIR}/volumes:/var/lib/ploydok/volumes
+      - ${PLOYDOK_DATA_DIR}/app-volumes:/var/lib/ploydok/app-volumes
+      - ${PLOYDOK_DATA_DIR}/static:/var/lib/ploydok/static
+      - ${PLOYDOK_DATA_DIR}/config:/etc/ploydok:ro
+      - ${PLOYDOK_DATA_DIR}/pki:/var/lib/ploydok/pki:ro
+    networks:
+      - ploydok
+    deploy:
+      mode: global
+      update_config:
+        parallelism: 1
+        order: stop-first
+        failure_action: rollback
+      restart_policy:
+        condition: on-failure
+      labels:
+        ploydok.kind: app
+        ploydok.component: agent
+
+  caddy:
+    image: ${PLOYDOK_IMAGE_REGISTRY}/ploydok-caddy:${PLOYDOK_VERSION}
+    volumes:
+      - ${PLOYDOK_INSTALL_DIR}/Caddyfile:/etc/caddy/Caddyfile:ro
+      - caddy-data:/data
+      - caddy-config:/config
+      - ${PLOYDOK_DATA_DIR}/static:/var/lib/ploydok/static:ro
+    ports:
+      - target: 80
+        published: ${PLOYDOK_HTTP_PORT}
+        protocol: tcp
+        mode: host
+      - target: 443
+        published: ${PLOYDOK_HTTPS_PORT}
+        protocol: tcp
+        mode: host
+      - target: 2019
+        published: 2019
+        host_ip: 127.0.0.1
+        protocol: tcp
+        mode: host
+    networks:
+      - ploydok
+      - ploydok-public
+    deploy:
+      replicas: 1
+      update_config:
+        parallelism: 1
+        order: stop-first
+        failure_action: rollback
+      restart_policy:
+        condition: on-failure
+      labels:
+        ploydok.kind: infra
+        ploydok.component: caddy
+
+  adminer:
+    image: ${PLOYDOK_IMAGE_REGISTRY}/ploydok-adminer:${PLOYDOK_VERSION}
+    networks:
+      - ploydok
+    deploy:
+      replicas: 1
+      update_config:
+        parallelism: 1
+        order: start-first
+        failure_action: rollback
+      restart_policy:
+        condition: on-failure
+      labels:
+        ploydok.kind: infra
+        ploydok.component: adminer
+
+  postgres:
+    image: postgres:16-alpine
+    environment:
+      POSTGRES_USER: ploydok
+      POSTGRES_PASSWORD: ${PLOYDOK_PG_PASSWORD}
+      POSTGRES_DB: ploydok
+    volumes:
+      - postgres-data:/var/lib/postgresql/data
+    networks:
+      - ploydok
+    deploy:
+      replicas: 1
+      update_config:
+        parallelism: 1
+        order: stop-first
+      restart_policy:
+        condition: on-failure
+      labels:
+        ploydok.kind: infra
+        ploydok.component: postgres
+
+  redis:
+    image: redis:7-alpine
+    command:
+      - "redis-server"
+      - "--requirepass"
+      - "${PLOYDOK_REDIS_PASSWORD}"
+      - "--appendonly"
+      - "yes"
+    volumes:
+      - redis-data:/data
+    networks:
+      - ploydok
+    deploy:
+      replicas: 1
+      update_config:
+        parallelism: 1
+        order: stop-first
+      restart_policy:
+        condition: on-failure
+      labels:
+        ploydok.kind: infra
+        ploydok.component: redis
+
+  registry:
+    image: registry:2
+    environment:
+      REGISTRY_STORAGE_DELETE_ENABLED: "true"
+    volumes:
+      - registry-data:/var/lib/registry
+    ports:
+      - target: 5000
+        published: 5000
+        host_ip: 127.0.0.1
+        protocol: tcp
+        mode: host
+    networks:
+      - ploydok
+    deploy:
+      replicas: 1
+      restart_policy:
+        condition: on-failure
+      labels:
+        ploydok.kind: infra
+        ploydok.component: registry
+
+  buildkitd:
+    # NOTE: Swarm silently ignores `security_opt`, so the rootless BuildKit
+    # image can't get its seccomp relaxations and crashes. The non-rootless
+    # image runs as root inside the container and works under Swarm without
+    # any extra security flags. Acceptable trade-off here since the entire
+    # control-plane already shares the host's docker.sock.
+    image: moby/buildkit:v0.29.0
+    command:
+      - --addr
+      - tcp://0.0.0.0:1234
+      - --config
+      - /etc/buildkit/buildkitd.toml
+    volumes:
+      - buildkit-cache:/home/user/.local/share/buildkit
+      - ${PLOYDOK_DATA_DIR}/config/buildkitd.toml:/etc/buildkit/buildkitd.toml:ro
+    networks:
+      - ploydok
+    deploy:
+      replicas: 1
+      restart_policy:
+        condition: on-failure
+      labels:
+        ploydok.kind: infra
+        ploydok.component: buildkitd
+
+networks:
+  ploydok:
+    driver: overlay
+    attachable: true
+  ploydok-public:
+    name: ploydok-public
+    driver: overlay
+    attachable: true
+
+volumes:
+  caddy-data:
+  caddy-config:
+  postgres-data:
+  redis-data:
+  registry-data:
+  buildkit-cache:

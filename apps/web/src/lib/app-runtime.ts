@@ -37,7 +37,14 @@ export function selectAppSnapshot(
         (!c.kind || c.kind === "app") &&
         (c.id === expectedRef || c.name === expectedRef)
     )
-    return match ?? null
+    if (match) return match
+    // Fallback: the canonical container_id stored in the DB is stale (the
+    // container was recreated server-side — blue/green swap, restart, host
+    // reboot). Pick the highest-priority alive container with the right
+    // app_id label so the badge stops lying about "Stopped". The API
+    // reconciler refreshes apps.container_id on the next /apps fetch, so
+    // this fallback is only used during the brief window between recreation
+    // and the next API poll.
   }
 
   let selected: ContainerSnapshot | null = null

@@ -1,5 +1,5 @@
 [Unit]
-Description=Ploydok container stack
+Description=Ploydok control-plane (Docker Swarm stack)
 Requires=docker.service
 After=docker.service network-online.target
 Wants=network-online.target
@@ -8,8 +8,13 @@ Wants=network-online.target
 Type=oneshot
 RemainAfterExit=yes
 WorkingDirectory=${PLOYDOK_INSTALL_DIR}
-ExecStart=/usr/bin/docker compose --env-file ${PLOYDOK_DATA_DIR}/.env -f ${PLOYDOK_INSTALL_DIR}/docker-compose.yml up -d
-ExecStop=/usr/bin/docker compose --env-file ${PLOYDOK_DATA_DIR}/.env -f ${PLOYDOK_INSTALL_DIR}/docker-compose.yml down
+EnvironmentFile=${PLOYDOK_DATA_DIR}/.env
+# `docker stack deploy` is idempotent: re-running it after the systemd unit
+# is restarted reconciles the stack to the current docker-stack.yml without
+# tearing existing services down. The first invocation provisions the stack;
+# subsequent ones (e.g. after a reboot) are essentially no-ops.
+ExecStart=/usr/bin/docker stack deploy --resolve-image always --with-registry-auth --prune -c ${PLOYDOK_INSTALL_DIR}/docker-stack.yml ploydok
+ExecStop=/usr/bin/docker stack rm ploydok
 TimeoutStartSec=0
 
 [Install]

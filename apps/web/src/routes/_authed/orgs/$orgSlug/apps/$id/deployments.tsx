@@ -25,7 +25,7 @@ import {
   useRollbackApp,
 } from "../../../../../../lib/apps-mutations"
 import {
-  useEventsConnected,
+  useEventsStatus,
   useEventsSubscription,
 } from "../../../../../../lib/events-provider"
 import type { Build } from "@ploydok/shared"
@@ -108,7 +108,7 @@ function useDeploymentLiveEvent(appId: string): DeploymentLiveEvent | null {
 }
 
 function DeploymentLiveBanner({ appId }: { appId: string }): React.JSX.Element {
-  const connected = useEventsConnected()
+  const status = useEventsStatus()
   const latest = useDeploymentLiveEvent(appId)
   const isTerminal =
     latest?.type === "build.succeeded" ||
@@ -122,20 +122,29 @@ function DeploymentLiveBanner({ appId }: { appId: string }): React.JSX.Element {
       : RiCheckboxCircleLine
     : RiLoader4Line
 
+  const dotClass =
+    status === "open"
+      ? "bg-emerald-500"
+      : status === "offline"
+        ? "bg-red-500"
+        : "bg-amber-500 animate-pulse"
+  const label =
+    status === "open"
+      ? "Live connected"
+      : status === "offline"
+        ? "Live offline"
+        : status === "reconnecting"
+          ? "Live reconnecting…"
+          : "Live connecting…"
+
   return (
     <div
       className="flex flex-wrap items-center gap-2 rounded-lg border border-border bg-muted/20 px-3 py-2 text-xs text-muted-foreground"
       aria-live="polite"
     >
       <span className="inline-flex items-center gap-1.5 font-medium text-foreground">
-        <span
-          className={[
-            "size-2 rounded-full",
-            connected ? "bg-emerald-500" : "bg-amber-500",
-          ].join(" ")}
-          aria-hidden
-        />
-        {connected ? "Live connected" : "Live reconnecting"}
+        <span className={`size-2 rounded-full ${dotClass}`} aria-hidden />
+        {label}
       </span>
       {latest ? (
         <>

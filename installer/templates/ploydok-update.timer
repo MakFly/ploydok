@@ -1,0 +1,15 @@
+[Unit]
+Description=Ploydok control-plane image refresher (every 5 min)
+Requires=ploydok.service
+
+[Timer]
+# 2 min after boot then every 5 min — matches the cadence we used to get from
+# the watchtower container, but rolls through Swarm's update_config so api/web
+# never see downtime.
+OnBootSec=2min
+OnUnitActiveSec=5min
+AccuracySec=15s
+Unit=ploydok-update.service
+
+[Install]
+WantedBy=timers.target

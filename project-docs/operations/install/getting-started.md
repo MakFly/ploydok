@@ -40,7 +40,32 @@ Par défaut, les fichiers d’exécution restent séparés des données mutables
 --manage-firewall
 --yes
 --unattended
+--runtime=swarm|compose      # default: compose
 ```
+
+## Runtime : Swarm vs Compose
+
+**Compose (par défaut)** — un container par service supervisé par `ploydok.service`. Mises à jour manuelles (`ploydok-cli upgrade`) ou via Watchtower si la stack le fournit. Mode safe pour tout VPS ; pas de prérequis Docker Swarm. Recommandé si MVP et qu'un downtime de quelques secondes lors d'une upgrade est acceptable.
+
+**Swarm (`--runtime=swarm`)** — le control-plane (api, web) tourne en `replicas: 2`
+sur Docker Swarm avec `update_config.order: start-first` + healthcheck-gated
+cutover. Une nouvelle image `:edge` poussée par la CI déclenche un rolling
+update (zéro 502 visible côté Caddy) via le timer systemd
+`ploydok-update.timer` (toutes les 5 min). L'installer initialise un Swarm
+single-node automatiquement (`docker swarm init --advertise-addr <ip>`) si la
+machine n'en fait pas déjà partie. Les services stateful (postgres, redis,
+registry, buildkitd) restent en `replicas: 1`.
+
+**Compose (legacy)** — un container par service, supervisé par
+`ploydok.service`. Pas de rolling update : les mises à jour sont manuelles
+(`ploydok-cli upgrade`). À utiliser uniquement quand Swarm n'est pas
+disponible (kernel sans cgroups v2, hôte mutualisé sans permissions Swarm,
+runs CI éphémères).
+
+Bascule existante compose → swarm : sauvegarder `/var/lib/ploydok/`,
+`docker compose down` puis ré-exécuter `installer/install.sh --runtime=swarm`.
+Les volumes nommés (postgres-data, redis-data, etc.) sont préservés s'ils
+restent attachés à des services Swarm portant les mêmes noms.
 
 `--unattended` force `coexist`, active `--yes`, et convient aux runs IaC.
 
