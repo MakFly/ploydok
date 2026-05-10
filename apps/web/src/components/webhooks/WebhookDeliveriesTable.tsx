@@ -79,8 +79,11 @@ function DecisionBadge({
 // Relative time helper
 // ---------------------------------------------------------------------------
 
-function relativeTime(isoDate: string): string {
-  const diff = Date.now() - new Date(isoDate).getTime()
+function relativeTime(isoDate: string | null | undefined): string {
+  if (!isoDate) return "—"
+  const ts = new Date(isoDate).getTime()
+  if (Number.isNaN(ts)) return "—"
+  const diff = Date.now() - ts
   const secs = Math.floor(diff / 1000)
   if (secs < 60) return `${secs}s ago`
   const mins = Math.floor(secs / 60)
@@ -89,6 +92,12 @@ function relativeTime(isoDate: string): string {
   if (hours < 24) return `${hours}h ago`
   const days = Math.floor(hours / 24)
   return `${days}d ago`
+}
+
+function safeIso(isoDate: string | null | undefined): string {
+  if (!isoDate) return ""
+  const d = new Date(isoDate)
+  return Number.isNaN(d.getTime()) ? "" : d.toISOString()
 }
 
 // ---------------------------------------------------------------------------
@@ -268,7 +277,7 @@ export function WebhookDeliveriesTable({
             {deliveries.map((d) => (
               <tr key={d.id} className="hover:bg-muted/20 transition-colors">
                 <td className="px-3 py-2.5 text-muted-foreground whitespace-nowrap">
-                  <time dateTime={d.receivedAt} title={new Date(d.receivedAt).toISOString()}>
+                  <time dateTime={d.receivedAt} title={safeIso(d.receivedAt)}>
                     {relativeTime(d.receivedAt)}
                   </time>
                 </td>
