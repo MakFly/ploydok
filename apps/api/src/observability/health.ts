@@ -2,6 +2,7 @@
 import { sql } from "drizzle-orm"
 import { and, inArray, isNotNull, eq } from "drizzle-orm"
 import { existsSync } from "node:fs"
+import { connect } from "node:net"
 import { apps, databases, services, type Db } from "@ploydok/db"
 import type { CaddyConfig } from "../caddy/types.js"
 
@@ -12,7 +13,12 @@ export interface HealthReport {
   version: string
   components: {
     db: { status: ComponentStatus; latency_ms?: number; error?: string }
-    agent: { status: ComponentStatus; socket?: string; error?: string }
+    agent: {
+      status: ComponentStatus
+      socket?: string
+      address?: string
+      error?: string
+    }
     caddy: { status: ComponentStatus; admin_url?: string; error?: string }
     ingress: {
       status: ComponentStatus
@@ -38,6 +44,10 @@ function defaultAgentSocketPath(): string {
     : "/tmp/ploydok/agent.sock"
 }
 
+function defaultAgentAddress(): string | null {
+  return process.env["PLOYDOK_AGENT_ADDR"] ?? null
+}
+
 async function checkDb(db: Db): Promise<HealthReport["components"]["db"]> {
   const start = Date.now()
   try {
@@ -48,7 +58,51 @@ async function checkDb(db: Db): Promise<HealthReport["components"]["db"]> {
   }
 }
 
-function checkAgent(): HealthReport["components"]["agent"] {
+function checkTcpAgent(
+  address: string
+): Promise<HealthReport["components"]["agent"]> {
+  const idx = address.lastIndexOf(":")
+  if (idx <= 0 || idx === address.length - 1) {
+    return Promise.resolve({
+      status: "unknown",
+      address,
+      error: "invalid PLOYDOK_AGENT_ADDR, expected host:port",
+    })
+  }
+
+  const host = address.slice(0, idx)
+  const port = Number(address.slice(idx + 1))
+  if (!Number.isInteger(port) || port <= 0 || port > 65535) {
+    return Promise.resolve({
+      status: "unknown",
+      address,
+      error: "invalid PLOYDOK_AGENT_ADDR port",
+    })
+  }
+
+  return new Promise((resolve) => {
+    const socket = connect({ host, port })
+    const timer = setTimeout(() => {
+      socket.destroy()
+      resolve({ status: "down", address, error: "TCP connect timed out" })
+    }, 1000)
+
+    socket.once("connect", () => {
+      clearTimeout(timer)
+      socket.destroy()
+      resolve({ status: "ok", address })
+    })
+    socket.once("error", (err) => {
+      clearTimeout(timer)
+      resolve({ status: "down", address, error: err.message })
+    })
+  })
+}
+
+async function checkAgent(): Promise<HealthReport["components"]["agent"]> {
+  const address = defaultAgentAddress()
+  if (address) return checkTcpAgent(address)
+
   const socketPath = defaultAgentSocketPath()
   try {
     if (existsSync(socketPath)) {
@@ -85,7 +139,10 @@ async function checkCaddy(): Promise<HealthReport["components"]["caddy"]> {
   }
 }
 
-function normalizeDatabaseRuntimeToken(dbId: string, maxLength: number): string {
+function normalizeDatabaseRuntimeToken(
+  dbId: string,
+  maxLength: number
+): string {
   const normalized = dbId
     .toLowerCase()
     .replace(/[^a-z0-9-]+/g, "-")
@@ -206,12 +263,9 @@ export async function buildHealthReport(
   db: Db,
   version: string
 ): Promise<HealthReport> {
-  const [dbStatus, caddyStatus, ingressStatus] = await Promise.all([
-    checkDb(db),
-    checkCaddy(),
-    checkIngress(db),
-  ])
-  const agentStatus = checkAgent()
+  const [dbStatus, caddyStatus, ingressStatus, agentStatus] = await Promise.all(
+    [checkDb(db), checkCaddy(), checkIngress(db), checkAgent()]
+  )
 
   const ok =
     dbStatus.status === "ok" &&
@@ -245,8 +299,11 @@ export async function buildPublicStatus(
   db: Db,
   version: string
 ): Promise<PublicStatus> {
-  const [dbStatus, caddyStatus] = await Promise.all([checkDb(db), checkCaddy()])
-  const agentStatus = checkAgent()
+  const [dbStatus, caddyStatus, agentStatus] = await Promise.all([
+    checkDb(db),
+    checkCaddy(),
+    checkAgent(),
+  ])
 
   const ok =
     dbStatus.status === "ok" &&

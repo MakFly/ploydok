@@ -1389,7 +1389,8 @@ export async function handleDeploy(
         .where(eq(builds.id, buildId))
         .limit(1)
     )[0]?.status
-    if (currentStatus === "cancelled") {
+    const wasCancelled = currentStatus === "cancelled"
+    if (wasCancelled) {
       log.info(
         { buildId, finalStatus },
         "build was cancelled mid-flight — skipping final status write"
@@ -1405,7 +1406,7 @@ export async function handleDeploy(
     }
 
     // Commit status — success / failure / error (best-effort, non-fatal)
-    if (resolvedCommitShaFinal) {
+    if (resolvedCommitShaFinal && !wasCancelled) {
       const durationMs = Date.now() - deployStartMs
       const statusState =
         finalStatus === "succeeded" || finalStatus === "succeeded_with_warning"
@@ -1426,7 +1427,7 @@ export async function handleDeploy(
 
     // Publish terminal event AFTER the DB commit so any React Query
     // invalidation triggered by the event fetches the final status.
-    if (ownerId) {
+    if (ownerId && !wasCancelled) {
       const terminal =
         finalStatus === "succeeded"
           ? { type: "build.succeeded" as const, message: "Build réussi" }
@@ -1456,6 +1457,7 @@ export async function handleDeploy(
 
     // Notification dispatch — build/deploy outcome
     if (
+      !wasCancelled &&
       workspacePathForAudit &&
       (finalStatus === "succeeded" || finalStatus === "succeeded_with_warning")
     ) {
@@ -1472,7 +1474,7 @@ export async function handleDeploy(
     }
 
     // Notification dispatch — build/deploy outcome
-    if (ownerId) {
+    if (ownerId && !wasCancelled) {
       const durationMs = Date.now() - deployStartMs
       const notifyEvent =
         finalStatus === "succeeded" || finalStatus === "succeeded_with_warning"

@@ -13,9 +13,9 @@
 //   useEventsSubscription("container.health", (data) => { ... })
 
 import * as React from "react"
+import { triggerRefresh } from "./api"
+import { apiBaseUrl } from "./api/base"
 import { useBackendUnavailable } from "./backend-status"
-
-const API_BASE = import.meta.env.VITE_API_URL ?? "http://localhost:3335"
 
 type Listener = (data: unknown) => void
 type Subscribe = (eventType: string, cb: Listener) => () => void
@@ -47,28 +47,39 @@ export function EventsProvider({
       return
     }
 
-    const es = new EventSource(`${API_BASE}/events`, { withCredentials: true })
-    esRef.current = es
     const abort = new AbortController()
     abortRef.current = abort
-    attachedRef.current = new Set<string>()
 
-    es.onopen = () => setConnected(true)
-    es.onerror = () => setConnected(false)
+    void (async () => {
+      // EventSource cannot retry through apiFetch's 401 refresh path. Refresh
+      // once before opening the stream so a page reload with an expired access
+      // cookie does not create a noisy failed SSE connection first.
+      await triggerRefresh().catch(() => undefined)
+      if (abort.signal.aborted) return
 
-    // Re-attach every event type already subscribed at the time of mount.
-    // Needed if a consumer subscribed before the EventSource was opened.
-    for (const eventType of listenersRef.current.keys()) {
-      if (!attachedRef.current.has(eventType)) {
-        attachListener(es, eventType, listenersRef.current, abort.signal)
-        attachedRef.current.add(eventType)
+      const es = new EventSource(`${apiBaseUrl()}/events`, {
+        withCredentials: true,
+      })
+      esRef.current = es
+      attachedRef.current = new Set<string>()
+
+      es.onopen = () => setConnected(true)
+      es.onerror = () => setConnected(false)
+
+      // Re-attach every event type already subscribed at the time of mount.
+      // Needed if a consumer subscribed before the EventSource was opened.
+      for (const eventType of listenersRef.current.keys()) {
+        if (!attachedRef.current.has(eventType)) {
+          attachListener(es, eventType, listenersRef.current, abort.signal)
+          attachedRef.current.add(eventType)
+        }
       }
-    }
+    })()
 
     return () => {
       abort.abort()
       if (abortRef.current === abort) abortRef.current = null
-      es.close()
+      esRef.current?.close()
       esRef.current = null
       attachedRef.current = new Set<string>()
       setConnected(false)

@@ -32,12 +32,18 @@ jobs:
           - image: ploydok-api
             dockerfile: apps/api/Dockerfile
             context: .
+          - image: ploydok-web
+            dockerfile: apps/web/Dockerfile
+            context: .
           - image: ploydok-agent
             dockerfile: agent/Dockerfile.prod
             context: .
           - image: ploydok-caddy
             dockerfile: infra/caddy/Dockerfile
             context: infra/caddy
+          - image: ploydok-adminer
+            dockerfile: infra/adminer/Dockerfile
+            context: infra/adminer
     steps:
       - uses: actions/checkout@v4
 

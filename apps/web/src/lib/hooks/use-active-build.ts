@@ -87,5 +87,10 @@ export function useActiveBuild(appId: string): ActiveBuildState {
     setState({ isActive: false, buildId: ev.buildId, status: "failed" })
   })
 
+  useEventsSubscription<BuildDoneEvent>("build.cancelled", (ev) => {
+    if (ev.appId !== appId) return
+    setState({ isActive: false, buildId: ev.buildId, status: "cancelled" })
+  })
+
   return state
 }

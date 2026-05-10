@@ -25,15 +25,7 @@ const config = defineConfig({
       projects: ["./tsconfig.json"],
     }),
     tailwindcss(),
-    tanstackStart({
-      // `src/lib/api.ts` dynamiquement-importe `@tanstack/react-start/server`
-      // derrière un garde `typeof window !== "undefined"` pour forwarder les
-      // cookies SSR sans créer un fichier `.server.ts` séparé (voir
-      // `.claude/rules/auth.md`). On autorise explicitement cet importer.
-      importProtection: {
-        ignoreImporters: ["**/src/lib/api.ts"],
-      },
-    }),
+    tanstackStart(),
     viteReact(),
   ],
 })

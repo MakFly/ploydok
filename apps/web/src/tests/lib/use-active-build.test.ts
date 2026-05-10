@@ -20,6 +20,7 @@ type Action =
   | { type: "build.started"; appId: string; buildId: string }
   | { type: "build.succeeded"; appId: string; buildId: string; status: BuildStatus }
   | { type: "build.failed"; appId: string; buildId: string; status: BuildStatus }
+  | { type: "build.cancelled"; appId: string; buildId: string; status: BuildStatus }
 
 function activeBuildReducer(
   state: ActiveBuildState,
@@ -34,6 +35,8 @@ function activeBuildReducer(
       return { isActive: false, buildId: action.buildId, status: "succeeded" }
     case "build.failed":
       return { isActive: false, buildId: action.buildId, status: "failed" }
+    case "build.cancelled":
+      return { isActive: false, buildId: action.buildId, status: "cancelled" }
     default:
       return state
   }
@@ -83,6 +86,17 @@ describe("useActiveBuild — state transitions", () => {
     )
     expect(next.isActive).toBe(false)
     expect(next.status).toBe("failed")
+  })
+
+  it("build.cancelled clears isActive", () => {
+    const active: ActiveBuildState = { isActive: true, buildId: "build-3", status: "running" }
+    const next = activeBuildReducer(
+      active,
+      { type: "build.cancelled", appId: APP_ID, buildId: "build-3", status: "cancelled" },
+      APP_ID,
+    )
+    expect(next.isActive).toBe(false)
+    expect(next.status).toBe("cancelled")
   })
 
   it("ignores events from a different app", () => {

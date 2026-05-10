@@ -1,11 +1,16 @@
 // SPDX-License-Identifier: AGPL-3.0-only
 import { describe, expect, it } from "bun:test"
 import {
+  DEFAULT_DATABASE_ENV_PREFIX,
   findLinkedEnvKeyConflicts,
   parseConnectionString,
 } from "./apps-databases-link"
 
 describe("parseConnectionString", () => {
+  it("defaults database links to DATABASE_URL-compatible prefixes", () => {
+    expect(DEFAULT_DATABASE_ENV_PREFIX).toBe("DATABASE")
+  })
+
   it("uses the selected prefix instead of forcing DATABASE_URL", () => {
     const vars = parseConnectionString(
       "postgres",

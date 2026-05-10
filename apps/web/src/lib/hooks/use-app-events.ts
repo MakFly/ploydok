@@ -185,6 +185,10 @@ export function useAppEvents(appId: string, limit = 10): Array<AppEvent> {
     handleEvent("build.failed"),
   )
   useEventsSubscription<SsePayloadWithApp>(
+    "build.cancelled",
+    handleEvent("build.cancelled"),
+  )
+  useEventsSubscription<SsePayloadWithApp>(
     "deploy.status_change",
     handleEvent("deploy.status_change"),
   )

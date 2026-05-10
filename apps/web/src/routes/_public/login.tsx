@@ -4,6 +4,7 @@ import { createFileRoute, useRouter } from "@tanstack/react-router"
 import { Button } from "@workspace/ui/components/button"
 import { toast } from "sonner"
 import { apiFetch } from "../../lib/api"
+import { apiBaseUrl } from "../../lib/api/base"
 import { PasskeyButton } from "../../components/auth/PasskeyButton"
 import { organizationDashboardPath } from "../../lib/organizations"
 import type { Me } from "@ploydok/shared"
@@ -14,10 +15,12 @@ export const Route = createFileRoute("/_public/login")({
 
 function LoginPage(): React.JSX.Element {
   const router = useRouter()
-  const [backupMode, setBackupMode] = React.useState(false)
+  const [mode, setMode] = React.useState<"password" | "passkey" | "backup">(
+    "password"
+  )
   const [email, setEmail] = React.useState("")
 
-  const handlePasskeySuccess = async (): Promise<void> => {
+  const handleAuthSuccess = async (): Promise<void> => {
     const me = await apiFetch<Me>("/me")
     const target = me.default_organization
       ? organizationDashboardPath(me.default_organization.slug)
@@ -43,17 +46,24 @@ function LoginPage(): React.JSX.Element {
         </div>
 
         <div className="rounded-[10px] border border-border bg-card p-5 shadow-[0_0_2.5px_1px_var(--border)]">
-          {!backupMode ? (
+          {mode === "password" ? (
+            <PasswordModePanel
+              onSuccess={() => void handleAuthSuccess()}
+              onSwitchPasskey={() => setMode("passkey")}
+              onSwitchBackup={() => setMode("backup")}
+            />
+          ) : mode === "passkey" ? (
             <PasskeyModePanel
               email={email}
               onEmailChange={setEmail}
-              onSuccess={() => void handlePasskeySuccess()}
-              onSwitchBackup={() => setBackupMode(true)}
+              onSuccess={() => void handleAuthSuccess()}
+              onSwitchPassword={() => setMode("password")}
+              onSwitchBackup={() => setMode("backup")}
             />
           ) : (
             <BackupCodePanel
-              onSuccess={handlePasskeySuccess}
-              onBack={() => setBackupMode(false)}
+              onSuccess={handleAuthSuccess}
+              onBack={() => setMode("password")}
             />
           )}
         </div>
@@ -68,15 +78,92 @@ function LoginPage(): React.JSX.Element {
   )
 }
 
+function PasswordModePanel({
+  onSuccess,
+  onSwitchPasskey,
+  onSwitchBackup,
+}: {
+  onSuccess: () => void
+  onSwitchPasskey: () => void
+  onSwitchBackup: () => void
+}): React.JSX.Element {
+  const [email, setEmail] = React.useState("")
+  const [password, setPassword] = React.useState("")
+  const [error, setError] = React.useState<string | null>(null)
+  const [loading, setLoading] = React.useState(false)
+
+  const handleSubmit = async (e: React.FormEvent): Promise<void> => {
+    e.preventDefault()
+    setLoading(true)
+    setError(null)
+    try {
+      await apiFetch("/auth/login/password", {
+        method: "POST",
+        body: { email, password },
+      })
+      toast.success("Signed in")
+      onSuccess()
+    } catch (err) {
+      const msg = err instanceof Error ? err.message : "Authentication failed"
+      toast.error(msg)
+      setError(msg)
+    } finally {
+      setLoading(false)
+    }
+  }
+
+  return (
+    <form onSubmit={(e) => void handleSubmit(e)} className="space-y-4">
+      <Field
+        id="email"
+        label="Email"
+        type="email"
+        autoComplete="email"
+        value={email}
+        onChange={setEmail}
+        placeholder="you@example.com"
+      />
+      <Field
+        id="password"
+        label="Password"
+        type="password"
+        autoComplete="current-password"
+        value={password}
+        onChange={setPassword}
+        placeholder="Your password"
+      />
+      {error && (
+        <p
+          className="rounded-md bg-destructive/10 px-3 py-2 text-sm text-destructive"
+          role="alert"
+        >
+          {error}
+        </p>
+      )}
+      <Button type="submit" disabled={loading} size="lg" className="w-full">
+        {loading ? "Signing in…" : "Sign in"}
+      </Button>
+      <AuthSwitches
+        primaryLabel="Use passkey instead"
+        onPrimary={onSwitchPasskey}
+        secondaryLabel="Use backup code"
+        onSecondary={onSwitchBackup}
+      />
+    </form>
+  )
+}
+
 function PasskeyModePanel({
   email,
   onEmailChange,
   onSuccess,
+  onSwitchPassword,
   onSwitchBackup,
 }: {
   email: string
   onEmailChange: (value: string) => void
   onSuccess: () => void
+  onSwitchPassword: () => void
   onSwitchBackup: () => void
 }): React.JSX.Element {
   return (
@@ -91,23 +178,12 @@ function PasskeyModePanel({
         placeholder="you@example.com"
       />
       <PasskeyButton email={email} onSuccess={onSuccess} />
-      <div className="relative">
-        <div className="absolute inset-0 flex items-center border-border">
-          <span className="w-full border-t" />
-        </div>
-        <div className="relative flex justify-center">
-          <span className="bg-card px-2 font-mono text-[10px] tracking-wide text-muted-foreground uppercase">
-            or
-          </span>
-        </div>
-      </div>
-      <button
-        type="button"
-        onClick={onSwitchBackup}
-        className="block w-full text-center text-xs text-muted-foreground underline-offset-2 hover:text-foreground hover:underline"
-      >
-        Use backup code instead
-      </button>
+      <AuthSwitches
+        primaryLabel="Use password instead"
+        onPrimary={onSwitchPassword}
+        secondaryLabel="Use backup code"
+        onSecondary={onSwitchBackup}
+      />
     </div>
   )
 }
@@ -129,15 +205,12 @@ function BackupCodePanel({
     setLoading(true)
     setError(null)
     try {
-      const res = await fetch(
-        `${import.meta.env.VITE_API_URL ?? "http://localhost:3335"}/auth/backup-codes/consume`,
-        {
-          method: "POST",
-          credentials: "include",
-          headers: { "Content-Type": "application/json" },
-          body: JSON.stringify({ email, code }),
-        }
-      )
+      const res = await fetch(`${apiBaseUrl()}/auth/backup-codes/consume`, {
+        method: "POST",
+        credentials: "include",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ email, code }),
+      })
       if (!res.ok) {
         const data = (await res.json()) as { error?: { message?: string } }
         throw new Error(data.error?.message ?? "Invalid backup code")
@@ -197,10 +270,57 @@ function BackupCodePanel({
           onClick={onBack}
           className="w-full"
         >
-          Back to passkey login
+          Back to password login
         </Button>
       </div>
     </form>
+  )
+}
+
+function AuthSwitches({
+  primaryLabel,
+  onPrimary,
+  secondaryLabel,
+  onSecondary,
+}: {
+  primaryLabel: string
+  onPrimary: () => void
+  secondaryLabel: string
+  onSecondary: () => void
+}): React.JSX.Element {
+  return (
+    <div className="space-y-3">
+      <div className="relative">
+        <div className="absolute inset-0 flex items-center border-border">
+          <span className="w-full border-t" />
+        </div>
+        <div className="relative flex justify-center">
+          <span className="bg-card px-2 font-mono text-[10px] tracking-wide text-muted-foreground uppercase">
+            or
+          </span>
+        </div>
+      </div>
+      <div className="grid grid-cols-2 gap-2">
+        <Button
+          type="button"
+          variant="outline"
+          size="sm"
+          onClick={onPrimary}
+          className="h-auto whitespace-normal py-2 text-center text-xs"
+        >
+          {primaryLabel}
+        </Button>
+        <Button
+          type="button"
+          variant="outline"
+          size="sm"
+          onClick={onSecondary}
+          className="h-auto whitespace-normal py-2 text-center text-xs"
+        >
+          {secondaryLabel}
+        </Button>
+      </div>
+    </div>
   )
 }
 

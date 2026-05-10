@@ -1,5 +1,10 @@
 // SPDX-License-Identifier: AGPL-3.0-only
-import type { AppStatus, Build, RestartPolicy } from "@ploydok/shared"
+import type {
+  AppStatus,
+  Build,
+  BuildStatus,
+  RestartPolicy,
+} from "@ploydok/shared"
 
 export interface AppListItem {
   id: string
@@ -120,6 +125,19 @@ export interface AppStatusEventPayload {
   appId?: string
   data?: {
     status?: AppStatus
+  }
+}
+
+export interface BuildStatusEventPayload {
+  appId?: string
+  buildId?: string
+  message?: string
+  t?: number
+  data?: {
+    status?: AppStatus | BuildStatus
+    imageTag?: string
+    containerId?: string
+    errorMessage?: string | null
   }
 }
 

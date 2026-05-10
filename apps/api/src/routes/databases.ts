@@ -17,6 +17,7 @@ import { requireTotpVerified } from "../auth/second-factor"
 import {
   spawnDatabase,
   getConnectionString,
+  getConnectionPassword,
   recreateDatabaseContainer,
   removeDatabasePublicProxy,
   startDatabaseContainer,
@@ -33,6 +34,7 @@ import type { AuthUser } from "../auth/middleware"
 import { ensureDefaultOrganizationForUser } from "../services/organizations"
 import { encryptSecret } from "../secrets/crypto"
 import { normalizePostgresConnectionString } from "../databases/connection-strings"
+import { createAdminerSession, isAdminerSupportedDatabase } from "../adminer"
 
 const log = childLogger("databases.routes")
 
@@ -40,6 +42,34 @@ type AppEnv = { Variables: { user?: AuthUser } }
 
 function getUser(c: { get: (k: string) => unknown }): AuthUser {
   return c.get("user") as AuthUser
+}
+
+function isUniqueConstraintError(err: unknown, constraint: string): boolean {
+  if (!err || typeof err !== "object") return false
+  const record = err as Record<string, unknown>
+  return (
+    record["code"] === "23505" &&
+    (record["constraint"] === constraint ||
+      String(record["message"] ?? "").includes(constraint))
+  )
+}
+
+async function findDatabaseByCreationKey(
+  db: Db,
+  projectId: string,
+  key: string
+): Promise<DatabaseRow | null> {
+  const rows = await db
+    .select({ db: databases })
+    .from(databases)
+    .where(
+      and(
+        eq(databases.project_id, projectId),
+        eq(databases.creation_idempotency_key, key)
+      )
+    )
+    .limit(1)
+  return rows[0]?.db ?? null
 }
 
 const KindEnum = z.enum([
@@ -52,6 +82,12 @@ const KindEnum = z.enum([
 ])
 const PlanEnum = z.enum(["small", "medium", "large"])
 const ExposureModeEnum = z.enum(["internal", "direct_port", "public_proxy"])
+const IdempotencyKey = z
+  .string()
+  .trim()
+  .min(8)
+  .max(160)
+  .regex(/^[A-Za-z0-9._:-]+$/, "Invalid idempotency key")
 
 const CreateDatabaseBody = z
   .object({
@@ -66,6 +102,7 @@ const CreateDatabaseBody = z
     plan: PlanEnum,
     exposureMode: ExposureModeEnum.optional(),
     publicEnabled: z.boolean().optional(),
+    idempotencyKey: IdempotencyKey.optional(),
   })
   .or(
     z.object({
@@ -83,6 +120,7 @@ const CreateDatabaseBody = z
       plan: PlanEnum,
       exposureMode: ExposureModeEnum.optional(),
       publicEnabled: z.boolean().optional(),
+      idempotencyKey: IdempotencyKey.optional(),
     })
   )
 
@@ -240,6 +278,18 @@ export function createDatabasesRouter(db: Db): Hono<any, any, any> {
       )
     }
 
+    const creationKey = parsed.data.idempotencyKey ?? null
+    if (creationKey) {
+      const existing = await findDatabaseByCreationKey(
+        db,
+        projectId,
+        creationKey
+      )
+      if (existing) {
+        return c.json({ id: existing.id }, 200)
+      }
+    }
+
     try {
       const result = await spawnDatabase(db, {
         projectId,
@@ -249,9 +299,24 @@ export function createDatabasesRouter(db: Db): Hono<any, any, any> {
         plan,
         exposureMode,
         publicEnabled,
+        creationIdempotencyKey: creationKey,
       })
       return c.json({ id: result.id }, 201)
     } catch (err) {
+      if (
+        creationKey &&
+        isUniqueConstraintError(
+          err,
+          "databases_project_creation_idempotency_key_unique"
+        )
+      ) {
+        const existing = await findDatabaseByCreationKey(
+          db,
+          projectId,
+          creationKey
+        )
+        if (existing) return c.json({ id: existing.id }, 200)
+      }
       log.error({ err, projectId, kind, name }, "database spawn failed")
       return c.json(
         { error: { code: "SPAWN_ERROR", message: "Failed to spawn database" } },
@@ -435,8 +500,11 @@ export function createDatabasesRouter(db: Db): Hono<any, any, any> {
       )
     }
     try {
-      const connectionString = await getConnectionString(row)
-      return c.json({ connection_string: connectionString })
+      const [connectionString, password] = await Promise.all([
+        getConnectionString(row),
+        getConnectionPassword(row),
+      ])
+      return c.json({ connection_string: connectionString, password })
     } catch {
       return c.json(
         {
@@ -447,6 +515,50 @@ export function createDatabasesRouter(db: Db): Hono<any, any, any> {
         },
         503
       )
+    }
+  })
+
+  router.post("/:id/adminer/session", totpMiddleware, async (c) => {
+    const user = getUser(c)
+    const dbId = c.req.param("id")
+
+    const row = await getDbForUser(db, dbId!, user.id)
+    if (!row) {
+      return c.json(
+        { error: { code: "NOT_FOUND", message: "Database not found" } },
+        404
+      )
+    }
+    if (!isAdminerSupportedDatabase(row)) {
+      return c.json(
+        {
+          error: {
+            code: "UNSUPPORTED_DATABASE_KIND",
+            message: "Adminer is only available for managed SQL databases",
+          },
+        },
+        400
+      )
+    }
+    if (row.status !== "running") {
+      return c.json(
+        {
+          error: {
+            code: "DATABASE_NOT_RUNNING",
+            message: "Database must be running before opening Adminer",
+          },
+        },
+        409
+      )
+    }
+
+    try {
+      const session = await createAdminerSession(db, row, user.id)
+      return c.json(session, 201)
+    } catch (err) {
+      const message = err instanceof Error ? err.message : String(err)
+      log.warn({ err, dbId: row.id }, "adminer session creation failed")
+      return c.json({ error: { code: "ADMINER_SESSION_FAILED", message } }, 500)
     }
   })
 

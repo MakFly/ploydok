@@ -20,6 +20,8 @@ volumes:
   registry-data:
   postgres-data:
   redis-data:
+  caddy-data:
+  caddy-config:
   agent-target:
   agent-cargo-registry:
 
@@ -37,8 +39,8 @@ services:
       - "16432-16532:16432-16532"
       - "127.0.0.1:2020:2019"
     volumes:
-      - ./caddy/data:/data
-      - ./caddy/config:/config
+      - caddy-data:/data
+      - caddy-config:/config
       - ./caddy/Caddyfile:/etc/caddy/Caddyfile:ro
       - /var/lib/ploydok/static:/var/lib/ploydok/static:ro
     environment:
@@ -52,6 +54,17 @@ services:
     networks:
       - ploydok
       - ploydok-public
+
+  adminer:
+    build:
+      context: ./adminer
+      dockerfile: Dockerfile
+    container_name: ploydok-adminer
+    labels:
+      ploydok.kind: infra
+      ploydok.service: adminer
+    networks:
+      - ploydok
 
   buildkitd:
     image: moby/buildkit:v0.29.0-rootless

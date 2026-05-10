@@ -24,11 +24,11 @@ What it does:
 - Clones the repo into `/opt/ploydok-installer` (shallow).
 - Runs `installer/install.sh` which:
   - **Installs Docker** automatically via [`get.docker.com`](https://get.docker.com) if missing (skip with `--skip-docker-install`).
-  - Creates the `ploydok` system user and `/var/lib/ploydok/{data,builds,backups,certs,…}`.
+  - Creates the `ploydok` system user, keeps runtime descriptors in `/opt/ploydok`, and keeps mutable data under `/var/lib/ploydok/{data,builds,backups,certs,…}`.
   - Generates secrets (`master.key`, `.env` with `SESSION_SECRET`, Postgres/Redis passwords) and a local mTLS CA for the agent.
-  - Pulls + verifies (cosign) the `ploydok-api`, `ploydok-agent`, `ploydok-caddy` images.
-  - Renders systemd units (`ploydok.target`) and the `docker-compose.yml`.
-  - **Installs the agent and the platform** as Docker services supervised by systemd — the agent runs as a long-lived daemon container (`ploydok-agent`) bound to `unix:///tmp/ploydok/agent.sock`.
+  - Pulls + verifies (cosign) the `ploydok-api`, `ploydok-web`, `ploydok-agent`, `ploydok-adminer`, `ploydok-caddy` images.
+  - Renders systemd units (`ploydok.target`) and `/opt/ploydok/docker-compose.yml`.
+  - **Installs the agent and the platform** as Docker services supervised by systemd — the agent runs as a long-lived daemon container (`ploydok-agent`) on Docker-internal TCP with mTLS.
   - **Installs the `ploydok-cli`** (upgrade / uninstall) to `/usr/local/bin/ploydok-cli`.
   - Starts everything via `systemctl enable --now ploydok.target` and waits for `/health`.
 
@@ -36,9 +36,10 @@ Modes (`--mode=`):
 
 - `takeover` — Ploydok takes ports 80/443 (existing nginx/apache configs are backed up under `/var/backups/ploydok-install/` then disabled).
 - `coexist` — Ploydok binds to `127.0.0.1:8080`/`8443`; your existing edge proxy keeps TLS.
+- `bootstrap-http` — Ploydok exposes HTTP on `0.0.0.0:8080` for first setup from an IP-allowlisted VPS security group. Use `--public-host=<server-ip>` and move to a real HTTPS domain after bootstrap.
 - `abort` — preflight report only, exits with code 2.
 
-Other useful flags: `--unattended` (forces `coexist` + `--yes`, IaC-friendly), `--manage-firewall`, `--http-port=…`, `--https-port=…`, `--data-dir=…`, `--version=<tag>`, `--image-registry=<registry>`.
+Other useful flags: `--unattended` (forces `coexist` + `--yes`, IaC-friendly), `--manage-firewall`, `--public-host=…`, `--public-scheme=…`, `--public-port=…`, `--http-port=…`, `--https-port=…`, `--install-dir=…`, `--data-dir=…`, `--version=<tag>`, `--image-registry=<registry>`.
 
 Full docs: [`project-docs/operations/install/getting-started.md`](./project-docs/operations/install/getting-started.md).
 
@@ -54,7 +55,7 @@ What gets restarted, what doesn't:
 
 | Component | On `upgrade` | Notes |
 |---|---|---|
-| `ploydok-api`, `ploydok-agent` | restarted (~5–15 s) | new image pulled and rolled via `docker compose up -d --no-deps api agent` |
+| `ploydok-api`, `ploydok-web`, `ploydok-agent`, `ploydok-adminer` | restarted (~5–15 s) | new image pulled and rolled via `docker compose up -d --no-deps api web agent adminer` |
 | `ploydok-caddy` | **not restarted** by default | use `--include-data-plane` only for ingress/Caddy releases |
 | `postgres`, `redis` | **not** restarted unless their image tag changed | most patch releases never touch them |
 | **Your deployed apps** (containers spawned by the agent) | **not touched** | they keep serving traffic the entire time |
@@ -63,7 +64,7 @@ What gets restarted, what doesn't:
 Safety net (built into the CLI):
 
 - Snapshot of the Postgres control-plane DB taken before upgrade → `/var/lib/ploydok/backups/pre-upgrade-<version>.sql`.
-- `docker-compose.yml` backed up to `…/backups/docker-compose.pre-upgrade-<version>.yml`.
+- `/opt/ploydok/docker-compose.yml` backed up to `/var/lib/ploydok/backups/docker-compose.pre-upgrade-<version>.yml`.
 - Post-upgrade readiness check on `127.0.0.1:3335/health/ready` (60 s budget). If it fails the previous compose file is restored and services are brought back up.
 - Image signatures verified with `cosign verify` before pull.
 
@@ -95,7 +96,7 @@ bun --cwd packages/db run seed              # 1 dev user + 1 project
 bun dev                                     # web (3000) + api (3001) via turbo
 ```
 
-Open http://localhost:3000 and register with a passkey (WebAuthn).
+Open http://localhost:3000 and create the first admin account.
 
 ### Requirements
 
@@ -145,8 +146,8 @@ sudo ./target/release/ploydok-cli admin-recovery --db /var/lib/ploydok/ploydok.d
 
 ## Security
 
-- Passkey-only authentication (WebAuthn), no passwords.
-- JWT access 10 min + rotating refresh 7 d, cookies `HttpOnly; Secure; SameSite=Strict`.
+- Password-first bootstrap/login, with passkeys available after the instance has a trusted HTTPS origin.
+- JWT access 10 min + rotating refresh 7 d, cookies `HttpOnly; SameSite=Lax`; `Secure` follows the configured public origin.
 - Backup codes (bcrypt, one-shot) for recovery; `admin-recovery` CLI as last resort.
 - SPDX `AGPL-3.0-only` header enforced in CI.
 - Responsible disclosure: see [SECURITY.md](./SECURITY.md).

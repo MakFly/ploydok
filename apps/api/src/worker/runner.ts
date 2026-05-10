@@ -137,14 +137,20 @@ function defaultAgentSocket(): string {
 
 const DEFAULT_AGENT_SOCKET = defaultAgentSocket()
 
+function defaultAgentAddress(): string | null {
+  return process.env["PLOYDOK_AGENT_ADDR"] ?? null
+}
+
 // Si les 3 env mTLS sont fournies (cf. installer/install.sh::generate_agent_pki),
 // on monte un canal gRPC chiffré + authentifié par cert client. Sinon fallback
 // insecure — utilisé en dev (socket Unix local) ou quand l'agent tourne en
 // PLOYDOK_AGENT_INSECURE=1.
 function createAgentClient(
-  socketPath = DEFAULT_AGENT_SOCKET
+  socketPath: string | undefined = undefined
 ): InstanceType<typeof AgentClient> {
-  const address = `unix://${socketPath}`
+  const address = socketPath
+    ? `unix://${socketPath}`
+    : (defaultAgentAddress() ?? `unix://${DEFAULT_AGENT_SOCKET}`)
   const caPath = process.env["PLOYDOK_AGENT_CA"]
   const certPath = process.env["PLOYDOK_AGENT_CLIENT_CERT"]
   const keyPath = process.env["PLOYDOK_AGENT_CLIENT_KEY"]
@@ -734,8 +740,7 @@ export async function runBlueGreen(
   const containerEnv = { ...containerEnvWithPort(opts.env, runtimePort) }
 
   // -- Agent client ----------------------------------------------------------
-  const agentSocket = opts.agentSocketPath ?? DEFAULT_AGENT_SOCKET
-  const agent = createAgentClient(agentSocket)
+  const agent = createAgentClient(opts.agentSocketPath)
   const caddyClient = new CaddyClient(opts.caddyBaseUrl)
 
   let newContainerId: string
@@ -940,8 +945,7 @@ export async function stopApp(
   const app = appRows[0]
   if (!app) throw new Error(`App not found: ${appId}`)
 
-  const agentSocket = opts?.agentSocketPath ?? DEFAULT_AGENT_SOCKET
-  const agent = createAgentClient(agentSocket)
+  const agent = createAgentClient(opts?.agentSocketPath)
   const caddyClient = new CaddyClient(opts?.caddyBaseUrl)
 
   try {
@@ -1043,8 +1047,7 @@ export async function rollbackApp(
   const currentColor = await getCurrentColor(db, appId)
   const rollbackColor = oppositeColor(currentColor)
 
-  const agentSocket = opts?.agentSocketPath ?? DEFAULT_AGENT_SOCKET
-  const agent = createAgentClient(agentSocket)
+  const agent = createAgentClient(opts?.agentSocketPath)
 
   // Load app healthcheck port for Caddy upstream + owner_id for labels
   // + quotas + project_id (Phase 1.C).
@@ -1306,8 +1309,7 @@ async function runRestartHeavyWork(
     .limit(1)
   const app = appRows[0]
   if (!app) throw new Error(`App not found: ${appId}`)
-  const agentSocket = opts?.agentSocketPath ?? DEFAULT_AGENT_SOCKET
-  const stopAgent = createAgentClient(agentSocket)
+  const stopAgent = createAgentClient(opts?.agentSocketPath)
   const stopCaddy = new CaddyClient(opts?.caddyBaseUrl)
   try {
     await Promise.allSettled([

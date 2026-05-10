@@ -98,11 +98,29 @@ describe("CaddyClient", () => {
     )
   })
 
+  test("uses CADDY_ADMIN_URL as the default base URL", async () => {
+    const previous = process.env["CADDY_ADMIN_URL"]
+    process.env["CADDY_ADMIN_URL"] = baseUrl
+    handler = () => ({ status: 200, body: { apps: { http: { servers: {} } } } })
+
+    try {
+      const defaultClient = new CaddyClient()
+      const config = await defaultClient.getConfig()
+      expect(config).toEqual({ apps: { http: { servers: {} } } })
+    } finally {
+      if (previous === undefined) {
+        delete process.env["CADDY_ADMIN_URL"]
+      } else {
+        process.env["CADDY_ADMIN_URL"] = previous
+      }
+    }
+  })
+
   // -------------------------------------------------------------------------
-  // upsertRoute — POST path (new route)
+  // upsertRoute — app routes are prepended before the control-plane fallback
   // -------------------------------------------------------------------------
 
-  test("upsertRoute POSTs a new route when PATCH returns 404", async () => {
+  test("upsertRoute prepends a new route before existing routes", async () => {
     const calls: MockRequest[] = []
     const existingConfig: CaddyConfig = {
       apps: { http: { servers: { srv0: { listen: [":80"], routes: [] } } } },
@@ -110,10 +128,21 @@ describe("CaddyClient", () => {
 
     handler = (req) => {
       calls.push(req)
-      if (req.method === "GET") return { status: 200, body: existingConfig }
-      if (req.method === "PATCH")
-        return { status: 404, body: { error: "not found" } }
-      if (req.method === "POST") return { status: 200, body: null }
+      if (req.method === "GET" && req.path === "/config/")
+        return { status: 200, body: existingConfig }
+      if (
+        req.method === "GET" &&
+        req.path === "/config/apps/http/servers/srv0/routes"
+      )
+        return {
+          status: 200,
+          body: [{ "@id": "control-plane", terminal: true }],
+        }
+      if (
+        req.method === "PATCH" &&
+        req.path === "/config/apps/http/servers/srv0/routes"
+      )
+        return { status: 200, body: null }
       return { status: 405, body: null }
     }
 
@@ -123,22 +152,16 @@ describe("CaddyClient", () => {
       appId: "app1",
     })
 
-    // upsertRoute = ensureBootstrap GET + PATCH + POST
-    const patch = calls.find((c) => c.method === "PATCH")
-    const post = calls.find((c) => c.method === "POST")
-    expect(patch?.path).toBe("/id/ploydok-app1")
-    expect(post?.path).toBe("/config/apps/http/servers/srv0/routes")
+    const put = calls.find((c) => c.method === "PATCH")
+    expect(put?.path).toBe("/config/apps/http/servers/srv0/routes")
 
-    const posted = post?.body as Record<string, unknown>
-    expect(posted["@id"]).toBe("ploydok-app1")
-    expect(posted["terminal"]).toBe(true)
+    const routes = put?.body as Array<Record<string, unknown>>
+    expect(routes[0]?.["@id"]).toBe("ploydok-app1")
+    expect(routes[0]?.["terminal"]).toBe(true)
+    expect(routes[1]?.["@id"]).toBe("control-plane")
   })
 
-  // -------------------------------------------------------------------------
-  // upsertRoute — PATCH path (existing route)
-  // -------------------------------------------------------------------------
-
-  test("upsertRoute PATCHes existing route without POSTing", async () => {
+  test("upsertRoute replaces an existing route and keeps it first", async () => {
     const calls: MockRequest[] = []
     const existingConfig: CaddyConfig = {
       apps: { http: { servers: { srv0: { listen: [":80"], routes: [] } } } },
@@ -146,8 +169,24 @@ describe("CaddyClient", () => {
 
     handler = (req) => {
       calls.push(req)
-      if (req.method === "GET") return { status: 200, body: existingConfig }
-      if (req.method === "PATCH") return { status: 200, body: null }
+      if (req.method === "GET" && req.path === "/config/")
+        return { status: 200, body: existingConfig }
+      if (
+        req.method === "GET" &&
+        req.path === "/config/apps/http/servers/srv0/routes"
+      )
+        return {
+          status: 200,
+          body: [
+            { "@id": "control-plane", terminal: true },
+            { "@id": "ploydok-app2", terminal: true },
+          ],
+        }
+      if (
+        req.method === "PATCH" &&
+        req.path === "/config/apps/http/servers/srv0/routes"
+      )
+        return { status: 200, body: null }
       return { status: 405, body: null }
     }
 
@@ -157,10 +196,12 @@ describe("CaddyClient", () => {
       appId: "app2",
     })
 
-    const patch = calls.find((c) => c.method === "PATCH")
-    const post = calls.find((c) => c.method === "POST")
-    expect(patch?.path).toBe("/id/ploydok-app2")
-    expect(post).toBeUndefined()
+    const put = calls.find((c) => c.method === "PATCH")
+    const routes = put?.body as Array<Record<string, unknown>>
+    expect(routes.map((route) => route["@id"])).toEqual([
+      "ploydok-app2",
+      "control-plane",
+    ])
   })
 
   test("upsertStaticRoute writes a file_server route with SPA fallback", async () => {
@@ -171,10 +212,18 @@ describe("CaddyClient", () => {
 
     handler = (req) => {
       calls.push(req)
-      if (req.method === "GET") return { status: 200, body: existingConfig }
-      if (req.method === "PATCH")
-        return { status: 404, body: { error: "not found" } }
-      if (req.method === "POST") return { status: 200, body: null }
+      if (req.method === "GET" && req.path === "/config/")
+        return { status: 200, body: existingConfig }
+      if (
+        req.method === "GET" &&
+        req.path === "/config/apps/http/servers/srv0/routes"
+      )
+        return { status: 200, body: [] }
+      if (
+        req.method === "PATCH" &&
+        req.path === "/config/apps/http/servers/srv0/routes"
+      )
+        return { status: 200, body: null }
       return { status: 405, body: null }
     }
 
@@ -185,10 +234,11 @@ describe("CaddyClient", () => {
       spaFallback: true,
     })
 
-    const post = calls.find((c) => c.method === "POST")
-    const posted = post?.body as {
+    const put = calls.find((c) => c.method === "PATCH")
+    const routes = put?.body as Array<{
       handle?: Array<{ handler?: string; routes?: unknown[] }>
-    }
+    }>
+    const posted = routes[0]!
     expect(posted.handle?.[0]?.handler).toBe("subroute")
     expect(posted.handle?.[0]?.routes).toHaveLength(2)
   })
@@ -201,10 +251,18 @@ describe("CaddyClient", () => {
 
     handler = (req) => {
       calls.push(req)
-      if (req.method === "GET") return { status: 200, body: existingConfig }
-      if (req.method === "PATCH")
-        return { status: 404, body: { error: "not found" } }
-      if (req.method === "POST") return { status: 200, body: null }
+      if (req.method === "GET" && req.path === "/config/")
+        return { status: 200, body: existingConfig }
+      if (
+        req.method === "GET" &&
+        req.path === "/config/apps/http/servers/srv0/routes"
+      )
+        return { status: 200, body: [] }
+      if (
+        req.method === "PATCH" &&
+        req.path === "/config/apps/http/servers/srv0/routes"
+      )
+        return { status: 200, body: null }
       return { status: 405, body: null }
     }
 
@@ -215,10 +273,11 @@ describe("CaddyClient", () => {
       spaFallback: false,
     })
 
-    const post = calls.find((c) => c.method === "POST")
-    const posted = post?.body as {
+    const put = calls.find((c) => c.method === "PATCH")
+    const routes = put?.body as Array<{
       handle?: Array<{ handler?: string; root?: string }>
-    }
+    }>
+    const posted = routes[0]!
     expect(posted.handle).toEqual([
       {
         handler: "file_server",
@@ -235,10 +294,18 @@ describe("CaddyClient", () => {
 
     handler = (req) => {
       calls.push(req)
-      if (req.method === "GET") return { status: 200, body: existingConfig }
-      if (req.method === "PATCH")
-        return { status: 404, body: { error: "not found" } }
-      if (req.method === "POST") return { status: 200, body: null }
+      if (req.method === "GET" && req.path === "/config/")
+        return { status: 200, body: existingConfig }
+      if (
+        req.method === "GET" &&
+        req.path === "/config/apps/http/servers/srv0/routes"
+      )
+        return { status: 200, body: [] }
+      if (
+        req.method === "PATCH" &&
+        req.path === "/config/apps/http/servers/srv0/routes"
+      )
+        return { status: 200, body: null }
       return { status: 405, body: null }
     }
 
@@ -258,8 +325,8 @@ describe("CaddyClient", () => {
       },
     })
 
-    const post = calls.find((c) => c.method === "POST")
-    const posted = post?.body as {
+    const put = calls.find((c) => c.method === "PATCH")
+    const routes = put?.body as Array<{
       handle?: Array<{
         handler?: string
         routes?: Array<{
@@ -267,7 +334,8 @@ describe("CaddyClient", () => {
         }>
         response?: { set?: Record<string, string[]> }
       }>
-    }
+    }>
+    const posted = routes[0]!
     const handlers = posted.handle ?? []
 
     expect(handlers.map((handler) => handler.handler)).toEqual([
@@ -296,12 +364,18 @@ describe("CaddyClient", () => {
     })
   })
 
-  test("upsertRoute throws when PATCH returns unexpected error", async () => {
+  test("upsertRoute throws when route list update fails", async () => {
     const existingConfig: CaddyConfig = {
       apps: { http: { servers: { srv0: { listen: [":80"], routes: [] } } } },
     }
     handler = (req) => {
-      if (req.method === "GET") return { status: 200, body: existingConfig }
+      if (req.method === "GET" && req.path === "/config/")
+        return { status: 200, body: existingConfig }
+      if (
+        req.method === "GET" &&
+        req.path === "/config/apps/http/servers/srv0/routes"
+      )
+        return { status: 200, body: [] }
       return { status: 500, body: { error: "internal" } }
     }
 
@@ -311,7 +385,7 @@ describe("CaddyClient", () => {
         upstream: "localhost:3003",
         appId: "app3",
       })
-    ).rejects.toThrow("CaddyClient.upsertRoute PATCH failed: 500")
+    ).rejects.toThrow("CaddyClient.upsertRoute PATCH routes failed: 500")
   })
 
   // -------------------------------------------------------------------------

@@ -2,7 +2,7 @@
 /**
  * Docker Registry HTTP API v2 client.
  *
- * Targets the local registry:2 instance at `PLOYDOK_REGISTRY_URL`.
+ * Targets the local registry:2 instance at `PLOYDOK_REGISTRY_API_URL`.
  * Supports basic auth via `PLOYDOK_REGISTRY_USER` / `PLOYDOK_REGISTRY_PASS`.
  * Provides GC helpers: keep-last-N and disk-guard threshold check.
  */
@@ -17,7 +17,7 @@ function basicAuthHeader(user: string, pass: string): string {
 }
 
 function registryBase(): string {
-  const url = env.PLOYDOK_REGISTRY_URL;
+  const url = env.PLOYDOK_REGISTRY_API_URL;
   // Normalise: add http:// if no scheme present (default for local insecure registry).
   return url.startsWith("http") ? url : `http://${url}`;
 }

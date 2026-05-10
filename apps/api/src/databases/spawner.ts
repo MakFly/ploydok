@@ -44,6 +44,7 @@ interface SpawnOptions {
   plan: DbPlan
   exposureMode?: DbExposureMode
   publicEnabled?: boolean
+  creationIdempotencyKey?: string | null
 }
 
 interface SpawnResult {
@@ -525,6 +526,7 @@ export async function spawnDatabase(
     public_port: runtime.publicPort,
     public_host: runtime.publicHost,
     public_url: runtime.publicUrl,
+    creation_idempotency_key: opts.creationIdempotencyKey ?? null,
   })
 
   try {
@@ -642,6 +644,57 @@ export async function getConnectionString(row: DatabaseRow): Promise<string> {
     throw new Error("connection string not available")
   }
   return decryptSecret(row.connection_string_enc, row.connection_string_nonce)
+}
+
+function safeDecodeURIComponent(value: string): string {
+  try {
+    return decodeURIComponent(value)
+  } catch {
+    return value
+  }
+}
+
+export function extractPasswordFromConnectionString(connString: string): string {
+  const schemeEnd = connString.indexOf("://")
+  if (schemeEnd === -1) {
+    throw new Error("connection string scheme is missing")
+  }
+
+  const rest = connString.slice(schemeEnd + 3)
+  const authorityEndCandidates = ["/", "?", "#"]
+    .map((separator) => rest.indexOf(separator))
+    .filter((index) => index !== -1)
+  const authorityEnd =
+    authorityEndCandidates.length > 0
+      ? Math.min(...authorityEndCandidates)
+      : rest.length
+  const authority = rest.slice(0, authorityEnd)
+  const atIndex = authority.lastIndexOf("@")
+  if (atIndex === -1) {
+    throw new Error("connection string credentials are missing")
+  }
+
+  const userInfo = authority.slice(0, atIndex)
+  const passwordSeparator = userInfo.indexOf(":")
+  if (passwordSeparator === -1) {
+    throw new Error("connection string password is missing")
+  }
+
+  const encodedPassword = userInfo.slice(passwordSeparator + 1)
+  const password = safeDecodeURIComponent(encodedPassword)
+  if (!password) {
+    throw new Error("connection string password is empty")
+  }
+
+  return password
+}
+
+export async function getConnectionPassword(row: DatabaseRow): Promise<string> {
+  if (row.master_password_enc && row.master_password_nonce) {
+    return decryptSecret(row.master_password_enc, row.master_password_nonce)
+  }
+
+  return extractPasswordFromConnectionString(await getConnectionString(row))
 }
 
 export async function startDatabaseContainer(

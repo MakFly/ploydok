@@ -73,6 +73,16 @@ export const REFRESH_COOKIE = "ploydok_refresh";
 export const ACCESS_MAX_AGE = ACCESS_TTL;
 export const REFRESH_MAX_AGE = 7 * 24 * 60 * 60; // 7 days
 
+export function shouldUseSecureCookies(): boolean {
+  if (env.PLOYDOK_COOKIE_SECURE === "true") return true;
+  if (env.PLOYDOK_COOKIE_SECURE === "false") return false;
+  try {
+    return new URL(env.WEB_ORIGIN).protocol === "https:";
+  } catch {
+    return env.NODE_ENV === "prod";
+  }
+}
+
 export function buildCookieStr(
   name: string,
   value: string,

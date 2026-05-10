@@ -47,6 +47,7 @@ function notificationIcon(type: NotificationType): React.JSX.Element {
   }
   if (
     type === "build.failed" ||
+    type === "build.cancelled" ||
     type === "provider.sync.failed" ||
     type === "app.delete.failed" ||
     type === "app.stop.failed"

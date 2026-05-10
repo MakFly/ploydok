@@ -1,7 +1,6 @@
 // SPDX-License-Identifier: AGPL-3.0-only
 import * as React from "react"
 import { createFileRoute, useRouter } from "@tanstack/react-router"
-import { startRegistration } from "@simplewebauthn/browser"
 import { QRCodeSVG } from "qrcode.react"
 import { Button } from "@workspace/ui/components/button"
 import { Input } from "@workspace/ui/components/input"
@@ -16,13 +15,14 @@ interface SetupSearch {
   token?: string
 }
 
-interface SetupOptionsResponse {
-  options: Parameters<typeof startRegistration>[0]["optionsJSON"]
-  userId: string
+interface InstanceStateResponse {
+  bootstrapped: boolean
+  setup_token_required: boolean
 }
 
-interface SetupVerifyResponse {
+interface SetupPasswordResponse {
   user: { id: string; email: string; display_name: string }
+  accessExpiresAt?: number
   backup_codes: Array<string>
 }
 
@@ -35,17 +35,9 @@ export const Route = createFileRoute("/_public/setup")({
   validateSearch: (search): SetupSearch => ({
     token: typeof search.token === "string" ? search.token : undefined,
   }),
-  loaderDeps: ({ search }) => ({ token: search.token }),
-  loader: async ({ deps }) => {
-    if (deps.token) return { devToken: null as string | null }
-    try {
-      const { token: devToken } = await apiFetch<{ token: string }>(
-        "/auth/setup/dev-token"
-      )
-      return { devToken }
-    } catch {
-      return { devToken: null as string | null }
-    }
+  loader: async () => {
+    const state = await apiFetch<InstanceStateResponse>("/auth/instance-state")
+    return { setupTokenRequired: state.setup_token_required }
   },
   component: SetupPage,
 })
@@ -53,13 +45,13 @@ export const Route = createFileRoute("/_public/setup")({
 function SetupPage(): React.JSX.Element {
   const router = useRouter()
   const { token } = Route.useSearch()
-  const { devToken } = Route.useLoaderData()
-  const effectiveToken = token ?? devToken ?? undefined
+  const { setupTokenRequired } = Route.useLoaderData()
 
   const [step, setStep] = React.useState<"form" | "totp" | "codes">("form")
   const [email, setEmail] = React.useState("")
   const [displayName, setDisplayName] = React.useState("")
-  const [deviceName, setDeviceName] = React.useState("")
+  const [password, setPassword] = React.useState("")
+  const [passwordConfirm, setPasswordConfirm] = React.useState("")
   const [loading, setLoading] = React.useState(false)
   const [error, setError] = React.useState<string | null>(null)
   const [backupCodes, setBackupCodes] = React.useState<Array<string>>([])
@@ -77,42 +69,32 @@ function SetupPage(): React.JSX.Element {
 
   const handleSubmit = async (e: React.FormEvent): Promise<void> => {
     e.preventDefault()
-    if (!effectiveToken) {
+    if (setupTokenRequired && !token) {
       setError(
         "Setup token missing. Open the URL printed in the API logs at first boot."
       )
       return
     }
+    if (password !== passwordConfirm) {
+      setError("Passwords do not match")
+      return
+    }
     setLoading(true)
     setError(null)
     try {
-      const { options, userId } = await apiFetch<SetupOptionsResponse>(
-        "/auth/setup/options",
+      const created = await apiFetch<SetupPasswordResponse>(
+        "/auth/setup/password",
         {
           method: "POST",
           body: {
-            token: effectiveToken,
+            token,
             email: email.trim(),
             display_name: displayName.trim(),
+            password,
           },
         }
       )
-
-      const credential = await startRegistration({ optionsJSON: options })
-
-      const verified = await apiFetch<SetupVerifyResponse>(
-        "/auth/setup/verify",
-        {
-          method: "POST",
-          body: {
-            userId,
-            credential,
-            device_name: deviceName.trim() || undefined,
-          },
-        }
-      )
-
-      setBackupCodes(verified.backup_codes)
+      setBackupCodes(created.backup_codes)
       setStep("totp")
       toast.success("Admin account created")
     } catch (err) {
@@ -199,17 +181,19 @@ function SetupPage(): React.JSX.Element {
     }
   }
 
-  if (!effectiveToken && step === "form") {
+  if (setupTokenRequired && !token && step === "form") {
     return (
       <Shell title="Setup token required">
         <Alert variant="destructive">
-          <AlertDescription>
-            This page expects a one-shot setup token in the URL. Look for the
-            <code className="mx-1 rounded bg-muted px-1 py-0.5 text-xs">
+          <AlertDescription className="space-y-3">
+            <p>
+              This setup page must be opened with the one-shot token generated
+              on first boot.
+            </p>
+            <div className="rounded-md border border-border bg-muted px-3 py-2 font-mono text-xs text-foreground">
               Open: …/setup?token=…
-            </code>
-            banner in the API logs of the freshly-started instance, then open
-            that URL.
+            </div>
+            <p>Copy that URL from the API logs, then open it in this browser.</p>
           </AlertDescription>
         </Alert>
       </Shell>
@@ -374,12 +358,31 @@ function SetupPage(): React.JSX.Element {
           />
         </div>
         <div className="space-y-1">
-          <Label htmlFor="device_name">Device name (optional)</Label>
+          <Label htmlFor="password">Password</Label>
           <Input
-            id="device_name"
-            value={deviceName}
-            onChange={(e) => setDeviceName(e.target.value)}
-            placeholder="MacBook personnel"
+            id="password"
+            type="password"
+            value={password}
+            onChange={(e) => setPassword(e.target.value)}
+            required
+            autoComplete="new-password"
+            minLength={12}
+            maxLength={72}
+            placeholder="At least 12 characters"
+          />
+        </div>
+        <div className="space-y-1">
+          <Label htmlFor="password_confirm">Confirm password</Label>
+          <Input
+            id="password_confirm"
+            type="password"
+            value={passwordConfirm}
+            onChange={(e) => setPasswordConfirm(e.target.value)}
+            required
+            autoComplete="new-password"
+            minLength={12}
+            maxLength={72}
+            placeholder="Repeat password"
           />
         </div>
         {error && (
@@ -388,7 +391,7 @@ function SetupPage(): React.JSX.Element {
           </Alert>
         )}
         <Button type="submit" disabled={loading} className="w-full">
-          {loading ? "Creating passkey…" : "Create admin and passkey"}
+          {loading ? "Creating admin…" : "Create admin account"}
         </Button>
       </form>
     </Shell>

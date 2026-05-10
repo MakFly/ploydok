@@ -1,17 +1,38 @@
 {
 	admin 0.0.0.0:2019
-	auto_https off
 }
 
-# Route control-plane : sert l'API sur localhost (et le hostname public quand il
-# pointe sur ce serveur). On NE FAIT PAS de catch-all sans matcher car les
-# routes app utilisateur sont append via l'Admin API et un catch-all en tête
-# bloquerait tout. Avec un matcher host explicite, l'évaluation Caddy passe à
-# la route suivante quand le host ne matche pas — les routes app gardent la
-# main sur leur domaine.
-:80 {
-	@control_plane host localhost ploydok.local
-	handle @control_plane {
+# Route control-plane : sert le frontend web sur localhost (et le hostname
+# public quand il pointe sur ce serveur). Les routes app utilisateur sont
+# insérées avant ce fallback via l'Admin API Caddy.
+(control_plane) {
+	handle_path /api/* {
+		reverse_proxy api:3335 {
+			header_up X-Forwarded-Prefix /api
+		}
+	}
+	handle /auth/* {
 		reverse_proxy api:3335
+	}
+	handle /github/* {
+		reverse_proxy api:3335
+	}
+	handle /gitlab/* {
+		reverse_proxy api:3335
+	}
+	handle /stripe {
+		reverse_proxy api:3335
+	}
+	handle {
+		reverse_proxy web:3000
+	}
+}
+
+${PLOYDOK_CONTROL_PLANE_SITE}
+
+:80 {
+	@control_plane host ${PLOYDOK_CONTROL_PLANE_HOSTS}
+	route @control_plane {
+		import control_plane
 	}
 }

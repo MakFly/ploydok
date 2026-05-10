@@ -16,7 +16,9 @@ import {
 import type { Db } from "@ploydok/db"
 import { makeTestDb as makePgTestDb, TEST_PG_URL } from "../test/db-helpers"
 import {
+  buildDefaultAppDomain,
   createAppsRouter,
+  deriveDefaultAppDomainBase,
   deriveCurrentBuildMetadata,
   enqueueAppDeleteJob,
 } from "./apps"
@@ -63,6 +65,44 @@ describe("deriveCurrentBuildMetadata", () => {
     ])
 
     expect(metadata.currentCommitSha).toBe("warn123")
+  })
+})
+
+describe("default app domains", () => {
+  it("uses explicit domain base when configured", () => {
+    expect(
+      deriveDefaultAppDomainBase({
+        explicitBase: "apps.example.com",
+        publicHost: "212.47.249.36",
+      })
+    ).toBe("apps.example.com")
+  })
+
+  it("uses sslip.io when the public host is an IPv4 address", () => {
+    expect(
+      deriveDefaultAppDomainBase({
+        publicHost: "212.47.249.36",
+      })
+    ).toBe("212-47-249-36.sslip.io")
+  })
+
+  it("keeps the dev fallback for localhost and .local hosts", () => {
+    expect(deriveDefaultAppDomainBase({ publicHost: "localhost" })).toBe(
+      "demo.ploydok.local"
+    )
+    expect(deriveDefaultAppDomainBase({ publicHost: "ploydok.local" })).toBe(
+      "demo.ploydok.local"
+    )
+  })
+
+  it("builds a random app hostname from slug and app id", () => {
+    expect(
+      buildDefaultAppDomain({
+        slug: "fixture-hello",
+        appId: "FvwQcCeCtPThAUKHOXq1Z",
+        publicHost: "212.47.249.36",
+      })
+    ).toBe("fixture-hello-fvwqccec.212-47-249-36.sslip.io")
   })
 })
 
@@ -418,9 +458,46 @@ describe.skipIf(skip)("POST /apps", () => {
     expect(body.app.name).toBe("My App")
     expect(body.app.slug).toBe("my-app")
     expect(body.app.status).toBe("pending")
-    expect(body.app.domain).toBe("my-app.demo.ploydok.local")
+    expect(body.app.domain).toMatch(
+      /^my-app-[a-z0-9-]{8}\.demo\.ploydok\.local$/
+    )
     expect(body.app.restartPolicy).toBe("unless-stopped")
     expect(body.app.id).toBeString()
+  })
+
+  it("replays POST /apps by idempotency key without creating duplicates", async () => {
+    const app = buildTestApp(db, fakeUser(userId, `u@t.com`))
+    const payload = {
+      name: "Replay App",
+      projectId,
+      gitProvider: "github",
+      repoFullName: "owner/replay",
+      branch: "main",
+      idempotencyKey: "create-test-key:app",
+    }
+
+    const first = await app.request("/apps", {
+      method: "POST",
+      headers: { "content-type": "application/json" },
+      body: JSON.stringify(payload),
+    })
+    const second = await app.request("/apps", {
+      method: "POST",
+      headers: { "content-type": "application/json" },
+      body: JSON.stringify(payload),
+    })
+
+    expect(first.status).toBe(201)
+    expect(second.status).toBe(200)
+    const firstBody = (await first.json()) as { app: { id: string } }
+    const secondBody = (await second.json()) as { app: { id: string } }
+    expect(secondBody.app.id).toBe(firstBody.app.id)
+
+    const rows = await db
+      .select({ id: apps.id })
+      .from(apps)
+      .where(eq(apps.creation_idempotency_key, payload.idempotencyKey))
+    expect(rows).toHaveLength(1)
   })
 
   it("creates an app with an explicit restart policy", async () => {

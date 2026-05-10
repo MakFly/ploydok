@@ -32,4 +32,6 @@ COPY --from=builder /workspace/agent/target/release/ploydok-agent /usr/local/bin
 ENV PLOYDOK_AGENT_SOCKET=/run/ploydok/agent.sock \
     RUST_LOG=info
 
+EXPOSE 50051
+
 ENTRYPOINT ["/usr/bin/tini", "--", "/usr/local/bin/ploydok-agent"]

@@ -5,6 +5,7 @@ const BUILD_NOTIFICATION_TYPES = new Set<NotificationEvent["type"]>([
   "build.started",
   "build.succeeded",
   "build.failed",
+  "build.cancelled",
   "deploy.status_change",
 ])
 

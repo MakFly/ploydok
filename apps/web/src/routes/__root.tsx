@@ -22,6 +22,7 @@ import {
   invalidateGetCache,
   setAuthCallbacks,
 } from "../lib/api"
+import { apiBaseUrl } from "../lib/api/base"
 import { broadcastAuthEvent, subscribeAuthEvents } from "../lib/api/broadcast"
 import { startProactiveRefresh } from "../lib/api/scheduler"
 import type { ErrorComponentProps } from "@tanstack/react-router"
@@ -88,7 +89,8 @@ function BrandingInjector(): React.JSX.Element {
   React.useEffect(() => {
     const loadBranding = async () => {
       try {
-        const res = await fetch("/api/me")
+        const apiBase = apiBaseUrl()
+        const res = await fetch(`${apiBase}/me`, { credentials: "include" })
         if (!res.ok) return
 
         const user = (await res.json()) as {
@@ -97,7 +99,8 @@ function BrandingInjector(): React.JSX.Element {
         if (!user.current_organization_slug) return
 
         const brandingRes = await fetch(
-          `/api/orgs/${user.current_organization_slug}/branding`
+          `${apiBase}/orgs/${user.current_organization_slug}/branding`,
+          { credentials: "include" }
         )
         if (!brandingRes.ok) return
 

@@ -4,6 +4,11 @@ import { AgentClient } from "@ploydok/agent-proto"
 
 export interface AgentClientOptions {
   /**
+   * Adresse TCP de l'agent (ex: `agent:50051` en prod Docker mTLS).
+   * Si fournie, elle prend le pas sur le socket Unix.
+   */
+  address?: string
+  /**
    * Chemin vers le socket Unix de l'agent Rust.
    * Par défaut : process.env.PLOYDOK_AGENT_SOCKET, sinon
    *   - `/tmp/ploydok/agent.sock` hors prod (exposé par le container `ploydok-agent` via infra/docker-compose.yml)
@@ -12,8 +17,7 @@ export interface AgentClientOptions {
   socketPath?: string
   /**
    * Credentials gRPC.
-   * Par défaut : insecure.
-   * TODO(2.3): injecter ici les credentials mTLS via grpc.credentials.createSsl(...)
+   * Par défaut : insecure, sauf si l'appelant injecte les credentials mTLS.
    */
   credentials?: grpc.ChannelCredentials
 }
@@ -26,17 +30,22 @@ function defaultSocketPath(): string {
     : "/tmp/ploydok/agent.sock"
 }
 
+function defaultAddress(): string | null {
+  return process.env["PLOYDOK_AGENT_ADDR"] ?? null
+}
+
 /**
  * Crée un AgentClient gRPC connecté au socket Unix de l'agent.
  *
- * Hook mTLS (tâche 2.3) :
+ * Hook mTLS :
  *   const creds = grpc.credentials.createSsl(rootCert, clientKey, clientCert);
  *   createAgentClient({ credentials: creds });
  */
 export function createAgentClient(opts: AgentClientOptions = {}): AgentClient {
-  const socketPath = opts.socketPath ?? defaultSocketPath()
-
-  const address = `unix://${socketPath}`
+  const address =
+    opts.address ??
+    defaultAddress() ??
+    `unix://${opts.socketPath ?? defaultSocketPath()}`
 
   const credentials = opts.credentials ?? grpc.credentials.createInsecure()
 

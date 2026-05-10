@@ -29,12 +29,14 @@ import type {
   AppStatusEventPayload,
   AppsResponse,
   BuildWithApp,
+  BuildStatusEventPayload,
   BuildsResponse,
   RawAppDetail,
   RegistryUsage,
   UseAppOptions,
   UseBuildsOptions,
 } from "./types"
+import type { BuildStatus } from "@ploydok/shared"
 
 export function useApps(organizationId?: string) {
   const qc = useQueryClient()
@@ -267,13 +269,7 @@ export function useApp(appId: string, opts?: UseAppOptions) {
 export function useBuilds(appId: string, opts?: UseBuildsOptions) {
   const qc = useQueryClient()
 
-  // When a build-related event arrives, fetch the fresh list and push it
-  // straight into the cache with setQueryData. qc.refetchQueries /
-  // invalidateQueries proved unreliable here — both no-op when RQ considers
-  // the query "fresh" and when multiple refetches are batched within a few
-  // ms (replay). A direct fetch+setQueryData is deterministic.
-  const syncFromServer = async (payload?: AppStatusEventPayload) => {
-    if (payload?.appId !== appId) return
+  const syncFromServer = React.useCallback(async () => {
     try {
       // Bust apiFetch's module-level GET cache before fetching — without this
       // we'd get the first response's cached Promise for the whole session.
@@ -282,19 +278,47 @@ export function useBuilds(appId: string, opts?: UseBuildsOptions) {
       const data = await apiFetch<BuildsResponse>(`/apps/${appId}/builds`)
       qc.setQueryData(["apps", appId, "builds"], data.builds)
     } catch {
-      // A transient network error is fine — the next event will retry.
+      // A transient network error is fine — the next event/poll will retry.
     }
-  }
+  }, [appId, qc])
 
-  useEventsSubscription<AppStatusEventPayload>("build.started", syncFromServer)
-  useEventsSubscription<AppStatusEventPayload>(
-    "build.succeeded",
-    syncFromServer
+  // When a build-related event arrives, fetch the fresh list and push it
+  // straight into the cache with setQueryData. qc.refetchQueries /
+  // invalidateQueries proved unreliable here — both no-op when RQ considers
+  // the query "fresh" and when multiple refetches are batched within a few
+  // ms (replay). We first patch the cache from the event payload for immediate
+  // UI feedback, then fetch the canonical server row.
+  const handleBuildEvent = React.useCallback(
+    (type: BuildSseEventType) => (payload?: BuildStatusEventPayload) => {
+      if (payload?.appId !== appId) return
+      qc.setQueryData<Array<Build> | undefined>(
+        ["apps", appId, "builds"],
+        (current) => patchBuildsWithSseEvent(current, type, payload)
+      )
+      void syncFromServer()
+    },
+    [appId, qc, syncFromServer]
   )
-  useEventsSubscription<AppStatusEventPayload>("build.failed", syncFromServer)
-  useEventsSubscription<AppStatusEventPayload>(
+
+  useEventsSubscription<BuildStatusEventPayload>(
+    "build.started",
+    handleBuildEvent("build.started")
+  )
+  useEventsSubscription<BuildStatusEventPayload>(
+    "build.succeeded",
+    handleBuildEvent("build.succeeded")
+  )
+  useEventsSubscription<BuildStatusEventPayload>(
+    "build.failed",
+    handleBuildEvent("build.failed")
+  )
+  useEventsSubscription<BuildStatusEventPayload>(
+    "build.cancelled",
+    handleBuildEvent("build.cancelled")
+  )
+  useEventsSubscription<BuildStatusEventPayload>(
     "deploy.status_change",
-    syncFromServer
+    handleBuildEvent("deploy.status_change")
   )
 
   return useQuery<Array<Build>, ApiError>({
@@ -305,10 +329,93 @@ export function useBuilds(appId: string, opts?: UseBuildsOptions) {
     },
     staleTime: 10_000,
     enabled: Boolean(appId),
+    refetchInterval: (query) =>
+      hasActiveBuilds(query.state.data as Array<Build> | undefined)
+        ? 3_000
+        : false,
     ...(opts?.initialData !== undefined
       ? { initialData: opts.initialData }
       : {}),
   })
+}
+
+export type BuildSseEventType =
+  | "build.started"
+  | "build.succeeded"
+  | "build.failed"
+  | "build.cancelled"
+  | "deploy.status_change"
+
+const TERMINAL_BUILD_STATUSES: ReadonlySet<BuildStatus> = new Set([
+  "succeeded",
+  "succeeded_with_warning",
+  "failed",
+  "cancelled",
+])
+
+function statusForBuildEvent(
+  type: BuildSseEventType,
+  payload: BuildStatusEventPayload
+): BuildStatus | null {
+  if (type === "build.started") return "running"
+  if (type === "build.succeeded") return "succeeded"
+  if (type === "build.failed") return "failed"
+  if (type === "build.cancelled") return "cancelled"
+  const status = payload.data?.status
+  return status === "building" ? "running" : null
+}
+
+export function hasActiveBuilds(builds?: Array<Build>): boolean {
+  return Boolean(
+    builds?.some(
+      (build) => build.status === "pending" || build.status === "running"
+    )
+  )
+}
+
+export function patchBuildsWithSseEvent(
+  current: Array<Build> | undefined,
+  type: BuildSseEventType,
+  payload: BuildStatusEventPayload,
+  now = Date.now()
+): Array<Build> | undefined {
+  if (!payload.buildId || !payload.appId) return current
+
+  const nextStatus = statusForBuildEvent(type, payload)
+  const source = current ?? []
+  const existingIndex = source.findIndex((build) => build.id === payload.buildId)
+  const eventTime = typeof payload.t === "number" ? payload.t : now
+
+  const patch = (build: Build): Build => {
+    const next: Build = { ...build }
+    if (nextStatus) next.status = nextStatus
+    if (payload.data?.imageTag) next.imageTag = payload.data.imageTag
+    if (payload.data?.containerId) next.containerId = payload.data.containerId
+    if (type === "build.started" && !next.startedAt) next.startedAt = eventTime
+    if (nextStatus && TERMINAL_BUILD_STATUSES.has(nextStatus)) {
+      if (!next.finishedAt) next.finishedAt = eventTime
+      if (payload.message && type === "build.failed") {
+        next.errorMessage = payload.data?.errorMessage ?? payload.message
+      }
+    }
+    return next
+  }
+
+  if (existingIndex === -1) {
+    if (type !== "build.started") return current
+    const synthetic: Build = {
+      id: payload.buildId,
+      appId: payload.appId,
+      status: "running",
+      startedAt: eventTime,
+      createdAt: eventTime,
+    }
+    return [synthetic, ...source]
+  }
+
+  const next = [...source]
+  next[existingIndex] = patch(next[existingIndex]!)
+  return next
 }
 
 export function useRegistryUsage(appId: string) {

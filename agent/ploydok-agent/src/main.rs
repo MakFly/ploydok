@@ -2,12 +2,15 @@
 //
 // ploydok-agent — entry point.
 //
-// Bootstraps tracing (JSON), connects to Docker, binds a Unix socket, and
-// serves the gRPC AgentService with mTLS.
+// Bootstraps tracing (JSON), connects to Docker, binds a Unix socket or TCP
+// listener, and serves the gRPC AgentService with mTLS.
 //
 // Configuration (env vars):
 //   PLOYDOK_AGENT_SOCKET      Path to the Unix socket
 //                             (default: /run/ploydok/agent.sock)
+//   PLOYDOK_AGENT_ADDR        TCP listen address for Docker-internal mTLS
+//                             (example: 0.0.0.0:50051). If set, takes
+//                             precedence over PLOYDOK_AGENT_SOCKET.
 //   PLOYDOK_AGENT_PKI_DIR     PKI directory for mTLS certs
 //                             (default: /var/lib/ploydok/pki)
 //   PLOYDOK_AGENT_INSECURE    Set to "1" to disable mTLS (dev/CI only — DANGER)
@@ -15,11 +18,11 @@
 //   DOCKER_HOST               Override Docker daemon endpoint
 
 use std::os::unix::fs::PermissionsExt;
-use std::path::{Path, PathBuf};
+use std::path::PathBuf;
 use std::sync::Arc;
 
-use tokio::net::UnixListener;
-use tokio_stream::wrappers::UnixListenerStream;
+use tokio::net::{TcpListener, UnixListener};
+use tokio_stream::wrappers::{TcpListenerStream, UnixListenerStream};
 use tonic::transport::Server;
 use tracing::{info, warn};
 
@@ -38,7 +41,7 @@ use audit_signer::AuditSigner;
 use boot_guard::assert_insecure_safe_from_process_env;
 use service::AgentService;
 use socket_config::{validate_socket_path, ALLOWED_SOCKET_DIRS};
-use validator::StrictValidator;
+use validator::{StrictValidator, Validator};
 
 const DEFAULT_SOCKET: &str = "/run/ploydok/agent.sock";
 const DEFAULT_PKI_DIR: &str = "/var/lib/ploydok/pki";
@@ -54,27 +57,17 @@ async fn main() -> anyhow::Result<()> {
         )
         .init();
 
-    // ── Socket path ──────────────────────────────────────────────────────────
-    let socket_path =
-        std::env::var("PLOYDOK_AGENT_SOCKET").unwrap_or_else(|_| DEFAULT_SOCKET.to_string());
-    let socket_path = Path::new(&socket_path);
-
-    validate_socket_path(socket_path, ALLOWED_SOCKET_DIRS)?;
-    let parent = socket_path
-        .parent()
-        .expect("validate_socket_path guarantees a parent");
-
-    // Create parent directory if it doesn't exist.
-    if !parent.exists() {
-        std::fs::create_dir_all(parent)?;
-        info!(path = %parent.display(), "created socket parent directory");
-    }
-
-    // Remove stale socket file if present (from a previous run).
-    if socket_path.exists() {
-        std::fs::remove_file(socket_path)?;
-        info!(path = %socket_path.display(), "removed stale socket file");
-    }
+    // ── Listen target ────────────────────────────────────────────────────────
+    let agent_addr = std::env::var("PLOYDOK_AGENT_ADDR").ok();
+    let socket_path = if agent_addr.is_some() {
+        None
+    } else {
+        let socket_path =
+            std::env::var("PLOYDOK_AGENT_SOCKET").unwrap_or_else(|_| DEFAULT_SOCKET.to_string());
+        let socket_path = PathBuf::from(socket_path);
+        validate_socket_path(&socket_path, ALLOWED_SOCKET_DIRS)?;
+        Some(socket_path)
+    };
 
     // ── Docker client ────────────────────────────────────────────────────────
     let docker = bollard::Docker::connect_with_socket_defaults()?;
@@ -87,7 +80,7 @@ async fn main() -> anyhow::Result<()> {
         config = ?validator.config(),
         "StrictValidator actif"
     );
-    let validator = Arc::new(validator);
+    let validator: Arc<dyn Validator> = Arc::new(validator);
 
     // ── Audit signer ─────────────────────────────────────────────────────────
     let audit_key_dir: PathBuf = std::env::var("PLOYDOK_AUDIT_KEY_DIR")
@@ -107,38 +100,6 @@ async fn main() -> anyhow::Result<()> {
     let audit_signer = AuditSigner::bootstrap(&audit_key_dir)?;
     info!(key_dir = %audit_key_dir.display(), "audit signer bootstrapped");
 
-    // ── gRPC service ─────────────────────────────────────────────────────────
-    let agent_service = AgentService::new(docker, validator, audit_signer);
-    let svc = AgentServer::new(agent_service);
-
-    // ── Unix socket listener ─────────────────────────────────────────────────
-    // Allow non-root host clients (e.g. the API running as the dev user) to
-    // connect when the agent runs as root inside its container. We narrow the
-    // umask so the socket is born with mode 0o666 — eliminates the race
-    // window where the socket exists with the default mode between bind() and
-    // a post-bind chmod. mTLS gates real auth in production
-    // (PLOYDOK_AGENT_INSECURE=0); these FS perms only matter in dev/insecure.
-    //
-    // SAFETY: umask() is process-global and not thread-safe. We call it during
-    // single-threaded boot before any file-creating task is spawned.
-    let prev_umask = unsafe { libc::umask(0o111) };
-    let listener = UnixListener::bind(socket_path)?;
-    // Restore the previous umask immediately so subsequent file creations
-    // (PKI bootstrap, cargo target writes, etc.) are not affected.
-    unsafe {
-        libc::umask(prev_umask);
-    }
-    // Defense-in-depth: explicitly enforce mode 0o666 in case the umask was
-    // ignored by an exotic FS. We log on failure rather than aborting — the
-    // listener is bound, terminating now would leave a stale socket file.
-    if let Err(err) = std::fs::set_permissions(socket_path, std::fs::Permissions::from_mode(0o666))
-    {
-        warn!(?err, socket = %socket_path.display(),
-            "failed to chmod 0o666 on socket; non-root host clients may fail to connect");
-    }
-    let stream = UnixListenerStream::new(listener);
-    info!(socket = %socket_path.display(), "ploydok-agent listening");
-
     // ── mTLS ou mode insecure ─────────────────────────────────────────────────
     let insecure = std::env::var("PLOYDOK_AGENT_INSECURE")
         .map(|v| v == "1")
@@ -149,31 +110,98 @@ async fn main() -> anyhow::Result<()> {
     // accident of pushing `PLOYDOK_AGENT_INSECURE=1` to a prod compose file.
     assert_insecure_safe_from_process_env(insecure)?;
 
-    if insecure {
+    let make_svc = || {
+        AgentServer::new(AgentService::new(
+            docker.clone(),
+            Arc::clone(&validator),
+            Arc::clone(&audit_signer),
+        ))
+    };
+
+    let tls = if insecure {
         warn!("⚠️  mTLS DÉSACTIVÉ (PLOYDOK_AGENT_INSECURE=1) — NE JAMAIS UTILISER EN PRODUCTION");
-        Server::builder()
-            .add_service(svc)
-            .serve_with_incoming(stream)
-            .await?;
+        None
     } else {
-        // ── PKI bootstrap ─────────────────────────────────────────────────────
         let pki_dir =
             std::env::var("PLOYDOK_AGENT_PKI_DIR").unwrap_or_else(|_| DEFAULT_PKI_DIR.to_string());
-
         let pki = pki::ensure_pki(&pki_dir)?;
+        Some(
+            tonic::transport::ServerTlsConfig::new()
+                .identity(tonic::transport::Identity::from_pem(
+                    &pki.server_cert_pem,
+                    &pki.server_key_pem,
+                ))
+                .client_ca_root(tonic::transport::Certificate::from_pem(&pki.ca_cert_pem)),
+        )
+    };
 
-        let tls = tonic::transport::ServerTlsConfig::new()
-            .identity(tonic::transport::Identity::from_pem(
-                &pki.server_cert_pem,
-                &pki.server_key_pem,
-            ))
-            .client_ca_root(tonic::transport::Certificate::from_pem(&pki.ca_cert_pem));
+    if let Some(addr) = agent_addr {
+        let listener = TcpListener::bind(&addr).await?;
+        let stream = TcpListenerStream::new(listener);
+        info!(addr = %addr, "ploydok-agent listening");
 
-        Server::builder()
-            .tls_config(tls)?
-            .add_service(svc)
-            .serve_with_incoming(stream)
-            .await?;
+        let mut builder = Server::builder();
+        if let Some(tls) = tls {
+            builder
+                .tls_config(tls)?
+                .add_service(make_svc())
+                .serve_with_incoming(stream)
+                .await?;
+        } else {
+            builder
+                .add_service(make_svc())
+                .serve_with_incoming(stream)
+                .await?;
+        }
+    } else if let Some(socket_path) = socket_path {
+        let parent = socket_path
+            .parent()
+            .expect("validate_socket_path guarantees a parent");
+
+        if !parent.exists() {
+            std::fs::create_dir_all(parent)?;
+            info!(path = %parent.display(), "created socket parent directory");
+        }
+
+        if socket_path.exists() {
+            std::fs::remove_file(&socket_path)?;
+            info!(path = %socket_path.display(), "removed stale socket file");
+        }
+
+        // Allow non-root host clients (e.g. the API running as the dev user) to
+        // connect when the agent runs as root inside its container. We narrow
+        // the umask so the socket is born with mode 0o666 — eliminating the
+        // race window before a post-bind chmod.
+        //
+        // SAFETY: umask() is process-global and not thread-safe. We call it
+        // during single-threaded boot before any file-creating task is spawned.
+        let prev_umask = unsafe { libc::umask(0o111) };
+        let listener = UnixListener::bind(&socket_path)?;
+        unsafe {
+            libc::umask(prev_umask);
+        }
+        if let Err(err) =
+            std::fs::set_permissions(&socket_path, std::fs::Permissions::from_mode(0o666))
+        {
+            warn!(?err, socket = %socket_path.display(),
+                "failed to chmod 0o666 on socket; non-root host clients may fail to connect");
+        }
+        let stream = UnixListenerStream::new(listener);
+        info!(socket = %socket_path.display(), "ploydok-agent listening");
+
+        let mut builder = Server::builder();
+        if let Some(tls) = tls {
+            builder
+                .tls_config(tls)?
+                .add_service(make_svc())
+                .serve_with_incoming(stream)
+                .await?;
+        } else {
+            builder
+                .add_service(make_svc())
+                .serve_with_incoming(stream)
+                .await?;
+        }
     }
 
     Ok(())

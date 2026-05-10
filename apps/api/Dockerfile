@@ -21,12 +21,16 @@ COPY packages ./packages
 
 RUN bun install --frozen-lockfile
 
+FROM moby/buildkit:v0.29.0-rootless AS buildkit
+FROM docker:28-cli AS docker-cli
+
 FROM oven/bun:1.3-debian AS runtime
 WORKDIR /app
 
 RUN apt-get update \
  && apt-get install -y --no-install-recommends \
       ca-certificates \
+      git \
       libsecret-1-0 \
       tini \
  && rm -rf /var/lib/apt/lists/*
@@ -34,6 +38,9 @@ RUN apt-get update \
 ENV NODE_ENV=production \
     PORT=3335
 
+COPY --from=buildkit /usr/bin/buildctl /usr/local/bin/buildctl
+COPY --from=docker-cli /usr/local/bin/docker /usr/local/bin/docker
+COPY --from=docker-cli /usr/local/libexec/docker/cli-plugins/docker-buildx /usr/local/libexec/docker/cli-plugins/docker-buildx
 COPY --from=builder /app /app
 
 EXPOSE 3335

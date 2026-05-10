@@ -632,6 +632,65 @@ describe("nixpacksBuild", () => {
     expect(logs.join("\n")).toContain("Laravel prestart env reference warnings")
   })
 
+  it("wraps Symfony Doctrine projects to migrate before start when DATABASE_URL is present", async () => {
+    await writeFile(path.join(tmpDir, "composer.json"), JSON.stringify({}))
+    await mkdir(path.join(tmpDir, "bin"), { recursive: true })
+    await writeFile(path.join(tmpDir, "bin", "console"), "")
+    await mkdir(path.join(tmpDir, "migrations"), { recursive: true })
+
+    const rawPlan = {
+      providers: [],
+      phases: {
+        setup: {
+          nixPkgs: ["php84Packages.composer"],
+        },
+        install: { cmds: ["composer install --ignore-platform-reqs"] },
+      },
+      start: {
+        cmd: "node /assets/scripts/prestart.mjs /assets/nginx.template.conf /nginx.conf && (php-fpm -y /assets/php-fpm.conf & nginx -c /nginx.conf)",
+      },
+    }
+
+    spawnSpy = spyOn(Bun, "spawn").mockImplementation(((cmd: string[]) => {
+      if (cmd.includes("plan")) {
+        return fakeBunProcess({
+          stdoutLines: [JSON.stringify(rawPlan)],
+        }) as ReturnType<typeof Bun.spawn>
+      }
+      return fakeBunProcess({}) as ReturnType<typeof Bun.spawn>
+    }) as typeof Bun.spawn)
+
+    const logs: string[] = []
+    await nixpacksMod.nixpacksBuild({
+      workspacePath: tmpDir,
+      tag: "127.0.0.1:5000/app-symfony:sha123",
+      onLog: (line) => logs.push(line),
+    })
+
+    const spawnMock = spawnSpy as unknown as {
+      mock: { calls: Array<[unknown[], unknown]> }
+    }
+    const buildCall = spawnMock.mock.calls.find((call) =>
+      (call[0] as string[]).includes("build")
+    )
+    const cmd = buildCall![0] as string[]
+    const jsonPlanIdx = cmd.indexOf("--json-plan")
+    expect(jsonPlanIdx).toBeGreaterThan(-1)
+
+    const plan = JSON.parse(cmd[jsonPlanIdx + 1]!) as {
+      start: { cmd: string }
+    }
+    expect(plan.start.cmd).toContain("PLOYDOK_SYMFONY_DOCTRINE_BOOTSTRAP")
+    expect(plan.start.cmd).toContain(
+      "php bin/console doctrine:migrations:migrate --no-interaction"
+    )
+    expect(plan.start.cmd).toContain('[ -n "${DATABASE_URL:-}" ]')
+    expect(plan.start.cmd).toContain("node /assets/scripts/prestart.mjs")
+    expect(logs.join("\n")).toContain(
+      "Symfony Doctrine migrations bootstrap enabled"
+    )
+  })
+
   it("fails fast with a Dockerfile/custom image hint for unsupported PHP constraints", async () => {
     await writeFile(
       path.join(tmpDir, "composer.json"),

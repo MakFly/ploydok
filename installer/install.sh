@@ -6,8 +6,16 @@ VERSION="0.0.1"
 MODE=""
 HTTP_PORT="8080"
 HTTPS_PORT="8443"
+INSTALL_DIR="/opt/ploydok"
 DATA_DIR="/var/lib/ploydok"
+INSTALL_OWNER="${PLOYDOK_INSTALL_OWNER:-${SUDO_USER:-root}}"
 IMAGE_REGISTRY="${PLOYDOK_IMAGE_REGISTRY:-ghcr.io/ploydok}"
+PUBLIC_SCHEME="${PLOYDOK_PUBLIC_SCHEME:-}"
+PUBLIC_HOST="${PLOYDOK_PUBLIC_HOST:-}"
+PUBLIC_PORT="${PLOYDOK_PUBLIC_PORT:-}"
+DOMAIN_BASE="${PLOYDOK_DOMAIN_BASE:-}"
+PUBLIC_ORIGIN=""
+SETUP_TOKEN_REQUIRED="${PLOYDOK_SETUP_TOKEN_REQUIRED:-}"
 SKIP_DOCKER_INSTALL=0
 MANAGE_FIREWALL=0
 YES=0
@@ -24,10 +32,15 @@ usage() {
 Usage: install.sh [options]
 
 Options:
-  --mode=takeover|coexist|abort
+  --mode=takeover|coexist|bootstrap-http|abort
   --http-port=8080
   --https-port=8443
+  --install-dir=/opt/ploydok
   --data-dir=/var/lib/ploydok
+  --public-host=<hostname-or-ip>
+  --public-scheme=http|https
+  --public-port=<port>
+  --domain-base=<default-app-domain-suffix>
   --skip-docker-install
   --manage-firewall
   --yes
@@ -39,6 +52,7 @@ Options:
 Environment for tests:
   PLOYDOK_INSTALL_DRY_RUN=1
   PLOYDOK_INSTALL_ROOT=/tmp/root
+  PLOYDOK_INSTALL_OWNER=debian
   PLOYDOK_INSTALL_SKIP_COSIGN=1
 USAGE
 }
@@ -48,7 +62,12 @@ for arg in "$@"; do
     --mode=*) MODE="${arg#*=}" ;;
     --http-port=*) HTTP_PORT="${arg#*=}" ;;
     --https-port=*) HTTPS_PORT="${arg#*=}" ;;
+    --install-dir=*) INSTALL_DIR="${arg#*=}" ;;
     --data-dir=*) DATA_DIR="${arg#*=}" ;;
+    --public-host=*) PUBLIC_HOST="${arg#*=}" ;;
+    --public-scheme=*) PUBLIC_SCHEME="${arg#*=}" ;;
+    --public-port=*) PUBLIC_PORT="${arg#*=}" ;;
+    --domain-base=*) DOMAIN_BASE="${arg#*=}" ;;
     --skip-docker-install) SKIP_DOCKER_INSTALL=1 ;;
     --manage-firewall) MANAGE_FIREWALL=1 ;;
     --yes) YES=1 ;;
@@ -61,8 +80,13 @@ for arg in "$@"; do
 done
 
 case "$MODE" in
-  ""|takeover|coexist|abort) ;;
+  ""|takeover|coexist|bootstrap-http|abort) ;;
   *) echo "Invalid --mode: $MODE" >&2; exit 1 ;;
+esac
+
+case "$PUBLIC_SCHEME" in
+  ""|http|https) ;;
+  *) echo "Invalid --public-scheme: $PUBLIC_SCHEME" >&2; exit 1 ;;
 esac
 
 real_path() {
@@ -106,14 +130,94 @@ write_file() {
 
 render_template() {
   local template="$1"
+  local public_host="${PUBLIC_HOST:-localhost}"
+  local control_plane_hosts="localhost ploydok.local"
+  local control_plane_site
+  case "$public_host" in
+    localhost) control_plane_hosts="ploydok.local" ;;
+    ploydok.local) control_plane_hosts="localhost" ;;
+    *) control_plane_hosts="$control_plane_hosts $public_host" ;;
+  esac
+  printf -v control_plane_site '%s://%s {\n\timport control_plane\n}' "${PUBLIC_SCHEME:-https}" "$public_host"
   PLOYDOK_VERSION="$VERSION" \
   PLOYDOK_IMAGE_REGISTRY="$IMAGE_REGISTRY" \
+  PLOYDOK_INSTALL_DIR="$INSTALL_DIR" \
   PLOYDOK_DATA_DIR="$DATA_DIR" \
   PLOYDOK_HTTP_PORT="$HTTP_PORT" \
   PLOYDOK_HTTPS_PORT="$HTTPS_PORT" \
   PLOYDOK_HTTP_BIND="$HTTP_BIND" \
   PLOYDOK_HTTPS_BIND="$HTTPS_BIND" \
-  envsubst '$PLOYDOK_VERSION $PLOYDOK_IMAGE_REGISTRY $PLOYDOK_DATA_DIR $PLOYDOK_HTTP_PORT $PLOYDOK_HTTPS_PORT $PLOYDOK_HTTP_BIND $PLOYDOK_HTTPS_BIND' <"$(install_dir)/templates/$template"
+  PLOYDOK_PUBLIC_HOST="$public_host" \
+  PLOYDOK_PUBLIC_SCHEME="${PUBLIC_SCHEME:-https}" \
+  PLOYDOK_CONTROL_PLANE_SITE="$control_plane_site" \
+  PLOYDOK_CONTROL_PLANE_HOSTS="$control_plane_hosts" \
+  envsubst '$PLOYDOK_VERSION $PLOYDOK_IMAGE_REGISTRY $PLOYDOK_INSTALL_DIR $PLOYDOK_DATA_DIR $PLOYDOK_HTTP_PORT $PLOYDOK_HTTPS_PORT $PLOYDOK_HTTP_BIND $PLOYDOK_HTTPS_BIND $PLOYDOK_PUBLIC_HOST $PLOYDOK_PUBLIC_SCHEME $PLOYDOK_CONTROL_PLANE_SITE $PLOYDOK_CONTROL_PLANE_HOSTS' <"$(install_dir)/templates/$template"
+}
+
+detect_public_host() {
+  local first_ip
+  first_ip="$(hostname -I 2>/dev/null | awk '{print $1}' || true)"
+  printf '%s\n' "${first_ip:-localhost}"
+}
+
+build_public_origin() {
+  local scheme="$1" host="$2" port="$3"
+  if [[ -n "$port" && !( "$scheme" == "http" && "$port" == "80" ) && !( "$scheme" == "https" && "$port" == "443" ) ]]; then
+    printf '%s://%s:%s\n' "$scheme" "$host" "$port"
+  else
+    printf '%s://%s\n' "$scheme" "$host"
+  fi
+}
+
+derive_domain_base() {
+  local host="$1"
+  if [[ -n "$DOMAIN_BASE" ]]; then
+    printf '%s\n' "$DOMAIN_BASE"
+    return
+  fi
+
+  if [[ "$host" =~ ^([0-9]{1,3}\.){3}[0-9]{1,3}$ ]]; then
+    printf '%s.sslip.io\n' "${host//./-}"
+    return
+  fi
+
+  case "$host" in
+    ""|localhost|*.local) printf 'demo.ploydok.local\n' ;;
+    *) printf 'apps.%s\n' "$host" ;;
+  esac
+}
+
+resolve_public_endpoint() {
+  if [[ -z "$PUBLIC_SCHEME" ]]; then
+    if [[ "$MODE" == "bootstrap-http" ]]; then
+      PUBLIC_SCHEME="http"
+    else
+      PUBLIC_SCHEME="https"
+    fi
+  fi
+
+  if [[ -z "$PUBLIC_HOST" ]]; then
+    if [[ "$MODE" == "bootstrap-http" ]]; then
+      PUBLIC_HOST="$(detect_public_host)"
+    else
+      PUBLIC_HOST="localhost"
+    fi
+  fi
+
+  if [[ -z "$PUBLIC_PORT" && "$MODE" == "bootstrap-http" ]]; then
+    PUBLIC_PORT="$HTTP_PORT"
+  fi
+
+  if [[ -z "$SETUP_TOKEN_REQUIRED" ]]; then
+    if [[ "$MODE" == "bootstrap-http" ]]; then
+      SETUP_TOKEN_REQUIRED="0"
+    else
+      SETUP_TOKEN_REQUIRED="1"
+    fi
+  fi
+
+  DOMAIN_BASE="$(derive_domain_base "$PUBLIC_HOST")"
+  PUBLIC_ORIGIN="$(build_public_origin "$PUBLIC_SCHEME" "$PUBLIC_HOST" "$PUBLIC_PORT")"
 }
 
 require_root() {
@@ -136,6 +240,22 @@ docker_major() { docker version --format '{{.Server.Version}}' 2>/dev/null | cut
 read_env_value() {
   local file="$1" key="$2"
   grep -E "^${key}=" "$file" 2>/dev/null | tail -n1 | cut -d= -f2- || true
+}
+
+append_env_if_missing() {
+  local file="$1" key="$2" value="$3"
+  if ! grep -Eq "^${key}=" "$file" 2>/dev/null; then
+    printf '%s=%s\n' "$key" "$value" >>"$file"
+  fi
+}
+
+replace_env_if_equals() {
+  local file="$1" key="$2" expected="$3" replacement="$4"
+  local current
+  current="$(read_env_value "$file" "$key")"
+  if [[ "$current" == "$expected" ]]; then
+    sed -i -E "s#^${key}=.*#${key}=${replacement}#" "$file"
+  fi
 }
 
 list_port_listeners() {
@@ -163,6 +283,7 @@ preflight() {
     echo "kernel=$(uname -r)"
     echo "arch=$(uname -m)"
     echo "mode=${MODE:-interactive}"
+    echo "install_dir=$INSTALL_DIR"
     echo "data_dir=$DATA_DIR"
     echo "port_listeners_start"
     list_port_listeners || true
@@ -236,6 +357,9 @@ configure_binds() {
   if [[ "$MODE" == "coexist" ]]; then
     HTTP_BIND="127.0.0.1:${HTTP_PORT}"
     HTTPS_BIND="127.0.0.1:${HTTPS_PORT}"
+  elif [[ "$MODE" == "bootstrap-http" ]]; then
+    HTTP_BIND="0.0.0.0:${HTTP_PORT}"
+    HTTPS_BIND="127.0.0.1:${HTTPS_PORT}"
   else
     HTTP_BIND="80"
     HTTPS_BIND="443"
@@ -270,25 +394,55 @@ create_system_user() {
 
 create_directories() {
   local dir
-  for dir in data builds backups volumes app-volumes certs pki logs caddy/data caddy/config postgres redis registry agent config static; do
+  install -d -m 0750 "$(real_path "$INSTALL_DIR")"
+  for dir in data builds backups volumes app-volumes certs pki logs agent config static caddy-ip-cert; do
     install -d -m 0750 "$(real_path "$DATA_DIR/$dir")"
   done
   if [[ "$DRY_RUN" != "1" && -z "$ROOT_PREFIX" ]]; then
+    chown "$INSTALL_OWNER:$INSTALL_OWNER" "$INSTALL_DIR"
     chown -R ploydok:ploydok "$DATA_DIR"
   fi
 }
 
 generate_secrets() {
-  local master_key pg_pass redis_pass session_secret
-  local master_path env_path
+  local master_key pg_pass redis_pass session_secret public_scheme public_host public_port domain_base
+  local public_origin public_port_line master_path env_path
   master_path="$(real_path "$DATA_DIR/master.key")"
   env_path="$(real_path "$DATA_DIR/.env")"
+  public_scheme="$PUBLIC_SCHEME"
+  public_host="$PUBLIC_HOST"
+  public_port="$PUBLIC_PORT"
+  domain_base="$DOMAIN_BASE"
+  public_origin="$PUBLIC_ORIGIN"
+  public_port_line=""
+  [[ -n "$public_port" ]] && public_port_line="PLOYDOK_PUBLIC_PORT=${public_port}"
 
   if [[ -f "$env_path" ]]; then
     master_key="$(read_env_value "$env_path" MASTER_KEY)"
     if [[ -n "$master_key" && ! -f "$master_path" ]]; then
       write_file "$DATA_DIR/master.key" 0400 ploydok:ploydok <<<"$master_key"
     fi
+    append_env_if_missing "$env_path" WEB_ORIGIN "$public_origin"
+    append_env_if_missing "$env_path" GITHUB_APP_CALLBACK_URL "$public_origin/github/app/callback"
+    append_env_if_missing "$env_path" GITLAB_OAUTH_CALLBACK_URL "$public_origin/gitlab/callback"
+    append_env_if_missing "$env_path" PLOYDOK_PUBLIC_SCHEME "$public_scheme"
+    append_env_if_missing "$env_path" PLOYDOK_PUBLIC_HOST "$public_host"
+    append_env_if_missing "$env_path" PLOYDOK_DOMAIN_BASE "$domain_base"
+    if [[ -n "$public_port" ]]; then
+      append_env_if_missing "$env_path" PLOYDOK_PUBLIC_PORT "$public_port"
+    fi
+    append_env_if_missing "$env_path" PLOYDOK_SETUP_TOKEN_REQUIRED "$SETUP_TOKEN_REQUIRED"
+    append_env_if_missing "$env_path" PLOYDOK_COOKIE_SECURE "auto"
+    append_env_if_missing "$env_path" PLOYDOK_REGISTRY_URL "127.0.0.1:5000"
+    append_env_if_missing "$env_path" PLOYDOK_REGISTRY_API_URL "registry:5000"
+    append_env_if_missing "$env_path" PLOYDOK_REGISTRY_PUSH_URL "registry:5000"
+    replace_env_if_equals "$env_path" PLOYDOK_REGISTRY_URL "registry:5000" "127.0.0.1:5000"
+    append_env_if_missing "$env_path" PLOYDOK_BUILDKIT_ADDR "tcp://buildkitd:1234"
+    append_env_if_missing "$env_path" CADDY_ADMIN_URL "http://caddy:2019"
+    append_env_if_missing "$env_path" PLOYDOK_AGENT_ADDR "agent:50051"
+    append_env_if_missing "$env_path" PLOYDOK_AGENT_CA "/var/lib/ploydok/pki/ca.pem"
+    append_env_if_missing "$env_path" PLOYDOK_AGENT_CLIENT_CERT "/var/lib/ploydok/pki/client.pem"
+    append_env_if_missing "$env_path" PLOYDOK_AGENT_CLIENT_KEY "/var/lib/ploydok/pki/client.key"
     log "existing $DATA_DIR/.env preserved"
     return
   fi
@@ -312,19 +466,24 @@ PLOYDOK_PG_PASSWORD=${pg_pass}
 PLOYDOK_REDIS_PASSWORD=${redis_pass}
 SESSION_SECRET=${session_secret}
 MASTER_KEY=${master_key}
-PLOYDOK_PUBLIC_SCHEME=https
-PLOYDOK_PUBLIC_HOST=${PLOYDOK_PUBLIC_HOST:-localhost}
-PLOYDOK_REGISTRY_URL=registry:5000
+WEB_ORIGIN=${public_origin}
+GITHUB_APP_CALLBACK_URL=${public_origin}/github/app/callback
+GITLAB_OAUTH_CALLBACK_URL=${public_origin}/gitlab/callback
+PLOYDOK_PUBLIC_SCHEME=${public_scheme}
+PLOYDOK_PUBLIC_HOST=${public_host}
+PLOYDOK_DOMAIN_BASE=${domain_base}
+${public_port_line}
+PLOYDOK_SETUP_TOKEN_REQUIRED=${SETUP_TOKEN_REQUIRED}
+PLOYDOK_COOKIE_SECURE=auto
+PLOYDOK_REGISTRY_URL=127.0.0.1:5000
+PLOYDOK_REGISTRY_API_URL=registry:5000
 PLOYDOK_REGISTRY_PUSH_URL=registry:5000
+PLOYDOK_BUILDKIT_ADDR=tcp://buildkitd:1234
 CADDY_ADMIN_URL=http://caddy:2019
-# Les 3 PLOYDOK_AGENT_CA/CERT/KEY ci-dessous sont commentés : la PKI est
-# générée dans \$DATA_DIR/pki et montée :ro dans le container, prête à être
-# activée — mais l'agent reste en PLOYDOK_AGENT_INSECURE=1 le temps de
-# débloquer tonic+UDS+TLS (cf. compose template). Décommenter ces lignes
-# ET retirer PLOYDOK_AGENT_INSECURE=1 simultanément quand le fix land.
-# PLOYDOK_AGENT_CA=/var/lib/ploydok/pki/ca.pem
-# PLOYDOK_AGENT_CLIENT_CERT=/var/lib/ploydok/pki/api-client.crt
-# PLOYDOK_AGENT_CLIENT_KEY=/var/lib/ploydok/pki/api-client.key
+PLOYDOK_AGENT_ADDR=agent:50051
+PLOYDOK_AGENT_CA=/var/lib/ploydok/pki/ca.pem
+PLOYDOK_AGENT_CLIENT_CERT=/var/lib/ploydok/pki/client.pem
+PLOYDOK_AGENT_CLIENT_KEY=/var/lib/ploydok/pki/client.key
 EOF
 }
 
@@ -365,8 +524,9 @@ generate_agent_pki() {
     return
   fi
 
-  local tmp_ext
+  local tmp_ext tmp_client_ext
   tmp_ext="$(mktemp)"
+  tmp_client_ext="$(mktemp)"
   cat >"$tmp_ext" <<'EOF'
 [v3_req]
 basicConstraints = CA:FALSE
@@ -378,6 +538,12 @@ subjectAltName = @alt_names
 DNS.1 = agent
 DNS.2 = ploydok-agent
 DNS.3 = localhost
+EOF
+  cat >"$tmp_client_ext" <<'EOF'
+[v3_client]
+basicConstraints = CA:FALSE
+keyUsage = digitalSignature
+extendedKeyUsage = clientAuth
 EOF
 
   # CA (10 ans)
@@ -401,10 +567,11 @@ EOF
     -subj "/CN=ploydok-api" >/dev/null 2>&1
   openssl x509 -req -in "$pki_dir/api-client.csr" \
     -CA "$pki_dir/ca.crt" -CAkey "$pki_dir/ca.key" -CAcreateserial \
-    -out "$pki_dir/api-client.crt" -days 3650 >/dev/null 2>&1
+    -out "$pki_dir/api-client.crt" -days 3650 \
+    -extensions v3_client -extfile "$tmp_client_ext" >/dev/null 2>&1
   rm -f "$pki_dir/api-client.csr"
 
-  rm -f "$tmp_ext"
+  rm -f "$tmp_ext" "$tmp_client_ext"
 
   # Aliases attendus par pki::ensure_pki côté agent
   cp -f "$pki_dir/ca.crt" "$pki_dir/ca.pem"
@@ -447,7 +614,9 @@ install_cli() {
 verify_or_pull_images() {
   local images=(
     "$IMAGE_REGISTRY/ploydok-api:$VERSION"
+    "$IMAGE_REGISTRY/ploydok-web:$VERSION"
     "$IMAGE_REGISTRY/ploydok-agent:$VERSION"
+    "$IMAGE_REGISTRY/ploydok-adminer:$VERSION"
     "$IMAGE_REGISTRY/ploydok-caddy:$VERSION"
   )
   local cosign_identity_regex='^https://github\.com/MakFly/ploydok/\.github/workflows/release-images\.yml@.*$'
@@ -468,12 +637,10 @@ verify_or_pull_images() {
 }
 
 write_templates() {
-  render_template docker-compose.yml | write_file "$DATA_DIR/docker-compose.yml" 0640 ploydok:ploydok
+  render_template docker-compose.yml | write_file "$INSTALL_DIR/docker-compose.yml" 0640 "$INSTALL_OWNER:$INSTALL_OWNER"
   render_template validator.toml | write_file "$DATA_DIR/config/validator.toml" 0640 ploydok:ploydok
-  install -D -m 0644 "$(install_dir)/templates/Caddyfile" "$(real_path "$DATA_DIR/caddy/Caddyfile")"
-  if [[ "$DRY_RUN" != "1" && -z "$ROOT_PREFIX" ]]; then
-    chown ploydok:ploydok "$DATA_DIR/caddy/Caddyfile"
-  fi
+  render_template buildkitd.toml | write_file "$DATA_DIR/config/buildkitd.toml" 0644 ploydok:ploydok
+  render_template Caddyfile | write_file "$INSTALL_DIR/Caddyfile" 0644 "$INSTALL_OWNER:$INSTALL_OWNER"
   render_template ploydok.service | write_file "/etc/systemd/system/ploydok.service" 0644
   render_template ploydok.target | write_file "/etc/systemd/system/ploydok.target" 0644
   if [[ "$MODE" == "coexist" ]]; then
@@ -488,6 +655,9 @@ configure_firewall() {
     run ufw allow 22/tcp
     if [[ "$MODE" == "coexist" ]]; then
       warn "coexist mode keeps Ploydok bound to loopback; not opening $HTTP_PORT/$HTTPS_PORT publicly"
+    elif [[ "$MODE" == "bootstrap-http" ]]; then
+      run ufw allow "${HTTP_PORT}/tcp"
+      warn "bootstrap-http exposes HTTP on $HTTP_PORT; keep the VPS security group IP-restricted"
     else
       run ufw allow 80/tcp
       run ufw allow 443/tcp
@@ -497,6 +667,8 @@ configure_firewall() {
   elif command -v firewall-cmd >/dev/null 2>&1; then
     if [[ "$MODE" == "coexist" ]]; then
       warn "coexist mode keeps Ploydok bound to loopback; not opening $HTTP_PORT/$HTTPS_PORT publicly"
+    elif [[ "$MODE" == "bootstrap-http" ]]; then
+      run firewall-cmd --permanent --add-port="${HTTP_PORT}/tcp"
     else
       run firewall-cmd --permanent --add-service=http
       run firewall-cmd --permanent --add-service=https
@@ -531,7 +703,7 @@ wait_health() {
 
 db_migrate() {
   [[ "$DRY_RUN" == "1" ]] && { log "dry-run: applying db migrations"; return; }
-  local compose=(docker compose --env-file "$DATA_DIR/.env" -f "$DATA_DIR/docker-compose.yml")
+  local compose=(docker compose --env-file "$DATA_DIR/.env" -f "$INSTALL_DIR/docker-compose.yml")
   log "waiting for postgres to accept connections"
   for _ in $(seq 1 60); do
     if "${compose[@]}" exec -T postgres pg_isready -U ploydok -d ploydok >/dev/null 2>&1; then
@@ -550,7 +722,8 @@ main() {
   preflight
   choose_mode
   configure_binds
-  log "installing Ploydok $VERSION in mode=$MODE data_dir=$DATA_DIR"
+  resolve_public_endpoint
+  log "installing Ploydok $VERSION in mode=$MODE install_dir=$INSTALL_DIR data_dir=$DATA_DIR origin=$PUBLIC_ORIGIN"
   takeover_proxy
   create_system_user
   create_directories
@@ -564,7 +737,7 @@ main() {
   start_services
   wait_health
   db_migrate
-  log "Ploydok installed. Open https://${PLOYDOK_PUBLIC_HOST:-localhost}/setup from this machine's DNS."
+  log "Ploydok installed. Open ${PUBLIC_ORIGIN}/setup"
 }
 
 main "$@"

@@ -10,11 +10,15 @@ import type {
 } from "./types.js"
 import { applyCdnHandlers } from "./cdn.js"
 
+function defaultCaddyAdminUrl(): string {
+  return process.env["CADDY_ADMIN_URL"] ?? "http://127.0.0.1:2020"
+}
+
 export class CaddyClient {
   private readonly baseUrl: string
   private bootstrapL4InFlight: Promise<void> | null = null
 
-  constructor(baseUrl = "http://127.0.0.1:2020") {
+  constructor(baseUrl = defaultCaddyAdminUrl()) {
     // Remove trailing slash for consistent URL building
     this.baseUrl = baseUrl.replace(/\/$/, "")
   }
@@ -146,38 +150,7 @@ export class CaddyClient {
       ? applyCdnHandlers(middlewares.cdn, route)
       : route
 
-    // Try to PATCH an existing route first
-    const patchRes = await fetch(`${this.baseUrl}/id/${routeId}`, {
-      method: "PATCH",
-      headers: { "Content-Type": "application/json" },
-      body: JSON.stringify(routeWithCdn),
-    })
-
-    if (patchRes.ok) {
-      return
-    }
-
-    // Route not found → POST to append
-    if (patchRes.status === 404) {
-      const postRes = await fetch(
-        `${this.baseUrl}/config/apps/http/servers/srv0/routes`,
-        {
-          method: "POST",
-          headers: { "Content-Type": "application/json" },
-          body: JSON.stringify(routeWithCdn),
-        }
-      )
-      if (!postRes.ok) {
-        throw new Error(
-          `CaddyClient.upsertRoute POST failed: ${postRes.status} ${await postRes.text()}`
-        )
-      }
-      return
-    }
-
-    throw new Error(
-      `CaddyClient.upsertRoute PATCH failed: ${patchRes.status} ${await patchRes.text()}`
-    )
+    await this.putRouteFirst(routeWithCdn, "upsertRoute")
   }
 
   buildStaticHandlers(root: string, spaFallback: boolean): CaddyHandler[] {
@@ -240,35 +213,35 @@ export class CaddyClient {
       ? applyCdnHandlers(cdn, route, { staticRoot: root })
       : route
 
-    const patchRes = await fetch(`${this.baseUrl}/id/${routeId}`, {
-      method: "PATCH",
-      headers: { "Content-Type": "application/json" },
-      body: JSON.stringify(routeWithCdn),
-    })
+    await this.putRouteFirst(routeWithCdn, "upsertStaticRoute")
+  }
 
-    if (patchRes.ok) {
-      return
-    }
-
-    if (patchRes.status === 404) {
-      const postRes = await fetch(
-        `${this.baseUrl}/config/apps/http/servers/srv0/routes`,
-        {
-          method: "POST",
-          headers: { "Content-Type": "application/json" },
-          body: JSON.stringify(routeWithCdn),
-        }
+  private async putRouteFirst(route: CaddyRoute, label: string): Promise<void> {
+    const routeId = route["@id"]
+    const res = await fetch(
+      `${this.baseUrl}/config/apps/http/servers/srv0/routes`
+    )
+    if (!res.ok) {
+      throw new Error(
+        `CaddyClient.${label} GET routes failed: ${res.status} ${await res.text()}`
       )
-      if (!postRes.ok) {
-        throw new Error(
-          `CaddyClient.upsertStaticRoute POST failed: ${postRes.status} ${await postRes.text()}`
-        )
-      }
-      return
     }
-
+    const routes = ((await res.json()) ?? []) as CaddyRoute[]
+    const nextRoutes = [
+      route,
+      ...routes.filter((candidate) => candidate["@id"] !== routeId),
+    ]
+    const patchRes = await fetch(
+      `${this.baseUrl}/config/apps/http/servers/srv0/routes`,
+      {
+        method: "PATCH",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify(nextRoutes),
+      }
+    )
+    if (patchRes.ok) return
     throw new Error(
-      `CaddyClient.upsertStaticRoute PATCH failed: ${patchRes.status} ${await patchRes.text()}`
+      `CaddyClient.${label} PATCH routes failed: ${patchRes.status} ${await patchRes.text()}`
     )
   }
 

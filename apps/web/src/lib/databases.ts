@@ -2,6 +2,7 @@
 import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query"
 import { toast } from "sonner"
 import { apiFetch } from "./api"
+import { DEFAULT_DATABASE_ENV_PREFIX } from "./database-env"
 import { notifyMutationError } from "./second-factor-toast"
 
 // ── Types ─────────────────────────────────────────────────────────────────────
@@ -83,6 +84,7 @@ export interface CreateDatabaseInput {
   plan: DbPlan
   exposureMode?: DbExposureMode
   publicEnabled?: boolean
+  idempotencyKey?: string
 }
 
 export interface RegisterExternalDatabaseInput {
@@ -105,6 +107,20 @@ export interface DatabaseStats {
   net_rx_bytes: number
   net_tx_bytes: number
   timestamp_ns: number
+}
+
+export interface AdminerSessionLaunch {
+  path: string
+  expires_at: string
+  driver: "pgsql" | "server"
+  server: string
+  database: string
+  username: string
+}
+
+export interface RevealedDatabaseCredentials {
+  connection_string: string
+  password?: string
 }
 
 // ── Query keys ────────────────────────────────────────────────────────────────
@@ -205,13 +221,40 @@ export function useDeleteDatabase() {
 export function useRevealDatabase() {
   return useMutation({
     mutationFn: async ({ id }: { id: string }) => {
-      const data = await apiFetch<{ connection_string: string }>(
+      const data = await apiFetch<RevealedDatabaseCredentials>(
         `/databases/${id}/reveal`,
         {
           method: "POST",
         }
       )
       return data.connection_string
+    },
+  })
+}
+
+export function useRevealDatabaseCredentials() {
+  return useMutation({
+    mutationFn: async ({ id }: { id: string }) => {
+      return apiFetch<RevealedDatabaseCredentials>(`/databases/${id}/reveal`, {
+        method: "POST",
+      })
+    },
+  })
+}
+
+export function useCreateAdminerSession() {
+  return useMutation({
+    mutationFn: async ({ id, totpCode }: { id: string; totpCode: string }) => {
+      return apiFetch<AdminerSessionLaunch>(
+        `/databases/${id}/adminer/session`,
+        {
+          method: "POST",
+          headers: { "X-TOTP-Code": totpCode },
+        }
+      )
+    },
+    onError: (err: Error) => {
+      notifyMutationError(err, "Adminer session creation failed")
     },
   })
 }
@@ -234,7 +277,7 @@ export function useLinkDatabase() {
         requiresRedeploy: boolean
       }>(`/apps/${appId}/databases/${databaseId}/link`, {
         method: "POST",
-        body: { env_prefix: env_prefix ?? "DB" },
+        body: { env_prefix: env_prefix ?? DEFAULT_DATABASE_ENV_PREFIX },
         headers: { "content-type": "application/json" },
       })
     },

@@ -1,11 +1,6 @@
 // SPDX-License-Identifier: AGPL-3.0-only
 import * as React from "react"
-import {
-  Link,
-  createFileRoute,
-  useNavigate,
-  useParams,
-} from "@tanstack/react-router"
+import { createFileRoute, useNavigate, useParams } from "@tanstack/react-router"
 import {
   Alert,
   AlertDescription,
@@ -31,7 +26,6 @@ import { ShellPage } from "../../../../../components/layout/AppShell"
 import {
   useDatabase,
   useDatabaseLogs,
-  useDatabaseStats,
   useStartDatabase,
   useStopDatabase,
   useUpdateDatabaseNetwork,
@@ -43,15 +37,156 @@ import { BackupConfigPanel } from "../../../../../components/databases/BackupCon
 import { BackupsList } from "../../../../../components/databases/BackupsList"
 import { DeleteDatabaseDialog } from "../../../../../components/databases/DeleteDatabaseDialog"
 import { DatabaseStatusBadge } from "../../../../../components/databases/DatabaseStatusBadge"
+import { OpenAdminerDialog } from "../../../../../components/databases/OpenAdminerDialog"
+import { ResourceCard } from "../../../../../components/monitoring/ResourceCard"
 import { useBackupNow } from "../../../../../lib/backups"
+import {
+  useMonitoring,
+  useMonitoringEvents,
+} from "../../../../../lib/monitoring"
 import {
   organizationPath,
   useCurrentOrganizationSlug,
 } from "../../../../../lib/organizations"
+import type { ContainerSnapshot } from "@ploydok/shared"
 
 export const Route = createFileRoute("/_authed/orgs/$orgSlug/databases/$id")({
   component: DatabaseDetailPage,
 })
+
+const MONITORING_RING_SIZE = 60
+
+function appendMonitoringRing(
+  values: Array<number>,
+  nextValue: number
+): Array<number> {
+  const next = [...values, nextValue]
+  return next.length > MONITORING_RING_SIZE
+    ? next.slice(next.length - MONITORING_RING_SIZE)
+    : next
+}
+
+function findDatabaseSnapshot(
+  containers: Array<ContainerSnapshot>,
+  dbId: string
+): ContainerSnapshot | null {
+  return (
+    containers.find(
+      (container) => container.kind === "database" && container.app_id === dbId
+    ) ??
+    containers.find((container) => container.app_id === dbId) ??
+    null
+  )
+}
+
+function DatabaseMonitoringPanel({
+  dbId,
+}: {
+  dbId: string
+}): React.JSX.Element {
+  const { data, isLoading, error, isFetching, refetch } = useMonitoring()
+  const [snapshot, setSnapshot] = React.useState<ContainerSnapshot | null>(null)
+  const [cpuHistory, setCpuHistory] = React.useState<Array<number>>([])
+  const [memHistory, setMemHistory] = React.useState<Array<number>>([])
+
+  const overviewSnapshot = React.useMemo(
+    () => findDatabaseSnapshot(data?.containers ?? [], dbId),
+    [data?.containers, dbId]
+  )
+
+  useMonitoringEvents(
+    React.useCallback(
+      (nextSnapshot) => {
+        if (nextSnapshot.kind !== "database" || nextSnapshot.app_id !== dbId) {
+          return
+        }
+        setSnapshot(nextSnapshot)
+        setCpuHistory((current) =>
+          appendMonitoringRing(current, nextSnapshot.cpu_pct)
+        )
+        setMemHistory((current) =>
+          appendMonitoringRing(current, nextSnapshot.mem_bytes)
+        )
+      },
+      [dbId]
+    )
+  )
+
+  React.useEffect(() => {
+    setSnapshot(null)
+    setCpuHistory([])
+    setMemHistory([])
+  }, [dbId])
+
+  React.useEffect(() => {
+    if (!overviewSnapshot) return
+    setSnapshot((current) => {
+      if (
+        current?.id === overviewSnapshot.id &&
+        current.last_seen_ms === overviewSnapshot.last_seen_ms
+      ) {
+        return current
+      }
+      return overviewSnapshot
+    })
+    setCpuHistory((current) =>
+      current.at(-1) === overviewSnapshot.cpu_pct
+        ? current
+        : appendMonitoringRing(current, overviewSnapshot.cpu_pct)
+    )
+    setMemHistory((current) =>
+      current.at(-1) === overviewSnapshot.mem_bytes
+        ? current
+        : appendMonitoringRing(current, overviewSnapshot.mem_bytes)
+    )
+  }, [overviewSnapshot])
+
+  if (error) {
+    return (
+      <Alert variant="destructive">
+        <AlertTitle>Monitoring unavailable</AlertTitle>
+        <AlertDescription>
+          Failed to load monitoring data: {error.message}
+        </AlertDescription>
+      </Alert>
+    )
+  }
+
+  if (!snapshot) {
+    return (
+      <div className="rounded-lg border border-border bg-muted/20 p-4 text-sm text-muted-foreground">
+        {isLoading
+          ? "Loading database monitoring..."
+          : "No live container snapshot found for this database yet."}
+      </div>
+    )
+  }
+
+  return (
+    <div className="space-y-3">
+      <div className="flex items-center justify-between gap-3 text-xs text-muted-foreground">
+        <span>
+          Live container snapshot ·{" "}
+          {new Date(snapshot.last_seen_ms).toLocaleTimeString()}
+        </span>
+        <Button
+          type="button"
+          variant="outline"
+          size="sm"
+          disabled={isFetching}
+          onClick={() => void refetch()}
+        >
+          {isFetching ? "Refreshing..." : "Refresh"}
+        </Button>
+      </div>
+      <ResourceCard
+        snapshot={snapshot}
+        cpuHistory={cpuHistory}
+        memHistory={memHistory}
+      />
+    </div>
+  )
+}
 
 function DatabaseDetailPage(): React.JSX.Element {
   const { id: routeDbId } = useParams({ strict: false })
@@ -60,8 +195,8 @@ function DatabaseDetailPage(): React.JSX.Element {
   const currentOrgSlug = useCurrentOrganizationSlug()
   const { data: db, isLoading, error, refetch } = useDatabase(dbId)
   const { data: logs } = useDatabaseLogs(dbId)
-  const { data: stats } = useDatabaseStats(dbId)
   const [revealOpen, setRevealOpen] = React.useState(false)
+  const [adminerOpen, setAdminerOpen] = React.useState(false)
   const [restartOpen, setRestartOpen] = React.useState(false)
   const [deleteOpen, setDeleteOpen] = React.useState(false)
   const [publicEnabled, setPublicEnabled] = React.useState(false)
@@ -98,6 +233,10 @@ function DatabaseDetailPage(): React.JSX.Element {
   }
 
   const isExternal = db.management_mode === "external"
+  const adminerSupported =
+    !isExternal &&
+    (db.kind === "postgres" || db.kind === "mysql" || db.kind === "mariadb")
+  const canOpenAdminer = adminerSupported && db.status === "running"
 
   return (
     <ShellPage
@@ -170,6 +309,15 @@ function DatabaseDetailPage(): React.JSX.Element {
                 <Button variant="outline" onClick={() => setRevealOpen(true)}>
                   Reveal connection string
                 </Button>
+                {adminerSupported && (
+                  <Button
+                    variant="outline"
+                    onClick={() => setAdminerOpen(true)}
+                    disabled={!canOpenAdminer}
+                  >
+                    Open Adminer
+                  </Button>
+                )}
               </>
             ) : (
               <>
@@ -299,12 +447,12 @@ function DatabaseDetailPage(): React.JSX.Element {
                     >
                       <Badge variant="secondary">{link.env_prefix}</Badge>
                       {link.app_name ? (
-                        <Link
-                          to={appHref as never}
+                        <a
+                          href={appHref}
                           className="font-medium text-foreground hover:underline"
                         >
                           {link.app_name}
-                        </Link>
+                        </a>
                       ) : (
                         <span className="font-medium text-foreground">
                           (unknown app)
@@ -355,6 +503,20 @@ function DatabaseDetailPage(): React.JSX.Element {
               <Button variant="outline" onClick={() => setRevealOpen(true)}>
                 Reveal connection string
               </Button>
+              {adminerSupported ? (
+                <Button
+                  variant="outline"
+                  onClick={() => setAdminerOpen(true)}
+                  disabled={!canOpenAdminer}
+                >
+                  Open Adminer
+                </Button>
+              ) : (
+                <div className="text-xs text-muted-foreground">
+                  Adminer is available for managed PostgreSQL, MySQL, and
+                  MariaDB databases.
+                </div>
+              )}
             </div>
           </TabsContent>
 
@@ -369,40 +531,7 @@ function DatabaseDetailPage(): React.JSX.Element {
                 </AlertDescription>
               </Alert>
             ) : (
-              <div className="grid gap-3 rounded-lg border p-4 text-sm sm:grid-cols-2 lg:grid-cols-4">
-                <div>
-                  <span className="text-muted-foreground">CPU</span>
-                  <div>
-                    {stats?.stats
-                      ? `${stats.stats.cpu_percent.toFixed(2)} %`
-                      : "—"}
-                  </div>
-                </div>
-                <div>
-                  <span className="text-muted-foreground">Memory</span>
-                  <div>
-                    {stats?.stats
-                      ? `${Math.round(stats.stats.memory_bytes / 1024 / 1024)} MB`
-                      : "—"}
-                  </div>
-                </div>
-                <div>
-                  <span className="text-muted-foreground">RX</span>
-                  <div>
-                    {stats?.stats
-                      ? `${Math.round(stats.stats.net_rx_bytes / 1024)} KB`
-                      : "—"}
-                  </div>
-                </div>
-                <div>
-                  <span className="text-muted-foreground">TX</span>
-                  <div>
-                    {stats?.stats
-                      ? `${Math.round(stats.stats.net_tx_bytes / 1024)} KB`
-                      : "—"}
-                  </div>
-                </div>
-              </div>
+              <DatabaseMonitoringPanel dbId={dbId} />
             )}
           </TabsContent>
 
@@ -496,6 +625,10 @@ function DatabaseDetailPage(): React.JSX.Element {
       <RevealConnectionDialog
         databaseId={revealOpen ? dbId : null}
         onClose={() => setRevealOpen(false)}
+      />
+      <OpenAdminerDialog
+        database={adminerOpen ? db : null}
+        onClose={() => setAdminerOpen(false)}
       />
       <RestartDatabaseDialog
         database={restartOpen ? db : null}

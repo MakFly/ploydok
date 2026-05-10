@@ -1,6 +1,10 @@
 // SPDX-License-Identifier: AGPL-3.0-only
 import { describe, it, expect, mock, beforeEach } from "bun:test"
-import { spawnDatabase, startDatabaseContainer } from "./spawner"
+import {
+  extractPasswordFromConnectionString,
+  spawnDatabase,
+  startDatabaseContainer,
+} from "./spawner"
 import type { DbKind, DbPlan } from "./spawner"
 
 // ── Mocks ─────────────────────────────────────────────────────────────────────
@@ -70,6 +74,22 @@ const mockDb = {
 } as unknown as import("@ploydok/db").Db
 
 // ── Tests ──────────────────────────────────────────────────────────────────────
+
+describe("extractPasswordFromConnectionString", () => {
+  it("extracts a PostgreSQL password without relying on URL.password", () => {
+    expect(
+      extractPasswordFromConnectionString(
+        "postgres://ploydok:s3cr3t@db:5432/app?serverVersion=16&charset=utf8"
+      )
+    ).toBe("s3cr3t")
+  })
+
+  it("supports encoded separators and empty usernames", () => {
+    expect(
+      extractPasswordFromConnectionString("redis://:p%40ss%2Fword@redis:6379")
+    ).toBe("p@ss/word")
+  })
+})
 
 describe("spawnDatabase", () => {
   beforeEach(() => {

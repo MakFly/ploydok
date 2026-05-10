@@ -7,7 +7,9 @@ import { describe, expect, it } from "bun:test"
 import {
   applyAppStatus,
   getEventAppStatus,
+  hasActiveBuilds,
   normalizeAppDetail,
+  patchBuildsWithSseEvent,
 } from "../../lib/apps"
 import {
   resolveDisplayedAppState,
@@ -15,7 +17,7 @@ import {
   selectAppSnapshot,
 } from "../../lib/app-runtime"
 import type { RawAppDetail } from "../../lib/apps"
-import type { ContainerSnapshot } from "@ploydok/shared"
+import type { Build, ContainerSnapshot } from "@ploydok/shared"
 
 // ---------------------------------------------------------------------------
 // Helpers
@@ -416,5 +418,56 @@ describe("useApp / useBuilds initialData option — contract", () => {
     // initialData can be passed to useApp — no transforms needed.
     expect(normalized.name).toBe("seed-app")
     expect(normalized.healthcheckIntervalS).toBeNull()
+  })
+})
+
+describe("build SSE cache helpers", () => {
+  const baseBuild: Build = {
+    id: "build-1",
+    appId: "app-1",
+    status: "pending",
+    createdAt: 1000,
+  }
+
+  it("creates a synthetic running row when build.started arrives before refetch", () => {
+    const patched = patchBuildsWithSseEvent(
+      undefined,
+      "build.started",
+      { appId: "app-1", buildId: "build-1", t: 2000 },
+      3000
+    )
+
+    expect(patched).toEqual([
+      {
+        id: "build-1",
+        appId: "app-1",
+        status: "running",
+        startedAt: 2000,
+        createdAt: 2000,
+      },
+    ])
+  })
+
+  it("patches terminal build status without waiting for a table refresh", () => {
+    const patched = patchBuildsWithSseEvent(
+      [{ ...baseBuild, status: "running", startedAt: 1000 }],
+      "build.failed",
+      {
+        appId: "app-1",
+        buildId: "build-1",
+        message: "Build failed",
+        t: 4000,
+      },
+      5000
+    )
+
+    expect(patched?.[0]?.status).toBe("failed")
+    expect(patched?.[0]?.finishedAt).toBe(4000)
+    expect(patched?.[0]?.errorMessage).toBe("Build failed")
+  })
+
+  it("detects active builds for the refetch fallback", () => {
+    expect(hasActiveBuilds([baseBuild])).toBe(true)
+    expect(hasActiveBuilds([{ ...baseBuild, status: "succeeded" }])).toBe(false)
   })
 })
