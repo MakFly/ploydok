@@ -8,8 +8,8 @@ import {
 import {
   ApiError,
   BackendUnavailableError,
-  criticalRetryDelay,
   SessionExpiredError,
+  criticalRetryDelay,
   shouldRetryCriticalQuery,
 } from "../../lib/api/errors";
 
