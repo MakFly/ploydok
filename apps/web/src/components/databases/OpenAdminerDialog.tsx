@@ -14,11 +14,12 @@ import { Input } from "@workspace/ui/components/input"
 import { Label } from "@workspace/ui/components/label"
 import { apiBaseUrl } from "../../lib/api/base"
 import {
+  
+  
   useCreateAdminerSession,
-  useRevealDatabaseCredentials,
-  type AdminerSessionLaunch,
-  type Database,
+  useRevealDatabaseCredentials
 } from "../../lib/databases"
+import type {AdminerSessionLaunch, Database} from "../../lib/databases";
 
 const AUTO_HIDE_PASSWORD_MS = 30_000
 
