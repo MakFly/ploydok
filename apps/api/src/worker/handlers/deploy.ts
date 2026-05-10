@@ -1505,14 +1505,16 @@ export async function handleDeploy(
 
     // Fire-and-forget: enqueue async log archive into DB. jobId is
     // deterministic so a worker retry doesn't enqueue duplicates.
+    // BullMQ rejects ":" in custom job IDs, so we use "_" as separator.
     logArchiveQueue
       .add(
         "archive",
         { buildId },
-        { jobId: `archive:${buildId}` }
+        { jobId: `archive_${buildId}` }
       )
-      .catch((enqErr) => {
-        log.warn({ enqErr, buildId }, "failed to push logs.archive to BullMQ")
+      .catch((enqErr: unknown) => {
+        const msg = enqErr instanceof Error ? enqErr.message : String(enqErr)
+        log.warn({ err: msg, buildId }, "failed to push logs.archive to BullMQ")
       })
   }
 }
