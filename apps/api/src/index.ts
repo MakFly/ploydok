@@ -7,15 +7,7 @@ import { isAlreadyExists } from "./agent/index.js"
 import { childLogger } from "./logger"
 import { startWorker } from "./worker"
 import { createDb, type Db } from "@ploydok/db"
-import {
-  fetchPublicDatabaseProxiesForCaddy,
-  fetchRunningAppsForCaddy,
-  fetchRunningServicesForCaddy,
-  reconcileDatabaseTcpProxies,
-  reconcileCaddyRoutes,
-  reconcileServiceRoutes,
-} from "./caddy/reconciler.js"
-import { reconcileCaddyAttachments } from "./caddy/attachment.js"
+import { reconcileIngressOnce } from "./services/ingress-reconcile.js"
 import { bootstrapSetupToken } from "./auth/setup-token"
 import { reconcileRuntimeAppsOnBoot } from "./services/app-runtime-reconciler.js"
 
@@ -88,42 +80,12 @@ async function reconcileIngressWithRetry(
 
   for (let attempt = 1; attempt <= attempts; attempt++) {
     try {
-      const [apps, services, databases] = await Promise.all([
-        fetchRunningAppsForCaddy(db),
-        fetchRunningServicesForCaddy(db),
-        fetchPublicDatabaseProxiesForCaddy(db),
-      ])
-      const [appRoutes, serviceRoutes, databaseProxies, attachments] =
-        await Promise.all([
-          reconcileCaddyRoutes({ caddy, logger: log, apps }),
-          reconcileServiceRoutes({ caddy, logger: log, services }),
-          reconcileDatabaseTcpProxies({ caddy, logger: log, databases }),
-          reconcileCaddyAttachments(agent, db),
-        ])
-
-      const failed =
-        appRoutes.failed +
-        serviceRoutes.failed +
-        databaseProxies.failed +
-        attachments.failed
-
-      if (
-        appRoutes.bootstrapped &&
-        serviceRoutes.bootstrapped &&
-        databaseProxies.bootstrapped &&
-        failed === 0
-      ) {
-        log.info(
-          { appRoutes, serviceRoutes, databaseProxies, attachments, attempt },
-          "ingress reconcile complete"
-        )
+      const result = await reconcileIngressOnce({ db, caddy, agent, logger: log })
+      if (result.ok) {
+        log.info({ ...result, attempt }, "ingress reconcile complete")
         return
       }
-
-      log.warn(
-        { appRoutes, serviceRoutes, databaseProxies, attachments, attempt },
-        "ingress reconcile incomplete"
-      )
+      log.warn({ ...result, attempt }, "ingress reconcile incomplete")
     } catch (err) {
       log.warn({ err, attempt }, "ingress reconcile failed")
     }
