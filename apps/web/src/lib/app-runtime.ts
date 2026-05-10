@@ -88,7 +88,14 @@ export function resolveRuntimeAppStatus(
   if (appStatus === "serving") return "serving"
 
   if (!snapshot) {
-    return appStatus === "running" ? "stopped" : appStatus
+    // No snapshot ≠ container is stopped. The monitoring overview cache may
+    // simply be stale (background tab killed the SSE, query just refetching
+    // after window-focus, brief gap during a blue/green swap, etc.). Trust
+    // the DB lifecycle — the API reconciler already flips "running" → "failed"
+    // server-side after STALE_GRACE_MS, so by the time we see appStatus =
+    // "running" without a snapshot, it really is running and the gap is on
+    // the monitoring side.
+    return appStatus
   }
 
   switch (snapshot.status) {
