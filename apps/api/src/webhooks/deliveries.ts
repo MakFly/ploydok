@@ -87,15 +87,19 @@ export async function insertDelivery(
 ): Promise<string> {
   const id = nanoid()
 
-  let payloadRaw: Uint8Array | null = null
+  // TODO(payload_raw): postgres.js + Drizzle customType bytea binding crashes
+  // under Bun ("Buffer.byteLength on Object") and aborts the whole webhook
+  // handler before the BullMQ deploy enqueue. Skip audit storage of the raw
+  // body for now — the webhook chain is more important than the replay
+  // capability. We keep the payload_truncated flag honest for the size cap
+  // assertion, just not the bytes themselves.
+  const payloadRaw: Uint8Array | null = null
   let payloadTruncated = row.payload_truncated ?? false
-  let payloadRawExpiresAt: Date | null = null
+  const payloadRawExpiresAt: Date | null = null
 
   if (rawBodyBuffer) {
-    const { data, truncated } = await compressPayload(rawBodyBuffer)
-    payloadRaw = data
+    const { truncated } = await compressPayload(rawBodyBuffer)
     payloadTruncated = truncated
-    payloadRawExpiresAt = new Date(Date.now() + PAYLOAD_RAW_TTL_DAYS * 24 * 60 * 60 * 1000)
   }
 
   // Build a compact sample from the row's commit info (used for quick inspection)
