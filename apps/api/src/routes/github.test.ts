@@ -47,6 +47,7 @@ const fakeDb = {
 
 mock.module("@ploydok/db", () => ({
   apps: fakeTable,
+  builds: fakeTable,
   createDb: () => fakeDb,
   createRedis: () => ({}),
   gitlab_tokens: fakeTable,
