@@ -1,5 +1,5 @@
 // SPDX-License-Identifier: AGPL-3.0-only
-import { index, pgTable, text, timestamp } from "drizzle-orm/pg-core"
+import { index, integer, pgTable, text, timestamp } from "drizzle-orm/pg-core"
 import { apps } from "./apps"
 import { users } from "./users"
 
@@ -37,6 +37,17 @@ export const builds = pgTable(
     commit_sha: text("commit_sha"),
     commit_message: text("commit_message"),
     log_path: text("log_path"),
+    log_archive: text("log_archive"),
+    log_archive_raw_size: integer("log_archive_raw_size"),
+    log_archive_compressed_size: integer("log_archive_compressed_size"),
+    log_archived_at: timestamp("log_archived_at", {
+      withTimezone: true,
+      mode: "date",
+    }),
+    log_purged_at: timestamp("log_purged_at", {
+      withTimezone: true,
+      mode: "date",
+    }),
     error_message: text("error_message"),
     // Set when post-deploy hook fails (build is still considered succeeded)
     post_deploy_error: text("post_deploy_error"),
@@ -70,5 +81,6 @@ export const builds = pgTable(
   (t) => [
     index("builds_app_id_idx").on(t.app_id),
     index("builds_status_idx").on(t.status),
+    index("builds_finished_at_idx").on(t.finished_at),
   ]
 )

@@ -83,10 +83,53 @@ function PreviewsPage() {
       )}
 
       {!isLoading && previews.length === 0 && (
-        <div className="flex flex-col items-center justify-center rounded-lg border border-dashed py-10 text-center">
-          <p className="text-sm text-muted-foreground">
-            No preview deployments yet. Open a pull request to create one.
-          </p>
+        <div className="rounded-lg border border-dashed border-border bg-muted/20 px-6 py-10">
+          <div className="mx-auto max-w-xl space-y-4 text-center">
+            <div className="mx-auto flex h-10 w-10 items-center justify-center rounded-full bg-muted">
+              <svg
+                aria-hidden="true"
+                className="h-5 w-5 text-muted-foreground"
+                fill="none"
+                stroke="currentColor"
+                viewBox="0 0 24 24"
+              >
+                <path
+                  strokeLinecap="round"
+                  strokeLinejoin="round"
+                  strokeWidth={1.5}
+                  d="M9 5H7a2 2 0 00-2 2v12a2 2 0 002 2h10a2 2 0 002-2V7a2 2 0 00-2-2h-2M9 5a2 2 0 002 2h2a2 2 0 002-2M9 5a2 2 0 012-2h2a2 2 0 012 2"
+                />
+              </svg>
+            </div>
+
+            <div className="space-y-1.5">
+              <p className="text-sm font-medium">
+                Preview deployments — not yet wired up
+              </p>
+              <p className="text-xs leading-relaxed text-muted-foreground">
+                The plan is one ephemeral deploy per open pull request, served on
+                its own subdomain (e.g. <code className="rounded bg-muted px-1 py-0.5 font-mono">pr-42.your-app.example.com</code>),
+                automatically torn down when the PR is merged or closed.
+              </p>
+              <p className="text-xs leading-relaxed text-muted-foreground">
+                The backend table and routes are in place, but the
+                <code className="mx-1 rounded bg-muted px-1 py-0.5 font-mono">pull_request</code>
+                webhook handler, the wildcard DNS routing and the teardown GC
+                are not implemented yet — only <code className="mx-1 rounded bg-muted px-1 py-0.5 font-mono">push</code>
+                events trigger builds today.
+              </p>
+            </div>
+
+            <div className="inline-flex items-center gap-2 rounded-full border border-border bg-background px-3 py-1 text-xs">
+              <span
+                aria-hidden="true"
+                className="h-1.5 w-1.5 rounded-full bg-amber-500"
+              />
+              <span className="text-muted-foreground">
+                Planned — post-MVP roadmap
+              </span>
+            </div>
+          </div>
         </div>
       )}
 
