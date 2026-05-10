@@ -1,7 +1,6 @@
 // SPDX-License-Identifier: AGPL-3.0-only
 import { describe, it, expect, mock } from "bun:test"
 import { Hono } from "hono"
-import { audit_log, secrets } from "@ploydok/db"
 import type { Db } from "@ploydok/db"
 import type { AuthUser } from "../auth/middleware"
 
@@ -28,6 +27,39 @@ mock.module("../auth/second-factor", () => ({
   ),
 }))
 
+mock.module("@ploydok/db", () => ({
+  createDb: mock(() => ({})),
+  audit_log: {
+    user_id: "user_id",
+    action: "action",
+    target_type: "target_type",
+    target_id: "target_id",
+    metadata: "metadata",
+    created_at: "created_at",
+  },
+  databases: {
+    id: "id",
+    name: "name",
+    kind: "kind",
+  },
+  users: {
+    id: "id",
+    require_totp_for_secret_reveal: "require_totp_for_secret_reveal",
+  },
+  secrets: {
+    id: "id",
+    app_id: "app_id",
+    project_id: "project_id",
+    scope: "scope",
+    phase: "phase",
+    key: "key",
+    value_ciphertext: "value_ciphertext",
+    nonce: "nonce",
+    linked_database_id: "linked_database_id",
+    created_at: "created_at",
+  },
+}))
+
 mock.module("@ploydok/db/queries", () => ({
   getAppForUser: mock(async (_db: unknown, appId: string, userId: string) => {
     if (appId === "app1" && userId === "user1") {
@@ -45,6 +77,7 @@ mock.module("../logger", () => ({
   })),
 }))
 
+const { audit_log, secrets } = await import("@ploydok/db")
 const { createSecretsRouter } = await import("./secrets")
 
 // ---------------------------------------------------------------------------
@@ -118,6 +151,15 @@ function stringChunk(value: unknown): string | null {
 }
 
 function columnName(value: unknown): SecretColumn | null {
+  if (typeof value === "string" && secretColumns.has(value as SecretColumn)) {
+    return value as SecretColumn
+  }
+
+  const chunk = stringChunk(value)
+  if (chunk && secretColumns.has(chunk as SecretColumn)) {
+    return chunk as SecretColumn
+  }
+
   if (!isRecord(value) || typeof value.name !== "string") {
     return null
   }
@@ -128,6 +170,10 @@ function columnName(value: unknown): SecretColumn | null {
 }
 
 function paramValue(value: unknown): unknown {
+  if (typeof value === "string") {
+    return value
+  }
+
   if (isRecord(value) && "encoder" in value && "value" in value) {
     return value.value
   }
@@ -314,9 +360,112 @@ function importRequest(path: string, content: string) {
   })
 }
 
+function updateRequest(path: string, value: string) {
+  return new Request(`http://localhost${path}`, {
+    method: "PATCH",
+    headers: { "content-type": "application/json" },
+    body: JSON.stringify({ value }),
+  })
+}
+
 // ---------------------------------------------------------------------------
 // Tests
 // ---------------------------------------------------------------------------
+
+describe("PATCH /:id/secrets/:key", () => {
+  it("updates the value of an existing key", async () => {
+    const { db, rows, auditRows } = buildFakeDb([secretRow("FOO")])
+    const app = buildApp(db)
+    const previousCreatedAt = rows[0]?.created_at
+
+    const res = await app.fetch(
+      updateRequest("/app1/secrets/FOO?scope=shared&phase=runtime", "updated")
+    )
+
+    expect(res.status).toBe(200)
+    expect(await res.json()).toEqual({
+      key: "FOO",
+      scope: "shared",
+      phase: "runtime",
+    })
+    expect(rows[0]?.value_ciphertext.toString()).toBe("enc:updated")
+    expect(rows[0]?.nonce.toString()).toBe("testnonce123")
+    expect(rows[0]?.created_at).not.toBe(previousCreatedAt)
+    expect(auditRows).toContainEqual(
+      expect.objectContaining({ action: "secret.updated" })
+    )
+  })
+
+  it("returns 404 when the key does not exist for the requested scope and phase", async () => {
+    const { db } = buildFakeDb([secretRow("FOO", { phase: "build" })])
+    const app = buildApp(db)
+
+    const res = await app.fetch(
+      updateRequest("/app1/secrets/FOO?scope=shared&phase=runtime", "updated")
+    )
+
+    expect(res.status).toBe(404)
+    expect(await res.json()).toEqual({
+      error: { code: "NOT_FOUND", message: "Secret not found" },
+    })
+  })
+
+  it("returns 400 when the secret is managed by a database link", async () => {
+    const { db, rows } = buildFakeDb([
+      secretRow("DATABASE_URL", { linked_database_id: "db1" }),
+    ])
+    const app = buildApp(db)
+
+    const res = await app.fetch(
+      updateRequest(
+        "/app1/secrets/DATABASE_URL?scope=shared&phase=runtime",
+        "updated"
+      )
+    )
+
+    expect(res.status).toBe(400)
+    expect(await res.json()).toEqual({
+      error: {
+        code: "LINKED_SECRET",
+        message: "managed by a database link, unlink first",
+      },
+    })
+    expect(rows[0]?.value_ciphertext.toString()).toBe("enc:database_url")
+  })
+
+  it("returns 400 when the body is invalid", async () => {
+    const { db, rows } = buildFakeDb([secretRow("FOO")])
+    const app = buildApp(db)
+
+    const res = await app.fetch(
+      updateRequest("/app1/secrets/FOO?scope=shared&phase=runtime", "")
+    )
+
+    expect(res.status).toBe(400)
+    const body = (await res.json()) as {
+      error: { code: string; message: string }
+    }
+    expect(body.error.code).toBe("VALIDATION_ERROR")
+    expect(rows[0]?.value_ciphertext.toString()).toBe("enc:foo")
+  })
+
+  it("returns 404 when the app does not exist", async () => {
+    const { db } = buildFakeDb([secretRow("FOO")])
+    const app = buildApp(db)
+
+    const res = await app.fetch(
+      updateRequest(
+        "/missing/secrets/FOO?scope=shared&phase=runtime",
+        "updated"
+      )
+    )
+
+    expect(res.status).toBe(404)
+    expect(await res.json()).toEqual({
+      error: { code: "NOT_FOUND", message: "App not found" },
+    })
+  })
+})
 
 describe("POST /:id/secrets/import", () => {
   it("replace removes manual keys absent from the targeted scope and phase", async () => {

@@ -38,6 +38,7 @@ import {
 import { Textarea } from "@workspace/ui/components/textarea"
 import { SecretsTable } from "../../../../../../components/secrets/SecretsTable"
 import { AddSecretDialog } from "../../../../../../components/secrets/AddSecretDialog"
+import { EditSecretDialog } from "../../../../../../components/secrets/EditSecretDialog"
 import { RevealSecretDialog } from "../../../../../../components/secrets/RevealSecretDialog"
 import { ImportEnvDialog } from "../../../../../../components/secrets/ImportEnvDialog"
 import { LinkDatabaseDialog } from "../../../../../../components/databases/LinkDatabaseDialog"
@@ -87,6 +88,7 @@ function AppEnvTab(): React.JSX.Element {
     scope: SecretScope
     phase: SecretPhase
   } | null>(null)
+  const [editTarget, setEditTarget] = React.useState<SecretMeta | null>(null)
 
   const { data: app } = useApp(appId)
   const { data: secrets, isLoading, isError } = useSecrets(appId, activeScope)
@@ -198,6 +200,7 @@ function AppEnvTab(): React.JSX.Element {
                 scope={s}
                 secrets={secrets ?? []}
                 onReveal={handleReveal}
+                onEdit={(secret) => setEditTarget(secret)}
               />
             )}
           </TabsContent>
@@ -225,6 +228,15 @@ function AppEnvTab(): React.JSX.Element {
         scope={revealTarget?.scope ?? null}
         phase={revealTarget?.phase ?? null}
         onClose={() => setRevealTarget(null)}
+      />
+
+      <EditSecretDialog
+        appId={appId}
+        open={!!editTarget}
+        onOpenChange={(open) => {
+          if (!open) setEditTarget(null)
+        }}
+        secret={editTarget}
       />
 
       {app?.projectId && (

@@ -34,6 +34,10 @@ const CreateSecretBody = z.object({
   phase: PhaseEnum.optional().default("runtime"),
 })
 
+const UpdateSecretBody = z.object({
+  value: z.string().min(1),
+})
+
 const ExportSecretBody = z.object({
   age_recipient: z.string().min(1),
 })
@@ -248,6 +252,125 @@ export function createSecretsRouter(db: Db): Hono<any, any, any> {
       { key: body.key, scope: body.scope, phase: body.phase },
       isUpdate ? 200 : 201
     )
+  })
+
+  // PATCH /:id/secrets/:key?scope=&phase= — update an existing secret value.
+  router.patch("/:id/secrets/:key", async (c) => {
+    const user = getUser(c)
+    const appId = c.req.param("id")
+    const key = c.req.param("key")
+    const scopeParam = c.req.query("scope") as Scope | undefined
+    const phaseParam = c.req.query("phase") as Phase | undefined
+
+    const app = await getAppForUser(db, appId!, user.id)
+    if (!app) {
+      return c.json(
+        { error: { code: "NOT_FOUND", message: "App not found" } },
+        404
+      )
+    }
+
+    if (!scopeParam) {
+      return c.json(
+        {
+          error: {
+            code: "VALIDATION_ERROR",
+            message: "scope query param required",
+          },
+        },
+        400
+      )
+    }
+    const parsedScope = ScopeEnum.safeParse(scopeParam)
+    if (!parsedScope.success) {
+      return c.json(
+        { error: { code: "VALIDATION_ERROR", message: "Invalid scope" } },
+        400
+      )
+    }
+
+    if (!phaseParam) {
+      return c.json(
+        {
+          error: {
+            code: "VALIDATION_ERROR",
+            message: "phase query param required",
+          },
+        },
+        400
+      )
+    }
+    const parsedPhase = PhaseEnum.safeParse(phaseParam)
+    if (!parsedPhase.success) {
+      return c.json(
+        { error: { code: "VALIDATION_ERROR", message: "Invalid phase" } },
+        400
+      )
+    }
+
+    let body: z.infer<typeof UpdateSecretBody>
+    try {
+      body = UpdateSecretBody.parse(await c.req.json())
+    } catch (err) {
+      return c.json(
+        { error: { code: "VALIDATION_ERROR", message: String(err) } },
+        400
+      )
+    }
+
+    const existing = await db
+      .select({
+        id: secrets.id,
+        linked_database_id: secrets.linked_database_id,
+      })
+      .from(secrets)
+      .where(
+        and(
+          eq(secrets.app_id, appId!),
+          eq(secrets.key, key!),
+          eq(secrets.scope, parsedScope.data),
+          eq(secrets.phase, parsedPhase.data)
+        )
+      )
+      .limit(1)
+
+    const row = existing[0]
+    if (!row) {
+      return c.json(
+        { error: { code: "NOT_FOUND", message: "Secret not found" } },
+        404
+      )
+    }
+
+    if (row.linked_database_id) {
+      return c.json(
+        {
+          error: {
+            code: "LINKED_SECRET",
+            message: "managed by a database link, unlink first",
+          },
+        },
+        400
+      )
+    }
+
+    const { enc, nonce } = await encryptSecret(body.value)
+    await db
+      .update(secrets)
+      .set({
+        value_ciphertext: enc,
+        nonce,
+        created_at: new Date(),
+      })
+      .where(eq(secrets.id, row.id))
+
+    await insertAuditLog(db, user.id, "secret.updated", appId!, keyHash(key!))
+
+    return c.json({
+      key,
+      scope: parsedScope.data,
+      phase: parsedPhase.data,
+    })
   })
 
   // DELETE /:id/secrets/:key?scope=
