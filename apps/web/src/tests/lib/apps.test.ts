@@ -312,8 +312,12 @@ describe("app runtime status helpers", () => {
     expect(selected?.id).toBe("ctr-1")
   })
 
-  it("downgrades running to stopped when monitoring has no app container", () => {
-    expect(resolveRuntimeAppStatus("running", null)).toBe("stopped")
+  it("trusts the DB lifecycle when monitoring snapshot is missing (stale cache, background tab)", () => {
+    // No-snapshot is NOT a positive signal that the container is stopped.
+    // The API reconciler is the only authority that flips running → failed
+    // (after STALE_GRACE_MS); the UI must not duplicate that and lie about
+    // a healthy container while monitoring is just briefly out of sync.
+    expect(resolveRuntimeAppStatus("running", null)).toBe("running")
   })
 
   it("downgrades running to stopped when the selected container is stopped", () => {
