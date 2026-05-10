@@ -365,6 +365,11 @@ describe("CaddyClient upstream methods (M3.3)", () => {
 
     caddyHandler = (method, path) => {
       calls.push({ method, path })
+      if (
+        method === "GET" &&
+        path === "/config/apps/http/servers/srv0/routes"
+      )
+        return { status: 200, body: [] }
       if (method === "GET") return { status: 200, body: existingConfig }
       if (method === "PATCH") return { status: 200, body: null }
       return { status: 200, body: null }
@@ -375,9 +380,10 @@ describe("CaddyClient upstream methods (M3.3)", () => {
       port: 3000,
     })
 
-    // Should have called ensureBootstrap (GET) + PATCH route
     const patch = calls.find(
-      (c) => c.method === "PATCH" && c.path.includes("ploydok-myapp")
+      (c) =>
+        c.method === "PATCH" &&
+        c.path === "/config/apps/http/servers/srv0/routes"
     )
     expect(patch).toBeDefined()
   })
