@@ -233,7 +233,7 @@ export async function handlePushGeneric(
       ? await countDeliveriesByApp(db, app.id)
       : undefined
 
-    const { jobId, shouldDropExisting } = resolveCoalesceJobId({
+    const { jobId, shouldDropExisting, dropReason } = resolveCoalesceJobId({
       coalesce: app.coalesce_pushes,
       appId: app.id,
       branch: event.branch,
@@ -243,13 +243,37 @@ export async function handlePushGeneric(
 
     if (shouldDropExisting && existingJob) {
       await existingJob.remove()
-      log.info(
-        { event: "webhook.coalesced", app_id: app.id, dropped_job_id: jobId, reason: "newer push supersedes" },
-        "coalesced waiting deploy job",
-      )
-      const recentDelivery = await findRecentEnqueuedDeliveryByApp(db, app.id)
-      if (recentDelivery) {
-        await markDeliveryCoalesced(db, recentDelivery.id)
+      if (dropReason === "superseded_waiting") {
+        // Real coalescing: a waiting/delayed job was superseded by a newer
+        // push. Mark the prior delivery row coalesced so the UI reflects it.
+        log.info(
+          {
+            event: "webhook.coalesced",
+            app_id: app.id,
+            dropped_job_id: jobId,
+            reason: "newer push supersedes",
+          },
+          "coalesced waiting deploy job"
+        )
+        const recentDelivery = await findRecentEnqueuedDeliveryByApp(db, app.id)
+        if (recentDelivery) {
+          await markDeliveryCoalesced(db, recentDelivery.id)
+        }
+      } else {
+        // Stale completed/failed job from a previous deploy still sitting in
+        // Redis (BullMQ keeps last 100 completed). Silent cleanup — no
+        // markDeliveryCoalesced (the prior delivery actually completed,
+        // tagging it "coalesced" would be a lie).
+        log.debug(
+          {
+            event: "webhook.stale_job_cleanup",
+            app_id: app.id,
+            dropped_job_id: jobId,
+            dropReason,
+            existingJobState,
+          },
+          "removed stale deploy job from queue before re-enqueue"
+        )
       }
     }
 

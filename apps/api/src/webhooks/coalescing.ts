@@ -11,22 +11,44 @@ export interface CoalesceJobIdOptions {
   deliveryCount?: number | undefined
 }
 
+export type DropReason =
+  | "superseded_waiting"
+  | "stale_completed"
+  | "stale_failed"
+
 export interface CoalesceJobIdResult {
   jobId: string
-  /** true when a waiting/delayed job was superseded and must be removed */
+  /** true when an existing job (any state) must be removed before re-adding */
   shouldDropExisting: boolean
+  /**
+   * Why we are dropping the existing job. Caller uses this to distinguish
+   * a real coalescing event (mark delivery coalesced, audit) from a silent
+   * cleanup of a stale completed/failed job (which is just a Redis hygiene
+   * step, not a user-visible coalescing).
+   */
+  dropReason?: DropReason
 }
 
 /**
  * Decides the BullMQ jobId to use for a new deploy job.
  *
  * Rules:
- * - coalesce=false → random nanoid (no deduplication)
- * - coalesce=true, no existing job → deterministic key `deploy:<appId>:<branch>`
- * - coalesce=true, existing job waiting/delayed → reuse same key (caller must remove old job)
- * - coalesce=true, existing job active → suffix with delivery count to avoid collision
+ * - coalesce=false → random nanoid (no deduplication, no drop)
+ * - coalesce=true, no existing job → deterministic key
+ * - coalesce=true, existing waiting/delayed → reuse key + drop (real coalescing)
+ * - coalesce=true, existing active → suffix with delivery count, no drop
+ * - coalesce=true, existing completed/failed → reuse key + drop (stale cleanup)
+ *
+ * Why drop completed/failed: BullMQ refuses to re-add a job whose ID already
+ * exists in any state. After a successful deploy, the completed jobId stays
+ * in Redis (kept by removeOnComplete:100) and silently swallows new pushes.
+ *
+ * BullMQ Custom Id constraint: cannot contain ':'. The active-suffix uses
+ * '_' to satisfy that.
  */
-export function resolveCoalesceJobId(opts: CoalesceJobIdOptions): CoalesceJobIdResult {
+export function resolveCoalesceJobId(
+  opts: CoalesceJobIdOptions
+): CoalesceJobIdResult {
   if (!opts.coalesce) {
     return { jobId: nanoid(), shouldDropExisting: false }
   }
@@ -38,13 +60,39 @@ export function resolveCoalesceJobId(opts: CoalesceJobIdOptions): CoalesceJobIdR
   }
 
   if (opts.existingJobState === "waiting" || opts.existingJobState === "delayed") {
-    return { jobId: baseKey, shouldDropExisting: true }
+    return {
+      jobId: baseKey,
+      shouldDropExisting: true,
+      dropReason: "superseded_waiting",
+    }
   }
 
   if (opts.existingJobState === "active") {
     const n = opts.deliveryCount ?? 0
-    return { jobId: `${baseKey}:r${n}`, shouldDropExisting: false }
+    return { jobId: `${baseKey}_r${n}`, shouldDropExisting: false }
   }
 
-  return { jobId: baseKey, shouldDropExisting: false }
+  if (opts.existingJobState === "completed") {
+    return {
+      jobId: baseKey,
+      shouldDropExisting: true,
+      dropReason: "stale_completed",
+    }
+  }
+
+  if (opts.existingJobState === "failed") {
+    return {
+      jobId: baseKey,
+      shouldDropExisting: true,
+      dropReason: "stale_failed",
+    }
+  }
+
+  // Unknown state (e.g. "stuck", "paused") — be conservative: reuse key
+  // and request a drop so we never end up wedged on an unhandled state.
+  return {
+    jobId: baseKey,
+    shouldDropExisting: true,
+    dropReason: "stale_completed",
+  }
 }
