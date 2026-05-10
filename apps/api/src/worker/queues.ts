@@ -72,6 +72,16 @@ export const cveRefreshQueue = new Queue("cve.refresh", {
   },
 })
 
+export const logArchiveQueue = new Queue("logs.archive", {
+  connection,
+  defaultJobOptions: {
+    removeOnComplete: 100,
+    removeOnFail: 500,
+    attempts: 3,
+    backoff: { type: "exponential" as const, delay: 5000 },
+  },
+})
+
 export type QueueName =
   | "deploy"
   | "gc.registry"
@@ -82,3 +92,4 @@ export type QueueName =
   | "preview.deploy"
   | "preview.teardown"
   | "cve.refresh"
+  | "logs.archive"

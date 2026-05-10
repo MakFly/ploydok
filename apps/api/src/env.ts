@@ -43,6 +43,11 @@ const schema = z.object({
     .string()
     .default("docker-container://ploydok-buildkitd"),
   PLOYDOK_DEPLOY_CONCURRENCY: z.coerce.number().int().min(1).max(16).default(2),
+  PLOYDOK_BUILD_LOG_RETENTION_DAYS: z.coerce
+    .number()
+    .int()
+    .positive()
+    .default(30),
   PLOYDOK_PUBLIC_SCHEME: z.enum(["http", "https"]).optional(),
   PLOYDOK_PUBLIC_PORT: z.coerce.number().int().positive().optional(),
   PLOYDOK_PUBLIC_HOST: z.string().min(1).optional(),
@@ -87,6 +92,8 @@ const raw = schema.parse({
   PLOYDOK_BUILD_DIR: Bun.env["PLOYDOK_BUILD_DIR"],
   PLOYDOK_BUILDKIT_ADDR: Bun.env["PLOYDOK_BUILDKIT_ADDR"],
   PLOYDOK_DEPLOY_CONCURRENCY: Bun.env["PLOYDOK_DEPLOY_CONCURRENCY"],
+  PLOYDOK_BUILD_LOG_RETENTION_DAYS:
+    Bun.env["PLOYDOK_BUILD_LOG_RETENTION_DAYS"],
   PLOYDOK_PUBLIC_SCHEME: Bun.env["PLOYDOK_PUBLIC_SCHEME"],
   PLOYDOK_PUBLIC_PORT: Bun.env["PLOYDOK_PUBLIC_PORT"],
   PLOYDOK_PUBLIC_HOST: Bun.env["PLOYDOK_PUBLIC_HOST"],
@@ -175,6 +182,7 @@ export const env = {
   PLOYDOK_BUILD_DIR: raw.PLOYDOK_BUILD_DIR,
   PLOYDOK_BUILDKIT_ADDR: raw.PLOYDOK_BUILDKIT_ADDR,
   PLOYDOK_DEPLOY_CONCURRENCY: raw.PLOYDOK_DEPLOY_CONCURRENCY,
+  PLOYDOK_BUILD_LOG_RETENTION_DAYS: raw.PLOYDOK_BUILD_LOG_RETENTION_DAYS,
   PLOYDOK_PUBLIC_SCHEME:
     raw.PLOYDOK_PUBLIC_SCHEME ?? (isProd ? "https" : "http"),
   PLOYDOK_PUBLIC_PORT: raw.PLOYDOK_PUBLIC_PORT ?? (isProd ? undefined : 8180),

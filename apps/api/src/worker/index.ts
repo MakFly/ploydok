@@ -80,6 +80,12 @@ import {
   refreshAdvisories,
 } from "../advisories/service"
 import { startCveRefreshCron, stopCveRefreshCron } from "./jobs/cve-refresh"
+import {
+  startPurgeBuildLogsCron,
+  stopPurgeBuildLogsCron,
+} from "./jobs/purge-build-logs"
+import { handleArchiveBuildLog } from "./handlers/archive-build-log"
+import type { ArchiveBuildLogPayload } from "./handlers/archive-build-log"
 import { withAppDeployLock } from "./app-deploy-lock"
 
 // ---------------------------------------------------------------------------
@@ -420,6 +426,18 @@ export function startWorker(
       },
       { connection, concurrency: 1 }
     ),
+
+    new Worker(
+      "logs.archive",
+      async (job) => {
+        const payload =
+          typeof job.data === "string"
+            ? (JSON.parse(job.data) as ArchiveBuildLogPayload)
+            : (job.data as ArchiveBuildLogPayload)
+        await handleArchiveBuildLog(db, payload)
+      },
+      { connection, concurrency: 2 }
+    ),
   ]
 
   // Attach error loggers to each worker
@@ -441,6 +459,7 @@ export function startWorker(
   startAuditAnchorCron(db, agent)
   startScheduledJobsRunner(db, agent)
   startCveRefreshCron(db)
+  startPurgeBuildLogsCron(db)
 
   const abortHandler = () => stop()
   opts?.signal?.addEventListener("abort", abortHandler)
@@ -458,6 +477,7 @@ export function startWorker(
     stopAuditAnchorCron()
     stopScheduledJobsRunner()
     stopCveRefreshCron()
+    stopPurgeBuildLogsCron()
     await Promise.all(workers.map((w) => w.close())).catch((err) => {
       logger.error({ err }, "error closing BullMQ workers")
     })

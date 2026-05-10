@@ -11,7 +11,7 @@ import { updateBuildStatus, getAppForUser } from "@ploydok/db/queries"
 import { claimQueuedRow } from "../queue-claim"
 import { auditUnauthorized, auditClaimed } from "../queue-audit"
 import { enqueueWithDbRow } from "../queue-enqueue"
-import { cleanupQueue, gcQueue } from "../queues"
+import { cleanupQueue, gcQueue, logArchiveQueue } from "../queues"
 import type { Db } from "@ploydok/db"
 import { getRegistryCredential } from "@ploydok/db/queries"
 import { env } from "../../env"
@@ -1502,5 +1502,17 @@ export async function handleDeploy(
     cleanupQueue.add("cleanup.build", { appId, buildId }).catch((enqErr) => {
       log.warn({ enqErr, buildId }, "failed to push cleanup.build to BullMQ")
     })
+
+    // Fire-and-forget: enqueue async log archive into DB. jobId is
+    // deterministic so a worker retry doesn't enqueue duplicates.
+    logArchiveQueue
+      .add(
+        "archive",
+        { buildId },
+        { jobId: `archive:${buildId}` }
+      )
+      .catch((enqErr) => {
+        log.warn({ enqErr, buildId }, "failed to push logs.archive to BullMQ")
+      })
   }
 }
