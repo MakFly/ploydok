@@ -146,7 +146,35 @@ export async function fetchEventWebhook(
   url: string,
   init: RequestInit
 ): Promise<Response> {
-  const response = await fetch(url, { ...init, redirect: "manual" })
+  const parsed = new URL(url)
+  const originalHost = parsed.host
+  const hostname = normalizeHostname(parsed.hostname)
+
+  if (isIP(hostname) === 0) {
+    const addresses = await lookup(hostname, { all: true, verbatim: true })
+    if (
+      addresses.length === 0 ||
+      addresses.some((address) => isBlockedIpAddress(address.address))
+    ) {
+      throw new Error("Webhook URL resolves to a blocked private address")
+    }
+
+    // WHY: resolve immediately before dispatch and send the request to the
+    // chosen IP so a DNS rebinding change between validation and fetch cannot
+    // redirect the connection to a private address. The original Host header is
+    // preserved for virtual hosts.
+    parsed.hostname = addresses[0]!.address
+  } else if (isBlockedIpAddress(hostname)) {
+    throw new Error("Webhook URL points to a blocked private address")
+  }
+
+  const headers = new Headers(init.headers)
+  headers.set("Host", originalHost)
+  const response = await fetch(parsed.toString(), {
+    ...init,
+    headers,
+    redirect: "manual",
+  })
   if (response.status >= 300 && response.status < 400) {
     throw new Error(WEBHOOK_REDIRECT_ERROR)
   }

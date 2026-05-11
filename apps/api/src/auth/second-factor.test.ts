@@ -11,6 +11,7 @@ import { requireTotpVerified, SECOND_FACTOR_COOKIE, buildSecondFactorCookie } fr
 import { generateSecret } from "./totp"
 import { saveTotpSecret, markTotpVerified } from "./totp-storage"
 import { computeCode } from "./totp"
+import { resetAllTotpFailuresForTests } from "./totp-throttle"
 
 const skip = !TEST_PG_URL
 if (skip) console.log("[second-factor.test] PLOYDOK_TEST_PG_URL not set — skipping")
@@ -72,6 +73,7 @@ describe.skipIf(skip)("requireTotpVerified middleware", () => {
   beforeEach(async () => {
     const result = await makeTestDb()
     db = result.db
+    resetAllTotpFailuresForTests()
   })
 
   it("403 if neither cookie nor header", async () => {
@@ -187,6 +189,27 @@ describe.skipIf(skip)("requireTotpVerified middleware", () => {
     expect(res.status).toBe(403)
     const body = await res.json() as { code: string }
     expect(body.code).toBe("totp_required")
+  })
+
+  it("rate-limits TOTP brute-force after 5 invalid attempts", async () => {
+    const { userId, token } = await makeUser(db)
+    await enrollTotp(db, userId)
+    const app = await makeApp(db)
+
+    for (let index = 0; index < 5; index += 1) {
+      const res = await app.request("/secure", {
+        headers: authHeaders(token, { "X-TOTP-Code": "000000" }),
+      })
+      expect(res.status).toBe(403)
+    }
+
+    const locked = await app.request("/secure", {
+      headers: authHeaders(token, { "X-TOTP-Code": "000000" }),
+    })
+    expect(locked.status).toBe(429)
+    expect(locked.headers.get("Retry-After")).toBeTruthy()
+    const body = (await locked.json()) as { error: { code: string } }
+    expect(body.error.code).toBe("TOTP_LOCKED")
   })
 
   it("200 if cookie is valid and fresh (no TOTP re-check needed)", async () => {

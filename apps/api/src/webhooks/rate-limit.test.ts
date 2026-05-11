@@ -1,7 +1,11 @@
 // SPDX-License-Identifier: AGPL-3.0-only
 import { describe, it, expect, beforeEach, afterAll } from "bun:test"
 import { Hono } from "hono"
-import { createRateLimiter, checkRateLimit } from "./rate-limit"
+import {
+  createRateLimiter,
+  checkRateLimit,
+  rateLimitKeyFromProviderHeaderOrIp,
+} from "./rate-limit"
 
 class MemoryRedis {
   private readonly sets = new Map<string, Map<string, number>>()
@@ -211,6 +215,65 @@ describe("createRateLimiter middleware", () => {
       const res = await app.request("/ping")
       expect(res.status).toBe(200)
     }
+  })
+
+  it("rate-limits by IP when the provider header is absent", async () => {
+    const app = new Hono()
+    const limiter = createRateLimiter({
+      redis: redis as never,
+      windowSec: 60,
+      max: 2,
+      keyPrefix: `${PREFIX}:mw-ip-fallback`,
+      keyFrom: (c) =>
+        rateLimitKeyFromProviderHeaderOrIp(
+          c,
+          "x-github-hook-installation-target-id",
+          (value) => /^\d+$/.test(value),
+        ),
+    })
+    app.use("*", limiter)
+    app.post("/webhook", (c) => c.json({ ok: true }))
+
+    for (let index = 0; index < 2; index += 1) {
+      const res = await app.request("/webhook", {
+        method: "POST",
+        headers: { "x-forwarded-for": "203.0.113.10" },
+      })
+      expect(res.status).toBe(200)
+    }
+
+    const blocked = await app.request("/webhook", {
+      method: "POST",
+      headers: { "x-forwarded-for": "203.0.113.10" },
+    })
+    expect(blocked.status).toBe(429)
+  })
+
+  it("uses stricter limits when neither provider header nor IP is available", async () => {
+    const app = new Hono()
+    const limiter = createRateLimiter({
+      redis: redis as never,
+      windowSec: 60,
+      max: 100,
+      keyPrefix: `${PREFIX}:mw-unknown-fallback`,
+      keyFrom: (c) =>
+        rateLimitKeyFromProviderHeaderOrIp(
+          c,
+          "x-github-hook-installation-target-id",
+          (value) => /^\d+$/.test(value),
+        ),
+    })
+    app.use("*", limiter)
+    app.post("/webhook", (c) => c.json({ ok: true }))
+
+    for (let index = 0; index < 10; index += 1) {
+      const res = await app.request("/webhook", { method: "POST" })
+      expect(res.status).toBe(200)
+    }
+
+    const blocked = await app.request("/webhook", { method: "POST" })
+    expect(blocked.status).toBe(429)
+    expect(blocked.headers.get("X-RateLimit-Limit")).toBe("10")
   })
 
   it("purges old entries after window expires, allowing new requests", async () => {

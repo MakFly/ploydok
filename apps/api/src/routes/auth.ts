@@ -54,7 +54,11 @@ import {
   deleteTotpSecret,
 } from "../auth/totp-storage"
 import { generateSecret, buildOtpauthUrl, verifyCode } from "../auth/totp"
-import { requireTotpVerified } from "../auth/second-factor"
+import {
+  clearTotpVerificationFailures,
+  recordTotpVerificationFailure,
+  requireTotpVerified,
+} from "../auth/second-factor"
 // AuthenticatorTransportFuture is re-exported from @simplewebauthn/server internals
 // We use a simple string type alias to avoid the missing @simplewebauthn/types package
 type AuthenticatorTransportFuture =
@@ -967,11 +971,11 @@ export function createAuthRouter(db: Db): Hono {
 
       options = await generateAuthOptions({
         allowCredentials,
-        userVerification: "preferred",
+        userVerification: "required",
       })
     } else {
       // Usernameless or user not found — don't reveal non-existence
-      options = await generateAuthOptions({ userVerification: "preferred" })
+      options = await generateAuthOptions({ userVerification: "required" })
     }
 
     const challengeKey = userId
@@ -1046,7 +1050,7 @@ export function createAuthRouter(db: Db): Hono {
             passkey.transports
           ) as AuthenticatorTransportFuture[],
         },
-        requireUserVerification: false,
+        requireUserVerification: true,
       })
     } catch (err) {
       return c.json(
@@ -1162,8 +1166,8 @@ export function createAuthRouter(db: Db): Hono {
     const sessionId = refreshCookie.slice(0, colonIdx)
     const rawToken = refreshCookie.slice(colonIdx + 1)
 
-    const session = await Sessions.verifyRefreshToken(db, sessionId, rawToken)
-    if (!session) {
+    const rejectReplay = async () => {
+      await Sessions.revokeSessionFamily(db, sessionId)
       return c.json(
         {
           error: {
@@ -1175,7 +1179,19 @@ export function createAuthRouter(db: Db): Hono {
       )
     }
 
-    const newRefreshToken = await Sessions.rotateRefreshToken(db, sessionId)
+    const session = await Sessions.verifyRefreshToken(db, sessionId, rawToken)
+    if (!session) {
+      return rejectReplay()
+    }
+
+    const newRefreshToken = await Sessions.rotateRefreshToken(
+      db,
+      sessionId,
+      session.refresh_token_hash
+    )
+    if (!newRefreshToken) {
+      return rejectReplay()
+    }
 
     const userRows = await db
       .select()
@@ -1493,6 +1509,20 @@ export function createAuthRouter(db: Db): Hono {
 
     const code = String(body.code ?? "")
     if (!verifyCode(totpRow.secret, code, { window: 1 })) {
+      const throttle = await recordTotpVerificationFailure(db, user.id, "enrollment")
+      if (throttle.locked) {
+        c.header("Retry-After", String(throttle.retryAfterSec))
+        return c.json(
+          {
+            error: {
+              code: "TOTP_LOCKED",
+              message: "Too many invalid TOTP attempts. Try again later.",
+            },
+          },
+          429
+        )
+      }
+
       return c.json(
         { error: { code: "INVALID_CODE", message: "Invalid TOTP code" } },
         400
@@ -1500,6 +1530,7 @@ export function createAuthRouter(db: Db): Hono {
     }
 
     await markTotpVerified(db, user.id)
+    clearTotpVerificationFailures(user.id)
     return c.json({ ok: true })
   })
 

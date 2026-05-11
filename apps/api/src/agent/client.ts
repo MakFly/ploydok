@@ -1,6 +1,9 @@
 // SPDX-License-Identifier: AGPL-3.0-only
 import * as grpc from "@grpc/grpc-js"
 import { AgentClient } from "@ploydok/agent-proto"
+import { childLogger } from "../logger"
+
+const log = childLogger("agent.client")
 
 export interface AgentClientOptions {
   /**
@@ -34,6 +37,18 @@ function defaultAddress(): string | null {
   return process.env["PLOYDOK_AGENT_ADDR"] ?? null
 }
 
+function isProductionAgentMode(): boolean {
+  return (
+    process.env["NODE_ENV"] === "production" ||
+    process.env["NODE_ENV"] === "prod" ||
+    process.env["PLOYDOK_AGENT_REQUIRE_MTLS"] === "1"
+  )
+}
+
+function isUnixAddress(address: string): boolean {
+  return address.startsWith("unix:")
+}
+
 /**
  * Crée un AgentClient gRPC connecté au socket Unix de l'agent.
  *
@@ -46,6 +61,20 @@ export function createAgentClient(opts: AgentClientOptions = {}): AgentClient {
     opts.address ??
     defaultAddress() ??
     `unix://${opts.socketPath ?? defaultSocketPath()}`
+
+  if (!opts.credentials && !isUnixAddress(address) && isProductionAgentMode()) {
+    throw new Error(
+      "Ploydok agent TCP address requires mTLS credentials in production",
+    )
+  }
+
+  if (!opts.credentials && !isUnixAddress(address)) {
+    if (process.env["PLOYDOK_AGENT_INSECURE"] === "1") {
+      log.warn({ address }, "agent mTLS disabled by PLOYDOK_AGENT_INSECURE=1")
+    } else {
+      log.warn({ address }, "agent mTLS disabled; using insecure dev channel")
+    }
+  }
 
   const credentials = opts.credentials ?? grpc.credentials.createInsecure()
 

@@ -4,10 +4,13 @@ import {
   createSession,
   verifyRefreshToken,
   revokeSession,
+  revokeSessionFamily,
   listSessions,
   revokeOtherSessions,
   rotateRefreshToken,
 } from "./sessions";
+import { sessions } from "@ploydok/db";
+import { eq } from "drizzle-orm";
 import { users } from "@ploydok/db";
 import type { Db } from "@ploydok/db";
 import { nanoid } from "nanoid";
@@ -104,7 +107,11 @@ describe.skipIf(skip)("sessions", () => {
       ip: "127.0.0.1",
     });
 
-    const newToken = await rotateRefreshToken(db, sessionId);
+    const session = await verifyRefreshToken(db, sessionId, oldToken);
+    expect(session).not.toBeNull();
+
+    const newToken = await rotateRefreshToken(db, sessionId, session!.refresh_token_hash);
+    expect(newToken).not.toBeNull();
     expect(newToken).not.toBe(oldToken);
 
     // Old token no longer valid
@@ -112,7 +119,40 @@ describe.skipIf(skip)("sessions", () => {
     expect(oldResult).toBeNull();
 
     // New token valid
-    const newResult = await verifyRefreshToken(db, sessionId, newToken);
+    const newResult = await verifyRefreshToken(db, sessionId, newToken!);
     expect(newResult).not.toBeNull();
+  });
+
+  it("rotateRefreshToken allows only one concurrent compare-and-swap winner", async () => {
+    const { sessionId, refreshToken } = await createSession(db, {
+      userId,
+      userAgent: "A",
+      ip: "127.0.0.1",
+    });
+    const session = await verifyRefreshToken(db, sessionId, refreshToken);
+    expect(session).not.toBeNull();
+
+    const [first, second] = await Promise.all([
+      rotateRefreshToken(db, sessionId, session!.refresh_token_hash),
+      rotateRefreshToken(db, sessionId, session!.refresh_token_hash),
+    ]);
+
+    expect([first, second].filter((token) => token !== null)).toHaveLength(1);
+    expect([first, second].filter((token) => token === null)).toHaveLength(1);
+  });
+
+  it("revokeSessionFamily revokes the active refresh-token lineage", async () => {
+    const { sessionId, refreshToken } = await createSession(db, {
+      userId,
+      userAgent: "A",
+      ip: "127.0.0.1",
+    });
+
+    await revokeSessionFamily(db, sessionId);
+
+    const result = await verifyRefreshToken(db, sessionId, refreshToken);
+    expect(result).toBeNull();
+    const rows = await db.select().from(sessions).where(eq(sessions.id, sessionId)).limit(1);
+    expect(rows[0]?.revoked_at).toBeInstanceOf(Date);
   });
 });

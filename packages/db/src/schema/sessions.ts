@@ -12,6 +12,7 @@ export const sessions = pgTable('sessions', {
   ip: text('ip').notNull(),
   created_at: timestamp('created_at', { withTimezone: true, mode: 'date' }).notNull(),
   last_seen_at: timestamp('last_seen_at', { withTimezone: true, mode: 'date' }).notNull(),
+  rotated_at: timestamp('rotated_at', { withTimezone: true, mode: 'date' }),
   revoked_at: timestamp('revoked_at', { withTimezone: true, mode: 'date' }),
   expires_at: timestamp('expires_at', { withTimezone: true, mode: 'date' }).notNull(),
 });
