@@ -15,6 +15,7 @@ import { createDb, type Db } from "@ploydok/db"
 import { reconcileIngressOnce } from "./services/ingress-reconcile.js"
 import { bootstrapSetupToken } from "./auth/setup-token"
 import { reconcileRuntimeAppsOnBoot } from "./services/app-runtime-reconciler.js"
+import { reconcileSwarmProjectNetworks } from "./services/projects.js"
 import { migrateDockerAppsToSwarmOnBoot } from "./services/swarm-migration.js"
 
 const log = childLogger("boot")
@@ -85,6 +86,13 @@ async function bootInfra(db: Db): Promise<void> {
     } else {
       log.warn({ err }, "networkCreate ploydok-ingress failed (non-fatal)")
     }
+  }
+
+  try {
+    const result = await reconcileSwarmProjectNetworks(db, agent)
+    log.info(result, "project swarm network reconcile complete")
+  } catch (err) {
+    log.warn({ err }, "project swarm network reconcile failed (non-fatal)")
   }
 
   try {

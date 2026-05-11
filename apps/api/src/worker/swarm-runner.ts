@@ -18,7 +18,10 @@ import { CaddyClient } from "../caddy/client.js"
 import { ensureCaddyOnProjectNetwork } from "../caddy/attachment.js"
 import { getSharedAgent } from "../debug/singletons.js"
 import { listRuntimeAppVolumeMounts } from "../services/app-volumes.js"
-import { ensureProjectSwarmNetwork } from "../services/projects.js"
+import {
+  ensureProjectDatabasesOnSwarmNetwork,
+  ensureProjectSwarmNetwork,
+} from "../services/projects.js"
 import { purgeCloudflareForApp } from "../cloudflare/purge.js"
 import { logBus } from "./log-bus.js"
 import { workerLog } from "./logger.js"
@@ -212,7 +215,14 @@ export async function runSwarmDeploy(
     }
 
     const network = await ensureProjectSwarmNetwork(db, app.project_id)
-    await ensureCaddyOnProjectNetwork(getSharedAgent(), network)
+    const sharedAgent = getSharedAgent()
+    await ensureProjectDatabasesOnSwarmNetwork(
+      db,
+      app.project_id,
+      network,
+      sharedAgent
+    )
+    await ensureCaddyOnProjectNetwork(sharedAgent, network)
     const resourceLimits = resolveResourceLimits(app)
     const containerEnv = {
       ...opts.env,
