@@ -9,8 +9,8 @@ import {
 } from "@remixicon/react"
 import { ShellPage } from "../../components/layout/AppShell"
 import { changelogEntries } from "../../content/changelog"
-import type { ChangelogEntry } from "../../content/changelog"
 import { APP_VERSION } from "../../lib/hooks/use-unseen-release"
+import type { ChangelogEntry } from "../../content/changelog"
 
 export const Route = createFileRoute("/_authed/changelog")({
   component: ChangelogPage,
@@ -33,11 +33,10 @@ function ChangelogPage(): React.JSX.Element {
                 Current release
               </p>
               <h1 className="text-2xl font-semibold tracking-tight">
-                {latest?.title ?? "Changelog"}
+                {latest.title}
               </h1>
               <p className="text-sm leading-6 text-muted-foreground">
-                {latest?.summary ??
-                  "Les changements produit sont documentés en Markdown et affichés ici dans l'ordre de livraison."}
+                {latest.summary}
               </p>
             </div>
             <div className="grid min-w-[220px] gap-2 rounded-md border border-border bg-background p-3 text-sm">
