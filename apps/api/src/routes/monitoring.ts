@@ -27,7 +27,7 @@ import {
   type PlanName,
 } from "@ploydok/shared"
 import { apps, databases, projects, memberships } from "@ploydok/db"
-import { and, eq, isNotNull } from "drizzle-orm"
+import { and, eq, inArray, isNotNull, isNull, ne, or } from "drizzle-orm"
 import { resolveAppOwner } from "@ploydok/db/queries"
 import { createDb } from "@ploydok/db"
 import { env } from "../env"
@@ -37,6 +37,7 @@ import type { AuthUser } from "../auth/middleware"
 import type { Agent } from "../agent/wrapper"
 
 const log = childLogger("monitoring")
+const LIVE_APP_RUNTIME_STATUSES = new Set(["running", "starting", "unhealthy"])
 
 // Erreur agent — payload stable pour /overview quand l'agent est injoignable.
 function agentErrorPayload(err: unknown): { code: string; message: string } {
@@ -370,7 +371,8 @@ export async function monitoringTick(
   resolveOwner: (
     kind: ContainerKind | undefined,
     runtimeId: string
-  ) => Promise<string | null>
+  ) => Promise<string | null>,
+  syncAppRuntime?: (container: ContainerSnapshot) => Promise<void>
 ): Promise<void> {
   const now = Date.now()
   const { containers: protoContainers } = await agent.listContainers({
@@ -408,6 +410,17 @@ export async function monitoringTick(
       (prevStatus !== undefined && prevStatus !== currentStatus) ||
       (prevStatus === undefined && currentStatus === "running")
 
+    if (container.kind === "app" && container.app_id && syncAppRuntime) {
+      try {
+        await syncAppRuntime(container)
+      } catch (err) {
+        log.warn(
+          { appId: container.app_id, containerId: container.id, err },
+          "app runtime status sync failed during monitoring tick"
+        )
+      }
+    }
+
     if (
       shouldEmit &&
       container.app_id &&
@@ -441,6 +454,33 @@ export async function monitoringTick(
   }
 }
 
+async function syncLiveAppRuntime(
+  db: ReturnType<typeof createDb>,
+  container: ContainerSnapshot
+): Promise<void> {
+  if (!container.app_id || container.kind !== "app") return
+  if (!LIVE_APP_RUNTIME_STATUSES.has(container.status)) return
+
+  await db
+    .update(apps)
+    .set({
+      status: "running",
+      container_id: container.name || container.id,
+      updated_at: new Date(),
+    })
+    .where(
+      and(
+        eq(apps.id, container.app_id),
+        inArray(apps.status, ["running", "failed", "stopped", "restarting"]),
+        or(
+          ne(apps.status, "running"),
+          isNull(apps.container_id),
+          ne(apps.container_id, container.name || container.id)
+        )
+      )
+    )
+}
+
 export function startMonitoringLoop(db: ReturnType<typeof createDb>): void {
   if (loopHandle !== null) return
 
@@ -453,7 +493,8 @@ export function startMonitoringLoop(db: ReturnType<typeof createDb>): void {
       agent,
       eventBus.publish.bind(eventBus),
       prevById,
-      resolveOwner
+      resolveOwner,
+      (container) => syncLiveAppRuntime(db, container)
     )
       .then(() => {
         if (consecutiveFailures > 0) {

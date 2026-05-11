@@ -121,6 +121,7 @@ fn rand_short_id() -> String {
 #[cfg(test)]
 mod tests {
     use super::*;
+    use ed25519_dalek::{Verifier, VerifyingKey};
     use tempfile::TempDir;
 
     #[test]

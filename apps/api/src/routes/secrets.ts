@@ -15,6 +15,7 @@ import { getAppForUser } from "@ploydok/db/queries"
 import { encryptSecret, decryptSecret } from "../secrets/crypto"
 import { requireTotpVerified } from "../auth/second-factor"
 import { childLogger } from "../logger"
+import { sanitizeFrameworkEnvValues } from "../services/framework-env"
 import type { AuthUser } from "../auth/middleware"
 
 const execFileAsync = promisify(execFile)
@@ -617,7 +618,16 @@ export function createSecretsRouter(db: Db): Hono<any, any, any> {
       rawContent = await c.req.text()
     }
 
-    const parsed = parseDotenv(rawContent, defaultScope, defaultPhase)
+    const parsedRaw = parseDotenv(rawContent, defaultScope, defaultPhase)
+    const sanitized = sanitizeFrameworkEnvValues(
+      null,
+      Object.fromEntries(parsedRaw.map((item) => [item.key, item.value]))
+    )
+    const parsed = parsedRaw.map((item) =>
+      sanitized.repaired.includes(item.key)
+        ? { ...item, value: sanitized.values[item.key] ?? item.value }
+        : item
+    )
     if (parsed.length === 0 && mode === "merge") {
       return c.json({ imported: 0, removed: 0 })
     }

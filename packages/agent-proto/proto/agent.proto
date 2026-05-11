@@ -610,6 +610,7 @@ message ServiceUpdateImageRequest {
   string update_order = 7;
   string failure_action = 8;
   RegistryAuth registry_auth = 9;
+  SwarmServiceSpec spec = 10;
 }
 
 message ServiceUpdateImageResponse {

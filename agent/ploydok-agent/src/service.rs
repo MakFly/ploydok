@@ -1786,25 +1786,30 @@ impl Agent for AgentService {
             .await
             .map_err(|e| bollard_err("inspect_service", e))?;
         let version = current.version.and_then(|v| v.index).unwrap_or(0);
-        let mut spec = current.spec.unwrap_or_default();
-        if let Some(mode) = spec.mode.as_mut() {
-            if let Some(replicated) = mode.replicated.as_mut() {
-                replicated.replicas = Some(req.replicas.max(1) as i64);
+        let spec = if let Some(next_spec) = req.spec.as_ref() {
+            build_swarm_service_spec(next_spec)
+        } else {
+            let mut spec = current.spec.unwrap_or_default();
+            if let Some(mode) = spec.mode.as_mut() {
+                if let Some(replicated) = mode.replicated.as_mut() {
+                    replicated.replicas = Some(req.replicas.max(1) as i64);
+                }
             }
-        }
-        if let Some(task) = spec.task_template.as_mut() {
-            if let Some(container) = task.container_spec.as_mut() {
-                container.image = Some(req.image.clone());
+            if let Some(task) = spec.task_template.as_mut() {
+                if let Some(container) = task.container_spec.as_mut() {
+                    container.image = Some(req.image.clone());
+                }
             }
-        }
-        spec.update_config = Some(ServiceSpecUpdateConfig {
-            parallelism: Some(req.update_parallelism.max(1) as i64),
-            delay: healthcheck_nanos(req.update_delay_seconds as i64),
-            monitor: healthcheck_nanos(req.update_monitor_seconds as i64),
-            failure_action: Some(swarm_failure_action(&req.failure_action)),
-            order: Some(swarm_update_order(&req.update_order)),
-            max_failure_ratio: Some(0.0),
-        });
+            spec.update_config = Some(ServiceSpecUpdateConfig {
+                parallelism: Some(req.update_parallelism.max(1) as i64),
+                delay: healthcheck_nanos(req.update_delay_seconds as i64),
+                monitor: healthcheck_nanos(req.update_monitor_seconds as i64),
+                failure_action: Some(swarm_failure_action(&req.failure_action)),
+                order: Some(swarm_update_order(&req.update_order)),
+                max_failure_ratio: Some(0.0),
+            });
+            spec
+        };
 
         let updated = self
             .docker

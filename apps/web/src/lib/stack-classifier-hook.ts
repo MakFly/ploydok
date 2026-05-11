@@ -3,19 +3,29 @@ import { useQuery } from "@tanstack/react-query";
 import {
   ALL_PROBE_KEYS,
   ENV_FILE_PROBE_KEYS,
-  classifyStack,
-
-
-  parseEnvFile
+  MANIFEST_FILE_PROBE_KEYS,
+  classifyStackWithManifests,
+  parseEnvFile,
 } from "@ploydok/shared";
 import { apiFetch } from "./api";
-import type {ParsedEnvVar, ProbeResults, StackClassification} from "@ploydok/shared";
+import type {
+  ManifestContents,
+  ManifestProbeKey,
+  ParsedEnvVar,
+  ProbeResults,
+  StackClassification,
+} from "@ploydok/shared";
 import type { ApiError } from "./api";
 
 type Source = "github" | "gitlab";
 
 interface FileExistsBatchResponse {
   files: Record<string, boolean>;
+}
+
+interface ManifestFileResponse {
+  path: string;
+  content: string;
 }
 
 function buildFilesExistUrl(
@@ -38,24 +48,43 @@ function buildFilesExistUrl(
   return `/gitlab/repos/${encodeURIComponent(fullName)}/files-exist?${params.toString()}`;
 }
 
+function buildManifestFileUrl(
+  source: Source,
+  fullName: string,
+  path: ManifestProbeKey,
+  ref: string,
+): string {
+  const params = new URLSearchParams({ path, ref });
+
+  if (source === "github") {
+    const [owner, repo] = fullName.split("/");
+    return `/github/repos/${encodeURIComponent(owner ?? "")}/${encodeURIComponent(
+      repo ?? "",
+    )}/manifest-file?${params.toString()}`;
+  }
+
+  return `/gitlab/repos/${encodeURIComponent(fullName)}/manifest-file?${params.toString()}`;
+}
+
 async function runProbes(
   source: Source,
   fullName: string,
   ref: string,
-): Promise<ProbeResults> {
+): Promise<{ probes: ProbeResults; files: Record<string, boolean> }> {
+  const paths = Array.from(new Set([...ALL_PROBE_KEYS, ...MANIFEST_FILE_PROBE_KEYS]));
   try {
     const res = await apiFetch<FileExistsBatchResponse>(
-      buildFilesExistUrl(source, fullName, ALL_PROBE_KEYS, ref),
+      buildFilesExistUrl(source, fullName, paths, ref),
     );
     const out: ProbeResults = {};
     for (const key of ALL_PROBE_KEYS) {
       if (res.files[key] === true) out[key] = true;
     }
-    return out;
+    return { probes: out, files: res.files };
   } catch {
     // Probe failures (404, network) are treated as "not present" — classifier will
     // handle missing signals gracefully.
-    return {};
+    return { probes: {}, files: {} };
   }
 }
 
@@ -64,8 +93,26 @@ export async function runStackClassificationProbes(
   fullName: string,
   ref: string,
 ): Promise<{ probes: ProbeResults; classification: StackClassification }> {
-  const probes = await runProbes(source, fullName, ref);
-  const classification = classifyStack(probes);
+  const { probes, files } = await runProbes(source, fullName, ref);
+  const manifestEntries = await Promise.all(
+    MANIFEST_FILE_PROBE_KEYS.map(async (path) => {
+      if (files[path] !== true) return null;
+      try {
+        const response = await apiFetch<ManifestFileResponse>(
+          buildManifestFileUrl(source, fullName, path, ref),
+        );
+        return [path, response.content] as const;
+      } catch {
+        return null;
+      }
+    }),
+  );
+  const manifests: ManifestContents = Object.fromEntries(
+    manifestEntries.filter((entry): entry is [ManifestProbeKey, string] =>
+      Boolean(entry),
+    ),
+  );
+  const classification = classifyStackWithManifests(probes, manifests);
   return { probes, classification };
 }
 

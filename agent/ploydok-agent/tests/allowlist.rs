@@ -231,6 +231,7 @@ fn test_network_create_macvlan_is_denied() {
         name: "ploydok-net-macvlan".to_string(),
         driver: "macvlan".to_string(),
         labels: Default::default(),
+        attachable: false,
     };
 
     let err = v.validate_network_create(&req).unwrap_err();
@@ -311,6 +312,7 @@ fn test_valid_network_create_bridge_passes() {
         name: "ploydok-app-net".to_string(),
         driver: "bridge".to_string(),
         labels: Default::default(),
+        attachable: false,
     };
     assert!(v.validate_network_create(&req).is_ok());
 }
@@ -333,6 +335,7 @@ fn test_network_create_host_driver_denied() {
         name: "ploydok-hostnet".to_string(),
         driver: "host".to_string(),
         labels: Default::default(),
+        attachable: false,
     };
     let err = v.validate_network_create(&req).unwrap_err();
     assert_eq!(err.code(), Code::PermissionDenied);

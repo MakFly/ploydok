@@ -283,6 +283,7 @@ export async function runSwarmDeploy(
         {
           serviceName,
           image: imageRef,
+          spec,
           replicas,
           updateParallelism: spec.updateParallelism,
           updateDelaySeconds: spec.updateDelaySeconds,

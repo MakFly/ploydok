@@ -25,10 +25,11 @@ import {
   HealthcheckConfigSchema,
   ImagePullPolicySchema,
   RestartPolicySchema,
-  classifyStack,
   ALL_PROBE_KEYS,
+  MANIFEST_FILE_PROBE_KEYS,
+  classifyStackWithManifests,
 } from "@ploydok/shared"
-import type { StackClassification } from "@ploydok/shared"
+import type { ManifestContents, StackClassification } from "@ploydok/shared"
 import {
   getAppActivity,
   getAppForUser,
@@ -1053,8 +1054,11 @@ export function createAppsRouter(db: Db): Hono {
     if (shouldAutoInject) {
       try {
         const probeResults: Record<string, boolean> = {}
+        const probeKeys = Array.from(
+          new Set([...ALL_PROBE_KEYS, ...MANIFEST_FILE_PROBE_KEYS])
+        )
         await Promise.all(
-          ALL_PROBE_KEYS.map(async (key) => {
+          probeKeys.map(async (key) => {
             try {
               probeResults[key] = await ghProvider.fileExists(
                 body.installationId!,
@@ -1067,7 +1071,26 @@ export function createAppsRouter(db: Db): Hono {
             }
           })
         )
-        const baseClassification = classifyStack(probeResults)
+        const manifests: ManifestContents = {}
+        await Promise.all(
+          MANIFEST_FILE_PROBE_KEYS.map(async (key) => {
+            if (!probeResults[key]) return
+            try {
+              manifests[key] = await ghProvider.readFile(
+                body.installationId!,
+                body.repoFullName!,
+                key,
+                body.branch!
+              )
+            } catch {
+              // best-effort manifest enrichment
+            }
+          })
+        )
+        const baseClassification = classifyStackWithManifests(
+          probeResults,
+          manifests
+        )
         const classification =
           resolvedBuildMethod === "nixpacks" ||
           resolvedBuildMethod === "railpack"
@@ -1076,19 +1099,24 @@ export function createAppsRouter(db: Db): Hono {
                 probeResults
               )
             : baseClassification
-        const { injected, skipped } = await ensureFrameworkEnvVars({
+        const { injected, skipped, repaired } = await ensureFrameworkEnvVars({
           db,
           appId: id,
           projectId,
           classification,
         })
-        if (injected.length > 0 || skipped.length > 0) {
+        if (
+          injected.length > 0 ||
+          skipped.length > 0 ||
+          repaired.length > 0
+        ) {
           childLogger("apps-autoinject").info(
             {
               appId: id,
               stack: classification.stack,
               injected,
               skipped,
+              repaired,
             },
             "auto-inject env vars for detected framework (user values preserved)"
           )

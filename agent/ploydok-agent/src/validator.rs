@@ -827,12 +827,30 @@ impl Validator for StrictValidator {
 
     fn validate_service_update_image(&self, req: &ServiceUpdateImageRequest) -> ValidatorResult {
         validate_service_name(&req.service_name)?;
-        let registry = extract_registry(&req.image);
+        if let Some(spec) = req.spec.as_ref() {
+            self.validate_service_create(spec)?;
+            if spec.name != req.service_name {
+                return Err(deny(
+                    tonic::Code::InvalidArgument,
+                    "service_name_mismatch",
+                    serde_json::json!({
+                        "service_name": &req.service_name,
+                        "spec_name": &spec.name
+                    }),
+                ));
+            }
+        }
+        let image = req
+            .spec
+            .as_ref()
+            .map(|spec| spec.image.as_str())
+            .unwrap_or(req.image.as_str());
+        let registry = extract_registry(image);
         if !self.cfg.allowed_registries.iter().any(|r| r == registry) {
             return Err(deny(
                 tonic::Code::PermissionDenied,
                 "image_registry_allowlist",
-                serde_json::json!({ "image": &req.image, "registry": registry }),
+                serde_json::json!({ "image": image, "registry": registry }),
             ));
         }
         Ok(())

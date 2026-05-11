@@ -4,7 +4,7 @@ import { nanoid } from "nanoid"
 import { createHash, createHmac, randomBytes } from "node:crypto"
 import { z } from "zod"
 import { and, eq, notInArray, or } from "drizzle-orm"
-import { ENV_FILE_PROBE_KEYS } from "@ploydok/shared"
+import { ENV_FILE_PROBE_KEYS, MANIFEST_FILE_PROBE_KEYS } from "@ploydok/shared"
 import { createDb } from "@ploydok/db"
 import {
   deleteGitHubAppConfig,
@@ -75,6 +75,12 @@ function emptyFileProbeResult(
 
 function isAllowedEnvFilePath(path: string): boolean {
   return ENV_FILE_PROBE_KEYS.includes(path as (typeof ENV_FILE_PROBE_KEYS)[number])
+}
+
+function isAllowedManifestFilePath(path: string): boolean {
+  return MANIFEST_FILE_PROBE_KEYS.includes(
+    path as (typeof MANIFEST_FILE_PROBE_KEYS)[number]
+  )
 }
 
 const RESET_APP_CONFIRMATION = "uninstall-github-installations"
@@ -659,6 +665,48 @@ githubRouter.get("/repos/:owner/:repo/env-file", async (c) => {
       log.warn(
         { err, installationId: inst.id, fullName, filePath },
         "envFile read failed; trying next"
+      )
+    }
+  }
+
+  return c.json({ error: "repo_not_accessible", detail: fullName }, 404)
+})
+
+githubRouter.get("/repos/:owner/:repo/manifest-file", async (c) => {
+  const owner = c.req.param("owner")
+  const repo = c.req.param("repo")
+  const fullName = `${owner}/${repo}`
+  const filePath = c.req.query("path")?.trim() ?? ""
+  const ref = c.req.query("ref")?.trim() ?? ""
+
+  if (!filePath || !ref || !isAllowedManifestFilePath(filePath)) {
+    return c.json({ error: "missing_or_invalid_path_or_ref" }, 400)
+  }
+
+  const config = await getGitHubAppConfig(db)
+  if (!config) {
+    return c.json({ error: "github_app_not_configured" }, 503)
+  }
+
+  const installations = await listAppInstallations().catch(() => [])
+  const match = installations.find(
+    (i) => i.accountLogin.toLowerCase() === owner.toLowerCase()
+  )
+  const candidates = match ? [match] : installations
+
+  for (const inst of candidates) {
+    try {
+      const content = await ghProvider.readFile(
+        String(inst.id),
+        fullName,
+        filePath,
+        ref
+      )
+      return c.json({ path: filePath, content })
+    } catch (err) {
+      log.warn(
+        { err, installationId: inst.id, fullName, filePath },
+        "manifestFile read failed; trying next"
       )
     }
   }

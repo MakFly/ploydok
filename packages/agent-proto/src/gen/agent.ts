@@ -670,6 +670,7 @@ export interface ServiceUpdateImageRequest {
   updateOrder: string;
   failureAction: string;
   registryAuth: RegistryAuth | undefined;
+  spec: SwarmServiceSpec | undefined;
 }
 
 export interface ServiceUpdateImageResponse {
@@ -8122,6 +8123,7 @@ function createBaseServiceUpdateImageRequest(): ServiceUpdateImageRequest {
     updateOrder: "",
     failureAction: "",
     registryAuth: undefined,
+    spec: undefined,
   };
 }
 
@@ -8153,6 +8155,9 @@ export const ServiceUpdateImageRequest: MessageFns<ServiceUpdateImageRequest> = 
     }
     if (message.registryAuth !== undefined) {
       RegistryAuth.encode(message.registryAuth, writer.uint32(74).fork()).join();
+    }
+    if (message.spec !== undefined) {
+      SwarmServiceSpec.encode(message.spec, writer.uint32(82).fork()).join();
     }
     return writer;
   },
@@ -8236,6 +8241,14 @@ export const ServiceUpdateImageRequest: MessageFns<ServiceUpdateImageRequest> = 
           message.registryAuth = RegistryAuth.decode(reader, reader.uint32());
           continue;
         }
+        case 10: {
+          if (tag !== 82) {
+            break;
+          }
+
+          message.spec = SwarmServiceSpec.decode(reader, reader.uint32());
+          continue;
+        }
       }
       if ((tag & 7) === 4 || tag === 0) {
         break;
@@ -8284,6 +8297,7 @@ export const ServiceUpdateImageRequest: MessageFns<ServiceUpdateImageRequest> = 
         : isSet(object.registry_auth)
         ? RegistryAuth.fromJSON(object.registry_auth)
         : undefined,
+      spec: isSet(object.spec) ? SwarmServiceSpec.fromJSON(object.spec) : undefined,
     };
   },
 
@@ -8316,6 +8330,9 @@ export const ServiceUpdateImageRequest: MessageFns<ServiceUpdateImageRequest> = 
     if (message.registryAuth !== undefined) {
       obj.registryAuth = RegistryAuth.toJSON(message.registryAuth);
     }
+    if (message.spec !== undefined) {
+      obj.spec = SwarmServiceSpec.toJSON(message.spec);
+    }
     return obj;
   },
 
@@ -8334,6 +8351,9 @@ export const ServiceUpdateImageRequest: MessageFns<ServiceUpdateImageRequest> = 
     message.failureAction = object.failureAction ?? "";
     message.registryAuth = (object.registryAuth !== undefined && object.registryAuth !== null)
       ? RegistryAuth.fromPartial(object.registryAuth)
+      : undefined;
+    message.spec = (object.spec !== undefined && object.spec !== null)
+      ? SwarmServiceSpec.fromPartial(object.spec)
       : undefined;
     return message;
   },

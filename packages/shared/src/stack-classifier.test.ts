@@ -3,7 +3,9 @@
 import { describe, expect, it } from "bun:test"
 import {
   classifyStack,
+  classifyStackWithManifests,
   ENV_FILE_PROBE_KEYS,
+  frameworkGuardrailDefaults,
   type ProbeResults,
   type Stack,
   type BuildMethodRecommendation,
@@ -93,6 +95,30 @@ describe("classifyStack — PHP", () => {
     expect(r.confidence).toBe("medium")
     expect(r.recommendedBuild).toBe("nixpacks")
   })
+
+  it("Symfony via composer.json dependencies", () => {
+    const r = classifyStackWithManifests(probes(["composer.json"]), {
+      "composer.json": JSON.stringify({
+        require: { "symfony/framework-bundle": "^7.0" },
+      }),
+    })
+    expect(r.stack).toBe("symfony")
+    expect(r.framework).toBe("Symfony")
+    expect(r.suggestedEnvVars.APP_ENV).toBe("prod")
+  })
+
+  it("Laravel via composer.json dependencies", () => {
+    const r = classifyStackWithManifests(
+      probes(["composer.json", "package.json"]),
+      {
+        "composer.json": JSON.stringify({
+          require: { "laravel/framework": "^12.0" },
+        }),
+      }
+    )
+    expect(r.stack).toBe("laravel")
+    expect(r.suggestedEnvVars.NIXPACKS_NODE_VERSION).toBe("22")
+  })
 })
 
 describe("classifyStack — JS/TS frameworks", () => {
@@ -129,9 +155,34 @@ describe("classifyStack — JS/TS frameworks", () => {
     expect(r.warnings.join(" ")).toMatch(/NIXPACKS_NODE_VERSION/)
   })
 
+  it("Hono via package.json dependency", () => {
+    const r = classifyStackWithManifests(probes(["package.json"]), {
+      "package.json": JSON.stringify({ dependencies: { hono: "^4.0.0" } }),
+    })
+    expect(r.stack).toBe("hono")
+    expect(r.framework).toBe("Hono")
+    expect(r.suggestedEnvVars.NIXPACKS_NODE_VERSION).toBe("22")
+    expect(r.suggestedEnvVars.HOSTNAME).toBe("0.0.0.0")
+  })
+
   it("Deno standalone (no package.json)", () => {
     const r = classifyStack(probes(["deno.json"]))
     expect(r.stack).toBe("deno")
+  })
+})
+
+describe("frameworkGuardrailDefaults", () => {
+  it("returns runtime defaults for known frameworks", () => {
+    const hono = classifyStackWithManifests(probes(["package.json"]), {
+      "package.json": JSON.stringify({ dependencies: { hono: "^4.0.0" } }),
+    })
+    expect(frameworkGuardrailDefaults(hono).defaults.runtimePort).toBe(3000)
+
+    const symfony = classifyStack(probes(["composer.json", "symfony.lock"]))
+    expect(frameworkGuardrailDefaults(symfony).defaults.runtimePort).toBe(80)
+
+    const astro = classifyStack(probes(["package.json", "astro.config.mjs"]))
+    expect(frameworkGuardrailDefaults(astro).defaults.runtimePort).toBe(4321)
   })
 })
 
