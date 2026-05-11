@@ -556,6 +556,59 @@ export function AppBuildRuntimeSettings({
                 }))
               }
             />
+
+            <RuntimeSelectField
+              inputId="setting-runtime-mode"
+              label="Runtime mode"
+              value={formData.runtime?.runtimeMode ?? "swarm"}
+              editing={editing}
+              onChange={(value) =>
+                setFormData((previous) => ({
+                  ...previous,
+                  runtime: {
+                    ...previous.runtime,
+                    runtimeMode: value as "docker" | "swarm",
+                  },
+                }))
+              }
+            />
+
+            <PortField
+              inputId="setting-runtime-replicas"
+              label="Replicas"
+              placeholder="1"
+              value={formData.runtime?.replicas ?? 1}
+              editing={editing}
+              onChange={(value) =>
+                setFormData((previous) => ({
+                  ...previous,
+                  runtime: {
+                    ...previous.runtime,
+                    replicas: Math.max(1, value ?? 1),
+                  },
+                }))
+              }
+            />
+
+            <RuntimeSelectField
+              inputId="setting-update-order"
+              label="Update order"
+              value={formData.runtime?.updateOrder ?? "start-first"}
+              editing={editing}
+              options={[
+                { value: "start-first", label: "Start first" },
+                { value: "stop-first", label: "Stop first" },
+              ]}
+              onChange={(value) =>
+                setFormData((previous) => ({
+                  ...previous,
+                  runtime: {
+                    ...previous.runtime,
+                    updateOrder: value as "start-first" | "stop-first",
+                  },
+                }))
+              }
+            />
           </>
         )}
 
@@ -604,6 +657,17 @@ function formDataFromApp(app: AppDetail): AppSettingsPatch {
     staticOutputDir: app.staticOutputDir,
     staticSpaFallback: app.staticSpaFallback ?? true,
     runtimePort: app.runtimePort,
+    runtime: {
+      runtimeMode: app.runtime?.runtimeMode ?? "swarm",
+      swarmServiceName: app.runtime?.swarmServiceName ?? null,
+      replicas: app.runtime?.replicas ?? 1,
+      updateOrder: app.runtime?.updateOrder ?? "start-first",
+      updateParallelism: app.runtime?.updateParallelism ?? 1,
+      updateDelayS: app.runtime?.updateDelayS ?? 10,
+      updateMonitorS: app.runtime?.updateMonitorS ?? 30,
+      failureAction: app.runtime?.failureAction ?? "rollback",
+      stopGracePeriodS: app.runtime?.stopGracePeriodS ?? 10,
+    },
     healthcheckPath: app.healthcheckPath,
     healthcheckPort: app.healthcheckPort,
   }
@@ -746,6 +810,50 @@ function PortField({
         <ReadOnlyValue value={displayValue} placeholder={placeholder} mono />
       )}
       {hint ? <p className="text-xs text-muted-foreground">{hint}</p> : null}
+    </div>
+  )
+}
+
+function RuntimeSelectField({
+  inputId,
+  label,
+  value,
+  editing,
+  onChange,
+  options = [
+    { value: "swarm", label: "Swarm" },
+    { value: "docker", label: "Docker legacy" },
+  ],
+}: {
+  inputId: string
+  label: string
+  value: string
+  editing: boolean
+  onChange: (value: string) => void
+  options?: Array<FieldOption>
+}): React.JSX.Element {
+  const selected = options.find((option) => option.value === value)
+  return (
+    <div className="flex flex-col gap-1.5">
+      <Label htmlFor={inputId}>{label}</Label>
+      {editing ? (
+        <Select value={value} onValueChange={onChange}>
+          <SelectTrigger id={inputId} aria-label={label}>
+            <SelectValue />
+          </SelectTrigger>
+          <SelectContent>
+            <SelectGroup>
+              {options.map((option) => (
+                <SelectItem key={option.value} value={option.value}>
+                  {option.label}
+                </SelectItem>
+              ))}
+            </SelectGroup>
+          </SelectContent>
+        </Select>
+      ) : (
+        <ReadOnlyValue value={selected?.label ?? value} placeholder={options[0]?.label ?? ""} />
+      )}
     </div>
   )
 }

@@ -23,6 +23,7 @@ interface InsertBuildInput {
 interface UpdateBuildPatch {
   imageTag?: string
   containerId?: string
+  runtimeRef?: string
   startedAt?: Date
   finishedAt?: Date
   errorMessage?: string
@@ -68,6 +69,9 @@ export async function updateBuildStatus(
       ...(patch?.imageTag !== undefined && { image_tag: patch.imageTag }),
       ...(patch?.containerId !== undefined && {
         container_id: patch.containerId,
+      }),
+      ...(patch?.runtimeRef !== undefined && {
+        runtime_ref: patch.runtimeRef,
       }),
       ...(patch?.startedAt !== undefined && { started_at: patch.startedAt }),
       ...(patch?.finishedAt !== undefined && { finished_at: patch.finishedAt }),

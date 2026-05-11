@@ -8,8 +8,7 @@
 //                                                     total_size, truncated, is_binary }
 
 import { Hono } from "hono"
-import { eq } from "drizzle-orm"
-import { createDb, apps, audit_log } from "@ploydok/db"
+import { createDb, audit_log } from "@ploydok/db"
 import { getAppForOwner } from "@ploydok/db/queries"
 import { validateContainerPath } from "@ploydok/shared"
 import { env } from "../env"
@@ -17,6 +16,7 @@ import { requireAuth } from "../auth/middleware"
 import type { AuthUser } from "../auth/middleware"
 import { getSharedAgent } from "../debug/singletons"
 import { childLogger } from "../logger"
+import { resolveAppRuntimeContainerId } from "../services/runtime-target"
 
 const log = childLogger("apps-files")
 
@@ -46,12 +46,7 @@ async function resolveContainer(
   const owned = await getAppForOwner(db, appId, userId)
   if (!owned) return { ok: false, status: 401 }
 
-  const row = await db
-    .select({ container_id: apps.container_id })
-    .from(apps)
-    .where(eq(apps.id, appId))
-    .limit(1)
-  const containerId = row[0]?.container_id
+  const containerId = await resolveAppRuntimeContainerId(db, appId)
   if (!containerId) return { ok: false, status: 404 }
 
   return { ok: true, containerId }

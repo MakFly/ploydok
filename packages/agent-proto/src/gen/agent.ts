@@ -301,6 +301,8 @@ export interface NetworkCreateRequest {
   driver: string;
   /** Optional labels. */
   labels: { [key: string]: string };
+  /** Swarm overlay networks must be attachable so Caddy can join them. */
+  attachable: boolean;
 }
 
 export interface NetworkCreateRequest_LabelsEntry {
@@ -580,6 +582,140 @@ export interface HostStatsResponse {
   uptimeSeconds: number;
   /** Optional error message if a partial read failed. */
   error: string;
+}
+
+export interface SwarmInfoRequest {
+}
+
+export interface SwarmInfoResponse {
+  localNodeState: string;
+  controlAvailable: boolean;
+  nodeId: string;
+  nodeAddr: string;
+  nodes: number;
+  managers: number;
+  error: string;
+}
+
+export interface SwarmEnsureSingleNodeRequest {
+  advertiseAddr: string;
+}
+
+export interface SwarmEnsureSingleNodeResponse {
+  info: SwarmInfoResponse | undefined;
+  initialized: boolean;
+}
+
+export interface SwarmServiceMount {
+  hostPath: string;
+  containerPath: string;
+  readOnly: boolean;
+}
+
+export interface SwarmServiceHealthcheck {
+  test: string[];
+  intervalSeconds: number;
+  timeoutSeconds: number;
+  retries: number;
+  startPeriodSeconds: number;
+}
+
+export interface SwarmServiceSpec {
+  name: string;
+  image: string;
+  env: { [key: string]: string };
+  labels: { [key: string]: string };
+  networks: string[];
+  mounts: SwarmServiceMount[];
+  resourceLimits: ResourceLimits | undefined;
+  command: string[];
+  user: string;
+  healthcheck: SwarmServiceHealthcheck | undefined;
+  replicas: number;
+  runtimePort: number;
+  updateParallelism: number;
+  updateDelaySeconds: number;
+  updateMonitorSeconds: number;
+  updateOrder: string;
+  failureAction: string;
+  stopGracePeriodSeconds: number;
+}
+
+export interface SwarmServiceSpec_EnvEntry {
+  key: string;
+  value: string;
+}
+
+export interface SwarmServiceSpec_LabelsEntry {
+  key: string;
+  value: string;
+}
+
+export interface ServiceCreateRequest {
+  spec: SwarmServiceSpec | undefined;
+  registryAuth: RegistryAuth | undefined;
+}
+
+export interface ServiceCreateResponse {
+  serviceId: string;
+}
+
+export interface ServiceUpdateImageRequest {
+  serviceName: string;
+  image: string;
+  replicas: number;
+  updateParallelism: number;
+  updateDelaySeconds: number;
+  updateMonitorSeconds: number;
+  updateOrder: string;
+  failureAction: string;
+  registryAuth: RegistryAuth | undefined;
+}
+
+export interface ServiceUpdateImageResponse {
+  warning: string;
+}
+
+export interface ServiceScaleRequest {
+  serviceName: string;
+  replicas: number;
+}
+
+export interface ServiceScaleResponse {
+}
+
+export interface ServiceRollbackRequest {
+  serviceName: string;
+}
+
+export interface ServiceRollbackResponse {
+}
+
+export interface ServiceRemoveRequest {
+  serviceName: string;
+}
+
+export interface ServiceRemoveResponse {
+}
+
+export interface SwarmTaskSnapshot {
+  id: string;
+  serviceName: string;
+  containerId: string;
+  slot: number;
+  image: string;
+  desiredState: string;
+  status: string;
+  nodeId: string;
+  error: string;
+}
+
+export interface ListServiceTasksRequest {
+  serviceName: string;
+}
+
+export interface ListServiceTasksResponse {
+  tasks: SwarmTaskSnapshot[];
 }
 
 /**
@@ -3125,7 +3261,7 @@ export const BuildProgress: MessageFns<BuildProgress> = {
 };
 
 function createBaseNetworkCreateRequest(): NetworkCreateRequest {
-  return { name: "", driver: "", labels: {} };
+  return { name: "", driver: "", labels: {}, attachable: false };
 }
 
 export const NetworkCreateRequest: MessageFns<NetworkCreateRequest> = {
@@ -3139,6 +3275,9 @@ export const NetworkCreateRequest: MessageFns<NetworkCreateRequest> = {
     globalThis.Object.entries(message.labels).forEach(([key, value]: [string, string]) => {
       NetworkCreateRequest_LabelsEntry.encode({ key: key as any, value }, writer.uint32(26).fork()).join();
     });
+    if (message.attachable !== false) {
+      writer.uint32(32).bool(message.attachable);
+    }
     return writer;
   },
 
@@ -3176,6 +3315,14 @@ export const NetworkCreateRequest: MessageFns<NetworkCreateRequest> = {
           }
           continue;
         }
+        case 4: {
+          if (tag !== 32) {
+            break;
+          }
+
+          message.attachable = reader.bool();
+          continue;
+        }
       }
       if ((tag & 7) === 4 || tag === 0) {
         break;
@@ -3198,6 +3345,7 @@ export const NetworkCreateRequest: MessageFns<NetworkCreateRequest> = {
           {},
         )
         : {},
+      attachable: isSet(object.attachable) ? globalThis.Boolean(object.attachable) : false,
     };
   },
 
@@ -3218,6 +3366,9 @@ export const NetworkCreateRequest: MessageFns<NetworkCreateRequest> = {
         });
       }
     }
+    if (message.attachable !== false) {
+      obj.attachable = message.attachable;
+    }
     return obj;
   },
 
@@ -3237,6 +3388,7 @@ export const NetworkCreateRequest: MessageFns<NetworkCreateRequest> = {
       },
       {},
     );
+    message.attachable = object.attachable ?? false;
     return message;
   },
 };
@@ -6621,6 +6773,2305 @@ export const HostStatsResponse: MessageFns<HostStatsResponse> = {
   },
 };
 
+function createBaseSwarmInfoRequest(): SwarmInfoRequest {
+  return {};
+}
+
+export const SwarmInfoRequest: MessageFns<SwarmInfoRequest> = {
+  encode(_: SwarmInfoRequest, writer: BinaryWriter = new BinaryWriter()): BinaryWriter {
+    return writer;
+  },
+
+  decode(input: BinaryReader | Uint8Array, length?: number): SwarmInfoRequest {
+    const reader = input instanceof BinaryReader ? input : new BinaryReader(input);
+    const end = length === undefined ? reader.len : reader.pos + length;
+    const message = createBaseSwarmInfoRequest();
+    while (reader.pos < end) {
+      const tag = reader.uint32();
+      switch (tag >>> 3) {
+      }
+      if ((tag & 7) === 4 || tag === 0) {
+        break;
+      }
+      reader.skip(tag & 7);
+    }
+    return message;
+  },
+
+  fromJSON(_: any): SwarmInfoRequest {
+    return {};
+  },
+
+  toJSON(_: SwarmInfoRequest): unknown {
+    const obj: any = {};
+    return obj;
+  },
+
+  create(base?: DeepPartial<SwarmInfoRequest>): SwarmInfoRequest {
+    return SwarmInfoRequest.fromPartial(base ?? {});
+  },
+  fromPartial(_: DeepPartial<SwarmInfoRequest>): SwarmInfoRequest {
+    const message = createBaseSwarmInfoRequest();
+    return message;
+  },
+};
+
+function createBaseSwarmInfoResponse(): SwarmInfoResponse {
+  return { localNodeState: "", controlAvailable: false, nodeId: "", nodeAddr: "", nodes: 0, managers: 0, error: "" };
+}
+
+export const SwarmInfoResponse: MessageFns<SwarmInfoResponse> = {
+  encode(message: SwarmInfoResponse, writer: BinaryWriter = new BinaryWriter()): BinaryWriter {
+    if (message.localNodeState !== "") {
+      writer.uint32(10).string(message.localNodeState);
+    }
+    if (message.controlAvailable !== false) {
+      writer.uint32(16).bool(message.controlAvailable);
+    }
+    if (message.nodeId !== "") {
+      writer.uint32(26).string(message.nodeId);
+    }
+    if (message.nodeAddr !== "") {
+      writer.uint32(34).string(message.nodeAddr);
+    }
+    if (message.nodes !== 0) {
+      writer.uint32(40).int64(message.nodes);
+    }
+    if (message.managers !== 0) {
+      writer.uint32(48).int64(message.managers);
+    }
+    if (message.error !== "") {
+      writer.uint32(58).string(message.error);
+    }
+    return writer;
+  },
+
+  decode(input: BinaryReader | Uint8Array, length?: number): SwarmInfoResponse {
+    const reader = input instanceof BinaryReader ? input : new BinaryReader(input);
+    const end = length === undefined ? reader.len : reader.pos + length;
+    const message = createBaseSwarmInfoResponse();
+    while (reader.pos < end) {
+      const tag = reader.uint32();
+      switch (tag >>> 3) {
+        case 1: {
+          if (tag !== 10) {
+            break;
+          }
+
+          message.localNodeState = reader.string();
+          continue;
+        }
+        case 2: {
+          if (tag !== 16) {
+            break;
+          }
+
+          message.controlAvailable = reader.bool();
+          continue;
+        }
+        case 3: {
+          if (tag !== 26) {
+            break;
+          }
+
+          message.nodeId = reader.string();
+          continue;
+        }
+        case 4: {
+          if (tag !== 34) {
+            break;
+          }
+
+          message.nodeAddr = reader.string();
+          continue;
+        }
+        case 5: {
+          if (tag !== 40) {
+            break;
+          }
+
+          message.nodes = longToNumber(reader.int64());
+          continue;
+        }
+        case 6: {
+          if (tag !== 48) {
+            break;
+          }
+
+          message.managers = longToNumber(reader.int64());
+          continue;
+        }
+        case 7: {
+          if (tag !== 58) {
+            break;
+          }
+
+          message.error = reader.string();
+          continue;
+        }
+      }
+      if ((tag & 7) === 4 || tag === 0) {
+        break;
+      }
+      reader.skip(tag & 7);
+    }
+    return message;
+  },
+
+  fromJSON(object: any): SwarmInfoResponse {
+    return {
+      localNodeState: isSet(object.localNodeState)
+        ? globalThis.String(object.localNodeState)
+        : isSet(object.local_node_state)
+        ? globalThis.String(object.local_node_state)
+        : "",
+      controlAvailable: isSet(object.controlAvailable)
+        ? globalThis.Boolean(object.controlAvailable)
+        : isSet(object.control_available)
+        ? globalThis.Boolean(object.control_available)
+        : false,
+      nodeId: isSet(object.nodeId)
+        ? globalThis.String(object.nodeId)
+        : isSet(object.node_id)
+        ? globalThis.String(object.node_id)
+        : "",
+      nodeAddr: isSet(object.nodeAddr)
+        ? globalThis.String(object.nodeAddr)
+        : isSet(object.node_addr)
+        ? globalThis.String(object.node_addr)
+        : "",
+      nodes: isSet(object.nodes) ? globalThis.Number(object.nodes) : 0,
+      managers: isSet(object.managers) ? globalThis.Number(object.managers) : 0,
+      error: isSet(object.error) ? globalThis.String(object.error) : "",
+    };
+  },
+
+  toJSON(message: SwarmInfoResponse): unknown {
+    const obj: any = {};
+    if (message.localNodeState !== "") {
+      obj.localNodeState = message.localNodeState;
+    }
+    if (message.controlAvailable !== false) {
+      obj.controlAvailable = message.controlAvailable;
+    }
+    if (message.nodeId !== "") {
+      obj.nodeId = message.nodeId;
+    }
+    if (message.nodeAddr !== "") {
+      obj.nodeAddr = message.nodeAddr;
+    }
+    if (message.nodes !== 0) {
+      obj.nodes = Math.round(message.nodes);
+    }
+    if (message.managers !== 0) {
+      obj.managers = Math.round(message.managers);
+    }
+    if (message.error !== "") {
+      obj.error = message.error;
+    }
+    return obj;
+  },
+
+  create(base?: DeepPartial<SwarmInfoResponse>): SwarmInfoResponse {
+    return SwarmInfoResponse.fromPartial(base ?? {});
+  },
+  fromPartial(object: DeepPartial<SwarmInfoResponse>): SwarmInfoResponse {
+    const message = createBaseSwarmInfoResponse();
+    message.localNodeState = object.localNodeState ?? "";
+    message.controlAvailable = object.controlAvailable ?? false;
+    message.nodeId = object.nodeId ?? "";
+    message.nodeAddr = object.nodeAddr ?? "";
+    message.nodes = object.nodes ?? 0;
+    message.managers = object.managers ?? 0;
+    message.error = object.error ?? "";
+    return message;
+  },
+};
+
+function createBaseSwarmEnsureSingleNodeRequest(): SwarmEnsureSingleNodeRequest {
+  return { advertiseAddr: "" };
+}
+
+export const SwarmEnsureSingleNodeRequest: MessageFns<SwarmEnsureSingleNodeRequest> = {
+  encode(message: SwarmEnsureSingleNodeRequest, writer: BinaryWriter = new BinaryWriter()): BinaryWriter {
+    if (message.advertiseAddr !== "") {
+      writer.uint32(10).string(message.advertiseAddr);
+    }
+    return writer;
+  },
+
+  decode(input: BinaryReader | Uint8Array, length?: number): SwarmEnsureSingleNodeRequest {
+    const reader = input instanceof BinaryReader ? input : new BinaryReader(input);
+    const end = length === undefined ? reader.len : reader.pos + length;
+    const message = createBaseSwarmEnsureSingleNodeRequest();
+    while (reader.pos < end) {
+      const tag = reader.uint32();
+      switch (tag >>> 3) {
+        case 1: {
+          if (tag !== 10) {
+            break;
+          }
+
+          message.advertiseAddr = reader.string();
+          continue;
+        }
+      }
+      if ((tag & 7) === 4 || tag === 0) {
+        break;
+      }
+      reader.skip(tag & 7);
+    }
+    return message;
+  },
+
+  fromJSON(object: any): SwarmEnsureSingleNodeRequest {
+    return {
+      advertiseAddr: isSet(object.advertiseAddr)
+        ? globalThis.String(object.advertiseAddr)
+        : isSet(object.advertise_addr)
+        ? globalThis.String(object.advertise_addr)
+        : "",
+    };
+  },
+
+  toJSON(message: SwarmEnsureSingleNodeRequest): unknown {
+    const obj: any = {};
+    if (message.advertiseAddr !== "") {
+      obj.advertiseAddr = message.advertiseAddr;
+    }
+    return obj;
+  },
+
+  create(base?: DeepPartial<SwarmEnsureSingleNodeRequest>): SwarmEnsureSingleNodeRequest {
+    return SwarmEnsureSingleNodeRequest.fromPartial(base ?? {});
+  },
+  fromPartial(object: DeepPartial<SwarmEnsureSingleNodeRequest>): SwarmEnsureSingleNodeRequest {
+    const message = createBaseSwarmEnsureSingleNodeRequest();
+    message.advertiseAddr = object.advertiseAddr ?? "";
+    return message;
+  },
+};
+
+function createBaseSwarmEnsureSingleNodeResponse(): SwarmEnsureSingleNodeResponse {
+  return { info: undefined, initialized: false };
+}
+
+export const SwarmEnsureSingleNodeResponse: MessageFns<SwarmEnsureSingleNodeResponse> = {
+  encode(message: SwarmEnsureSingleNodeResponse, writer: BinaryWriter = new BinaryWriter()): BinaryWriter {
+    if (message.info !== undefined) {
+      SwarmInfoResponse.encode(message.info, writer.uint32(10).fork()).join();
+    }
+    if (message.initialized !== false) {
+      writer.uint32(16).bool(message.initialized);
+    }
+    return writer;
+  },
+
+  decode(input: BinaryReader | Uint8Array, length?: number): SwarmEnsureSingleNodeResponse {
+    const reader = input instanceof BinaryReader ? input : new BinaryReader(input);
+    const end = length === undefined ? reader.len : reader.pos + length;
+    const message = createBaseSwarmEnsureSingleNodeResponse();
+    while (reader.pos < end) {
+      const tag = reader.uint32();
+      switch (tag >>> 3) {
+        case 1: {
+          if (tag !== 10) {
+            break;
+          }
+
+          message.info = SwarmInfoResponse.decode(reader, reader.uint32());
+          continue;
+        }
+        case 2: {
+          if (tag !== 16) {
+            break;
+          }
+
+          message.initialized = reader.bool();
+          continue;
+        }
+      }
+      if ((tag & 7) === 4 || tag === 0) {
+        break;
+      }
+      reader.skip(tag & 7);
+    }
+    return message;
+  },
+
+  fromJSON(object: any): SwarmEnsureSingleNodeResponse {
+    return {
+      info: isSet(object.info) ? SwarmInfoResponse.fromJSON(object.info) : undefined,
+      initialized: isSet(object.initialized) ? globalThis.Boolean(object.initialized) : false,
+    };
+  },
+
+  toJSON(message: SwarmEnsureSingleNodeResponse): unknown {
+    const obj: any = {};
+    if (message.info !== undefined) {
+      obj.info = SwarmInfoResponse.toJSON(message.info);
+    }
+    if (message.initialized !== false) {
+      obj.initialized = message.initialized;
+    }
+    return obj;
+  },
+
+  create(base?: DeepPartial<SwarmEnsureSingleNodeResponse>): SwarmEnsureSingleNodeResponse {
+    return SwarmEnsureSingleNodeResponse.fromPartial(base ?? {});
+  },
+  fromPartial(object: DeepPartial<SwarmEnsureSingleNodeResponse>): SwarmEnsureSingleNodeResponse {
+    const message = createBaseSwarmEnsureSingleNodeResponse();
+    message.info = (object.info !== undefined && object.info !== null)
+      ? SwarmInfoResponse.fromPartial(object.info)
+      : undefined;
+    message.initialized = object.initialized ?? false;
+    return message;
+  },
+};
+
+function createBaseSwarmServiceMount(): SwarmServiceMount {
+  return { hostPath: "", containerPath: "", readOnly: false };
+}
+
+export const SwarmServiceMount: MessageFns<SwarmServiceMount> = {
+  encode(message: SwarmServiceMount, writer: BinaryWriter = new BinaryWriter()): BinaryWriter {
+    if (message.hostPath !== "") {
+      writer.uint32(10).string(message.hostPath);
+    }
+    if (message.containerPath !== "") {
+      writer.uint32(18).string(message.containerPath);
+    }
+    if (message.readOnly !== false) {
+      writer.uint32(24).bool(message.readOnly);
+    }
+    return writer;
+  },
+
+  decode(input: BinaryReader | Uint8Array, length?: number): SwarmServiceMount {
+    const reader = input instanceof BinaryReader ? input : new BinaryReader(input);
+    const end = length === undefined ? reader.len : reader.pos + length;
+    const message = createBaseSwarmServiceMount();
+    while (reader.pos < end) {
+      const tag = reader.uint32();
+      switch (tag >>> 3) {
+        case 1: {
+          if (tag !== 10) {
+            break;
+          }
+
+          message.hostPath = reader.string();
+          continue;
+        }
+        case 2: {
+          if (tag !== 18) {
+            break;
+          }
+
+          message.containerPath = reader.string();
+          continue;
+        }
+        case 3: {
+          if (tag !== 24) {
+            break;
+          }
+
+          message.readOnly = reader.bool();
+          continue;
+        }
+      }
+      if ((tag & 7) === 4 || tag === 0) {
+        break;
+      }
+      reader.skip(tag & 7);
+    }
+    return message;
+  },
+
+  fromJSON(object: any): SwarmServiceMount {
+    return {
+      hostPath: isSet(object.hostPath)
+        ? globalThis.String(object.hostPath)
+        : isSet(object.host_path)
+        ? globalThis.String(object.host_path)
+        : "",
+      containerPath: isSet(object.containerPath)
+        ? globalThis.String(object.containerPath)
+        : isSet(object.container_path)
+        ? globalThis.String(object.container_path)
+        : "",
+      readOnly: isSet(object.readOnly)
+        ? globalThis.Boolean(object.readOnly)
+        : isSet(object.read_only)
+        ? globalThis.Boolean(object.read_only)
+        : false,
+    };
+  },
+
+  toJSON(message: SwarmServiceMount): unknown {
+    const obj: any = {};
+    if (message.hostPath !== "") {
+      obj.hostPath = message.hostPath;
+    }
+    if (message.containerPath !== "") {
+      obj.containerPath = message.containerPath;
+    }
+    if (message.readOnly !== false) {
+      obj.readOnly = message.readOnly;
+    }
+    return obj;
+  },
+
+  create(base?: DeepPartial<SwarmServiceMount>): SwarmServiceMount {
+    return SwarmServiceMount.fromPartial(base ?? {});
+  },
+  fromPartial(object: DeepPartial<SwarmServiceMount>): SwarmServiceMount {
+    const message = createBaseSwarmServiceMount();
+    message.hostPath = object.hostPath ?? "";
+    message.containerPath = object.containerPath ?? "";
+    message.readOnly = object.readOnly ?? false;
+    return message;
+  },
+};
+
+function createBaseSwarmServiceHealthcheck(): SwarmServiceHealthcheck {
+  return { test: [], intervalSeconds: 0, timeoutSeconds: 0, retries: 0, startPeriodSeconds: 0 };
+}
+
+export const SwarmServiceHealthcheck: MessageFns<SwarmServiceHealthcheck> = {
+  encode(message: SwarmServiceHealthcheck, writer: BinaryWriter = new BinaryWriter()): BinaryWriter {
+    for (const v of message.test) {
+      writer.uint32(10).string(v!);
+    }
+    if (message.intervalSeconds !== 0) {
+      writer.uint32(16).int64(message.intervalSeconds);
+    }
+    if (message.timeoutSeconds !== 0) {
+      writer.uint32(24).int64(message.timeoutSeconds);
+    }
+    if (message.retries !== 0) {
+      writer.uint32(32).uint32(message.retries);
+    }
+    if (message.startPeriodSeconds !== 0) {
+      writer.uint32(40).int64(message.startPeriodSeconds);
+    }
+    return writer;
+  },
+
+  decode(input: BinaryReader | Uint8Array, length?: number): SwarmServiceHealthcheck {
+    const reader = input instanceof BinaryReader ? input : new BinaryReader(input);
+    const end = length === undefined ? reader.len : reader.pos + length;
+    const message = createBaseSwarmServiceHealthcheck();
+    while (reader.pos < end) {
+      const tag = reader.uint32();
+      switch (tag >>> 3) {
+        case 1: {
+          if (tag !== 10) {
+            break;
+          }
+
+          message.test.push(reader.string());
+          continue;
+        }
+        case 2: {
+          if (tag !== 16) {
+            break;
+          }
+
+          message.intervalSeconds = longToNumber(reader.int64());
+          continue;
+        }
+        case 3: {
+          if (tag !== 24) {
+            break;
+          }
+
+          message.timeoutSeconds = longToNumber(reader.int64());
+          continue;
+        }
+        case 4: {
+          if (tag !== 32) {
+            break;
+          }
+
+          message.retries = reader.uint32();
+          continue;
+        }
+        case 5: {
+          if (tag !== 40) {
+            break;
+          }
+
+          message.startPeriodSeconds = longToNumber(reader.int64());
+          continue;
+        }
+      }
+      if ((tag & 7) === 4 || tag === 0) {
+        break;
+      }
+      reader.skip(tag & 7);
+    }
+    return message;
+  },
+
+  fromJSON(object: any): SwarmServiceHealthcheck {
+    return {
+      test: globalThis.Array.isArray(object?.test) ? object.test.map((e: any) => globalThis.String(e)) : [],
+      intervalSeconds: isSet(object.intervalSeconds)
+        ? globalThis.Number(object.intervalSeconds)
+        : isSet(object.interval_seconds)
+        ? globalThis.Number(object.interval_seconds)
+        : 0,
+      timeoutSeconds: isSet(object.timeoutSeconds)
+        ? globalThis.Number(object.timeoutSeconds)
+        : isSet(object.timeout_seconds)
+        ? globalThis.Number(object.timeout_seconds)
+        : 0,
+      retries: isSet(object.retries) ? globalThis.Number(object.retries) : 0,
+      startPeriodSeconds: isSet(object.startPeriodSeconds)
+        ? globalThis.Number(object.startPeriodSeconds)
+        : isSet(object.start_period_seconds)
+        ? globalThis.Number(object.start_period_seconds)
+        : 0,
+    };
+  },
+
+  toJSON(message: SwarmServiceHealthcheck): unknown {
+    const obj: any = {};
+    if (message.test?.length) {
+      obj.test = message.test;
+    }
+    if (message.intervalSeconds !== 0) {
+      obj.intervalSeconds = Math.round(message.intervalSeconds);
+    }
+    if (message.timeoutSeconds !== 0) {
+      obj.timeoutSeconds = Math.round(message.timeoutSeconds);
+    }
+    if (message.retries !== 0) {
+      obj.retries = Math.round(message.retries);
+    }
+    if (message.startPeriodSeconds !== 0) {
+      obj.startPeriodSeconds = Math.round(message.startPeriodSeconds);
+    }
+    return obj;
+  },
+
+  create(base?: DeepPartial<SwarmServiceHealthcheck>): SwarmServiceHealthcheck {
+    return SwarmServiceHealthcheck.fromPartial(base ?? {});
+  },
+  fromPartial(object: DeepPartial<SwarmServiceHealthcheck>): SwarmServiceHealthcheck {
+    const message = createBaseSwarmServiceHealthcheck();
+    message.test = object.test?.map((e) => e) || [];
+    message.intervalSeconds = object.intervalSeconds ?? 0;
+    message.timeoutSeconds = object.timeoutSeconds ?? 0;
+    message.retries = object.retries ?? 0;
+    message.startPeriodSeconds = object.startPeriodSeconds ?? 0;
+    return message;
+  },
+};
+
+function createBaseSwarmServiceSpec(): SwarmServiceSpec {
+  return {
+    name: "",
+    image: "",
+    env: {},
+    labels: {},
+    networks: [],
+    mounts: [],
+    resourceLimits: undefined,
+    command: [],
+    user: "",
+    healthcheck: undefined,
+    replicas: 0,
+    runtimePort: 0,
+    updateParallelism: 0,
+    updateDelaySeconds: 0,
+    updateMonitorSeconds: 0,
+    updateOrder: "",
+    failureAction: "",
+    stopGracePeriodSeconds: 0,
+  };
+}
+
+export const SwarmServiceSpec: MessageFns<SwarmServiceSpec> = {
+  encode(message: SwarmServiceSpec, writer: BinaryWriter = new BinaryWriter()): BinaryWriter {
+    if (message.name !== "") {
+      writer.uint32(10).string(message.name);
+    }
+    if (message.image !== "") {
+      writer.uint32(18).string(message.image);
+    }
+    globalThis.Object.entries(message.env).forEach(([key, value]: [string, string]) => {
+      SwarmServiceSpec_EnvEntry.encode({ key: key as any, value }, writer.uint32(26).fork()).join();
+    });
+    globalThis.Object.entries(message.labels).forEach(([key, value]: [string, string]) => {
+      SwarmServiceSpec_LabelsEntry.encode({ key: key as any, value }, writer.uint32(34).fork()).join();
+    });
+    for (const v of message.networks) {
+      writer.uint32(42).string(v!);
+    }
+    for (const v of message.mounts) {
+      SwarmServiceMount.encode(v!, writer.uint32(50).fork()).join();
+    }
+    if (message.resourceLimits !== undefined) {
+      ResourceLimits.encode(message.resourceLimits, writer.uint32(58).fork()).join();
+    }
+    for (const v of message.command) {
+      writer.uint32(66).string(v!);
+    }
+    if (message.user !== "") {
+      writer.uint32(74).string(message.user);
+    }
+    if (message.healthcheck !== undefined) {
+      SwarmServiceHealthcheck.encode(message.healthcheck, writer.uint32(82).fork()).join();
+    }
+    if (message.replicas !== 0) {
+      writer.uint32(88).uint32(message.replicas);
+    }
+    if (message.runtimePort !== 0) {
+      writer.uint32(96).uint32(message.runtimePort);
+    }
+    if (message.updateParallelism !== 0) {
+      writer.uint32(104).uint32(message.updateParallelism);
+    }
+    if (message.updateDelaySeconds !== 0) {
+      writer.uint32(112).uint32(message.updateDelaySeconds);
+    }
+    if (message.updateMonitorSeconds !== 0) {
+      writer.uint32(120).uint32(message.updateMonitorSeconds);
+    }
+    if (message.updateOrder !== "") {
+      writer.uint32(130).string(message.updateOrder);
+    }
+    if (message.failureAction !== "") {
+      writer.uint32(138).string(message.failureAction);
+    }
+    if (message.stopGracePeriodSeconds !== 0) {
+      writer.uint32(144).uint32(message.stopGracePeriodSeconds);
+    }
+    return writer;
+  },
+
+  decode(input: BinaryReader | Uint8Array, length?: number): SwarmServiceSpec {
+    const reader = input instanceof BinaryReader ? input : new BinaryReader(input);
+    const end = length === undefined ? reader.len : reader.pos + length;
+    const message = createBaseSwarmServiceSpec();
+    while (reader.pos < end) {
+      const tag = reader.uint32();
+      switch (tag >>> 3) {
+        case 1: {
+          if (tag !== 10) {
+            break;
+          }
+
+          message.name = reader.string();
+          continue;
+        }
+        case 2: {
+          if (tag !== 18) {
+            break;
+          }
+
+          message.image = reader.string();
+          continue;
+        }
+        case 3: {
+          if (tag !== 26) {
+            break;
+          }
+
+          const entry3 = SwarmServiceSpec_EnvEntry.decode(reader, reader.uint32());
+          if (entry3.value !== undefined) {
+            message.env[entry3.key] = entry3.value;
+          }
+          continue;
+        }
+        case 4: {
+          if (tag !== 34) {
+            break;
+          }
+
+          const entry4 = SwarmServiceSpec_LabelsEntry.decode(reader, reader.uint32());
+          if (entry4.value !== undefined) {
+            message.labels[entry4.key] = entry4.value;
+          }
+          continue;
+        }
+        case 5: {
+          if (tag !== 42) {
+            break;
+          }
+
+          message.networks.push(reader.string());
+          continue;
+        }
+        case 6: {
+          if (tag !== 50) {
+            break;
+          }
+
+          message.mounts.push(SwarmServiceMount.decode(reader, reader.uint32()));
+          continue;
+        }
+        case 7: {
+          if (tag !== 58) {
+            break;
+          }
+
+          message.resourceLimits = ResourceLimits.decode(reader, reader.uint32());
+          continue;
+        }
+        case 8: {
+          if (tag !== 66) {
+            break;
+          }
+
+          message.command.push(reader.string());
+          continue;
+        }
+        case 9: {
+          if (tag !== 74) {
+            break;
+          }
+
+          message.user = reader.string();
+          continue;
+        }
+        case 10: {
+          if (tag !== 82) {
+            break;
+          }
+
+          message.healthcheck = SwarmServiceHealthcheck.decode(reader, reader.uint32());
+          continue;
+        }
+        case 11: {
+          if (tag !== 88) {
+            break;
+          }
+
+          message.replicas = reader.uint32();
+          continue;
+        }
+        case 12: {
+          if (tag !== 96) {
+            break;
+          }
+
+          message.runtimePort = reader.uint32();
+          continue;
+        }
+        case 13: {
+          if (tag !== 104) {
+            break;
+          }
+
+          message.updateParallelism = reader.uint32();
+          continue;
+        }
+        case 14: {
+          if (tag !== 112) {
+            break;
+          }
+
+          message.updateDelaySeconds = reader.uint32();
+          continue;
+        }
+        case 15: {
+          if (tag !== 120) {
+            break;
+          }
+
+          message.updateMonitorSeconds = reader.uint32();
+          continue;
+        }
+        case 16: {
+          if (tag !== 130) {
+            break;
+          }
+
+          message.updateOrder = reader.string();
+          continue;
+        }
+        case 17: {
+          if (tag !== 138) {
+            break;
+          }
+
+          message.failureAction = reader.string();
+          continue;
+        }
+        case 18: {
+          if (tag !== 144) {
+            break;
+          }
+
+          message.stopGracePeriodSeconds = reader.uint32();
+          continue;
+        }
+      }
+      if ((tag & 7) === 4 || tag === 0) {
+        break;
+      }
+      reader.skip(tag & 7);
+    }
+    return message;
+  },
+
+  fromJSON(object: any): SwarmServiceSpec {
+    return {
+      name: isSet(object.name) ? globalThis.String(object.name) : "",
+      image: isSet(object.image) ? globalThis.String(object.image) : "",
+      env: isObject(object.env)
+        ? (globalThis.Object.entries(object.env) as [string, any][]).reduce(
+          (acc: { [key: string]: string }, [key, value]: [string, any]) => {
+            acc[key] = globalThis.String(value);
+            return acc;
+          },
+          {},
+        )
+        : {},
+      labels: isObject(object.labels)
+        ? (globalThis.Object.entries(object.labels) as [string, any][]).reduce(
+          (acc: { [key: string]: string }, [key, value]: [string, any]) => {
+            acc[key] = globalThis.String(value);
+            return acc;
+          },
+          {},
+        )
+        : {},
+      networks: globalThis.Array.isArray(object?.networks) ? object.networks.map((e: any) => globalThis.String(e)) : [],
+      mounts: globalThis.Array.isArray(object?.mounts)
+        ? object.mounts.map((e: any) => SwarmServiceMount.fromJSON(e))
+        : [],
+      resourceLimits: isSet(object.resourceLimits)
+        ? ResourceLimits.fromJSON(object.resourceLimits)
+        : isSet(object.resource_limits)
+        ? ResourceLimits.fromJSON(object.resource_limits)
+        : undefined,
+      command: globalThis.Array.isArray(object?.command)
+        ? object.command.map((e: any) => globalThis.String(e))
+        : [],
+      user: isSet(object.user) ? globalThis.String(object.user) : "",
+      healthcheck: isSet(object.healthcheck) ? SwarmServiceHealthcheck.fromJSON(object.healthcheck) : undefined,
+      replicas: isSet(object.replicas) ? globalThis.Number(object.replicas) : 0,
+      runtimePort: isSet(object.runtimePort)
+        ? globalThis.Number(object.runtimePort)
+        : isSet(object.runtime_port)
+        ? globalThis.Number(object.runtime_port)
+        : 0,
+      updateParallelism: isSet(object.updateParallelism)
+        ? globalThis.Number(object.updateParallelism)
+        : isSet(object.update_parallelism)
+        ? globalThis.Number(object.update_parallelism)
+        : 0,
+      updateDelaySeconds: isSet(object.updateDelaySeconds)
+        ? globalThis.Number(object.updateDelaySeconds)
+        : isSet(object.update_delay_seconds)
+        ? globalThis.Number(object.update_delay_seconds)
+        : 0,
+      updateMonitorSeconds: isSet(object.updateMonitorSeconds)
+        ? globalThis.Number(object.updateMonitorSeconds)
+        : isSet(object.update_monitor_seconds)
+        ? globalThis.Number(object.update_monitor_seconds)
+        : 0,
+      updateOrder: isSet(object.updateOrder)
+        ? globalThis.String(object.updateOrder)
+        : isSet(object.update_order)
+        ? globalThis.String(object.update_order)
+        : "",
+      failureAction: isSet(object.failureAction)
+        ? globalThis.String(object.failureAction)
+        : isSet(object.failure_action)
+        ? globalThis.String(object.failure_action)
+        : "",
+      stopGracePeriodSeconds: isSet(object.stopGracePeriodSeconds)
+        ? globalThis.Number(object.stopGracePeriodSeconds)
+        : isSet(object.stop_grace_period_seconds)
+        ? globalThis.Number(object.stop_grace_period_seconds)
+        : 0,
+    };
+  },
+
+  toJSON(message: SwarmServiceSpec): unknown {
+    const obj: any = {};
+    if (message.name !== "") {
+      obj.name = message.name;
+    }
+    if (message.image !== "") {
+      obj.image = message.image;
+    }
+    if (message.env) {
+      const entries = globalThis.Object.entries(message.env) as [string, string][];
+      if (entries.length > 0) {
+        obj.env = {};
+        entries.forEach(([k, v]) => {
+          obj.env[k] = v;
+        });
+      }
+    }
+    if (message.labels) {
+      const entries = globalThis.Object.entries(message.labels) as [string, string][];
+      if (entries.length > 0) {
+        obj.labels = {};
+        entries.forEach(([k, v]) => {
+          obj.labels[k] = v;
+        });
+      }
+    }
+    if (message.networks?.length) {
+      obj.networks = message.networks;
+    }
+    if (message.mounts?.length) {
+      obj.mounts = message.mounts.map((e) => SwarmServiceMount.toJSON(e));
+    }
+    if (message.resourceLimits !== undefined) {
+      obj.resourceLimits = ResourceLimits.toJSON(message.resourceLimits);
+    }
+    if (message.command?.length) {
+      obj.command = message.command;
+    }
+    if (message.user !== "") {
+      obj.user = message.user;
+    }
+    if (message.healthcheck !== undefined) {
+      obj.healthcheck = SwarmServiceHealthcheck.toJSON(message.healthcheck);
+    }
+    if (message.replicas !== 0) {
+      obj.replicas = Math.round(message.replicas);
+    }
+    if (message.runtimePort !== 0) {
+      obj.runtimePort = Math.round(message.runtimePort);
+    }
+    if (message.updateParallelism !== 0) {
+      obj.updateParallelism = Math.round(message.updateParallelism);
+    }
+    if (message.updateDelaySeconds !== 0) {
+      obj.updateDelaySeconds = Math.round(message.updateDelaySeconds);
+    }
+    if (message.updateMonitorSeconds !== 0) {
+      obj.updateMonitorSeconds = Math.round(message.updateMonitorSeconds);
+    }
+    if (message.updateOrder !== "") {
+      obj.updateOrder = message.updateOrder;
+    }
+    if (message.failureAction !== "") {
+      obj.failureAction = message.failureAction;
+    }
+    if (message.stopGracePeriodSeconds !== 0) {
+      obj.stopGracePeriodSeconds = Math.round(message.stopGracePeriodSeconds);
+    }
+    return obj;
+  },
+
+  create(base?: DeepPartial<SwarmServiceSpec>): SwarmServiceSpec {
+    return SwarmServiceSpec.fromPartial(base ?? {});
+  },
+  fromPartial(object: DeepPartial<SwarmServiceSpec>): SwarmServiceSpec {
+    const message = createBaseSwarmServiceSpec();
+    message.name = object.name ?? "";
+    message.image = object.image ?? "";
+    message.env = (globalThis.Object.entries(object.env ?? {}) as [string, string][]).reduce(
+      (acc: { [key: string]: string }, [key, value]: [string, string]) => {
+        if (value !== undefined) {
+          acc[key] = globalThis.String(value);
+        }
+        return acc;
+      },
+      {},
+    );
+    message.labels = (globalThis.Object.entries(object.labels ?? {}) as [string, string][]).reduce(
+      (acc: { [key: string]: string }, [key, value]: [string, string]) => {
+        if (value !== undefined) {
+          acc[key] = globalThis.String(value);
+        }
+        return acc;
+      },
+      {},
+    );
+    message.networks = object.networks?.map((e) => e) || [];
+    message.mounts = object.mounts?.map((e) => SwarmServiceMount.fromPartial(e)) || [];
+    message.resourceLimits = (object.resourceLimits !== undefined && object.resourceLimits !== null)
+      ? ResourceLimits.fromPartial(object.resourceLimits)
+      : undefined;
+    message.command = object.command?.map((e) => e) || [];
+    message.user = object.user ?? "";
+    message.healthcheck = (object.healthcheck !== undefined && object.healthcheck !== null)
+      ? SwarmServiceHealthcheck.fromPartial(object.healthcheck)
+      : undefined;
+    message.replicas = object.replicas ?? 0;
+    message.runtimePort = object.runtimePort ?? 0;
+    message.updateParallelism = object.updateParallelism ?? 0;
+    message.updateDelaySeconds = object.updateDelaySeconds ?? 0;
+    message.updateMonitorSeconds = object.updateMonitorSeconds ?? 0;
+    message.updateOrder = object.updateOrder ?? "";
+    message.failureAction = object.failureAction ?? "";
+    message.stopGracePeriodSeconds = object.stopGracePeriodSeconds ?? 0;
+    return message;
+  },
+};
+
+function createBaseSwarmServiceSpec_EnvEntry(): SwarmServiceSpec_EnvEntry {
+  return { key: "", value: "" };
+}
+
+export const SwarmServiceSpec_EnvEntry: MessageFns<SwarmServiceSpec_EnvEntry> = {
+  encode(message: SwarmServiceSpec_EnvEntry, writer: BinaryWriter = new BinaryWriter()): BinaryWriter {
+    if (message.key !== "") {
+      writer.uint32(10).string(message.key);
+    }
+    if (message.value !== "") {
+      writer.uint32(18).string(message.value);
+    }
+    return writer;
+  },
+
+  decode(input: BinaryReader | Uint8Array, length?: number): SwarmServiceSpec_EnvEntry {
+    const reader = input instanceof BinaryReader ? input : new BinaryReader(input);
+    const end = length === undefined ? reader.len : reader.pos + length;
+    const message = createBaseSwarmServiceSpec_EnvEntry();
+    while (reader.pos < end) {
+      const tag = reader.uint32();
+      switch (tag >>> 3) {
+        case 1: {
+          if (tag !== 10) {
+            break;
+          }
+
+          message.key = reader.string();
+          continue;
+        }
+        case 2: {
+          if (tag !== 18) {
+            break;
+          }
+
+          message.value = reader.string();
+          continue;
+        }
+      }
+      if ((tag & 7) === 4 || tag === 0) {
+        break;
+      }
+      reader.skip(tag & 7);
+    }
+    return message;
+  },
+
+  fromJSON(object: any): SwarmServiceSpec_EnvEntry {
+    return {
+      key: isSet(object.key) ? globalThis.String(object.key) : "",
+      value: isSet(object.value) ? globalThis.String(object.value) : "",
+    };
+  },
+
+  toJSON(message: SwarmServiceSpec_EnvEntry): unknown {
+    const obj: any = {};
+    if (message.key !== "") {
+      obj.key = message.key;
+    }
+    if (message.value !== "") {
+      obj.value = message.value;
+    }
+    return obj;
+  },
+
+  create(base?: DeepPartial<SwarmServiceSpec_EnvEntry>): SwarmServiceSpec_EnvEntry {
+    return SwarmServiceSpec_EnvEntry.fromPartial(base ?? {});
+  },
+  fromPartial(object: DeepPartial<SwarmServiceSpec_EnvEntry>): SwarmServiceSpec_EnvEntry {
+    const message = createBaseSwarmServiceSpec_EnvEntry();
+    message.key = object.key ?? "";
+    message.value = object.value ?? "";
+    return message;
+  },
+};
+
+function createBaseSwarmServiceSpec_LabelsEntry(): SwarmServiceSpec_LabelsEntry {
+  return { key: "", value: "" };
+}
+
+export const SwarmServiceSpec_LabelsEntry: MessageFns<SwarmServiceSpec_LabelsEntry> = {
+  encode(message: SwarmServiceSpec_LabelsEntry, writer: BinaryWriter = new BinaryWriter()): BinaryWriter {
+    if (message.key !== "") {
+      writer.uint32(10).string(message.key);
+    }
+    if (message.value !== "") {
+      writer.uint32(18).string(message.value);
+    }
+    return writer;
+  },
+
+  decode(input: BinaryReader | Uint8Array, length?: number): SwarmServiceSpec_LabelsEntry {
+    const reader = input instanceof BinaryReader ? input : new BinaryReader(input);
+    const end = length === undefined ? reader.len : reader.pos + length;
+    const message = createBaseSwarmServiceSpec_LabelsEntry();
+    while (reader.pos < end) {
+      const tag = reader.uint32();
+      switch (tag >>> 3) {
+        case 1: {
+          if (tag !== 10) {
+            break;
+          }
+
+          message.key = reader.string();
+          continue;
+        }
+        case 2: {
+          if (tag !== 18) {
+            break;
+          }
+
+          message.value = reader.string();
+          continue;
+        }
+      }
+      if ((tag & 7) === 4 || tag === 0) {
+        break;
+      }
+      reader.skip(tag & 7);
+    }
+    return message;
+  },
+
+  fromJSON(object: any): SwarmServiceSpec_LabelsEntry {
+    return {
+      key: isSet(object.key) ? globalThis.String(object.key) : "",
+      value: isSet(object.value) ? globalThis.String(object.value) : "",
+    };
+  },
+
+  toJSON(message: SwarmServiceSpec_LabelsEntry): unknown {
+    const obj: any = {};
+    if (message.key !== "") {
+      obj.key = message.key;
+    }
+    if (message.value !== "") {
+      obj.value = message.value;
+    }
+    return obj;
+  },
+
+  create(base?: DeepPartial<SwarmServiceSpec_LabelsEntry>): SwarmServiceSpec_LabelsEntry {
+    return SwarmServiceSpec_LabelsEntry.fromPartial(base ?? {});
+  },
+  fromPartial(object: DeepPartial<SwarmServiceSpec_LabelsEntry>): SwarmServiceSpec_LabelsEntry {
+    const message = createBaseSwarmServiceSpec_LabelsEntry();
+    message.key = object.key ?? "";
+    message.value = object.value ?? "";
+    return message;
+  },
+};
+
+function createBaseServiceCreateRequest(): ServiceCreateRequest {
+  return { spec: undefined, registryAuth: undefined };
+}
+
+export const ServiceCreateRequest: MessageFns<ServiceCreateRequest> = {
+  encode(message: ServiceCreateRequest, writer: BinaryWriter = new BinaryWriter()): BinaryWriter {
+    if (message.spec !== undefined) {
+      SwarmServiceSpec.encode(message.spec, writer.uint32(10).fork()).join();
+    }
+    if (message.registryAuth !== undefined) {
+      RegistryAuth.encode(message.registryAuth, writer.uint32(18).fork()).join();
+    }
+    return writer;
+  },
+
+  decode(input: BinaryReader | Uint8Array, length?: number): ServiceCreateRequest {
+    const reader = input instanceof BinaryReader ? input : new BinaryReader(input);
+    const end = length === undefined ? reader.len : reader.pos + length;
+    const message = createBaseServiceCreateRequest();
+    while (reader.pos < end) {
+      const tag = reader.uint32();
+      switch (tag >>> 3) {
+        case 1: {
+          if (tag !== 10) {
+            break;
+          }
+
+          message.spec = SwarmServiceSpec.decode(reader, reader.uint32());
+          continue;
+        }
+        case 2: {
+          if (tag !== 18) {
+            break;
+          }
+
+          message.registryAuth = RegistryAuth.decode(reader, reader.uint32());
+          continue;
+        }
+      }
+      if ((tag & 7) === 4 || tag === 0) {
+        break;
+      }
+      reader.skip(tag & 7);
+    }
+    return message;
+  },
+
+  fromJSON(object: any): ServiceCreateRequest {
+    return {
+      spec: isSet(object.spec) ? SwarmServiceSpec.fromJSON(object.spec) : undefined,
+      registryAuth: isSet(object.registryAuth)
+        ? RegistryAuth.fromJSON(object.registryAuth)
+        : isSet(object.registry_auth)
+        ? RegistryAuth.fromJSON(object.registry_auth)
+        : undefined,
+    };
+  },
+
+  toJSON(message: ServiceCreateRequest): unknown {
+    const obj: any = {};
+    if (message.spec !== undefined) {
+      obj.spec = SwarmServiceSpec.toJSON(message.spec);
+    }
+    if (message.registryAuth !== undefined) {
+      obj.registryAuth = RegistryAuth.toJSON(message.registryAuth);
+    }
+    return obj;
+  },
+
+  create(base?: DeepPartial<ServiceCreateRequest>): ServiceCreateRequest {
+    return ServiceCreateRequest.fromPartial(base ?? {});
+  },
+  fromPartial(object: DeepPartial<ServiceCreateRequest>): ServiceCreateRequest {
+    const message = createBaseServiceCreateRequest();
+    message.spec = (object.spec !== undefined && object.spec !== null)
+      ? SwarmServiceSpec.fromPartial(object.spec)
+      : undefined;
+    message.registryAuth = (object.registryAuth !== undefined && object.registryAuth !== null)
+      ? RegistryAuth.fromPartial(object.registryAuth)
+      : undefined;
+    return message;
+  },
+};
+
+function createBaseServiceCreateResponse(): ServiceCreateResponse {
+  return { serviceId: "" };
+}
+
+export const ServiceCreateResponse: MessageFns<ServiceCreateResponse> = {
+  encode(message: ServiceCreateResponse, writer: BinaryWriter = new BinaryWriter()): BinaryWriter {
+    if (message.serviceId !== "") {
+      writer.uint32(10).string(message.serviceId);
+    }
+    return writer;
+  },
+
+  decode(input: BinaryReader | Uint8Array, length?: number): ServiceCreateResponse {
+    const reader = input instanceof BinaryReader ? input : new BinaryReader(input);
+    const end = length === undefined ? reader.len : reader.pos + length;
+    const message = createBaseServiceCreateResponse();
+    while (reader.pos < end) {
+      const tag = reader.uint32();
+      switch (tag >>> 3) {
+        case 1: {
+          if (tag !== 10) {
+            break;
+          }
+
+          message.serviceId = reader.string();
+          continue;
+        }
+      }
+      if ((tag & 7) === 4 || tag === 0) {
+        break;
+      }
+      reader.skip(tag & 7);
+    }
+    return message;
+  },
+
+  fromJSON(object: any): ServiceCreateResponse {
+    return {
+      serviceId: isSet(object.serviceId)
+        ? globalThis.String(object.serviceId)
+        : isSet(object.service_id)
+        ? globalThis.String(object.service_id)
+        : "",
+    };
+  },
+
+  toJSON(message: ServiceCreateResponse): unknown {
+    const obj: any = {};
+    if (message.serviceId !== "") {
+      obj.serviceId = message.serviceId;
+    }
+    return obj;
+  },
+
+  create(base?: DeepPartial<ServiceCreateResponse>): ServiceCreateResponse {
+    return ServiceCreateResponse.fromPartial(base ?? {});
+  },
+  fromPartial(object: DeepPartial<ServiceCreateResponse>): ServiceCreateResponse {
+    const message = createBaseServiceCreateResponse();
+    message.serviceId = object.serviceId ?? "";
+    return message;
+  },
+};
+
+function createBaseServiceUpdateImageRequest(): ServiceUpdateImageRequest {
+  return {
+    serviceName: "",
+    image: "",
+    replicas: 0,
+    updateParallelism: 0,
+    updateDelaySeconds: 0,
+    updateMonitorSeconds: 0,
+    updateOrder: "",
+    failureAction: "",
+    registryAuth: undefined,
+  };
+}
+
+export const ServiceUpdateImageRequest: MessageFns<ServiceUpdateImageRequest> = {
+  encode(message: ServiceUpdateImageRequest, writer: BinaryWriter = new BinaryWriter()): BinaryWriter {
+    if (message.serviceName !== "") {
+      writer.uint32(10).string(message.serviceName);
+    }
+    if (message.image !== "") {
+      writer.uint32(18).string(message.image);
+    }
+    if (message.replicas !== 0) {
+      writer.uint32(24).uint32(message.replicas);
+    }
+    if (message.updateParallelism !== 0) {
+      writer.uint32(32).uint32(message.updateParallelism);
+    }
+    if (message.updateDelaySeconds !== 0) {
+      writer.uint32(40).uint32(message.updateDelaySeconds);
+    }
+    if (message.updateMonitorSeconds !== 0) {
+      writer.uint32(48).uint32(message.updateMonitorSeconds);
+    }
+    if (message.updateOrder !== "") {
+      writer.uint32(58).string(message.updateOrder);
+    }
+    if (message.failureAction !== "") {
+      writer.uint32(66).string(message.failureAction);
+    }
+    if (message.registryAuth !== undefined) {
+      RegistryAuth.encode(message.registryAuth, writer.uint32(74).fork()).join();
+    }
+    return writer;
+  },
+
+  decode(input: BinaryReader | Uint8Array, length?: number): ServiceUpdateImageRequest {
+    const reader = input instanceof BinaryReader ? input : new BinaryReader(input);
+    const end = length === undefined ? reader.len : reader.pos + length;
+    const message = createBaseServiceUpdateImageRequest();
+    while (reader.pos < end) {
+      const tag = reader.uint32();
+      switch (tag >>> 3) {
+        case 1: {
+          if (tag !== 10) {
+            break;
+          }
+
+          message.serviceName = reader.string();
+          continue;
+        }
+        case 2: {
+          if (tag !== 18) {
+            break;
+          }
+
+          message.image = reader.string();
+          continue;
+        }
+        case 3: {
+          if (tag !== 24) {
+            break;
+          }
+
+          message.replicas = reader.uint32();
+          continue;
+        }
+        case 4: {
+          if (tag !== 32) {
+            break;
+          }
+
+          message.updateParallelism = reader.uint32();
+          continue;
+        }
+        case 5: {
+          if (tag !== 40) {
+            break;
+          }
+
+          message.updateDelaySeconds = reader.uint32();
+          continue;
+        }
+        case 6: {
+          if (tag !== 48) {
+            break;
+          }
+
+          message.updateMonitorSeconds = reader.uint32();
+          continue;
+        }
+        case 7: {
+          if (tag !== 58) {
+            break;
+          }
+
+          message.updateOrder = reader.string();
+          continue;
+        }
+        case 8: {
+          if (tag !== 66) {
+            break;
+          }
+
+          message.failureAction = reader.string();
+          continue;
+        }
+        case 9: {
+          if (tag !== 74) {
+            break;
+          }
+
+          message.registryAuth = RegistryAuth.decode(reader, reader.uint32());
+          continue;
+        }
+      }
+      if ((tag & 7) === 4 || tag === 0) {
+        break;
+      }
+      reader.skip(tag & 7);
+    }
+    return message;
+  },
+
+  fromJSON(object: any): ServiceUpdateImageRequest {
+    return {
+      serviceName: isSet(object.serviceName)
+        ? globalThis.String(object.serviceName)
+        : isSet(object.service_name)
+        ? globalThis.String(object.service_name)
+        : "",
+      image: isSet(object.image) ? globalThis.String(object.image) : "",
+      replicas: isSet(object.replicas) ? globalThis.Number(object.replicas) : 0,
+      updateParallelism: isSet(object.updateParallelism)
+        ? globalThis.Number(object.updateParallelism)
+        : isSet(object.update_parallelism)
+        ? globalThis.Number(object.update_parallelism)
+        : 0,
+      updateDelaySeconds: isSet(object.updateDelaySeconds)
+        ? globalThis.Number(object.updateDelaySeconds)
+        : isSet(object.update_delay_seconds)
+        ? globalThis.Number(object.update_delay_seconds)
+        : 0,
+      updateMonitorSeconds: isSet(object.updateMonitorSeconds)
+        ? globalThis.Number(object.updateMonitorSeconds)
+        : isSet(object.update_monitor_seconds)
+        ? globalThis.Number(object.update_monitor_seconds)
+        : 0,
+      updateOrder: isSet(object.updateOrder)
+        ? globalThis.String(object.updateOrder)
+        : isSet(object.update_order)
+        ? globalThis.String(object.update_order)
+        : "",
+      failureAction: isSet(object.failureAction)
+        ? globalThis.String(object.failureAction)
+        : isSet(object.failure_action)
+        ? globalThis.String(object.failure_action)
+        : "",
+      registryAuth: isSet(object.registryAuth)
+        ? RegistryAuth.fromJSON(object.registryAuth)
+        : isSet(object.registry_auth)
+        ? RegistryAuth.fromJSON(object.registry_auth)
+        : undefined,
+    };
+  },
+
+  toJSON(message: ServiceUpdateImageRequest): unknown {
+    const obj: any = {};
+    if (message.serviceName !== "") {
+      obj.serviceName = message.serviceName;
+    }
+    if (message.image !== "") {
+      obj.image = message.image;
+    }
+    if (message.replicas !== 0) {
+      obj.replicas = Math.round(message.replicas);
+    }
+    if (message.updateParallelism !== 0) {
+      obj.updateParallelism = Math.round(message.updateParallelism);
+    }
+    if (message.updateDelaySeconds !== 0) {
+      obj.updateDelaySeconds = Math.round(message.updateDelaySeconds);
+    }
+    if (message.updateMonitorSeconds !== 0) {
+      obj.updateMonitorSeconds = Math.round(message.updateMonitorSeconds);
+    }
+    if (message.updateOrder !== "") {
+      obj.updateOrder = message.updateOrder;
+    }
+    if (message.failureAction !== "") {
+      obj.failureAction = message.failureAction;
+    }
+    if (message.registryAuth !== undefined) {
+      obj.registryAuth = RegistryAuth.toJSON(message.registryAuth);
+    }
+    return obj;
+  },
+
+  create(base?: DeepPartial<ServiceUpdateImageRequest>): ServiceUpdateImageRequest {
+    return ServiceUpdateImageRequest.fromPartial(base ?? {});
+  },
+  fromPartial(object: DeepPartial<ServiceUpdateImageRequest>): ServiceUpdateImageRequest {
+    const message = createBaseServiceUpdateImageRequest();
+    message.serviceName = object.serviceName ?? "";
+    message.image = object.image ?? "";
+    message.replicas = object.replicas ?? 0;
+    message.updateParallelism = object.updateParallelism ?? 0;
+    message.updateDelaySeconds = object.updateDelaySeconds ?? 0;
+    message.updateMonitorSeconds = object.updateMonitorSeconds ?? 0;
+    message.updateOrder = object.updateOrder ?? "";
+    message.failureAction = object.failureAction ?? "";
+    message.registryAuth = (object.registryAuth !== undefined && object.registryAuth !== null)
+      ? RegistryAuth.fromPartial(object.registryAuth)
+      : undefined;
+    return message;
+  },
+};
+
+function createBaseServiceUpdateImageResponse(): ServiceUpdateImageResponse {
+  return { warning: "" };
+}
+
+export const ServiceUpdateImageResponse: MessageFns<ServiceUpdateImageResponse> = {
+  encode(message: ServiceUpdateImageResponse, writer: BinaryWriter = new BinaryWriter()): BinaryWriter {
+    if (message.warning !== "") {
+      writer.uint32(10).string(message.warning);
+    }
+    return writer;
+  },
+
+  decode(input: BinaryReader | Uint8Array, length?: number): ServiceUpdateImageResponse {
+    const reader = input instanceof BinaryReader ? input : new BinaryReader(input);
+    const end = length === undefined ? reader.len : reader.pos + length;
+    const message = createBaseServiceUpdateImageResponse();
+    while (reader.pos < end) {
+      const tag = reader.uint32();
+      switch (tag >>> 3) {
+        case 1: {
+          if (tag !== 10) {
+            break;
+          }
+
+          message.warning = reader.string();
+          continue;
+        }
+      }
+      if ((tag & 7) === 4 || tag === 0) {
+        break;
+      }
+      reader.skip(tag & 7);
+    }
+    return message;
+  },
+
+  fromJSON(object: any): ServiceUpdateImageResponse {
+    return { warning: isSet(object.warning) ? globalThis.String(object.warning) : "" };
+  },
+
+  toJSON(message: ServiceUpdateImageResponse): unknown {
+    const obj: any = {};
+    if (message.warning !== "") {
+      obj.warning = message.warning;
+    }
+    return obj;
+  },
+
+  create(base?: DeepPartial<ServiceUpdateImageResponse>): ServiceUpdateImageResponse {
+    return ServiceUpdateImageResponse.fromPartial(base ?? {});
+  },
+  fromPartial(object: DeepPartial<ServiceUpdateImageResponse>): ServiceUpdateImageResponse {
+    const message = createBaseServiceUpdateImageResponse();
+    message.warning = object.warning ?? "";
+    return message;
+  },
+};
+
+function createBaseServiceScaleRequest(): ServiceScaleRequest {
+  return { serviceName: "", replicas: 0 };
+}
+
+export const ServiceScaleRequest: MessageFns<ServiceScaleRequest> = {
+  encode(message: ServiceScaleRequest, writer: BinaryWriter = new BinaryWriter()): BinaryWriter {
+    if (message.serviceName !== "") {
+      writer.uint32(10).string(message.serviceName);
+    }
+    if (message.replicas !== 0) {
+      writer.uint32(16).uint32(message.replicas);
+    }
+    return writer;
+  },
+
+  decode(input: BinaryReader | Uint8Array, length?: number): ServiceScaleRequest {
+    const reader = input instanceof BinaryReader ? input : new BinaryReader(input);
+    const end = length === undefined ? reader.len : reader.pos + length;
+    const message = createBaseServiceScaleRequest();
+    while (reader.pos < end) {
+      const tag = reader.uint32();
+      switch (tag >>> 3) {
+        case 1: {
+          if (tag !== 10) {
+            break;
+          }
+
+          message.serviceName = reader.string();
+          continue;
+        }
+        case 2: {
+          if (tag !== 16) {
+            break;
+          }
+
+          message.replicas = reader.uint32();
+          continue;
+        }
+      }
+      if ((tag & 7) === 4 || tag === 0) {
+        break;
+      }
+      reader.skip(tag & 7);
+    }
+    return message;
+  },
+
+  fromJSON(object: any): ServiceScaleRequest {
+    return {
+      serviceName: isSet(object.serviceName)
+        ? globalThis.String(object.serviceName)
+        : isSet(object.service_name)
+        ? globalThis.String(object.service_name)
+        : "",
+      replicas: isSet(object.replicas) ? globalThis.Number(object.replicas) : 0,
+    };
+  },
+
+  toJSON(message: ServiceScaleRequest): unknown {
+    const obj: any = {};
+    if (message.serviceName !== "") {
+      obj.serviceName = message.serviceName;
+    }
+    if (message.replicas !== 0) {
+      obj.replicas = Math.round(message.replicas);
+    }
+    return obj;
+  },
+
+  create(base?: DeepPartial<ServiceScaleRequest>): ServiceScaleRequest {
+    return ServiceScaleRequest.fromPartial(base ?? {});
+  },
+  fromPartial(object: DeepPartial<ServiceScaleRequest>): ServiceScaleRequest {
+    const message = createBaseServiceScaleRequest();
+    message.serviceName = object.serviceName ?? "";
+    message.replicas = object.replicas ?? 0;
+    return message;
+  },
+};
+
+function createBaseServiceScaleResponse(): ServiceScaleResponse {
+  return {};
+}
+
+export const ServiceScaleResponse: MessageFns<ServiceScaleResponse> = {
+  encode(_: ServiceScaleResponse, writer: BinaryWriter = new BinaryWriter()): BinaryWriter {
+    return writer;
+  },
+
+  decode(input: BinaryReader | Uint8Array, length?: number): ServiceScaleResponse {
+    const reader = input instanceof BinaryReader ? input : new BinaryReader(input);
+    const end = length === undefined ? reader.len : reader.pos + length;
+    const message = createBaseServiceScaleResponse();
+    while (reader.pos < end) {
+      const tag = reader.uint32();
+      switch (tag >>> 3) {
+      }
+      if ((tag & 7) === 4 || tag === 0) {
+        break;
+      }
+      reader.skip(tag & 7);
+    }
+    return message;
+  },
+
+  fromJSON(_: any): ServiceScaleResponse {
+    return {};
+  },
+
+  toJSON(_: ServiceScaleResponse): unknown {
+    const obj: any = {};
+    return obj;
+  },
+
+  create(base?: DeepPartial<ServiceScaleResponse>): ServiceScaleResponse {
+    return ServiceScaleResponse.fromPartial(base ?? {});
+  },
+  fromPartial(_: DeepPartial<ServiceScaleResponse>): ServiceScaleResponse {
+    const message = createBaseServiceScaleResponse();
+    return message;
+  },
+};
+
+function createBaseServiceRollbackRequest(): ServiceRollbackRequest {
+  return { serviceName: "" };
+}
+
+export const ServiceRollbackRequest: MessageFns<ServiceRollbackRequest> = {
+  encode(message: ServiceRollbackRequest, writer: BinaryWriter = new BinaryWriter()): BinaryWriter {
+    if (message.serviceName !== "") {
+      writer.uint32(10).string(message.serviceName);
+    }
+    return writer;
+  },
+
+  decode(input: BinaryReader | Uint8Array, length?: number): ServiceRollbackRequest {
+    const reader = input instanceof BinaryReader ? input : new BinaryReader(input);
+    const end = length === undefined ? reader.len : reader.pos + length;
+    const message = createBaseServiceRollbackRequest();
+    while (reader.pos < end) {
+      const tag = reader.uint32();
+      switch (tag >>> 3) {
+        case 1: {
+          if (tag !== 10) {
+            break;
+          }
+
+          message.serviceName = reader.string();
+          continue;
+        }
+      }
+      if ((tag & 7) === 4 || tag === 0) {
+        break;
+      }
+      reader.skip(tag & 7);
+    }
+    return message;
+  },
+
+  fromJSON(object: any): ServiceRollbackRequest {
+    return {
+      serviceName: isSet(object.serviceName)
+        ? globalThis.String(object.serviceName)
+        : isSet(object.service_name)
+        ? globalThis.String(object.service_name)
+        : "",
+    };
+  },
+
+  toJSON(message: ServiceRollbackRequest): unknown {
+    const obj: any = {};
+    if (message.serviceName !== "") {
+      obj.serviceName = message.serviceName;
+    }
+    return obj;
+  },
+
+  create(base?: DeepPartial<ServiceRollbackRequest>): ServiceRollbackRequest {
+    return ServiceRollbackRequest.fromPartial(base ?? {});
+  },
+  fromPartial(object: DeepPartial<ServiceRollbackRequest>): ServiceRollbackRequest {
+    const message = createBaseServiceRollbackRequest();
+    message.serviceName = object.serviceName ?? "";
+    return message;
+  },
+};
+
+function createBaseServiceRollbackResponse(): ServiceRollbackResponse {
+  return {};
+}
+
+export const ServiceRollbackResponse: MessageFns<ServiceRollbackResponse> = {
+  encode(_: ServiceRollbackResponse, writer: BinaryWriter = new BinaryWriter()): BinaryWriter {
+    return writer;
+  },
+
+  decode(input: BinaryReader | Uint8Array, length?: number): ServiceRollbackResponse {
+    const reader = input instanceof BinaryReader ? input : new BinaryReader(input);
+    const end = length === undefined ? reader.len : reader.pos + length;
+    const message = createBaseServiceRollbackResponse();
+    while (reader.pos < end) {
+      const tag = reader.uint32();
+      switch (tag >>> 3) {
+      }
+      if ((tag & 7) === 4 || tag === 0) {
+        break;
+      }
+      reader.skip(tag & 7);
+    }
+    return message;
+  },
+
+  fromJSON(_: any): ServiceRollbackResponse {
+    return {};
+  },
+
+  toJSON(_: ServiceRollbackResponse): unknown {
+    const obj: any = {};
+    return obj;
+  },
+
+  create(base?: DeepPartial<ServiceRollbackResponse>): ServiceRollbackResponse {
+    return ServiceRollbackResponse.fromPartial(base ?? {});
+  },
+  fromPartial(_: DeepPartial<ServiceRollbackResponse>): ServiceRollbackResponse {
+    const message = createBaseServiceRollbackResponse();
+    return message;
+  },
+};
+
+function createBaseServiceRemoveRequest(): ServiceRemoveRequest {
+  return { serviceName: "" };
+}
+
+export const ServiceRemoveRequest: MessageFns<ServiceRemoveRequest> = {
+  encode(message: ServiceRemoveRequest, writer: BinaryWriter = new BinaryWriter()): BinaryWriter {
+    if (message.serviceName !== "") {
+      writer.uint32(10).string(message.serviceName);
+    }
+    return writer;
+  },
+
+  decode(input: BinaryReader | Uint8Array, length?: number): ServiceRemoveRequest {
+    const reader = input instanceof BinaryReader ? input : new BinaryReader(input);
+    const end = length === undefined ? reader.len : reader.pos + length;
+    const message = createBaseServiceRemoveRequest();
+    while (reader.pos < end) {
+      const tag = reader.uint32();
+      switch (tag >>> 3) {
+        case 1: {
+          if (tag !== 10) {
+            break;
+          }
+
+          message.serviceName = reader.string();
+          continue;
+        }
+      }
+      if ((tag & 7) === 4 || tag === 0) {
+        break;
+      }
+      reader.skip(tag & 7);
+    }
+    return message;
+  },
+
+  fromJSON(object: any): ServiceRemoveRequest {
+    return {
+      serviceName: isSet(object.serviceName)
+        ? globalThis.String(object.serviceName)
+        : isSet(object.service_name)
+        ? globalThis.String(object.service_name)
+        : "",
+    };
+  },
+
+  toJSON(message: ServiceRemoveRequest): unknown {
+    const obj: any = {};
+    if (message.serviceName !== "") {
+      obj.serviceName = message.serviceName;
+    }
+    return obj;
+  },
+
+  create(base?: DeepPartial<ServiceRemoveRequest>): ServiceRemoveRequest {
+    return ServiceRemoveRequest.fromPartial(base ?? {});
+  },
+  fromPartial(object: DeepPartial<ServiceRemoveRequest>): ServiceRemoveRequest {
+    const message = createBaseServiceRemoveRequest();
+    message.serviceName = object.serviceName ?? "";
+    return message;
+  },
+};
+
+function createBaseServiceRemoveResponse(): ServiceRemoveResponse {
+  return {};
+}
+
+export const ServiceRemoveResponse: MessageFns<ServiceRemoveResponse> = {
+  encode(_: ServiceRemoveResponse, writer: BinaryWriter = new BinaryWriter()): BinaryWriter {
+    return writer;
+  },
+
+  decode(input: BinaryReader | Uint8Array, length?: number): ServiceRemoveResponse {
+    const reader = input instanceof BinaryReader ? input : new BinaryReader(input);
+    const end = length === undefined ? reader.len : reader.pos + length;
+    const message = createBaseServiceRemoveResponse();
+    while (reader.pos < end) {
+      const tag = reader.uint32();
+      switch (tag >>> 3) {
+      }
+      if ((tag & 7) === 4 || tag === 0) {
+        break;
+      }
+      reader.skip(tag & 7);
+    }
+    return message;
+  },
+
+  fromJSON(_: any): ServiceRemoveResponse {
+    return {};
+  },
+
+  toJSON(_: ServiceRemoveResponse): unknown {
+    const obj: any = {};
+    return obj;
+  },
+
+  create(base?: DeepPartial<ServiceRemoveResponse>): ServiceRemoveResponse {
+    return ServiceRemoveResponse.fromPartial(base ?? {});
+  },
+  fromPartial(_: DeepPartial<ServiceRemoveResponse>): ServiceRemoveResponse {
+    const message = createBaseServiceRemoveResponse();
+    return message;
+  },
+};
+
+function createBaseSwarmTaskSnapshot(): SwarmTaskSnapshot {
+  return {
+    id: "",
+    serviceName: "",
+    containerId: "",
+    slot: 0,
+    image: "",
+    desiredState: "",
+    status: "",
+    nodeId: "",
+    error: "",
+  };
+}
+
+export const SwarmTaskSnapshot: MessageFns<SwarmTaskSnapshot> = {
+  encode(message: SwarmTaskSnapshot, writer: BinaryWriter = new BinaryWriter()): BinaryWriter {
+    if (message.id !== "") {
+      writer.uint32(10).string(message.id);
+    }
+    if (message.serviceName !== "") {
+      writer.uint32(18).string(message.serviceName);
+    }
+    if (message.containerId !== "") {
+      writer.uint32(26).string(message.containerId);
+    }
+    if (message.slot !== 0) {
+      writer.uint32(32).uint32(message.slot);
+    }
+    if (message.image !== "") {
+      writer.uint32(42).string(message.image);
+    }
+    if (message.desiredState !== "") {
+      writer.uint32(50).string(message.desiredState);
+    }
+    if (message.status !== "") {
+      writer.uint32(58).string(message.status);
+    }
+    if (message.nodeId !== "") {
+      writer.uint32(66).string(message.nodeId);
+    }
+    if (message.error !== "") {
+      writer.uint32(74).string(message.error);
+    }
+    return writer;
+  },
+
+  decode(input: BinaryReader | Uint8Array, length?: number): SwarmTaskSnapshot {
+    const reader = input instanceof BinaryReader ? input : new BinaryReader(input);
+    const end = length === undefined ? reader.len : reader.pos + length;
+    const message = createBaseSwarmTaskSnapshot();
+    while (reader.pos < end) {
+      const tag = reader.uint32();
+      switch (tag >>> 3) {
+        case 1: {
+          if (tag !== 10) {
+            break;
+          }
+
+          message.id = reader.string();
+          continue;
+        }
+        case 2: {
+          if (tag !== 18) {
+            break;
+          }
+
+          message.serviceName = reader.string();
+          continue;
+        }
+        case 3: {
+          if (tag !== 26) {
+            break;
+          }
+
+          message.containerId = reader.string();
+          continue;
+        }
+        case 4: {
+          if (tag !== 32) {
+            break;
+          }
+
+          message.slot = reader.uint32();
+          continue;
+        }
+        case 5: {
+          if (tag !== 42) {
+            break;
+          }
+
+          message.image = reader.string();
+          continue;
+        }
+        case 6: {
+          if (tag !== 50) {
+            break;
+          }
+
+          message.desiredState = reader.string();
+          continue;
+        }
+        case 7: {
+          if (tag !== 58) {
+            break;
+          }
+
+          message.status = reader.string();
+          continue;
+        }
+        case 8: {
+          if (tag !== 66) {
+            break;
+          }
+
+          message.nodeId = reader.string();
+          continue;
+        }
+        case 9: {
+          if (tag !== 74) {
+            break;
+          }
+
+          message.error = reader.string();
+          continue;
+        }
+      }
+      if ((tag & 7) === 4 || tag === 0) {
+        break;
+      }
+      reader.skip(tag & 7);
+    }
+    return message;
+  },
+
+  fromJSON(object: any): SwarmTaskSnapshot {
+    return {
+      id: isSet(object.id) ? globalThis.String(object.id) : "",
+      serviceName: isSet(object.serviceName)
+        ? globalThis.String(object.serviceName)
+        : isSet(object.service_name)
+        ? globalThis.String(object.service_name)
+        : "",
+      containerId: isSet(object.containerId)
+        ? globalThis.String(object.containerId)
+        : isSet(object.container_id)
+        ? globalThis.String(object.container_id)
+        : "",
+      slot: isSet(object.slot) ? globalThis.Number(object.slot) : 0,
+      image: isSet(object.image) ? globalThis.String(object.image) : "",
+      desiredState: isSet(object.desiredState)
+        ? globalThis.String(object.desiredState)
+        : isSet(object.desired_state)
+        ? globalThis.String(object.desired_state)
+        : "",
+      status: isSet(object.status) ? globalThis.String(object.status) : "",
+      nodeId: isSet(object.nodeId)
+        ? globalThis.String(object.nodeId)
+        : isSet(object.node_id)
+        ? globalThis.String(object.node_id)
+        : "",
+      error: isSet(object.error) ? globalThis.String(object.error) : "",
+    };
+  },
+
+  toJSON(message: SwarmTaskSnapshot): unknown {
+    const obj: any = {};
+    if (message.id !== "") {
+      obj.id = message.id;
+    }
+    if (message.serviceName !== "") {
+      obj.serviceName = message.serviceName;
+    }
+    if (message.containerId !== "") {
+      obj.containerId = message.containerId;
+    }
+    if (message.slot !== 0) {
+      obj.slot = Math.round(message.slot);
+    }
+    if (message.image !== "") {
+      obj.image = message.image;
+    }
+    if (message.desiredState !== "") {
+      obj.desiredState = message.desiredState;
+    }
+    if (message.status !== "") {
+      obj.status = message.status;
+    }
+    if (message.nodeId !== "") {
+      obj.nodeId = message.nodeId;
+    }
+    if (message.error !== "") {
+      obj.error = message.error;
+    }
+    return obj;
+  },
+
+  create(base?: DeepPartial<SwarmTaskSnapshot>): SwarmTaskSnapshot {
+    return SwarmTaskSnapshot.fromPartial(base ?? {});
+  },
+  fromPartial(object: DeepPartial<SwarmTaskSnapshot>): SwarmTaskSnapshot {
+    const message = createBaseSwarmTaskSnapshot();
+    message.id = object.id ?? "";
+    message.serviceName = object.serviceName ?? "";
+    message.containerId = object.containerId ?? "";
+    message.slot = object.slot ?? 0;
+    message.image = object.image ?? "";
+    message.desiredState = object.desiredState ?? "";
+    message.status = object.status ?? "";
+    message.nodeId = object.nodeId ?? "";
+    message.error = object.error ?? "";
+    return message;
+  },
+};
+
+function createBaseListServiceTasksRequest(): ListServiceTasksRequest {
+  return { serviceName: "" };
+}
+
+export const ListServiceTasksRequest: MessageFns<ListServiceTasksRequest> = {
+  encode(message: ListServiceTasksRequest, writer: BinaryWriter = new BinaryWriter()): BinaryWriter {
+    if (message.serviceName !== "") {
+      writer.uint32(10).string(message.serviceName);
+    }
+    return writer;
+  },
+
+  decode(input: BinaryReader | Uint8Array, length?: number): ListServiceTasksRequest {
+    const reader = input instanceof BinaryReader ? input : new BinaryReader(input);
+    const end = length === undefined ? reader.len : reader.pos + length;
+    const message = createBaseListServiceTasksRequest();
+    while (reader.pos < end) {
+      const tag = reader.uint32();
+      switch (tag >>> 3) {
+        case 1: {
+          if (tag !== 10) {
+            break;
+          }
+
+          message.serviceName = reader.string();
+          continue;
+        }
+      }
+      if ((tag & 7) === 4 || tag === 0) {
+        break;
+      }
+      reader.skip(tag & 7);
+    }
+    return message;
+  },
+
+  fromJSON(object: any): ListServiceTasksRequest {
+    return {
+      serviceName: isSet(object.serviceName)
+        ? globalThis.String(object.serviceName)
+        : isSet(object.service_name)
+        ? globalThis.String(object.service_name)
+        : "",
+    };
+  },
+
+  toJSON(message: ListServiceTasksRequest): unknown {
+    const obj: any = {};
+    if (message.serviceName !== "") {
+      obj.serviceName = message.serviceName;
+    }
+    return obj;
+  },
+
+  create(base?: DeepPartial<ListServiceTasksRequest>): ListServiceTasksRequest {
+    return ListServiceTasksRequest.fromPartial(base ?? {});
+  },
+  fromPartial(object: DeepPartial<ListServiceTasksRequest>): ListServiceTasksRequest {
+    const message = createBaseListServiceTasksRequest();
+    message.serviceName = object.serviceName ?? "";
+    return message;
+  },
+};
+
+function createBaseListServiceTasksResponse(): ListServiceTasksResponse {
+  return { tasks: [] };
+}
+
+export const ListServiceTasksResponse: MessageFns<ListServiceTasksResponse> = {
+  encode(message: ListServiceTasksResponse, writer: BinaryWriter = new BinaryWriter()): BinaryWriter {
+    for (const v of message.tasks) {
+      SwarmTaskSnapshot.encode(v!, writer.uint32(10).fork()).join();
+    }
+    return writer;
+  },
+
+  decode(input: BinaryReader | Uint8Array, length?: number): ListServiceTasksResponse {
+    const reader = input instanceof BinaryReader ? input : new BinaryReader(input);
+    const end = length === undefined ? reader.len : reader.pos + length;
+    const message = createBaseListServiceTasksResponse();
+    while (reader.pos < end) {
+      const tag = reader.uint32();
+      switch (tag >>> 3) {
+        case 1: {
+          if (tag !== 10) {
+            break;
+          }
+
+          message.tasks.push(SwarmTaskSnapshot.decode(reader, reader.uint32()));
+          continue;
+        }
+      }
+      if ((tag & 7) === 4 || tag === 0) {
+        break;
+      }
+      reader.skip(tag & 7);
+    }
+    return message;
+  },
+
+  fromJSON(object: any): ListServiceTasksResponse {
+    return {
+      tasks: globalThis.Array.isArray(object?.tasks) ? object.tasks.map((e: any) => SwarmTaskSnapshot.fromJSON(e)) : [],
+    };
+  },
+
+  toJSON(message: ListServiceTasksResponse): unknown {
+    const obj: any = {};
+    if (message.tasks?.length) {
+      obj.tasks = message.tasks.map((e) => SwarmTaskSnapshot.toJSON(e));
+    }
+    return obj;
+  },
+
+  create(base?: DeepPartial<ListServiceTasksResponse>): ListServiceTasksResponse {
+    return ListServiceTasksResponse.fromPartial(base ?? {});
+  },
+  fromPartial(object: DeepPartial<ListServiceTasksResponse>): ListServiceTasksResponse {
+    const message = createBaseListServiceTasksResponse();
+    message.tasks = object.tasks?.map((e) => SwarmTaskSnapshot.fromPartial(e)) || [];
+    return message;
+  },
+};
+
 function createBaseSignAuditEntryRequest(): SignAuditEntryRequest {
   return { canonicalPayload: new Uint8Array(0), keyId: "" };
 }
@@ -7153,6 +9604,90 @@ export const AgentService = {
     responseSerialize: (value: HostStatsResponse): Buffer => Buffer.from(HostStatsResponse.encode(value).finish()),
     responseDeserialize: (value: Buffer): HostStatsResponse => HostStatsResponse.decode(value),
   },
+  /** Swarm runtime */
+  swarmInfo: {
+    path: "/ploydok.agent.v1.Agent/SwarmInfo" as const,
+    requestStream: false as const,
+    responseStream: false as const,
+    requestSerialize: (value: SwarmInfoRequest): Buffer => Buffer.from(SwarmInfoRequest.encode(value).finish()),
+    requestDeserialize: (value: Buffer): SwarmInfoRequest => SwarmInfoRequest.decode(value),
+    responseSerialize: (value: SwarmInfoResponse): Buffer => Buffer.from(SwarmInfoResponse.encode(value).finish()),
+    responseDeserialize: (value: Buffer): SwarmInfoResponse => SwarmInfoResponse.decode(value),
+  },
+  swarmEnsureSingleNode: {
+    path: "/ploydok.agent.v1.Agent/SwarmEnsureSingleNode" as const,
+    requestStream: false as const,
+    responseStream: false as const,
+    requestSerialize: (value: SwarmEnsureSingleNodeRequest): Buffer =>
+      Buffer.from(SwarmEnsureSingleNodeRequest.encode(value).finish()),
+    requestDeserialize: (value: Buffer): SwarmEnsureSingleNodeRequest => SwarmEnsureSingleNodeRequest.decode(value),
+    responseSerialize: (value: SwarmEnsureSingleNodeResponse): Buffer =>
+      Buffer.from(SwarmEnsureSingleNodeResponse.encode(value).finish()),
+    responseDeserialize: (value: Buffer): SwarmEnsureSingleNodeResponse => SwarmEnsureSingleNodeResponse.decode(value),
+  },
+  serviceCreate: {
+    path: "/ploydok.agent.v1.Agent/ServiceCreate" as const,
+    requestStream: false as const,
+    responseStream: false as const,
+    requestSerialize: (value: ServiceCreateRequest): Buffer => Buffer.from(ServiceCreateRequest.encode(value).finish()),
+    requestDeserialize: (value: Buffer): ServiceCreateRequest => ServiceCreateRequest.decode(value),
+    responseSerialize: (value: ServiceCreateResponse): Buffer =>
+      Buffer.from(ServiceCreateResponse.encode(value).finish()),
+    responseDeserialize: (value: Buffer): ServiceCreateResponse => ServiceCreateResponse.decode(value),
+  },
+  serviceUpdateImage: {
+    path: "/ploydok.agent.v1.Agent/ServiceUpdateImage" as const,
+    requestStream: false as const,
+    responseStream: false as const,
+    requestSerialize: (value: ServiceUpdateImageRequest): Buffer =>
+      Buffer.from(ServiceUpdateImageRequest.encode(value).finish()),
+    requestDeserialize: (value: Buffer): ServiceUpdateImageRequest => ServiceUpdateImageRequest.decode(value),
+    responseSerialize: (value: ServiceUpdateImageResponse): Buffer =>
+      Buffer.from(ServiceUpdateImageResponse.encode(value).finish()),
+    responseDeserialize: (value: Buffer): ServiceUpdateImageResponse => ServiceUpdateImageResponse.decode(value),
+  },
+  serviceScale: {
+    path: "/ploydok.agent.v1.Agent/ServiceScale" as const,
+    requestStream: false as const,
+    responseStream: false as const,
+    requestSerialize: (value: ServiceScaleRequest): Buffer => Buffer.from(ServiceScaleRequest.encode(value).finish()),
+    requestDeserialize: (value: Buffer): ServiceScaleRequest => ServiceScaleRequest.decode(value),
+    responseSerialize: (value: ServiceScaleResponse): Buffer =>
+      Buffer.from(ServiceScaleResponse.encode(value).finish()),
+    responseDeserialize: (value: Buffer): ServiceScaleResponse => ServiceScaleResponse.decode(value),
+  },
+  serviceRollback: {
+    path: "/ploydok.agent.v1.Agent/ServiceRollback" as const,
+    requestStream: false as const,
+    responseStream: false as const,
+    requestSerialize: (value: ServiceRollbackRequest): Buffer =>
+      Buffer.from(ServiceRollbackRequest.encode(value).finish()),
+    requestDeserialize: (value: Buffer): ServiceRollbackRequest => ServiceRollbackRequest.decode(value),
+    responseSerialize: (value: ServiceRollbackResponse): Buffer =>
+      Buffer.from(ServiceRollbackResponse.encode(value).finish()),
+    responseDeserialize: (value: Buffer): ServiceRollbackResponse => ServiceRollbackResponse.decode(value),
+  },
+  serviceRemove: {
+    path: "/ploydok.agent.v1.Agent/ServiceRemove" as const,
+    requestStream: false as const,
+    responseStream: false as const,
+    requestSerialize: (value: ServiceRemoveRequest): Buffer => Buffer.from(ServiceRemoveRequest.encode(value).finish()),
+    requestDeserialize: (value: Buffer): ServiceRemoveRequest => ServiceRemoveRequest.decode(value),
+    responseSerialize: (value: ServiceRemoveResponse): Buffer =>
+      Buffer.from(ServiceRemoveResponse.encode(value).finish()),
+    responseDeserialize: (value: Buffer): ServiceRemoveResponse => ServiceRemoveResponse.decode(value),
+  },
+  listServiceTasks: {
+    path: "/ploydok.agent.v1.Agent/ListServiceTasks" as const,
+    requestStream: false as const,
+    responseStream: false as const,
+    requestSerialize: (value: ListServiceTasksRequest): Buffer =>
+      Buffer.from(ListServiceTasksRequest.encode(value).finish()),
+    requestDeserialize: (value: Buffer): ListServiceTasksRequest => ListServiceTasksRequest.decode(value),
+    responseSerialize: (value: ListServiceTasksResponse): Buffer =>
+      Buffer.from(ListServiceTasksResponse.encode(value).finish()),
+    responseDeserialize: (value: Buffer): ListServiceTasksResponse => ListServiceTasksResponse.decode(value),
+  },
   /** Audit log signing */
   signAuditEntry: {
     path: "/ploydok.agent.v1.Agent/SignAuditEntry" as const,
@@ -7209,6 +9744,15 @@ export interface AgentServer extends UntypedServiceImplementation {
   restoreDatabase: handleClientStreamingCall<RestoreChunk, RestoreResult>;
   /** Host monitoring (VPS health — Sprint 6.6) */
   hostStats: handleUnaryCall<HostStatsRequest, HostStatsResponse>;
+  /** Swarm runtime */
+  swarmInfo: handleUnaryCall<SwarmInfoRequest, SwarmInfoResponse>;
+  swarmEnsureSingleNode: handleUnaryCall<SwarmEnsureSingleNodeRequest, SwarmEnsureSingleNodeResponse>;
+  serviceCreate: handleUnaryCall<ServiceCreateRequest, ServiceCreateResponse>;
+  serviceUpdateImage: handleUnaryCall<ServiceUpdateImageRequest, ServiceUpdateImageResponse>;
+  serviceScale: handleUnaryCall<ServiceScaleRequest, ServiceScaleResponse>;
+  serviceRollback: handleUnaryCall<ServiceRollbackRequest, ServiceRollbackResponse>;
+  serviceRemove: handleUnaryCall<ServiceRemoveRequest, ServiceRemoveResponse>;
+  listServiceTasks: handleUnaryCall<ListServiceTasksRequest, ListServiceTasksResponse>;
   /** Audit log signing */
   signAuditEntry: handleUnaryCall<SignAuditEntryRequest, SignAuditEntryResponse>;
   getAuditPubkey: handleUnaryCall<GetAuditPubkeyRequest, GetAuditPubkeyResponse>;
@@ -7482,6 +10026,127 @@ export interface AgentClient extends Client {
     metadata: Metadata,
     options: Partial<CallOptions>,
     callback: (error: ServiceError | null, response: HostStatsResponse) => void,
+  ): ClientUnaryCall;
+  /** Swarm runtime */
+  swarmInfo(
+    request: SwarmInfoRequest,
+    callback: (error: ServiceError | null, response: SwarmInfoResponse) => void,
+  ): ClientUnaryCall;
+  swarmInfo(
+    request: SwarmInfoRequest,
+    metadata: Metadata,
+    callback: (error: ServiceError | null, response: SwarmInfoResponse) => void,
+  ): ClientUnaryCall;
+  swarmInfo(
+    request: SwarmInfoRequest,
+    metadata: Metadata,
+    options: Partial<CallOptions>,
+    callback: (error: ServiceError | null, response: SwarmInfoResponse) => void,
+  ): ClientUnaryCall;
+  swarmEnsureSingleNode(
+    request: SwarmEnsureSingleNodeRequest,
+    callback: (error: ServiceError | null, response: SwarmEnsureSingleNodeResponse) => void,
+  ): ClientUnaryCall;
+  swarmEnsureSingleNode(
+    request: SwarmEnsureSingleNodeRequest,
+    metadata: Metadata,
+    callback: (error: ServiceError | null, response: SwarmEnsureSingleNodeResponse) => void,
+  ): ClientUnaryCall;
+  swarmEnsureSingleNode(
+    request: SwarmEnsureSingleNodeRequest,
+    metadata: Metadata,
+    options: Partial<CallOptions>,
+    callback: (error: ServiceError | null, response: SwarmEnsureSingleNodeResponse) => void,
+  ): ClientUnaryCall;
+  serviceCreate(
+    request: ServiceCreateRequest,
+    callback: (error: ServiceError | null, response: ServiceCreateResponse) => void,
+  ): ClientUnaryCall;
+  serviceCreate(
+    request: ServiceCreateRequest,
+    metadata: Metadata,
+    callback: (error: ServiceError | null, response: ServiceCreateResponse) => void,
+  ): ClientUnaryCall;
+  serviceCreate(
+    request: ServiceCreateRequest,
+    metadata: Metadata,
+    options: Partial<CallOptions>,
+    callback: (error: ServiceError | null, response: ServiceCreateResponse) => void,
+  ): ClientUnaryCall;
+  serviceUpdateImage(
+    request: ServiceUpdateImageRequest,
+    callback: (error: ServiceError | null, response: ServiceUpdateImageResponse) => void,
+  ): ClientUnaryCall;
+  serviceUpdateImage(
+    request: ServiceUpdateImageRequest,
+    metadata: Metadata,
+    callback: (error: ServiceError | null, response: ServiceUpdateImageResponse) => void,
+  ): ClientUnaryCall;
+  serviceUpdateImage(
+    request: ServiceUpdateImageRequest,
+    metadata: Metadata,
+    options: Partial<CallOptions>,
+    callback: (error: ServiceError | null, response: ServiceUpdateImageResponse) => void,
+  ): ClientUnaryCall;
+  serviceScale(
+    request: ServiceScaleRequest,
+    callback: (error: ServiceError | null, response: ServiceScaleResponse) => void,
+  ): ClientUnaryCall;
+  serviceScale(
+    request: ServiceScaleRequest,
+    metadata: Metadata,
+    callback: (error: ServiceError | null, response: ServiceScaleResponse) => void,
+  ): ClientUnaryCall;
+  serviceScale(
+    request: ServiceScaleRequest,
+    metadata: Metadata,
+    options: Partial<CallOptions>,
+    callback: (error: ServiceError | null, response: ServiceScaleResponse) => void,
+  ): ClientUnaryCall;
+  serviceRollback(
+    request: ServiceRollbackRequest,
+    callback: (error: ServiceError | null, response: ServiceRollbackResponse) => void,
+  ): ClientUnaryCall;
+  serviceRollback(
+    request: ServiceRollbackRequest,
+    metadata: Metadata,
+    callback: (error: ServiceError | null, response: ServiceRollbackResponse) => void,
+  ): ClientUnaryCall;
+  serviceRollback(
+    request: ServiceRollbackRequest,
+    metadata: Metadata,
+    options: Partial<CallOptions>,
+    callback: (error: ServiceError | null, response: ServiceRollbackResponse) => void,
+  ): ClientUnaryCall;
+  serviceRemove(
+    request: ServiceRemoveRequest,
+    callback: (error: ServiceError | null, response: ServiceRemoveResponse) => void,
+  ): ClientUnaryCall;
+  serviceRemove(
+    request: ServiceRemoveRequest,
+    metadata: Metadata,
+    callback: (error: ServiceError | null, response: ServiceRemoveResponse) => void,
+  ): ClientUnaryCall;
+  serviceRemove(
+    request: ServiceRemoveRequest,
+    metadata: Metadata,
+    options: Partial<CallOptions>,
+    callback: (error: ServiceError | null, response: ServiceRemoveResponse) => void,
+  ): ClientUnaryCall;
+  listServiceTasks(
+    request: ListServiceTasksRequest,
+    callback: (error: ServiceError | null, response: ListServiceTasksResponse) => void,
+  ): ClientUnaryCall;
+  listServiceTasks(
+    request: ListServiceTasksRequest,
+    metadata: Metadata,
+    callback: (error: ServiceError | null, response: ListServiceTasksResponse) => void,
+  ): ClientUnaryCall;
+  listServiceTasks(
+    request: ListServiceTasksRequest,
+    metadata: Metadata,
+    options: Partial<CallOptions>,
+    callback: (error: ServiceError | null, response: ListServiceTasksResponse) => void,
   ): ClientUnaryCall;
   /** Audit log signing */
   signAuditEntry(

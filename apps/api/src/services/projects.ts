@@ -33,6 +33,10 @@ export function projectNetworkName(projectId: string): string {
   return `ploydok-proj-${projectId.toLowerCase()}`;
 }
 
+export function projectSwarmNetworkName(projectId: string): string {
+  return `ploydok-swarm-proj-${projectId.toLowerCase()}`;
+}
+
 /**
  * Ensure the per-project Docker bridge network exists and that the column
  * `projects.network_name` is populated. Idempotent: calling twice is cheap
@@ -62,6 +66,7 @@ export async function ensureProjectNetwork(
     await agentClient.networkCreate({
       name,
       driver: "bridge",
+      attachable: false,
       labels: { "ploydok.kind": "project-network", "ploydok.project_id": projectId },
     });
     log.info({ projectId, name }, "project network created");
@@ -75,6 +80,44 @@ export async function ensureProjectNetwork(
   }
 
   await db.update(projects).set({ network_name: name }).where(eq(projects.id, projectId));
+  return name;
+}
+
+export async function ensureProjectSwarmNetwork(
+  db: Db,
+  projectId: string,
+  agent?: Agent,
+): Promise<string> {
+  const rows = await db
+    .select({ network_name: projects.network_name })
+    .from(projects)
+    .where(eq(projects.id, projectId))
+    .limit(1);
+  const row = rows[0];
+  if (!row) throw new Error(`Project not found: ${projectId}`);
+
+  const agentClient = agent ?? getSharedAgent();
+  const name = projectSwarmNetworkName(projectId);
+  try {
+    await agentClient.networkCreate({
+      name,
+      driver: "overlay",
+      attachable: true,
+      labels: {
+        "ploydok.kind": "project-swarm-network",
+        "ploydok.project_id": projectId,
+      },
+    });
+    log.info({ projectId, name }, "project swarm network created");
+  } catch (err) {
+    const msg = err instanceof Error ? err.message : String(err);
+    if (msg.includes("already exists") || msg.includes("ALREADY_EXISTS")) {
+      log.info({ projectId, name }, "project swarm network already exists");
+    } else {
+      throw err;
+    }
+  }
+
   return name;
 }
 

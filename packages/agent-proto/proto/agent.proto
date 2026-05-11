@@ -235,6 +235,8 @@ message NetworkCreateRequest {
   string driver = 2;
   // Optional labels.
   map<string, string> labels = 3;
+  // Swarm overlay networks must be attachable so Caddy can join them.
+  bool attachable = 4;
 }
 
 message NetworkCreateResponse {
@@ -530,6 +532,130 @@ message HostStatsResponse {
 }
 
 // ─────────────────────────────────────────────────────────────────────────────
+// Swarm runtime (single-node app scaling)
+// ─────────────────────────────────────────────────────────────────────────────
+
+message SwarmInfoRequest {}
+
+message SwarmInfoResponse {
+  string local_node_state = 1;
+  bool control_available = 2;
+  string node_id = 3;
+  string node_addr = 4;
+  int64 nodes = 5;
+  int64 managers = 6;
+  string error = 7;
+}
+
+message SwarmEnsureSingleNodeRequest {
+  string advertise_addr = 1;
+}
+
+message SwarmEnsureSingleNodeResponse {
+  SwarmInfoResponse info = 1;
+  bool initialized = 2;
+}
+
+message SwarmServiceMount {
+  string host_path = 1;
+  string container_path = 2;
+  bool read_only = 3;
+}
+
+message SwarmServiceHealthcheck {
+  repeated string test = 1;
+  int64 interval_seconds = 2;
+  int64 timeout_seconds = 3;
+  uint32 retries = 4;
+  int64 start_period_seconds = 5;
+}
+
+message SwarmServiceSpec {
+  string name = 1;
+  string image = 2;
+  map<string, string> env = 3;
+  map<string, string> labels = 4;
+  repeated string networks = 5;
+  repeated SwarmServiceMount mounts = 6;
+  ResourceLimits resource_limits = 7;
+  repeated string command = 8;
+  string user = 9;
+  SwarmServiceHealthcheck healthcheck = 10;
+  uint32 replicas = 11;
+  uint32 runtime_port = 12;
+  uint32 update_parallelism = 13;
+  uint32 update_delay_seconds = 14;
+  uint32 update_monitor_seconds = 15;
+  string update_order = 16;
+  string failure_action = 17;
+  uint32 stop_grace_period_seconds = 18;
+}
+
+message ServiceCreateRequest {
+  SwarmServiceSpec spec = 1;
+  RegistryAuth registry_auth = 2;
+}
+
+message ServiceCreateResponse {
+  string service_id = 1;
+}
+
+message ServiceUpdateImageRequest {
+  string service_name = 1;
+  string image = 2;
+  uint32 replicas = 3;
+  uint32 update_parallelism = 4;
+  uint32 update_delay_seconds = 5;
+  uint32 update_monitor_seconds = 6;
+  string update_order = 7;
+  string failure_action = 8;
+  RegistryAuth registry_auth = 9;
+}
+
+message ServiceUpdateImageResponse {
+  string warning = 1;
+}
+
+message ServiceScaleRequest {
+  string service_name = 1;
+  uint32 replicas = 2;
+}
+
+message ServiceScaleResponse {}
+
+message ServiceRollbackRequest {
+  string service_name = 1;
+}
+
+message ServiceRollbackResponse {}
+
+message ServiceRemoveRequest {
+  string service_name = 1;
+}
+
+message ServiceRemoveResponse {}
+
+message SwarmTaskSnapshot {
+  string id = 1;
+  string service_name = 2;
+  string container_id = 3;
+  uint32 slot = 4;
+  string image = 5;
+  string desired_state = 6;
+  string status = 7;
+  string node_id = 8;
+  string error = 9;
+}
+
+message ListServiceTasksRequest {
+  string service_name = 1;
+}
+
+message ListServiceTasksResponse {
+  repeated SwarmTaskSnapshot tasks = 1;
+}
+
+// ─────────────────────────────────────────────────────────────────────────────
 // Audit log signing (Ed25519, key stored in agent OS keyring / file)
 // ─────────────────────────────────────────────────────────────────────────────
 
@@ -605,6 +731,16 @@ service Agent {
 
   // Host monitoring (VPS health — Sprint 6.6)
   rpc HostStats       (HostStatsRequest)        returns (HostStatsResponse);
+
+  // Swarm runtime
+  rpc SwarmInfo              (SwarmInfoRequest)              returns (SwarmInfoResponse);
+  rpc SwarmEnsureSingleNode  (SwarmEnsureSingleNodeRequest)  returns (SwarmEnsureSingleNodeResponse);
+  rpc ServiceCreate          (ServiceCreateRequest)          returns (ServiceCreateResponse);
+  rpc ServiceUpdateImage     (ServiceUpdateImageRequest)     returns (ServiceUpdateImageResponse);
+  rpc ServiceScale           (ServiceScaleRequest)           returns (ServiceScaleResponse);
+  rpc ServiceRollback        (ServiceRollbackRequest)        returns (ServiceRollbackResponse);
+  rpc ServiceRemove          (ServiceRemoveRequest)          returns (ServiceRemoveResponse);
+  rpc ListServiceTasks       (ListServiceTasksRequest)       returns (ListServiceTasksResponse);
 
   // Audit log signing
   rpc SignAuditEntry  (SignAuditEntryRequest)  returns (SignAuditEntryResponse);

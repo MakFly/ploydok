@@ -32,6 +32,7 @@ import { diskGuard, gcKeepLast, tagManifest } from "../registry"
 import { workerLog } from "../logger"
 import { eventBus } from "../event-bus"
 import { runBlueGreen } from "../runner"
+import { runSwarmDeploy } from "../swarm-runner"
 import {
   dispatchStaticDeploy,
   gcOldShas,
@@ -101,6 +102,9 @@ interface AppForDeploy {
   cdn_headers: string | null
   cdn_external_provider: string | null
   runtime_port: number | null
+  runtime_mode: "docker" | "swarm"
+  swarm_service_name: string | null
+  replicas: number
   restart_policy: string | null
   domain: string | null
   keep_per_repo: number | null
@@ -178,6 +182,9 @@ async function getAppForDeploy(db: Db, appId: string): Promise<AppForDeploy> {
       cdn_headers: apps.cdn_headers,
       cdn_external_provider: apps.cdn_external_provider,
       runtime_port: apps.runtime_port,
+      runtime_mode: apps.runtime_mode,
+      swarm_service_name: apps.swarm_service_name,
+      replicas: apps.replicas,
       restart_policy: apps.restart_policy,
       domain: apps.domain,
       keep_per_repo: apps.keep_per_repo,
@@ -551,6 +558,7 @@ export async function handleDeploy(
     finishedAt: Date
     errorMessage?: string
     containerId?: string
+    runtimeRef?: string
     postDeployError?: string
   } = { finishedAt: new Date() }
   // Resolved commit sha (updated once clone resolves HEAD, used for commit status)
@@ -619,21 +627,35 @@ export async function handleDeploy(
         }
       }
 
-      const runOpts: Parameters<typeof runBlueGreen>[0] = {
-        appId: app.id,
-        imageRef,
-        env: secretEnv,
-        db,
-      }
-      if (app.runtime_port !== null) runOpts.runtimePort = app.runtime_port
-      if (registryAuth) runOpts.registryAuth = registryAuth
-      let containerId: string
+      let runtimeRef: string
+      let containerId: string | undefined
       try {
-        ;({ containerId } = await runBlueGreen(runOpts))
+        if (app.runtime_mode === "docker") {
+          const runOpts: Parameters<typeof runBlueGreen>[0] = {
+            appId: app.id,
+            imageRef,
+            env: secretEnv,
+            db,
+          }
+          if (app.runtime_port !== null) runOpts.runtimePort = app.runtime_port
+          if (registryAuth) runOpts.registryAuth = registryAuth
+          ;({ containerId } = await runBlueGreen(runOpts))
+          runtimeRef = containerId
+        } else {
+          const result = await runSwarmDeploy({
+            appId: app.id,
+            imageRef,
+            env: secretEnv,
+            db,
+            ...(registryAuth ? { registryAuth } : {}),
+            ...(app.runtime_port !== null ? { runtimePort: app.runtime_port } : {}),
+          })
+          runtimeRef = result.runtimeRef
+        }
       } catch (runErr) {
         throw classifyAgentError(runErr)
       }
-      imageLog(`[deploy] container live: ${containerId}`)
+      imageLog(`[deploy] runtime live: ${runtimeRef}`)
 
       // Post-deploy hook (image source path) — non-fatal on failure
       if (app.hooks_post_deploy) {
@@ -659,7 +681,8 @@ export async function handleDeploy(
           finalStatus = "succeeded_with_warning"
           finalPatch = {
             finishedAt: new Date(),
-            containerId,
+            ...(containerId ? { containerId } : {}),
+            runtimeRef,
             ...(postResult.error
               ? { postDeployError: postResult.error.slice(0, 500) }
               : {}),
@@ -672,7 +695,11 @@ export async function handleDeploy(
       }
 
       if (finalStatus !== "succeeded_with_warning") {
-        finalPatch = { finishedAt: new Date(), containerId }
+        finalPatch = {
+          finishedAt: new Date(),
+          ...(containerId ? { containerId } : {}),
+          runtimeRef,
+        }
       }
 
       if (ownerId) {
@@ -681,8 +708,8 @@ export async function handleDeploy(
             type: "deploy.status_change",
             appId: app.id,
             buildId,
-            message: "Container live",
-            data: { containerId, status: "running" },
+            message: "Runtime live",
+            data: { containerId, runtimeRef, status: "running" },
           })
         } catch (pubErr) {
           log.warn(
@@ -1236,9 +1263,13 @@ export async function handleDeploy(
       })
     }
 
-    // 4. Blue-green deploy — spawn container, healthcheck, Caddy swap.
-    // runBlueGreen internally updates apps.container_id + apps.status = 'running'.
-    onLog("[deploy] starting blue-green runner")
+    // 4. Runtime deploy — Swarm by default, legacy Docker blue-green when a
+    // row is still pinned to runtime_mode=docker during migration.
+    onLog(
+      app.runtime_mode === "docker"
+        ? "[deploy] starting blue-green runner"
+        : "[deploy] starting swarm runner"
+    )
     // Pre-deploy hook (git source path)
     if (app.hooks_pre_deploy) {
       onLog("[deploy] running pre-deploy hook")
@@ -1262,26 +1293,39 @@ export async function handleDeploy(
       }
     }
 
-    let containerId: string
+    let containerId: string | undefined
+    let runtimeRef: string
     const unsubscribeRuntimeLogs = logBus.subscribe(
       `runtime:${app.id}`,
       (entry) => onLog(entry.line)
     )
     try {
-      const runOpts: Parameters<typeof runBlueGreen>[0] = {
-        appId: app.id,
-        imageRef,
-        env: runtimeSecretEnv,
-        db,
+      if (app.runtime_mode === "docker") {
+        const runOpts: Parameters<typeof runBlueGreen>[0] = {
+          appId: app.id,
+          imageRef,
+          env: runtimeSecretEnv,
+          db,
+        }
+        if (app.runtime_port !== null) runOpts.runtimePort = app.runtime_port
+        ;({ containerId } = await runBlueGreen(runOpts))
+        runtimeRef = containerId
+      } else {
+        const result = await runSwarmDeploy({
+          appId: app.id,
+          imageRef,
+          env: runtimeSecretEnv,
+          db,
+          ...(app.runtime_port !== null ? { runtimePort: app.runtime_port } : {}),
+        })
+        runtimeRef = result.runtimeRef
       }
-      if (app.runtime_port !== null) runOpts.runtimePort = app.runtime_port
-      ;({ containerId } = await runBlueGreen(runOpts))
     } catch (runErr) {
       throw classifyAgentError(runErr)
     } finally {
       unsubscribeRuntimeLogs()
     }
-    onLog(`[deploy] container live: ${containerId}`)
+    onLog(`[deploy] runtime live: ${runtimeRef}`)
 
     // Post-deploy hook (git source path) — non-fatal on failure
     if (app.hooks_post_deploy) {
@@ -1307,7 +1351,8 @@ export async function handleDeploy(
         finalStatus = "succeeded_with_warning"
         finalPatch = {
           finishedAt: new Date(),
-          containerId,
+          ...(containerId ? { containerId } : {}),
+          runtimeRef,
           ...(postResult.error
             ? { postDeployError: postResult.error.slice(0, 500) }
             : {}),
@@ -1319,20 +1364,24 @@ export async function handleDeploy(
       }
     }
 
-    // Persist containerId into the build record via finalPatch (written once in finally).
+    // Persist runtime reference into the build record via finalPatch.
     if (finalStatus !== "succeeded_with_warning") {
-      finalPatch = { finishedAt: new Date(), containerId }
+      finalPatch = {
+        finishedAt: new Date(),
+        ...(containerId ? { containerId } : {}),
+        runtimeRef,
+      }
     }
 
-    // Notify: container is live.
+    // Notify: runtime is live.
     if (ownerId) {
       try {
         eventBus.publish(`user:${ownerId}`, {
           type: "deploy.status_change",
           appId: app.id,
           buildId,
-          message: "Container live",
-          data: { containerId, status: "running" },
+          message: "Runtime live",
+          data: { containerId, runtimeRef, status: "running" },
         })
       } catch (pubErr) {
         log.warn(

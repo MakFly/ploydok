@@ -78,6 +78,8 @@ function app(
       "container_id" in overrides
         ? overrides.container_id!
         : `ploydok-app-${overrides.id}-blue`,
+    runtime_mode: overrides.runtime_mode ?? "docker",
+    swarm_service_name: overrides.swarm_service_name ?? null,
     runtime_port: "runtime_port" in overrides ? overrides.runtime_port! : null,
     healthcheck_port:
       "healthcheck_port" in overrides ? overrides.healthcheck_port! : 3000,

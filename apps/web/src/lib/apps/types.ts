@@ -3,6 +3,7 @@ import type {
   AppStatus,
   Build,
   BuildStatus,
+  AppRuntimeSettings,
   RestartPolicy,
 } from "@ploydok/shared"
 
@@ -37,6 +38,9 @@ export interface AppDetail extends AppListItem {
   staticOutputDir?: string
   staticSpaFallback?: boolean
   runtimePort?: number | null
+  runtime?: Partial<AppRuntimeSettings> & {
+    swarmServiceName?: string | null
+  }
   restartPolicy?: RestartPolicy
   currentCommitSha?: string
   latestBuildId?: string
@@ -107,6 +111,7 @@ export type AppSettingsPatch = Partial<
     | "staticOutputDir"
     | "staticSpaFallback"
     | "runtimePort"
+    | "runtime"
     | "restartPolicy"
     | "healthcheckPath"
     | "healthcheckPort"

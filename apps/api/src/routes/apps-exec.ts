@@ -39,6 +39,7 @@ import { ExecCommandAuditor } from "../auth/exec-audit"
 import { env } from "../env"
 import { getSharedAgent } from "../debug/singletons"
 import { childLogger } from "../logger"
+import { resolveAppRuntimeContainerId } from "../services/runtime-target"
 import type { ExecFrame } from "@ploydok/agent-proto"
 
 // ---------------------------------------------------------------------------
@@ -373,14 +374,9 @@ wsExecRouter.get(
           writeEnabled = true
         }
 
-        // 3. Look up container_id from DB — never from query string
-        const appRows = await db
-          .select({ container_id: apps.container_id })
-          .from(apps)
-          .where(eq(apps.id, appId))
-          .limit(1)
-
-        const containerId = appRows[0]?.container_id
+        // 3. Resolve runtime container from DB/service state — never from
+        // query string. Swarm apps select a healthy task container.
+        const containerId = await resolveAppRuntimeContainerId(db, appId)
         if (!containerId) {
           ws.close(4004, "no container_id for app")
           return
