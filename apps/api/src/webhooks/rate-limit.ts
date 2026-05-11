@@ -5,12 +5,18 @@ import { nanoid } from "nanoid"
 
 type Redis = ReturnType<typeof createRedis>
 
+export interface RateLimitKey {
+  key: string
+  windowSec?: number
+  max?: number
+}
+
 export interface RateLimiterOpts {
   redis: Redis
   windowSec: number
   max: number
   keyPrefix: string
-  keyFrom: (c: Context) => string | null
+  keyFrom: (c: Context) => string | RateLimitKey | null
 }
 
 export interface RateLimitResult {
@@ -46,14 +52,22 @@ export function createRateLimiter(opts: RateLimiterOpts) {
   const { redis, windowSec, max, keyPrefix, keyFrom } = opts
 
   return async (c: Context, next: Next): Promise<Response | void> => {
-    const rawKey = keyFrom(c)
-    if (rawKey === null) {
+    const rawKeyResult = keyFrom(c)
+    if (rawKeyResult === null) {
       return next()
     }
 
+    const rawKey =
+      typeof rawKeyResult === "string" ? rawKeyResult : rawKeyResult.key
+    const effectiveWindowSec =
+      typeof rawKeyResult === "string"
+        ? windowSec
+        : (rawKeyResult.windowSec ?? windowSec)
+    const effectiveMax =
+      typeof rawKeyResult === "string" ? max : (rawKeyResult.max ?? max)
     const redisKey = `${keyPrefix}:${rawKey}`
     const nowMs = Date.now()
-    const windowMs = windowSec * 1000
+    const windowMs = effectiveWindowSec * 1000
     const cutoff = nowMs - windowMs
 
     await redis.zremrangebyscore(redisKey, 0, cutoff)
@@ -61,22 +75,40 @@ export function createRateLimiter(opts: RateLimiterOpts) {
 
     const resetTs = Math.ceil((nowMs + windowMs) / 1000)
 
-    if (count >= max) {
-      c.header("Retry-After", String(windowSec))
-      c.header("X-RateLimit-Limit", String(max))
+    if (count >= effectiveMax) {
+      c.header("Retry-After", String(effectiveWindowSec))
+      c.header("X-RateLimit-Limit", String(effectiveMax))
       c.header("X-RateLimit-Remaining", "0")
       c.header("X-RateLimit-Reset", String(resetTs))
-      return c.json({ code: "rate_limited", retry_after: windowSec }, 429)
+      return c.json({ code: "rate_limited", retry_after: effectiveWindowSec }, 429)
     }
 
     const member = `${nowMs}:${nanoid()}`
     await redis.zadd(redisKey, nowMs, member)
-    await redis.expire(redisKey, windowSec * 2)
+    await redis.expire(redisKey, effectiveWindowSec * 2)
 
-    c.header("X-RateLimit-Limit", String(max))
-    c.header("X-RateLimit-Remaining", String(max - count - 1))
+    c.header("X-RateLimit-Limit", String(effectiveMax))
+    c.header("X-RateLimit-Remaining", String(effectiveMax - count - 1))
     c.header("X-RateLimit-Reset", String(resetTs))
 
     return next()
   }
+}
+
+export function rateLimitKeyFromProviderHeaderOrIp(
+  c: Context,
+  providerHeader: string,
+  isValidProviderKey: (value: string) => boolean,
+): string | RateLimitKey {
+  const providerValue = c.req.header(providerHeader)?.trim() ?? ""
+  if (providerValue && isValidProviderKey(providerValue)) {
+    return `provider:${providerValue}`
+  }
+
+  const forwardedFor = c.req.header("x-forwarded-for")?.split(",")[0]?.trim()
+  const realIp = c.req.header("x-real-ip")?.trim()
+  const ip = forwardedFor || realIp
+  if (ip) return `ip:${ip}`
+
+  return { key: "ip:unknown", max: 10 }
 }

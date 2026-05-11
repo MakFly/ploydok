@@ -71,6 +71,7 @@ mock.module("@ploydok/db/queries", () => ({
   isOrgOwner: isOrgOwnerMock,
   listEventWebhooks: mock(async () => []),
   getEventWebhook: getEventWebhookMock,
+  listEnabledWebhooksForEvent: mock(async () => []),
   createEventWebhook: createEventWebhookMock,
   updateEventWebhook: updateEventWebhookMock,
   deleteEventWebhook: deleteEventWebhookMock,
@@ -253,7 +254,10 @@ describe("event-webhooks routes", () => {
       expect(body.error.message).toBe("Webhook redirects are not allowed")
       expect(globalThis.fetch).toHaveBeenCalledWith(
         "https://1.1.1.1/hook",
-        expect.objectContaining({ redirect: "manual" })
+        expect.objectContaining({
+          headers: expect.any(Headers),
+          redirect: "manual",
+        })
       )
     } finally {
       globalThis.fetch = originalFetch

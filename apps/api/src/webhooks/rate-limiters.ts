@@ -1,7 +1,7 @@
 // SPDX-License-Identifier: AGPL-3.0-only
 import { createRedis } from "@ploydok/db"
 import { env } from "../env"
-import { createRateLimiter } from "./rate-limit"
+import { createRateLimiter, rateLimitKeyFromProviderHeaderOrIp } from "./rate-limit"
 
 const redis = createRedis(env.REDIS_URL)
 
@@ -14,7 +14,12 @@ export const githubWebhookRateLimit = createRateLimiter({
   windowSec: WINDOW_SEC,
   max: DEFAULT_MAX_PER_MIN,
   keyPrefix: "rl:webhook:github",
-  keyFrom: (c) => c.req.header("x-github-hook-installation-target-id") ?? null,
+  keyFrom: (c) =>
+    rateLimitKeyFromProviderHeaderOrIp(
+      c,
+      "x-github-hook-installation-target-id",
+      (value) => /^\d+$/.test(value),
+    ),
 })
 
 export const gitlabWebhookRateLimit = createRateLimiter({
@@ -22,5 +27,13 @@ export const gitlabWebhookRateLimit = createRateLimiter({
   windowSec: WINDOW_SEC,
   max: DEFAULT_MAX_PER_MIN,
   keyPrefix: "rl:webhook:gitlab",
-  keyFrom: (c) => c.req.header("x-gitlab-webhook-uuid") ?? null,
+  keyFrom: (c) =>
+    rateLimitKeyFromProviderHeaderOrIp(
+      c,
+      "x-gitlab-webhook-uuid",
+      (value) =>
+        /^[0-9a-f]{8}-[0-9a-f]{4}-[1-5][0-9a-f]{3}-[89ab][0-9a-f]{3}-[0-9a-f]{12}$/i.test(
+          value,
+        ),
+    ),
 })

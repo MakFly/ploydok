@@ -36,6 +36,12 @@ const fakeTable = new Proxy(
     get: (_target, prop) => Symbol(String(prop)),
   },
 );
+const fakeRedis = {
+  zremrangebyscore: mock(async () => 0),
+  zcard: mock(async () => 0),
+  zadd: mock(async () => 1),
+  expire: mock(async () => 1),
+}
 const fakeDb = {
   select: mock(() => ({
     from: () => ({
@@ -62,7 +68,7 @@ mock.module("@ploydok/db", () => ({
   apps: fakeTable,
   builds: fakeTable,
   createDb: () => fakeDb,
-  createRedis: () => ({}),
+  createRedis: () => fakeRedis,
   gitlab_tokens: fakeTable,
   provider_credentials: fakeProviderCredentials,
   provider_installations: fakeProviderInstallations,

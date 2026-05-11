@@ -9,6 +9,7 @@ import { shouldUseSecureCookies } from "./jwt"
 import { getTotpSecret } from "./totp-storage"
 import { verifyCodeDetailed } from "./totp"
 import type { AuthUser } from "./middleware"
+import { recordTotpFailure, resetTotpFailures } from "./totp-throttle"
 
 // ---------------------------------------------------------------------------
 // Constants
@@ -185,6 +186,50 @@ function buildUnavailableResponse(c: Context) {
   )
 }
 
+async function logTotpLocked(
+  db: Db,
+  userId: string,
+  source: "middleware" | "enrollment",
+): Promise<void> {
+  await db.insert(audit_log).values({
+    user_id: userId,
+    action: "totp.locked",
+    target_type: "user",
+    target_id: userId,
+    metadata: JSON.stringify({ source }),
+    created_at: new Date(),
+  })
+}
+
+function buildLockedResponse(c: Context, retryAfterSec: number) {
+  c.header("Retry-After", String(retryAfterSec))
+  return c.json(
+    {
+      error: {
+        code: "TOTP_LOCKED",
+        message: "Too many invalid TOTP attempts. Try again later.",
+      },
+    },
+    429,
+  )
+}
+
+export async function recordTotpVerificationFailure(
+  db: Db,
+  userId: string,
+  source: "middleware" | "enrollment",
+): Promise<{ locked: false } | { locked: true; retryAfterSec: number }> {
+  const result = recordTotpFailure(userId)
+  if (!result.locked) return { locked: false }
+
+  await logTotpLocked(db, userId, source)
+  return { locked: true, retryAfterSec: result.retryAfterSec }
+}
+
+export function clearTotpVerificationFailures(userId: string): void {
+  resetTotpFailures(userId)
+}
+
 function buildTotpRequiredResponse(c: Context) {
   return c.json(
     { code: "totp_required", message: "Second factor required" },
@@ -252,9 +297,15 @@ export function requireTotpVerified(db: Db) {
           }
 
           const cookieStr = buildSecondFactorCookie(user.id)
+          clearTotpVerificationFailures(user.id)
           c.header("Set-Cookie", cookieStr)
           return next()
         }
+      }
+
+      const throttle = await recordTotpVerificationFailure(db, user.id, "middleware")
+      if (throttle.locked) {
+        return buildLockedResponse(c, throttle.retryAfterSec)
       }
     }
 

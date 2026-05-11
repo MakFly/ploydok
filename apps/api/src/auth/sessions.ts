@@ -92,22 +92,37 @@ export async function verifyRefreshToken(
 }
 
 /**
- * Rotate refresh token: invalidate old hash, set new one.
- * Returns new raw refresh token.
+ * Rotate refresh token with compare-and-swap semantics.
+ * Returns the new raw refresh token, or null if another refresh already rotated it.
  */
 export async function rotateRefreshToken(
   db: Db,
   sessionId: string,
-): Promise<string> {
+  currentRefreshTokenHash: string,
+): Promise<string | null> {
   const newToken = generateRefreshToken();
   const hash = await bcrypt.hash(newToken, BCRYPT_ROUNDS);
   const now = new Date();
   const expiresAt = new Date(now.getTime() + SESSION_TTL_DAYS * 24 * 60 * 60 * 1000);
 
-  await db
+  const rows = await db
     .update(sessions)
-    .set({ refresh_token_hash: hash, last_seen_at: now, expires_at: expiresAt })
-    .where(eq(sessions.id, sessionId));
+    .set({
+      refresh_token_hash: hash,
+      last_seen_at: now,
+      rotated_at: now,
+      expires_at: expiresAt,
+    })
+    .where(
+      and(
+        eq(sessions.id, sessionId),
+        eq(sessions.refresh_token_hash, currentRefreshTokenHash),
+        isNull(sessions.revoked_at),
+      ),
+    )
+    .returning({ id: sessions.id });
+
+  if (!rows[0]) return null;
 
   return newToken;
 }
@@ -120,6 +135,19 @@ export async function revokeSession(db: Db, sessionId: string): Promise<void> {
     .update(sessions)
     .set({ revoked_at: new Date() })
     .where(eq(sessions.id, sessionId));
+}
+
+/**
+ * Revoke the refresh-token family represented by a session id.
+ *
+ * The current schema keeps one stable session row across refresh rotations, so
+ * the family is the row's full token lineage.
+ */
+export async function revokeSessionFamily(db: Db, sessionId: string): Promise<void> {
+  await db
+    .update(sessions)
+    .set({ revoked_at: new Date() })
+    .where(and(eq(sessions.id, sessionId), isNull(sessions.revoked_at)));
 }
 
 /**

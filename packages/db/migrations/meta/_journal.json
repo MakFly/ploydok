@@ -344,6 +344,13 @@
       "when": 1778346100000,
       "tag": "0049_build_log_archive",
       "breakpoints": true
+    },
+    {
+      "idx": 50,
+      "version": "7",
+      "when": 1778346200000,
+      "tag": "0050_sessions_rotated_at",
+      "breakpoints": true
     }
   ]
 }
