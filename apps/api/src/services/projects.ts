@@ -10,9 +10,10 @@
 // by name — strict zero-trust by default. The pentest
 // `e2e/isolation/cross-project-blocked.spec.ts` validates the invariant.
 
-import { eq } from "drizzle-orm";
-import { projects } from "@ploydok/db";
+import { and, eq, isNotNull } from "drizzle-orm";
+import { apps, databases, projects } from "@ploydok/db";
 import type { Db } from "@ploydok/db";
+import { isAlreadyExists } from "../agent/index.js";
 import { getSharedAgent } from "../debug/singletons.js";
 import { childLogger } from "../logger";
 
@@ -119,6 +120,105 @@ export async function ensureProjectSwarmNetwork(
   }
 
   return name;
+}
+
+export async function ensureProjectDatabasesOnSwarmNetwork(
+  db: Db,
+  projectId: string,
+  swarmNetwork: string,
+  agent?: Agent,
+): Promise<{ scanned: number; attached: number; alreadyAttached: number }> {
+  const rows = await db
+    .select({
+      id: databases.id,
+      host: databases.host,
+      container_id: databases.container_id,
+    })
+    .from(databases)
+    .where(
+      and(
+        eq(databases.project_id, projectId),
+        eq(databases.management_mode, "managed"),
+        isNotNull(databases.container_id),
+      ),
+    );
+
+  const agentClient = agent ?? getSharedAgent();
+  const result = { scanned: rows.length, attached: 0, alreadyAttached: 0 };
+
+  for (const row of rows) {
+    if (!row.container_id) continue;
+    const aliases = row.host ? [row.host] : [];
+    try {
+      await agentClient.networkConnect({
+        networkId: swarmNetwork,
+        containerId: row.container_id,
+        aliases,
+      });
+      result.attached++;
+      log.info(
+        { projectId, dbId: row.id, containerId: row.container_id, swarmNetwork },
+        "database attached to project swarm network",
+      );
+    } catch (err) {
+      const msg = err instanceof Error ? err.message : String(err);
+      if (
+        isAlreadyExists(err) ||
+        /already exists|already connected|is already attached/i.test(msg)
+      ) {
+        result.alreadyAttached++;
+        continue;
+      }
+      throw err;
+    }
+  }
+
+  return result;
+}
+
+export async function reconcileSwarmProjectNetworks(
+  db: Db,
+  agent?: Agent,
+): Promise<{
+  projects: number;
+  databasesScanned: number;
+  databasesAttached: number;
+  databasesAlreadyAttached: number;
+  failed: number;
+}> {
+  const rows = await db
+    .select({ project_id: apps.project_id })
+    .from(apps)
+    .where(and(eq(apps.runtime_mode, "swarm"), eq(apps.status, "running")));
+
+  const projectIds = Array.from(new Set(rows.map((row) => row.project_id)));
+  const result = {
+    projects: projectIds.length,
+    databasesScanned: 0,
+    databasesAttached: 0,
+    databasesAlreadyAttached: 0,
+    failed: 0,
+  };
+
+  for (const projectId of projectIds) {
+    try {
+      const network = await ensureProjectSwarmNetwork(db, projectId, agent);
+      const attached = await ensureProjectDatabasesOnSwarmNetwork(
+        db,
+        projectId,
+        network,
+        agent,
+      );
+      result.databasesScanned += attached.scanned;
+      result.databasesAttached += attached.attached;
+      result.databasesAlreadyAttached += attached.alreadyAttached;
+    } catch (err) {
+      result.failed++;
+      log.warn({ err, projectId }, "project swarm network reconcile failed");
+    }
+  }
+
+  return result;
 }
 
 /**
