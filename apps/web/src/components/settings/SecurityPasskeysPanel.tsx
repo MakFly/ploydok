@@ -1,6 +1,7 @@
 // SPDX-License-Identifier: AGPL-3.0-only
 import * as React from "react"
 import {
+  RiAddLine,
   RiAlarmWarningLine,
   RiDeleteBin6Line,
   RiErrorWarningLine,
@@ -24,8 +25,15 @@ import {
   AlertDialogTrigger,
 } from "@workspace/ui/components/alert-dialog"
 import { Button } from "@workspace/ui/components/button"
+import { Input } from "@workspace/ui/components/input"
+import { Label } from "@workspace/ui/components/label"
 import { cn } from "@workspace/ui/lib/utils"
-import { usePasskeys, useRemovePasskey } from "../../lib/passkeys"
+import { toast } from "sonner"
+import {
+  useAddPasskey,
+  usePasskeys,
+  useRemovePasskey,
+} from "../../lib/passkeys"
 import type { PasskeyInfo } from "@ploydok/shared"
 
 export function SecurityPasskeysPanel(): React.JSX.Element {
@@ -46,6 +54,8 @@ export function SecurityPasskeysPanel(): React.JSX.Element {
 
   return (
     <div className="space-y-5">
+      <AddPasskeyCard />
+
       <div className="space-y-2">
         <div className="flex items-baseline justify-between px-1">
           <p className="font-mono text-[10px] tracking-wide text-muted-foreground uppercase">
@@ -68,7 +78,7 @@ export function SecurityPasskeysPanel(): React.JSX.Element {
           <EmptyState
             icon={RiFingerprintLine}
             title="No passkeys registered"
-            hint="Use the form above to enroll your first device."
+            hint="Add a device above to enable passkey sign-in for this account."
           />
         )}
       </div>
@@ -89,6 +99,118 @@ export function SecurityPasskeysPanel(): React.JSX.Element {
         </div>
       ) : null}
     </div>
+  )
+}
+
+interface PasskeySupport {
+  available: boolean
+  message: string | null
+}
+
+function detectPasskeySupport(): PasskeySupport {
+  if (typeof window === "undefined") return { available: true, message: null }
+  if (!window.isSecureContext) {
+    return {
+      available: false,
+      message:
+        "Passkeys require HTTPS. Open Ploydok from its configured HTTPS domain before enrolling a device.",
+    }
+  }
+  if (!("PublicKeyCredential" in window)) {
+    return {
+      available: false,
+      message: "This browser does not expose WebAuthn passkey APIs.",
+    }
+  }
+  return { available: true, message: null }
+}
+
+function AddPasskeyCard(): React.JSX.Element {
+  const addPasskey = useAddPasskey()
+  const [deviceName, setDeviceName] = React.useState("")
+  const [support, setSupport] = React.useState<PasskeySupport>({
+    available: true,
+    message: null,
+  })
+  const [error, setError] = React.useState<string | null>(null)
+
+  React.useEffect(() => {
+    setSupport(detectPasskeySupport())
+  }, [])
+
+  const handleSubmit = async (
+    event: React.FormEvent<HTMLFormElement>
+  ): Promise<void> => {
+    event.preventDefault()
+    if (!support.available) return
+
+    setError(null)
+    try {
+      await addPasskey.mutateAsync({ deviceName })
+      setDeviceName("")
+      toast.success("Passkey enrolled")
+    } catch (err) {
+      const message =
+        err instanceof DOMException && err.name === "NotAllowedError"
+          ? "Passkey enrollment was cancelled or timed out."
+          : err instanceof Error
+            ? err.message
+            : "Failed to enroll passkey"
+      setError(message)
+      toast.error(message)
+    }
+  }
+
+  return (
+    <CardFrame
+      title="Add passkey"
+      description="Enroll this browser, phone, or hardware key as a sign-in method for your account."
+      icon={RiFingerprintLine}
+    >
+      <form onSubmit={(event) => void handleSubmit(event)} className="space-y-3">
+        <div className="grid gap-2 md:grid-cols-[1fr_auto] md:items-end">
+          <div className="space-y-1.5">
+            <Label htmlFor="passkey-device-name">Device name</Label>
+            <Input
+              id="passkey-device-name"
+              value={deviceName}
+              onChange={(event) => setDeviceName(event.target.value)}
+              placeholder="MacBook Touch ID, iPhone, YubiKey…"
+              autoComplete="off"
+            />
+          </div>
+          <Button
+            type="submit"
+            disabled={!support.available || addPasskey.isPending}
+            className="md:min-w-32"
+          >
+            {addPasskey.isPending ? (
+              <>
+                <RiLoader4Line className="size-4 animate-spin" />
+                Enrolling…
+              </>
+            ) : (
+              <>
+                <RiAddLine className="size-4" />
+                Add passkey
+              </>
+            )}
+          </Button>
+        </div>
+
+        {support.message ? (
+          <p className="flex items-start gap-1.5 text-xs leading-5 text-amber-600 dark:text-amber-400">
+            <RiAlarmWarningLine className="mt-0.5 size-3.5 shrink-0" />
+            {support.message}
+          </p>
+        ) : null}
+        {error ? (
+          <p role="alert" className="text-xs text-destructive">
+            {error}
+          </p>
+        ) : null}
+      </form>
+    </CardFrame>
   )
 }
 
