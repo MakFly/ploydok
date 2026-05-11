@@ -166,7 +166,7 @@ function OrgMonitoringPage(): React.JSX.Element {
   return (
     <ShellPage
       title="Monitoring"
-      description="Real-time health of every container in this workspace."
+      description="Real-time health of application and database runtimes in this workspace."
       eyebrow="Workspace"
       actions={
         <button
@@ -378,7 +378,7 @@ function OpsStrip({
 
         <dl className="grid grid-cols-2 divide-x divide-y divide-border sm:grid-cols-3 lg:grid-cols-5 lg:divide-y-0">
           <Metric
-            label="Containers"
+            label="Runtimes"
             value={isLoading ? "—" : String(total)}
             icon={RiServerLine}
           />
@@ -556,7 +556,7 @@ function FilterBar({
           onChange={(e) => onQueryChange(e.target.value)}
           placeholder="Filter by name or image…"
           className="h-8 pl-8 text-xs"
-          aria-label="Filter containers"
+          aria-label="Filter runtimes"
         />
       </div>
     </div>
@@ -703,10 +703,10 @@ function EmptyState(): React.JSX.Element {
         <RiRadarLine className="size-5 text-muted-foreground" />
       </div>
       <div className="space-y-1">
-        <p className="text-sm font-medium">Fleet is empty</p>
+        <p className="text-sm font-medium">No runtime resources</p>
         <p className="max-w-sm text-xs text-muted-foreground">
-          The agent will start reporting containers here as soon as services are
-          deployed and running.
+          The agent will report application and database runtimes here as soon
+          as services are deployed and running.
         </p>
       </div>
     </div>
@@ -720,7 +720,7 @@ function NoResults({ onReset }: { onReset: () => void }): React.JSX.Element {
         <RiSearchLine className="size-4 text-muted-foreground" />
       </div>
       <div className="space-y-1">
-        <p className="text-sm font-medium">No containers match</p>
+        <p className="text-sm font-medium">No runtimes match</p>
         <p className="max-w-sm text-xs text-muted-foreground">
           Try relaxing the filters or clearing the search.
         </p>

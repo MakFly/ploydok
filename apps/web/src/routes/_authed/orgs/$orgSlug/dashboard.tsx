@@ -13,6 +13,7 @@ import {
   RiPulseFill,
   RiTimeLine,
 } from "@remixicon/react"
+import { healthClass } from "@ploydok/shared"
 import { CreateAppModal } from "../../../../components/apps/CreateAppModal"
 import { GettingStartedPanel } from "../../../../components/apps/GettingStartedPanel"
 import { ShellPage, ShellPanel } from "../../../../components/layout/AppShell"
@@ -22,18 +23,86 @@ import {
 } from "../../../../lib/app-runtime"
 import { useApps, useRecentBuildsAcrossApps } from "../../../../lib/apps"
 import { useGitHubAppConfig } from "../../../../lib/github"
-import { useMonitoring } from "../../../../lib/monitoring"
+import { useOrgMonitoring } from "../../../../lib/org-monitoring"
 import {
   organizationPath,
   useCurrentOrganization,
   useCurrentOrganizationSlug,
 } from "../../../../lib/organizations"
 import type { BuildWithApp } from "../../../../lib/apps"
-import type { BuildStatus } from "@ploydok/shared"
+import type { BuildStatus, ContainerSnapshot } from "@ploydok/shared"
 
 export const Route = createFileRoute("/_authed/orgs/$orgSlug/dashboard")({
   component: DashboardPage,
 })
+
+type RuntimeResourceHealth = "healthy" | "warn" | "down"
+
+interface RuntimeResourceSummary {
+  total: number
+  running: number
+  apps: number
+  databases: number
+  issues: number
+}
+
+function summarizeRuntimeResources(
+  containers: Array<ContainerSnapshot>
+): RuntimeResourceSummary {
+  const resources = new Map<
+    string,
+    {
+      kind: "app" | "database"
+      running: boolean
+      health: RuntimeResourceHealth
+    }
+  >()
+
+  for (const container of containers) {
+    if (container.kind !== "app" && container.kind !== "database") continue
+
+    const resourceId = container.app_id ?? container.id
+    const key = `${container.kind}:${resourceId}`
+    const current = resources.get(key)
+    const containerHealth = healthClass(container)
+
+    resources.set(key, {
+      kind: container.kind,
+      running: (current?.running ?? false) || container.status === "running",
+      health: mergeRuntimeHealth(current?.health, containerHealth),
+    })
+  }
+
+  let running = 0
+  let apps = 0
+  let databases = 0
+  let issues = 0
+
+  for (const resource of resources.values()) {
+    if (resource.running) running += 1
+    if (resource.kind === "app") apps += 1
+    else databases += 1
+    if (resource.health !== "healthy") issues += 1
+  }
+
+  return {
+    total: resources.size,
+    running,
+    apps,
+    databases,
+    issues,
+  }
+}
+
+function mergeRuntimeHealth(
+  current: RuntimeResourceHealth | undefined,
+  next: RuntimeResourceHealth
+): RuntimeResourceHealth {
+  if (!current) return next
+  if (current === "healthy" || next === "healthy") return "healthy"
+  if (current === "warn" || next === "warn") return "warn"
+  return "down"
+}
 
 function DashboardPage(): React.JSX.Element {
   const [modalOpen, setModalOpen] = React.useState(false)
@@ -46,8 +115,14 @@ function DashboardPage(): React.JSX.Element {
   const { builds: recentBuilds, isLoading: buildsLoading } =
     useRecentBuildsAcrossApps(apps, 6)
   const { data: appConfig, isLoading: appConfigLoading } = useGitHubAppConfig()
-  const { data: monitoring, isLoading: monitoringLoading } = useMonitoring()
+  const { data: monitoring, isLoading: monitoringLoading } = useOrgMonitoring(
+    organization?.slug ?? ""
+  )
   const containers = monitoring?.containers ?? []
+  const runtimeSummary = React.useMemo(
+    () => summarizeRuntimeResources(containers),
+    [containers]
+  )
   const appsWithRuntimeStatus = React.useMemo(
     () =>
       apps.map((app) => ({
@@ -67,9 +142,6 @@ function DashboardPage(): React.JSX.Element {
     (app) => app.runtimeStatus === "failed"
   ).length
   const latestBuild = recentBuilds.at(0)
-  const runningContainers = containers.filter(
-    (c) => c.status === "running"
-  ).length
   const showOnboarding = apps.length === 0 || !appConfig?.configured
 
   return (
@@ -108,15 +180,23 @@ function DashboardPage(): React.JSX.Element {
         />
         <StatCard
           icon={<RiPlayCircleLine className="size-4" />}
-          label="Runtime"
-          value={String(runningContainers)}
+          label="Services"
+          value={String(runtimeSummary.running)}
           hint={
-            monitoring
-              ? `${containers.length} container${containers.length === 1 ? "" : "s"} tracked`
-              : "Agent offline"
+            monitoring?.error
+              ? "Agent offline"
+              : runtimeSummary.total > 0
+                ? `${runtimeSummary.apps} app${runtimeSummary.apps === 1 ? "" : "s"} · ${runtimeSummary.databases} database${runtimeSummary.databases === 1 ? "" : "s"}${runtimeSummary.issues > 0 ? ` · ${runtimeSummary.issues} issue${runtimeSummary.issues === 1 ? "" : "s"}` : ""}`
+                : "No runtime resources"
           }
-          loading={monitoringLoading}
-          tone={monitoring?.error ? "warning" : "default"}
+          loading={monitoringLoading || Boolean(organization && !monitoring)}
+          tone={
+            monitoring?.error
+              ? "warning"
+              : runtimeSummary.issues > 0
+                ? "danger"
+                : "default"
+          }
         />
         <StatCard
           icon={<RiTimeLine className="size-4" />}
@@ -220,7 +300,7 @@ function DashboardPage(): React.JSX.Element {
               />
               <QuickLink
                 label="Monitoring"
-                hint="Containers and runtime"
+                hint="Runtime health and resources"
                 to={
                   (organization
                     ? organizationPath(organization.slug, "monitoring")
