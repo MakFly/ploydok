@@ -1,4 +1,9 @@
 // SPDX-License-Identifier: AGPL-3.0-only
+import { fileURLToPath } from "node:url"
+import { dirname, join } from "node:path"
+import postgres from "postgres"
+import { drizzle } from "drizzle-orm/postgres-js"
+import { migrate } from "drizzle-orm/postgres-js/migrator"
 import { app } from "./app"
 import { env } from "./env"
 import { wsHandler } from "./routes/ws"
@@ -19,6 +24,23 @@ function sleep(ms: number): Promise<void> {
 
 export function createApp() {
   return app
+}
+
+async function runMigrationsOnBoot(): Promise<void> {
+  if (Bun.env["PLOYDOK_SKIP_MIGRATIONS"] === "1") {
+    log.warn("PLOYDOK_SKIP_MIGRATIONS=1 — skipping boot migrations")
+    return
+  }
+  const here = dirname(fileURLToPath(import.meta.url))
+  const migrationsFolder = join(here, "..", "..", "..", "packages", "db", "migrations")
+  const sql = postgres(env.DATABASE_URL, { max: 1, onnotice: () => {} })
+  try {
+    log.info({ migrationsFolder }, "applying drizzle migrations on boot")
+    await migrate(drizzle(sql), { migrationsFolder })
+    log.info("drizzle migrations applied")
+  } finally {
+    await sql.end()
+  }
 }
 
 async function bootInfra(db: Db): Promise<void> {
@@ -99,6 +121,15 @@ async function reconcileIngressWithRetry(
 }
 
 if (import.meta.main) {
+  if (env.NODE_ENV !== "test") {
+    try {
+      await runMigrationsOnBoot()
+    } catch (err) {
+      log.error({ err }, "boot migrations failed — refusing to start")
+      process.exit(1)
+    }
+  }
+
   // M3.2: pass the BunWebSocket handler so Bun can upgrade WS connections.
   // idleTimeout: 0 disables the 10 s default so long-lived SSE streams
   // (GET /events) don't get chunk-encoded-truncated before their first
