@@ -128,7 +128,7 @@ clean:
 	rm -rf apps/web/.vite apps/web/dist apps/api/dist .turbo */.turbo **/*/.turbo 2>/dev/null || true
 
 # Exécute les 11 specs Playwright DoD Sprint 3 contre l'infra réelle.
-# Régénère project-docs/roadmap/sprint-3-DoD.md à la fin avec les statuts + mesures.
+# Écrit un rapport local gitignoré sous .ai/reports/.
 dod:
 	@echo "┌─ Pré-requis avant make dod ────────────────────────────────────┐"
 	@echo "│ 1. make infra-up       → postgres/redis/caddy/buildkit/registry/agent │"

@@ -3,7 +3,7 @@
 // ADR note: WebAuthn challenges are stored in-memory with a 5-minute TTL.
 // This is acceptable for v1 (single-server deployment). In production with
 // multiple replicas, replace with a distributed store (Redis, DB table).
-// See project-docs/decisions/0002-auth-design.md for details.
+// In-memory challenges are acceptable for the current single-node control plane.
 
 // ---------------------------------------------------------------------------
 // Types

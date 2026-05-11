@@ -4,7 +4,7 @@
  * Sprint 3 DoD orchestrator.
  *
  * Runs the 11 Playwright specs sequentially, collects results, writes
- * project-docs/roadmap/sprint-3-DoD.md.
+ * .ai/reports/sprint-3-DoD.md.
  *
  * Usage:
  *   bun scripts/run-dod.ts [options]
@@ -17,7 +17,7 @@
  */
 
 import { spawnSync } from "node:child_process"
-import { existsSync } from "node:fs"
+import { existsSync, mkdirSync } from "node:fs"
 import { join } from "node:path"
 import { performance } from "node:perf_hooks"
 import os from "node:os"
@@ -560,7 +560,9 @@ async function main(): Promise<void> {
   const env = collectEnv()
   const report = buildReport(allResults, env)
 
-  const reportPath = join(REPO_ROOT, "project-docs/roadmap/sprint-3-DoD.md")
+  const reportDir = join(REPO_ROOT, ".ai/reports")
+  mkdirSync(reportDir, { recursive: true })
+  const reportPath = join(reportDir, "sprint-3-DoD.md")
   await Bun.write(reportPath, report)
 
   const passedCount = allResults.filter((r) => r.passed).length
