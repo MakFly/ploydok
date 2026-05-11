@@ -96,6 +96,10 @@ export function resolveTopbarBreadcrumb(
     return [{ label: "Guide" }]
   }
 
+  if (normalized === "/changelog") {
+    return [{ label: "Changelog" }]
+  }
+
   if (normalized === "/monitoring") {
     return [WORKSPACE, { label: "Monitoring" }]
   }

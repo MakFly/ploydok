@@ -17,6 +17,7 @@ import { Route as PublicLoginRouteImport } from './routes/_public/login'
 import { Route as AuthedMonitoringRouteImport } from './routes/_authed/monitoring'
 import { Route as AuthedGuideRouteImport } from './routes/_authed/guide'
 import { Route as AuthedDashboardRouteImport } from './routes/_authed/dashboard'
+import { Route as AuthedChangelogRouteImport } from './routes/_authed/changelog'
 import { Route as AuthedSettingsIndexRouteImport } from './routes/_authed/settings/index'
 import { Route as PublicInvitationsAcceptRouteImport } from './routes/_public/invitations/accept'
 import { Route as AuthedSettingsSecurityRouteImport } from './routes/_authed/settings/security'
@@ -105,6 +106,11 @@ const AuthedGuideRoute = AuthedGuideRouteImport.update({
 const AuthedDashboardRoute = AuthedDashboardRouteImport.update({
   id: '/dashboard',
   path: '/dashboard',
+  getParentRoute: () => AuthedRoute,
+} as any)
+const AuthedChangelogRoute = AuthedChangelogRouteImport.update({
+  id: '/changelog',
+  path: '/changelog',
   getParentRoute: () => AuthedRoute,
 } as any)
 const AuthedSettingsIndexRoute = AuthedSettingsIndexRouteImport.update({
@@ -405,6 +411,7 @@ const AuthedOrgsOrgSlugAppsIdAdvancedRoute =
 
 export interface FileRoutesByFullPath {
   '/': typeof PublicIndexRoute
+  '/changelog': typeof AuthedChangelogRoute
   '/dashboard': typeof AuthedDashboardRoute
   '/guide': typeof AuthedGuideRoute
   '/monitoring': typeof AuthedMonitoringRoute
@@ -464,6 +471,7 @@ export interface FileRoutesByFullPath {
 }
 export interface FileRoutesByTo {
   '/': typeof PublicIndexRoute
+  '/changelog': typeof AuthedChangelogRoute
   '/dashboard': typeof AuthedDashboardRoute
   '/guide': typeof AuthedGuideRoute
   '/monitoring': typeof AuthedMonitoringRoute
@@ -521,6 +529,7 @@ export interface FileRoutesById {
   __root__: typeof rootRouteImport
   '/_authed': typeof AuthedRouteWithChildren
   '/_public': typeof PublicRouteWithChildren
+  '/_authed/changelog': typeof AuthedChangelogRoute
   '/_authed/dashboard': typeof AuthedDashboardRoute
   '/_authed/guide': typeof AuthedGuideRoute
   '/_authed/monitoring': typeof AuthedMonitoringRoute
@@ -583,6 +592,7 @@ export interface FileRouteTypes {
   fileRoutesByFullPath: FileRoutesByFullPath
   fullPaths:
     | '/'
+    | '/changelog'
     | '/dashboard'
     | '/guide'
     | '/monitoring'
@@ -642,6 +652,7 @@ export interface FileRouteTypes {
   fileRoutesByTo: FileRoutesByTo
   to:
     | '/'
+    | '/changelog'
     | '/dashboard'
     | '/guide'
     | '/monitoring'
@@ -698,6 +709,7 @@ export interface FileRouteTypes {
     | '__root__'
     | '/_authed'
     | '/_public'
+    | '/_authed/changelog'
     | '/_authed/dashboard'
     | '/_authed/guide'
     | '/_authed/monitoring'
@@ -818,6 +830,13 @@ declare module '@tanstack/react-router' {
       path: '/dashboard'
       fullPath: '/dashboard'
       preLoaderRoute: typeof AuthedDashboardRouteImport
+      parentRoute: typeof AuthedRoute
+    }
+    '/_authed/changelog': {
+      id: '/_authed/changelog'
+      path: '/changelog'
+      fullPath: '/changelog'
+      preLoaderRoute: typeof AuthedChangelogRouteImport
       parentRoute: typeof AuthedRoute
     }
     '/_authed/settings/': {
@@ -1309,6 +1328,7 @@ const AuthedSettingsSecurityRouteWithChildren =
   )
 
 interface AuthedRouteChildren {
+  AuthedChangelogRoute: typeof AuthedChangelogRoute
   AuthedDashboardRoute: typeof AuthedDashboardRoute
   AuthedGuideRoute: typeof AuthedGuideRoute
   AuthedMonitoringRoute: typeof AuthedMonitoringRoute
@@ -1325,6 +1345,7 @@ interface AuthedRouteChildren {
 }
 
 const AuthedRouteChildren: AuthedRouteChildren = {
+  AuthedChangelogRoute: AuthedChangelogRoute,
   AuthedDashboardRoute: AuthedDashboardRoute,
   AuthedGuideRoute: AuthedGuideRoute,
   AuthedMonitoringRoute: AuthedMonitoringRoute,
