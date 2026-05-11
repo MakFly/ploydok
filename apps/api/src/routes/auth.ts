@@ -18,7 +18,6 @@ import {
 } from "../auth/webauthn"
 import {
   signAccessToken,
-  verifyAccessToken,
   buildCookieStr,
   getAccessExpiresAt,
   ACCESS_COOKIE,
@@ -608,56 +607,8 @@ export function createAuthRouter(db: Db): Hono {
   // accept flow, second-device enrollment). First-boot bootstrap goes through
   // /auth/setup/* instead.
   // -------------------------------------------------------------------------
-  auth.post("/auth/register/options", async (c) => {
-    const cookieHeader = c.req.raw.headers.get("cookie") ?? ""
-    const cookies = parseCookies(cookieHeader)
-    const token = cookies[ACCESS_COOKIE]
-    if (!token) {
-      return c.json(
-        {
-          error: {
-            code: "UNAUTHENTICATED",
-            message: "Authentication required",
-          },
-        },
-        401
-      )
-    }
-    let payload
-    try {
-      payload = await verifyAccessToken(token)
-    } catch {
-      return c.json(
-        {
-          error: {
-            code: "UNAUTHENTICATED",
-            message: "Invalid or expired token",
-          },
-        },
-        401
-      )
-    }
-    if (!payload.sub) {
-      return c.json(
-        { error: { code: "UNAUTHENTICATED", message: "Invalid token" } },
-        401
-      )
-    }
-    const userRows = await db
-      .select()
-      .from(users)
-      .where(eq(users.id, payload.sub))
-      .limit(1)
-    const user = userRows[0]
-    if (!user) {
-      return c.json(
-        { error: { code: "UNAUTHENTICATED", message: "User not found" } },
-        401
-      )
-    }
-    const userId = user.id
-    const userEmail = user.email
-    const userDisplayName = user.display_name
+  auth.post("/auth/register/options", requireAuth(db), async (c) => {
+    const user = getUser(c)
 
     // Get existing credentials to exclude them
     const existingPasskeys = await db
@@ -666,7 +617,7 @@ export function createAuthRouter(db: Db): Hono {
         transports: passkeys.transports,
       })
       .from(passkeys)
-      .where(eq(passkeys.user_id, userId))
+      .where(eq(passkeys.user_id, user.id))
 
     const excludeCredentials = existingPasskeys.map((pk) => ({
       id: pk.credential_id,
@@ -675,9 +626,9 @@ export function createAuthRouter(db: Db): Hono {
     }))
 
     const options = await generateRegOptions({
-      userName: userEmail,
-      userDisplayName: userDisplayName,
-      userID: new TextEncoder().encode(userId),
+      userName: user.email,
+      userDisplayName: user.display_name,
+      userID: new TextEncoder().encode(user.id),
       excludeCredentials,
       authenticatorSelection: {
         residentKey: "preferred",
@@ -685,15 +636,16 @@ export function createAuthRouter(db: Db): Hono {
       },
     })
 
-    setChallenge(`reg:${userId}`, options.challenge)
+    setChallenge(`reg:${user.id}`, options.challenge)
 
-    return c.json({ options, userId })
+    return c.json({ options, userId: user.id })
   })
 
   // -------------------------------------------------------------------------
   // POST /auth/register/verify
   // -------------------------------------------------------------------------
-  auth.post("/auth/register/verify", async (c) => {
+  auth.post("/auth/register/verify", requireAuth(db), async (c) => {
+    const authUser = getUser(c)
     const body = (await c.req.json()) as {
       userId: string
       credential: unknown
@@ -704,6 +656,18 @@ export function createAuthRouter(db: Db): Hono {
       return c.json(
         { error: { code: "BAD_REQUEST", message: "userId required" } },
         400
+      )
+    }
+
+    if (body.userId !== authUser.id) {
+      return c.json(
+        {
+          error: {
+            code: "FORBIDDEN",
+            message: "Cannot enroll a passkey for another user",
+          },
+        },
+        403
       )
     }
 
@@ -762,19 +726,6 @@ export function createAuthRouter(db: Db): Hono {
       last_used_at: now,
     })
 
-    const userRows = await db
-      .select()
-      .from(users)
-      .where(eq(users.id, body.userId))
-      .limit(1)
-    const user = userRows[0]
-    if (!user) {
-      return c.json(
-        { error: { code: "NOT_FOUND", message: "User not found" } },
-        404
-      )
-    }
-
     const { userAgent, ip } = getClientInfo(c.req.raw)
     const { sessionId, refreshToken } = await Sessions.createSession(db, {
       userId: body.userId,
@@ -784,7 +735,7 @@ export function createAuthRouter(db: Db): Hono {
 
     const accessToken = await signAccessToken({
       userId: body.userId,
-      email: user.email,
+      email: authUser.email,
       sessionId,
     })
 
@@ -796,16 +747,16 @@ export function createAuthRouter(db: Db): Hono {
       .from(passkeys)
       .where(eq(passkeys.user_id, body.userId))
     if (totalPasskeys.length === 1) {
-      const mail = renderWelcomeEmail(user.display_name)
-      void sendMail({ to: user.email, ...mail })
+      const mail = renderWelcomeEmail(authUser.display_name)
+      void sendMail({ to: authUser.email, ...mail })
     }
 
     const response = c.newResponse(
       JSON.stringify({
         user: {
-          id: user.id,
-          email: user.email,
-          display_name: user.display_name,
+          id: authUser.id,
+          email: authUser.email,
+          display_name: authUser.display_name,
         },
         ...meta,
       }),

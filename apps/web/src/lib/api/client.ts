@@ -353,8 +353,7 @@ function isPreSessionPath(path: string): boolean {
     path === "/auth/csrf" ||
     path === "/auth/backup-codes/consume" ||
     path === "/auth/setup/password" ||
-    path.startsWith("/auth/login") ||
-    path.startsWith("/auth/register")
+    path.startsWith("/auth/login")
   )
 }
 

@@ -1,6 +1,7 @@
 // SPDX-License-Identifier: AGPL-3.0-only
 import frameworkGuardrails from "./2026-05-11-framework-guardrails.md?raw"
 import monitoringDashboard from "./2026-05-11-monitoring-dashboard.md?raw"
+import passkeyEnrollment from "./2026-05-11-passkey-enrollment.md?raw"
 import swarmRollouts from "./2026-05-11-swarm-rollouts.md?raw"
 
 export interface ChangelogEntry {
@@ -13,6 +14,15 @@ export interface ChangelogEntry {
 }
 
 export const changelogEntries: Array<ChangelogEntry> = [
+  {
+    version: "2026.05.11",
+    date: "2026-05-11",
+    title: "Enrôlement passkey depuis les settings",
+    summary:
+      "La page Security > Passkeys permet d'ajouter une passkey et affiche les contraintes HTTPS/WebAuthn.",
+    tags: ["Security", "Passkeys", "WebAuthn"],
+    body: passkeyEnrollment,
+  },
   {
     version: "2026.05.11",
     date: "2026-05-11",
