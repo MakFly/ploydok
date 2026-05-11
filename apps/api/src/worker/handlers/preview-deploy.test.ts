@@ -78,7 +78,12 @@ mock.module("../buildkit", () => buildkitMocks)
 mock.module("../../debug/singletons", () => singletonMocks)
 mock.module("../../secrets/resolver", () => secretsMocks)
 mock.module("../../services/framework-env", () => ({
-  ensureFrameworkEnvVars: mock(async () => ({ injected: [], skipped: [] })),
+  assertDeployableFrameworkEnv: mock(() => {}),
+  ensureFrameworkEnvVars: mock(async () => ({
+    injected: [],
+    skipped: [],
+    repaired: [],
+  })),
 }))
 mock.module("../../github/installation-tokens", () => ({
   getInstallationToken: mock(async () => "ghs_preview"),
