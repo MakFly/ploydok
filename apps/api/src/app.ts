@@ -396,7 +396,7 @@ app.route("/apps", appsProtectionRouter)
 app.route("/apps", createCdnRouter(db))
 app.route("/apps", appsRouter)
 
-// GitHub App routes — auth enforced per-endpoint inside the router.
+// GitHub App routes — auth enforced here; instance-admin gate lives in the router.
 // /github/app/callback is public (GitHub redirects here after manifest flow).
 // /github/webhook is public (signed by GitHub HMAC — CSRF exempted above).
 // Legacy OAuth routes are 410 Gone — stubs, no auth required.

@@ -1,12 +1,15 @@
 // SPDX-License-Identifier: AGPL-3.0-only
 import { describe, it, expect, mock } from "bun:test"
 import { Hono } from "hono"
+import type { Context } from "hono"
 import type { Db } from "@ploydok/db"
 import type { AuthUser } from "../auth/middleware"
 
 // ---------------------------------------------------------------------------
 // Mocks
 // ---------------------------------------------------------------------------
+
+let rejectTotp = false
 
 // Mock the crypto module to avoid keyring dependency
 mock.module("../secrets/crypto", () => ({
@@ -21,7 +24,19 @@ mock.module("../secrets/crypto", () => ({
 
 mock.module("../auth/second-factor", () => ({
   requireTotpVerified: mock(
-    () => async (_c: unknown, next: () => Promise<void>) => {
+    () => async (c: Context, next: () => Promise<void>) => {
+      if (rejectTotp) {
+        return c.json(
+          {
+            error: {
+              code: "TOTP_REQUIRED",
+              message: "TOTP verification required",
+            },
+          },
+          401
+        )
+      }
+
       await next()
     }
   ),
@@ -653,6 +668,30 @@ describe("parseDotenv (via import)", () => {
 })
 
 describe("TOTP reveal gate", () => {
+  it("requires TOTP for bulk export when the user setting requires it", async () => {
+    rejectTotp = true
+    const { db } = buildFakeDb([secretRow("FOO")])
+    const app = buildApp(db)
+
+    try {
+      const res = await app.fetch(
+        new Request(
+          "http://localhost/app1/secrets/export?age_recipient=age1test"
+        )
+      )
+
+      expect(res.status).toBe(401)
+      expect(await res.json()).toEqual({
+        error: {
+          code: "TOTP_REQUIRED",
+          message: "TOTP verification required",
+        },
+      })
+    } finally {
+      rejectTotp = false
+    }
+  })
+
   it("requireTotpVerified is wired to the reveal route", async () => {
     // The mock above makes requireTotpVerified a pass-through middleware.
     // Verifying it's imported and used correctly.

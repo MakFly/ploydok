@@ -91,11 +91,10 @@ export function createSecretsRouter(db: Db): Hono<any, any, any> {
       .limit(1)
 
     if (rows[0]?.require_totp_for_secret_reveal === false) {
-      await next()
-      return
+      return next()
     }
 
-    await totpMiddleware(c, next)
+    return totpMiddleware(c, next)
   }
 
   // GET /:id/secrets?scope=shared|prod|preview|dev
@@ -725,11 +724,11 @@ export function createSecretsRouter(db: Db): Hono<any, any, any> {
   })
 
   // GET /:id/secrets/export?scope=&age_recipient=
-  router.get("/:id/secrets/export", async (c) => {
+  router.get("/:id/secrets/export", maybeTotpMiddleware, async (c) => {
     const user = getUser(c)
-    const appId = c.req.param("id")
+    const appId = c.req.param("id")!
 
-    const app = await getAppForUser(db, appId!, user.id)
+    const app = await getAppForUser(db, appId, user.id)
     if (!app) {
       return c.json(
         { error: { code: "NOT_FOUND", message: "App not found" } },

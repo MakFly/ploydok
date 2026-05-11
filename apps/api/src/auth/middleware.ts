@@ -1,7 +1,7 @@
 // SPDX-License-Identifier: AGPL-3.0-only
 import type { Context, Next } from "hono"
 import { eq } from "drizzle-orm"
-import { users, passkeys, totp_secrets } from "@ploydok/db"
+import { users, passkeys, totp_secrets, sessions } from "@ploydok/db"
 import { hasRole } from "@ploydok/db/queries"
 import { verifyAccessToken, ACCESS_COOKIE } from "./jwt"
 import { countActive } from "./backup-codes"
@@ -115,10 +115,41 @@ export function requireAuth(db: Db) {
     }
 
     const userId = payload.sub
-    if (!userId) {
+    const sessionId = payload.session_id
+    if (!userId || !sessionId) {
       return c.json(
         {
           error: { code: "UNAUTHENTICATED", message: "Invalid token payload" },
+        },
+        401
+      )
+    }
+
+    // Query every cookie-auth request so logout/session revocation takes effect immediately.
+    const sessionRows = await db
+      .select({
+        id: sessions.id,
+        user_id: sessions.user_id,
+        revoked_at: sessions.revoked_at,
+        expires_at: sessions.expires_at,
+      })
+      .from(sessions)
+      .where(eq(sessions.id, sessionId))
+      .limit(1)
+
+    const session = sessionRows[0]
+    if (
+      !session ||
+      session.user_id !== userId ||
+      session.revoked_at !== null ||
+      session.expires_at <= new Date()
+    ) {
+      return c.json(
+        {
+          error: {
+            code: "UNAUTHENTICATED",
+            message: "Session expired or revoked",
+          },
         },
         401
       )

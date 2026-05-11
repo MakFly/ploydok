@@ -27,11 +27,12 @@ import {
   revokeAppInstallation,
 } from "../github/installation-tokens"
 import { handleWebhook, verifySignature } from "../github/webhook"
-import { findRecentByPayloadHash, insertDelivery } from "../webhooks/deliveries"
+import { findRecentByPayloadHash } from "../webhooks/deliveries"
 import { githubWebhookRateLimit } from "../webhooks/rate-limiters"
 import { enqueueProviderReposSync } from "../worker/handlers/sync-provider-repos"
 import { env } from "../env"
 import { shouldUseSecureCookies } from "../auth/jwt"
+import { requireInstanceAdmin } from "../auth/instance-admin"
 
 // ---------------------------------------------------------------------------
 // Singleton cache + provider (per-process)
@@ -89,6 +90,11 @@ export const githubRouter = new Hono<GithubRouterEnv>()
 
 // Database singleton for this router
 const db = createDb(env.DATABASE_URL)
+const githubAppAdmin = requireInstanceAdmin(db)
+
+githubRouter.use("/app/manifest", githubAppAdmin)
+githubRouter.use("/app/import", githubAppAdmin)
+githubRouter.use("/app/config", githubAppAdmin)
 
 async function markGitHubInstallationSyncPending(opts: {
   installationId: string
@@ -1109,13 +1115,6 @@ githubRouter.post("/webhook", githubWebhookRateLimit, async (c) => {
   // Compute payload hash for dedup and audit (SHA-256 of raw body)
   const payloadHash = createHash("sha256").update(rawBodyBuffer).digest("hex")
 
-  // Dedup: if we already processed this exact payload in the last 60s, skip
-  const existing = await findRecentByPayloadHash(db, payloadHash)
-  if (existing) {
-    log.debug({ deliveryId, payloadHash }, "duplicate payload — dedup skip")
-    return c.json({ ok: true, dedup: true })
-  }
-
   // Decrypt webhook secret. Empty string = App was created without a webhook
   // (manifest without hook_attributes, typical of loopback dev setups).
   const webhookSecret = await decryptField(
@@ -1132,23 +1131,15 @@ githubRouter.post("/webhook", githubWebhookRateLimit, async (c) => {
       { signature: signature?.slice(0, 20) },
       "webhook signature rejected"
     )
-    // Record invalid signature delivery before rejecting
-    await insertDelivery(
-      db,
-      {
-        provider: "github",
-        delivery_external_id: deliveryId,
-        event,
-        signature_valid: false,
-        decision: "invalid_signature",
-        decision_reason: "HMAC-SHA256 mismatch",
-        payload_hash: payloadHash,
-      },
-      rawBodyBuffer
-    ).catch((err) =>
-      log.warn({ err }, "insertDelivery(invalid_signature) failed")
-    )
     return c.json({ error: "invalid signature" }, 401)
+  }
+
+  // Dedup only after the HMAC passes; otherwise an invalid delivery can shadow
+  // a later valid retry with the same body hash.
+  const existing = await findRecentByPayloadHash(db, payloadHash)
+  if (existing) {
+    log.debug({ deliveryId, payloadHash }, "duplicate payload — dedup skip")
+    return c.json({ ok: true, dedup: true })
   }
 
   let payload: unknown

@@ -21,7 +21,7 @@ import { enqueueProviderReposSync } from "../worker/handlers/sync-provider-repos
 import { decryptField, encryptField } from "../github/app-credentials"
 import { GitLabProvider } from "../gitlab/client"
 import { handleGitLabWebhook, verifyGitLabToken } from "../gitlab/webhook"
-import { findRecentByPayloadHash, insertDelivery } from "../webhooks/deliveries"
+import { findRecentByPayloadHash } from "../webhooks/deliveries"
 import { gitlabWebhookRateLimit } from "../webhooks/rate-limiters"
 import { childLogger } from "../logger"
 import { env } from "../env"
@@ -627,13 +627,6 @@ gitlabRouter.post("/webhook", gitlabWebhookRateLimit, async (c) => {
   // Compute payload hash for dedup and audit (SHA-256 of raw body)
   const payloadHash = createHash("sha256").update(rawBodyBuffer).digest("hex")
 
-  // Dedup: skip if we already processed this exact payload in the last 60s
-  const existing = await findRecentByPayloadHash(db, payloadHash)
-  if (existing) {
-    log.debug({ deliveryId, payloadHash }, "duplicate payload — dedup skip")
-    return c.json({ ok: true, dedup: true })
-  }
-
   const expected = await decryptField(
     cfg.webhook_secret_enc as Buffer,
     cfg.webhook_secret_nonce as Buffer
@@ -643,23 +636,15 @@ gitlabRouter.post("/webhook", gitlabWebhookRateLimit, async (c) => {
   }
   if (!verifyGitLabToken(token, expected)) {
     log.warn({ event }, "gitlab webhook token rejected")
-    // Record invalid token delivery before rejecting
-    await insertDelivery(
-      db,
-      {
-        provider: "gitlab",
-        delivery_external_id: deliveryId,
-        event,
-        signature_valid: false,
-        decision: "invalid_signature",
-        decision_reason: "X-Gitlab-Token mismatch",
-        payload_hash: payloadHash,
-      },
-      rawBodyBuffer
-    ).catch((err) =>
-      log.warn({ err }, "insertDelivery(invalid_signature) failed")
-    )
     return c.json({ error: "invalid_token" }, 401)
+  }
+
+  // Dedup only after the shared token passes; otherwise an invalid delivery can
+  // shadow a later valid retry with the same body hash.
+  const existing = await findRecentByPayloadHash(db, payloadHash)
+  if (existing) {
+    log.debug({ deliveryId, payloadHash }, "duplicate payload — dedup skip")
+    return c.json({ ok: true, dedup: true })
   }
 
   let payload: unknown
