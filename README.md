@@ -2,7 +2,7 @@
 
 > PaaS self-hosted giga-lite, security-first, AI-native. Alternative minimaliste à Dokploy / Coolify / Vercel.
 
-**License**: AGPL-3.0-only · **Status**: pre-alpha (Sprint 1 — Fondations)
+**License**: AGPL-3.0-only · **Status**: active development
 
 ## Self-host install (one-liner)
 
@@ -41,7 +41,9 @@ Modes (`--mode=`):
 
 Other useful flags: `--unattended` (forces `coexist` + `--yes`, IaC-friendly), `--manage-firewall`, `--public-host=…`, `--public-scheme=…`, `--public-port=…`, `--http-port=…`, `--https-port=…`, `--install-dir=…`, `--data-dir=…`, `--version=<tag>`, `--image-registry=<registry>`.
 
-Full docs: [`project-docs/operations/install/getting-started.md`](./project-docs/operations/install/getting-started.md).
+For production use, prefer a real HTTPS domain. Browser passkeys require a
+secure WebAuthn-compatible origin; raw HTTP on an IP address is only suitable
+for temporary bootstrap access.
 
 ## Updating without downtime
 
@@ -118,9 +120,10 @@ ploydok/
 │   ├── shared/           # shared Zod schemas + types
 │   └── agent-proto/      # TS stubs (filled Sprint 2)
 ├── agent/
-│   └── ploydok-cli/      # Rust CLI (admin-recovery, more soon)
-├── scripts/              # check-spdx.ts, tooling
-└── project-docs/        # PRD, roadmap, decisions, operations docs
+│   └── ploydok-cli/      # Rust CLI (host operations and recovery)
+├── installer/            # VPS installer and generated host descriptors
+├── infra/                # local infra and deployment helpers
+└── scripts/              # check-spdx.ts, tooling
 ```
 
 ## Scripts
@@ -156,6 +159,11 @@ sudo ./target/release/ploydok-cli admin-recovery --db /var/lib/ploydok/ploydok.d
 
 See [CONTRIBUTING.md](./CONTRIBUTING.md) — DCO sign-off required (`git commit -s`).
 
-## Roadmap
+## Project Notes
 
-See [`project-docs/roadmap/README.md`](./project-docs/roadmap/README.md). 7 sprints to v1.0.
+Ploydok is moving fast and the user-facing source of truth now lives in the
+application itself:
+
+- **Guide** for setup and operational guidance.
+- **Changelog** for shipped behavior and deployment notes.
+- **Settings** for runtime, security, providers, and workspace configuration.
