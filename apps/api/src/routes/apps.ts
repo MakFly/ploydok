@@ -20,6 +20,7 @@ import {
 } from "@ploydok/db"
 import {
   BuildMethodSchema,
+  AppRuntimeSettingsSchema,
   GitProviderKindSchema,
   HealthcheckConfigSchema,
   ImagePullPolicySchema,
@@ -65,6 +66,7 @@ import { encryptField, decryptField } from "../github/app-credentials"
 import { ghProvider } from "./github"
 import { getSharedAgent } from "../debug/singletons"
 import { resolveRuntimeContainer } from "../services/runtime-containers"
+import { resolveAppRuntimeContainerId } from "../services/runtime-target"
 import {
   reconcileAppStatus,
   reconcileAppStatusList,
@@ -270,6 +272,7 @@ const CreateAppBodyBase = z.object({
   staticOutputDir: StaticOutputDirSchema.optional(),
   staticSpaFallback: z.boolean().optional(),
   runtimePort: z.number().int().positive().optional(),
+  runtime: AppRuntimeSettingsSchema.partial().optional(),
   restartPolicy: RestartPolicySchema.optional(),
   healthcheck: HealthcheckConfigSchema.partial().optional(),
   domain: z.string().optional(),
@@ -578,6 +581,17 @@ function serializeApp(
     staticOutputDir: row.static_output_dir,
     staticSpaFallback: row.static_spa_fallback,
     runtimePort: row.runtime_port,
+    runtime: {
+      runtimeMode: row.runtime_mode,
+      swarmServiceName: row.swarm_service_name,
+      replicas: row.replicas,
+      updateOrder: row.update_order,
+      updateParallelism: row.update_parallelism,
+      updateDelayS: row.update_delay_s,
+      updateMonitorS: row.update_monitor_s,
+      failureAction: row.failure_action,
+      stopGracePeriodS: row.stop_grace_period_s,
+    },
     restartPolicy: row.restart_policy,
     domain: row.domain,
     publicUrl: buildPublicUrl(row.domain),
@@ -664,6 +678,7 @@ type BuildRow = {
   build_method: string | null
   image_tag: string | null
   container_id: string | null
+  runtime_ref: string | null
   commit_sha: string | null
   commit_message: string | null
   error_message: string | null
@@ -683,6 +698,7 @@ function serializeBuild(row: BuildRow) {
     buildMethod: row.build_method,
     imageTag: row.image_tag,
     containerId: row.container_id,
+    runtimeRef: row.runtime_ref,
     commitSha: row.commit_sha,
     commitMessage: row.commit_message,
     errorMessage: row.error_message ?? null,
@@ -935,6 +951,14 @@ export function createAppsRouter(db: Db): Hono {
             : (body.buildMethod ?? "auto"),
         static_output_dir: body.staticOutputDir ?? "dist",
         static_spa_fallback: body.staticSpaFallback ?? true,
+        runtime_mode: body.runtime?.runtimeMode ?? "swarm",
+        replicas: body.runtime?.replicas ?? 1,
+        update_order: body.runtime?.updateOrder ?? "start-first",
+        update_parallelism: body.runtime?.updateParallelism ?? 1,
+        update_delay_s: body.runtime?.updateDelayS ?? 10,
+        update_monitor_s: body.runtime?.updateMonitorS ?? 30,
+        failure_action: body.runtime?.failureAction ?? "rollback",
+        stop_grace_period_s: body.runtime?.stopGracePeriodS ?? 10,
         runtime_port: resolvedRuntimePort,
         restart_policy: body.restartPolicy ?? "unless-stopped",
         domain,
@@ -1221,6 +1245,22 @@ export function createAppsRouter(db: Db): Hono {
       patch.static_output_dir = body.staticOutputDir
     if (body.staticSpaFallback !== undefined)
       patch.static_spa_fallback = body.staticSpaFallback
+    if (body.runtime?.runtimeMode !== undefined)
+      patch.runtime_mode = body.runtime.runtimeMode
+    if (body.runtime?.replicas !== undefined)
+      patch.replicas = body.runtime.replicas
+    if (body.runtime?.updateOrder !== undefined)
+      patch.update_order = body.runtime.updateOrder
+    if (body.runtime?.updateParallelism !== undefined)
+      patch.update_parallelism = body.runtime.updateParallelism
+    if (body.runtime?.updateDelayS !== undefined)
+      patch.update_delay_s = body.runtime.updateDelayS
+    if (body.runtime?.updateMonitorS !== undefined)
+      patch.update_monitor_s = body.runtime.updateMonitorS
+    if (body.runtime?.failureAction !== undefined)
+      patch.failure_action = body.runtime.failureAction
+    if (body.runtime?.stopGracePeriodS !== undefined)
+      patch.stop_grace_period_s = body.runtime.stopGracePeriodS
     if (body.runtimePort !== undefined) patch.runtime_port = body.runtimePort
     if (body.restartPolicy !== undefined)
       patch.restart_policy = body.restartPolicy
@@ -1588,10 +1628,17 @@ export function createAppsRouter(db: Db): Hono {
 
     try {
       const agent = getSharedAgent()
-      const container = await resolveRuntimeContainer(agent, {
+      const resolvedContainerId = await resolveAppRuntimeContainerId(
+        db,
         appId,
-        preferredContainerRef: app.container_id,
-      })
+        app.container_id
+      )
+      const container = resolvedContainerId
+        ? await resolveRuntimeContainer(agent, {
+            appId,
+            preferredContainerRef: resolvedContainerId,
+          })
+        : null
 
       if (!container) {
         return c.json({ lines: [], containerFound: false })
@@ -1730,6 +1777,107 @@ export function createAppsRouter(db: Db): Hono {
   // [M3.2 logs — END]
 
   // [M3.3 lifecycle — BEGIN]
+  const RuntimePatchBody = AppRuntimeSettingsSchema.partial()
+  const ScaleBody = z.object({ replicas: z.number().int().min(1).max(10) })
+
+  router.get("/:id/runtime", appsRead, async (c) => {
+    const user = getUser(c)
+    const appId = c.req.param("id")!
+    const app = await getAppForUser(db, appId, user.id)
+    if (!app) {
+      return c.json(
+        { error: { code: "NOT_FOUND", message: "App not found" } },
+        404
+      )
+    }
+    const { listSwarmTasks } = await import("../worker/swarm-runner.js")
+    const tasks = app.runtime_mode === "swarm" ? await listSwarmTasks(appId, db) : []
+    return c.json({
+      runtimeMode: app.runtime_mode,
+      swarmServiceName: app.swarm_service_name,
+      replicas: app.replicas,
+      updateOrder: app.update_order,
+      updateParallelism: app.update_parallelism,
+      updateDelayS: app.update_delay_s,
+      updateMonitorS: app.update_monitor_s,
+      failureAction: app.failure_action,
+      stopGracePeriodS: app.stop_grace_period_s,
+      tasks,
+    })
+  })
+
+  router.patch("/:id/runtime", appsWrite, sf, async (c) => {
+    const user = getUser(c)
+    const appId = c.req.param("id")!
+    const app = await getAppForUser(db, appId, user.id)
+    if (!app) {
+      return c.json(
+        { error: { code: "NOT_FOUND", message: "App not found" } },
+        404
+      )
+    }
+    let body: z.infer<typeof RuntimePatchBody>
+    try {
+      body = RuntimePatchBody.parse(await c.req.json())
+    } catch (err) {
+      return c.json(
+        { error: { code: "VALIDATION_ERROR", message: String(err) } },
+        400
+      )
+    }
+    const patch: Record<string, unknown> = { updated_at: new Date() }
+    if (body.runtimeMode !== undefined) patch.runtime_mode = body.runtimeMode
+    if (body.replicas !== undefined) patch.replicas = body.replicas
+    if (body.updateOrder !== undefined) patch.update_order = body.updateOrder
+    if (body.updateParallelism !== undefined)
+      patch.update_parallelism = body.updateParallelism
+    if (body.updateDelayS !== undefined) patch.update_delay_s = body.updateDelayS
+    if (body.updateMonitorS !== undefined)
+      patch.update_monitor_s = body.updateMonitorS
+    if (body.failureAction !== undefined) patch.failure_action = body.failureAction
+    if (body.stopGracePeriodS !== undefined)
+      patch.stop_grace_period_s = body.stopGracePeriodS
+
+    await db.update(apps).set(patch).where(eq(apps.id, appId))
+    return c.json({ ok: true })
+  })
+
+  router.post("/:id/scale", appsDeploy, sf, async (c) => {
+    const user = getUser(c)
+    const appId = c.req.param("id")!
+    const app = await getAppForUser(db, appId, user.id)
+    if (!app) {
+      return c.json(
+        { error: { code: "NOT_FOUND", message: "App not found" } },
+        404
+      )
+    }
+    let body: z.infer<typeof ScaleBody>
+    try {
+      body = ScaleBody.parse(await c.req.json())
+    } catch (err) {
+      return c.json(
+        { error: { code: "VALIDATION_ERROR", message: String(err) } },
+        400
+      )
+    }
+    try {
+      const { scaleSwarmApp } = await import("../worker/swarm-runner.js")
+      if (app.runtime_mode !== "swarm") {
+        await db
+          .update(apps)
+          .set({ replicas: body.replicas, updated_at: new Date() })
+          .where(eq(apps.id, appId))
+        return c.json({ ok: true, pendingDeploy: true })
+      }
+      await scaleSwarmApp(appId, body.replicas, db)
+      return c.json({ ok: true })
+    } catch (err) {
+      const message = err instanceof Error ? err.message : String(err)
+      return c.json({ error: { code: "SCALE_FAILED", message } }, 500)
+    }
+  })
+
   // POST /apps/:id/rollback — roll back to the previous succeeded build
   // POST /apps/:id/stop    — stop both containers + remove Caddy route
   // POST /apps/:id/restart — stop + re-deploy from last succeeded build image
@@ -1795,8 +1943,13 @@ export function createAppsRouter(db: Db): Hono {
     }
 
     try {
-      const { rollbackApp } = await import("../worker/runner.js")
-      await rollbackApp(appId, db, body.buildId, undefined)
+      if (app.runtime_mode === "swarm") {
+        const { rollbackSwarmApp } = await import("../worker/swarm-runner.js")
+        await rollbackSwarmApp(appId, db, body.buildId)
+      } else {
+        const { rollbackApp } = await import("../worker/runner.js")
+        await rollbackApp(appId, db, body.buildId, undefined)
+      }
       return c.json({ ok: true })
     } catch (err) {
       const message = err instanceof Error ? err.message : String(err)
@@ -1818,6 +1971,7 @@ export function createAppsRouter(db: Db): Hono {
 
     try {
       const { stopApp } = await import("../worker/runner.js")
+      const { stopSwarmApp } = await import("../worker/swarm-runner.js")
       try {
         eventBus.publish(`user:${user.id}`, {
           type: "app.stop.queued",
@@ -1832,7 +1986,9 @@ export function createAppsRouter(db: Db): Hono {
         )
       }
 
-      void stopApp(appId, db)
+      const stopPromise =
+        app.runtime_mode === "swarm" ? stopSwarmApp(appId, db) : stopApp(appId, db)
+      void stopPromise
         .then(() => {
           try {
             eventBus.publish(`user:${user.id}`, {

@@ -35,7 +35,7 @@ function startMockServer(
     const server = new grpc.Server()
 
     // Implémentation par défaut : retourne UNIMPLEMENTED pour tout ce qui n'est pas fourni
-    const defaultImpl: AgentServer = {
+    const defaultImpl: Partial<AgentServer> = {
       containerCreate: (_call, cb) =>
         cb(
           {

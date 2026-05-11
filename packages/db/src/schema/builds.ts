@@ -34,6 +34,7 @@ export const builds = pgTable(
     }),
     image_tag: text("image_tag"),
     container_id: text("container_id"),
+    runtime_ref: text("runtime_ref"),
     commit_sha: text("commit_sha"),
     commit_message: text("commit_message"),
     log_path: text("log_path"),

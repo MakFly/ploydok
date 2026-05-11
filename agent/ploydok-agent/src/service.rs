@@ -33,19 +33,27 @@
 use std::collections::HashMap;
 use std::sync::Arc;
 
+use bollard::auth::DockerCredentials;
 use bollard::container::{
-    Config, CreateContainerOptions, LogsOptions, RemoveContainerOptions, StatsOptions,
-    StopContainerOptions,
+    Config, CreateContainerOptions, ListContainersOptions, LogsOptions, RemoveContainerOptions,
+    StatsOptions, StopContainerOptions,
 };
 use bollard::exec::{CreateExecOptions, ResizeExecOptions, StartExecOptions, StartExecResults};
 use bollard::image::{BuildImageOptions, CreateImageOptions};
 use bollard::models::EndpointSettings;
 use bollard::models::{
-    HealthConfig, HostConfig, PortBinding, RestartPolicy, RestartPolicyNameEnum,
+    HealthConfig, HostConfig, Limit, Mount, MountTypeEnum, NetworkAttachmentConfig, PortBinding,
+    RestartPolicy, RestartPolicyNameEnum, ServiceSpec, ServiceSpecMode, ServiceSpecModeReplicated,
+    ServiceSpecRollbackConfig, ServiceSpecRollbackConfigFailureActionEnum,
+    ServiceSpecRollbackConfigOrderEnum, ServiceSpecUpdateConfig,
+    ServiceSpecUpdateConfigFailureActionEnum, ServiceSpecUpdateConfigOrderEnum, TaskSpec,
+    TaskSpecContainerSpec, TaskSpecResources,
 };
 use bollard::network::{ConnectNetworkOptions, CreateNetworkOptions, DisconnectNetworkOptions};
+use bollard::service::{InspectServiceOptions, UpdateServiceOptions};
 use futures::StreamExt;
-use tokio::io::AsyncWriteExt;
+use tokio::io::{AsyncReadExt, AsyncWriteExt};
+use tokio::net::UnixStream;
 use tokio::sync::mpsc;
 use tokio::time::{Duration, Instant};
 use tokio_stream::wrappers::ReceiverStream;
@@ -59,11 +67,17 @@ use ploydok_proto::agent::{
     GetAuditPubkeyResponse, HostStatsRequest, HostStatsResponse, ImageBuildRequest,
     ImagePullRequest, InspectContainerHealthRequest, InspectContainerHealthResponse,
     ListContainerFilesRequest, ListContainerFilesResponse, ListContainersRequest,
-    ListContainersResponse, LogLine, NetworkConnectRequest, NetworkConnectResponse,
-    NetworkCreateRequest, NetworkCreateResponse, NetworkDisconnectRequest,
-    NetworkDisconnectResponse, NetworkRemoveRequest, NetworkRemoveResponse, PingContainerRequest,
-    PingContainerResponse, PullProgress, ReadContainerFileRequest, ReadContainerFileResponse,
-    RestoreChunk, RestoreResult, SignAuditEntryRequest, SignAuditEntryResponse, StatsFrame,
+    ListContainersResponse, ListServiceTasksRequest, ListServiceTasksResponse, LogLine,
+    NetworkConnectRequest, NetworkConnectResponse, NetworkCreateRequest, NetworkCreateResponse,
+    NetworkDisconnectRequest, NetworkDisconnectResponse, NetworkRemoveRequest,
+    NetworkRemoveResponse, PingContainerRequest, PingContainerResponse, PullProgress,
+    ReadContainerFileRequest, ReadContainerFileResponse, RestoreChunk, RestoreResult,
+    ServiceCreateRequest, ServiceCreateResponse, ServiceRemoveRequest, ServiceRemoveResponse,
+    ServiceRollbackRequest, ServiceRollbackResponse, ServiceScaleRequest, ServiceScaleResponse,
+    ServiceUpdateImageRequest, ServiceUpdateImageResponse, SignAuditEntryRequest,
+    SignAuditEntryResponse, StatsFrame, SwarmEnsureSingleNodeRequest,
+    SwarmEnsureSingleNodeResponse, SwarmInfoRequest, SwarmInfoResponse, SwarmServiceSpec,
+    SwarmTaskSnapshot,
 };
 
 use crate::audit::{audit, audit_with_client, client_identity_from_request};
@@ -150,6 +164,251 @@ fn healthcheck_nanos(seconds: i64) -> Option<i64> {
         None
     } else {
         Some(seconds.saturating_mul(1_000_000_000))
+    }
+}
+
+fn swarm_update_order(value: &str) -> ServiceSpecUpdateConfigOrderEnum {
+    match value {
+        "stop-first" => ServiceSpecUpdateConfigOrderEnum::STOP_FIRST,
+        _ => ServiceSpecUpdateConfigOrderEnum::START_FIRST,
+    }
+}
+
+fn swarm_rollback_order(value: &str) -> ServiceSpecRollbackConfigOrderEnum {
+    match value {
+        "stop-first" => ServiceSpecRollbackConfigOrderEnum::STOP_FIRST,
+        _ => ServiceSpecRollbackConfigOrderEnum::START_FIRST,
+    }
+}
+
+fn swarm_failure_action(value: &str) -> ServiceSpecUpdateConfigFailureActionEnum {
+    match value {
+        "pause" => ServiceSpecUpdateConfigFailureActionEnum::PAUSE,
+        "continue" => ServiceSpecUpdateConfigFailureActionEnum::CONTINUE,
+        _ => ServiceSpecUpdateConfigFailureActionEnum::ROLLBACK,
+    }
+}
+
+fn swarm_rollback_failure_action(value: &str) -> ServiceSpecRollbackConfigFailureActionEnum {
+    match value {
+        "continue" => ServiceSpecRollbackConfigFailureActionEnum::CONTINUE,
+        _ => ServiceSpecRollbackConfigFailureActionEnum::PAUSE,
+    }
+}
+
+fn swarm_healthcheck(
+    hc: Option<&ploydok_proto::agent::SwarmServiceHealthcheck>,
+) -> Option<HealthConfig> {
+    hc.map(|hc| HealthConfig {
+        test: if hc.test.is_empty() {
+            None
+        } else {
+            Some(hc.test.clone())
+        },
+        interval: healthcheck_nanos(hc.interval_seconds),
+        timeout: healthcheck_nanos(hc.timeout_seconds),
+        retries: if hc.retries == 0 {
+            None
+        } else {
+            Some(hc.retries as i64)
+        },
+        start_period: healthcheck_nanos(hc.start_period_seconds),
+        start_interval: None,
+    })
+}
+
+fn build_swarm_service_spec(req: &SwarmServiceSpec) -> ServiceSpec {
+    let env: Vec<String> = req.env.iter().map(|(k, v)| format!("{k}={v}")).collect();
+    let mounts = req
+        .mounts
+        .iter()
+        .map(|mount| Mount {
+            target: Some(mount.container_path.clone()),
+            source: Some(mount.host_path.clone()),
+            typ: Some(MountTypeEnum::BIND),
+            read_only: Some(mount.read_only),
+            ..Default::default()
+        })
+        .collect::<Vec<_>>();
+
+    let limits = req.resource_limits.as_ref().and_then(|r| {
+        let limit = Limit {
+            nano_cpus: if r.cpu > 0.0 {
+                Some((r.cpu * 1_000_000_000.0) as i64)
+            } else {
+                None
+            },
+            memory_bytes: if r.memory_bytes > 0 {
+                Some(r.memory_bytes)
+            } else {
+                None
+            },
+            pids: if r.pids_limit > 0 {
+                Some(r.pids_limit)
+            } else {
+                None
+            },
+        };
+        if limit.nano_cpus.is_none() && limit.memory_bytes.is_none() && limit.pids.is_none() {
+            None
+        } else {
+            Some(TaskSpecResources {
+                limits: Some(limit),
+                ..Default::default()
+            })
+        }
+    });
+
+    let networks = req
+        .networks
+        .iter()
+        .map(|network| NetworkAttachmentConfig {
+            target: Some(network.clone()),
+            aliases: Some(vec![req.name.clone()]),
+            ..Default::default()
+        })
+        .collect::<Vec<_>>();
+
+    ServiceSpec {
+        name: Some(req.name.clone()),
+        labels: if req.labels.is_empty() {
+            None
+        } else {
+            Some(req.labels.clone())
+        },
+        mode: Some(ServiceSpecMode {
+            replicated: Some(ServiceSpecModeReplicated {
+                replicas: Some(req.replicas.max(1) as i64),
+            }),
+            ..Default::default()
+        }),
+        task_template: Some(TaskSpec {
+            container_spec: Some(TaskSpecContainerSpec {
+                image: Some(req.image.clone()),
+                labels: if req.labels.is_empty() {
+                    None
+                } else {
+                    Some(req.labels.clone())
+                },
+                env: if env.is_empty() { None } else { Some(env) },
+                command: if req.command.is_empty() {
+                    None
+                } else {
+                    Some(req.command.clone())
+                },
+                user: if req.user.is_empty() {
+                    None
+                } else {
+                    Some(req.user.clone())
+                },
+                mounts: if mounts.is_empty() {
+                    None
+                } else {
+                    Some(mounts)
+                },
+                stop_grace_period: healthcheck_nanos(req.stop_grace_period_seconds as i64),
+                health_check: swarm_healthcheck(req.healthcheck.as_ref()),
+                ..Default::default()
+            }),
+            resources: limits,
+            networks: if networks.is_empty() {
+                None
+            } else {
+                Some(networks)
+            },
+            ..Default::default()
+        }),
+        update_config: Some(ServiceSpecUpdateConfig {
+            parallelism: Some(req.update_parallelism.max(1) as i64),
+            delay: healthcheck_nanos(req.update_delay_seconds as i64),
+            monitor: healthcheck_nanos(req.update_monitor_seconds as i64),
+            failure_action: Some(swarm_failure_action(&req.failure_action)),
+            order: Some(swarm_update_order(&req.update_order)),
+            max_failure_ratio: Some(0.0),
+        }),
+        rollback_config: Some(ServiceSpecRollbackConfig {
+            parallelism: Some(1),
+            delay: healthcheck_nanos(req.update_delay_seconds as i64),
+            monitor: healthcheck_nanos(req.update_monitor_seconds as i64),
+            failure_action: Some(swarm_rollback_failure_action(&req.failure_action)),
+            order: Some(swarm_rollback_order(&req.update_order)),
+            max_failure_ratio: Some(0.0),
+        }),
+        ..Default::default()
+    }
+}
+
+fn registry_credentials(
+    auth: Option<&ploydok_proto::agent::RegistryAuth>,
+) -> Option<DockerCredentials> {
+    auth.and_then(|auth| {
+        if auth.username.is_empty() && auth.password.is_empty() {
+            None
+        } else {
+            Some(DockerCredentials {
+                username: Some(auth.username.clone()),
+                password: Some(auth.password.clone()),
+                ..Default::default()
+            })
+        }
+    })
+}
+
+fn swarm_info_response(info: bollard::models::SystemInfo) -> SwarmInfoResponse {
+    let swarm = info.swarm;
+    SwarmInfoResponse {
+        local_node_state: swarm
+            .as_ref()
+            .and_then(|s| s.local_node_state)
+            .map(|s| s.to_string())
+            .unwrap_or_else(|| "unknown".to_string()),
+        control_available: swarm
+            .as_ref()
+            .and_then(|s| s.control_available)
+            .unwrap_or(false),
+        node_id: swarm
+            .as_ref()
+            .and_then(|s| s.node_id.clone())
+            .unwrap_or_default(),
+        node_addr: swarm
+            .as_ref()
+            .and_then(|s| s.node_addr.clone())
+            .unwrap_or_default(),
+        nodes: swarm.as_ref().and_then(|s| s.nodes).unwrap_or(0),
+        managers: swarm.as_ref().and_then(|s| s.managers).unwrap_or(0),
+        error: swarm
+            .as_ref()
+            .and_then(|s| s.error.clone())
+            .unwrap_or_default(),
+    }
+}
+
+async fn docker_socket_post(path: &str, json_body: &str) -> Result<String, Status> {
+    let mut stream = UnixStream::connect("/var/run/docker.sock")
+        .await
+        .map_err(|e| Status::internal(format!("connect docker socket: {e}")))?;
+    let request = format!(
+        "POST {path} HTTP/1.1\r\nHost: docker\r\nContent-Type: application/json\r\nContent-Length: {}\r\nConnection: close\r\n\r\n{}",
+        json_body.len(),
+        json_body
+    );
+    stream
+        .write_all(request.as_bytes())
+        .await
+        .map_err(|e| Status::internal(format!("write docker socket: {e}")))?;
+    let mut buf = Vec::new();
+    stream
+        .read_to_end(&mut buf)
+        .await
+        .map_err(|e| Status::internal(format!("read docker socket: {e}")))?;
+    let text = String::from_utf8_lossy(&buf).to_string();
+    let status_line = text.lines().next().unwrap_or_default();
+    if status_line.contains(" 2") {
+        Ok(text)
+    } else if status_line.contains(" 409 ") {
+        Err(Status::already_exists(text))
+    } else {
+        Err(Status::internal(text))
     }
 }
 
@@ -765,6 +1024,7 @@ impl Agent for AgentService {
         let config = CreateNetworkOptions {
             name: req.name.clone(),
             driver,
+            attachable: req.attachable,
             labels: req.labels.clone(),
             ..Default::default()
         };
@@ -1423,6 +1683,298 @@ impl Agent for AgentService {
     ) -> Result<Response<HostStatsResponse>, Status> {
         let resp = crate::host_stats::read_host_stats().await;
         Ok(Response::new(resp))
+    }
+
+    // ── Swarm runtime ───────────────────────────────────────────────────────
+
+    async fn swarm_info(
+        &self,
+        _request: Request<SwarmInfoRequest>,
+    ) -> Result<Response<SwarmInfoResponse>, Status> {
+        let info = self
+            .docker
+            .info()
+            .await
+            .map_err(|e| bollard_err("docker_info", e))?;
+        Ok(Response::new(swarm_info_response(info)))
+    }
+
+    async fn swarm_ensure_single_node(
+        &self,
+        request: Request<SwarmEnsureSingleNodeRequest>,
+    ) -> Result<Response<SwarmEnsureSingleNodeResponse>, Status> {
+        let req = request.into_inner();
+        let before = swarm_info_response(
+            self.docker
+                .info()
+                .await
+                .map_err(|e| bollard_err("docker_info", e))?,
+        );
+        if before.local_node_state == "active" && before.control_available {
+            return Ok(Response::new(SwarmEnsureSingleNodeResponse {
+                info: Some(before),
+                initialized: false,
+            }));
+        }
+
+        let mut payload = serde_json::json!({
+            "ListenAddr": "0.0.0.0:2377",
+        });
+        if !req.advertise_addr.is_empty() {
+            payload["AdvertiseAddr"] = serde_json::json!(req.advertise_addr);
+        }
+
+        match docker_socket_post("/v1.45/swarm/init", &payload.to_string()).await {
+            Ok(_) => {}
+            Err(status) if status.code() == tonic::Code::AlreadyExists => {}
+            Err(status) => return Err(status),
+        }
+
+        let after = swarm_info_response(
+            self.docker
+                .info()
+                .await
+                .map_err(|e| bollard_err("docker_info", e))?,
+        );
+        Ok(Response::new(SwarmEnsureSingleNodeResponse {
+            info: Some(after),
+            initialized: true,
+        }))
+    }
+
+    async fn service_create(
+        &self,
+        request: Request<ServiceCreateRequest>,
+    ) -> Result<Response<ServiceCreateResponse>, Status> {
+        let req = request.into_inner();
+        let spec = req
+            .spec
+            .as_ref()
+            .ok_or_else(|| Status::invalid_argument("spec is required"))?;
+        self.validator
+            .validate_service_create(spec)
+            .map_err(|e| *e)?;
+        let service = build_swarm_service_spec(spec);
+        let credentials = registry_credentials(req.registry_auth.as_ref());
+        let created = self
+            .docker
+            .create_service(service, credentials)
+            .await
+            .map_err(|e| bollard_err("create_service", e))?;
+        Ok(Response::new(ServiceCreateResponse {
+            service_id: created.id.unwrap_or_default(),
+        }))
+    }
+
+    async fn service_update_image(
+        &self,
+        request: Request<ServiceUpdateImageRequest>,
+    ) -> Result<Response<ServiceUpdateImageResponse>, Status> {
+        let req = request.into_inner();
+        self.validator
+            .validate_service_update_image(&req)
+            .map_err(|e| *e)?;
+
+        let current = self
+            .docker
+            .inspect_service(
+                &req.service_name,
+                Some(InspectServiceOptions {
+                    insert_defaults: true,
+                }),
+            )
+            .await
+            .map_err(|e| bollard_err("inspect_service", e))?;
+        let version = current.version.and_then(|v| v.index).unwrap_or(0);
+        let mut spec = current.spec.unwrap_or_default();
+        if let Some(mode) = spec.mode.as_mut() {
+            if let Some(replicated) = mode.replicated.as_mut() {
+                replicated.replicas = Some(req.replicas.max(1) as i64);
+            }
+        }
+        if let Some(task) = spec.task_template.as_mut() {
+            if let Some(container) = task.container_spec.as_mut() {
+                container.image = Some(req.image.clone());
+            }
+        }
+        spec.update_config = Some(ServiceSpecUpdateConfig {
+            parallelism: Some(req.update_parallelism.max(1) as i64),
+            delay: healthcheck_nanos(req.update_delay_seconds as i64),
+            monitor: healthcheck_nanos(req.update_monitor_seconds as i64),
+            failure_action: Some(swarm_failure_action(&req.failure_action)),
+            order: Some(swarm_update_order(&req.update_order)),
+            max_failure_ratio: Some(0.0),
+        });
+
+        let updated = self
+            .docker
+            .update_service(
+                &req.service_name,
+                spec,
+                UpdateServiceOptions {
+                    version,
+                    registry_auth_from: false,
+                    rollback: false,
+                },
+                registry_credentials(req.registry_auth.as_ref()),
+            )
+            .await
+            .map_err(|e| bollard_err("update_service", e))?;
+        Ok(Response::new(ServiceUpdateImageResponse {
+            warning: updated.warnings.unwrap_or_default().join("\n"),
+        }))
+    }
+
+    async fn service_scale(
+        &self,
+        request: Request<ServiceScaleRequest>,
+    ) -> Result<Response<ServiceScaleResponse>, Status> {
+        let req = request.into_inner();
+        self.validator
+            .validate_service_scale(&req)
+            .map_err(|e| *e)?;
+        let current = self
+            .docker
+            .inspect_service(
+                &req.service_name,
+                Some(InspectServiceOptions {
+                    insert_defaults: true,
+                }),
+            )
+            .await
+            .map_err(|e| bollard_err("inspect_service", e))?;
+        let version = current.version.and_then(|v| v.index).unwrap_or(0);
+        let mut spec = current.spec.unwrap_or_default();
+        if let Some(mode) = spec.mode.as_mut() {
+            if let Some(replicated) = mode.replicated.as_mut() {
+                replicated.replicas = Some(req.replicas.max(1) as i64);
+            }
+        }
+        self.docker
+            .update_service(
+                &req.service_name,
+                spec,
+                UpdateServiceOptions {
+                    version,
+                    registry_auth_from: true,
+                    rollback: false,
+                },
+                None,
+            )
+            .await
+            .map_err(|e| bollard_err("update_service", e))?;
+        Ok(Response::new(ServiceScaleResponse {}))
+    }
+
+    async fn service_rollback(
+        &self,
+        request: Request<ServiceRollbackRequest>,
+    ) -> Result<Response<ServiceRollbackResponse>, Status> {
+        let req = request.into_inner();
+        self.validator
+            .validate_service_rollback(&req)
+            .map_err(|e| *e)?;
+        let current = self
+            .docker
+            .inspect_service(
+                &req.service_name,
+                Some(InspectServiceOptions {
+                    insert_defaults: true,
+                }),
+            )
+            .await
+            .map_err(|e| bollard_err("inspect_service", e))?;
+        let version = current.version.and_then(|v| v.index).unwrap_or(0);
+        self.docker
+            .update_service(
+                &req.service_name,
+                current.spec.unwrap_or_default(),
+                UpdateServiceOptions {
+                    version,
+                    registry_auth_from: true,
+                    rollback: true,
+                },
+                None,
+            )
+            .await
+            .map_err(|e| bollard_err("rollback_service", e))?;
+        Ok(Response::new(ServiceRollbackResponse {}))
+    }
+
+    async fn service_remove(
+        &self,
+        request: Request<ServiceRemoveRequest>,
+    ) -> Result<Response<ServiceRemoveResponse>, Status> {
+        let req = request.into_inner();
+        self.validator
+            .validate_service_remove(&req)
+            .map_err(|e| *e)?;
+        match self.docker.delete_service(&req.service_name).await {
+            Ok(()) => Ok(Response::new(ServiceRemoveResponse {})),
+            Err(e) => {
+                let status = bollard_err("delete_service", e);
+                if status.code() == tonic::Code::NotFound {
+                    Ok(Response::new(ServiceRemoveResponse {}))
+                } else {
+                    Err(status)
+                }
+            }
+        }
+    }
+
+    async fn list_service_tasks(
+        &self,
+        request: Request<ListServiceTasksRequest>,
+    ) -> Result<Response<ListServiceTasksResponse>, Status> {
+        let req = request.into_inner();
+        self.validator
+            .validate_list_service_tasks(&req)
+            .map_err(|e| *e)?;
+        let mut filters = HashMap::new();
+        filters.insert(
+            "label".to_string(),
+            vec![format!(
+                "com.docker.swarm.service.name={}",
+                req.service_name
+            )],
+        );
+        let containers = self
+            .docker
+            .list_containers(Some(ListContainersOptions {
+                all: true,
+                filters,
+                ..Default::default()
+            }))
+            .await
+            .map_err(|e| bollard_err("list_containers", e))?;
+        let tasks = containers
+            .into_iter()
+            .map(|c| {
+                let labels = c.labels.unwrap_or_default();
+                SwarmTaskSnapshot {
+                    id: labels
+                        .get("com.docker.swarm.task.id")
+                        .cloned()
+                        .unwrap_or_default(),
+                    service_name: req.service_name.clone(),
+                    container_id: c.id.unwrap_or_default(),
+                    slot: labels
+                        .get("com.docker.swarm.task.name")
+                        .and_then(|name| name.split('.').nth(1))
+                        .and_then(|slot| slot.parse::<u32>().ok())
+                        .unwrap_or(0),
+                    image: c.image.unwrap_or_default(),
+                    desired_state: String::new(),
+                    status: c.status.unwrap_or_default(),
+                    node_id: labels
+                        .get("com.docker.swarm.node.id")
+                        .cloned()
+                        .unwrap_or_default(),
+                    error: String::new(),
+                }
+            })
+            .collect();
+        Ok(Response::new(ListServiceTasksResponse { tasks }))
     }
 
     // ── RestoreDatabase (client-side streaming) ──────────────────────────────

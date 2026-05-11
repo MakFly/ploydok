@@ -20,8 +20,10 @@ use std::path::Path;
 use ploydok_proto::agent::{
     ContainerCreateRequest, ContainerRemoveRequest, ContainerStartRequest, ContainerStopRequest,
     ExecStart, ImageBuildRequest, ImagePullRequest, InspectContainerHealthRequest,
-    ListContainerFilesRequest, NetworkConnectRequest, NetworkCreateRequest,
-    NetworkDisconnectRequest, NetworkRemoveRequest, ReadContainerFileRequest,
+    ListContainerFilesRequest, ListServiceTasksRequest, NetworkConnectRequest,
+    NetworkCreateRequest, NetworkDisconnectRequest, NetworkRemoveRequest, ReadContainerFileRequest,
+    ServiceRemoveRequest, ServiceRollbackRequest, ServiceScaleRequest, ServiceUpdateImageRequest,
+    SwarmServiceSpec,
 };
 use serde::{Deserialize, Serialize};
 use tonic::Status;
@@ -53,6 +55,12 @@ pub trait Validator: Send + Sync + 'static {
         &self,
         req: &InspectContainerHealthRequest,
     ) -> ValidatorResult;
+    fn validate_service_create(&self, req: &SwarmServiceSpec) -> ValidatorResult;
+    fn validate_service_update_image(&self, req: &ServiceUpdateImageRequest) -> ValidatorResult;
+    fn validate_service_scale(&self, req: &ServiceScaleRequest) -> ValidatorResult;
+    fn validate_service_rollback(&self, req: &ServiceRollbackRequest) -> ValidatorResult;
+    fn validate_service_remove(&self, req: &ServiceRemoveRequest) -> ValidatorResult;
+    fn validate_list_service_tasks(&self, req: &ListServiceTasksRequest) -> ValidatorResult;
 }
 
 // ─────────────────────────────────────────────────────────────────────────────
@@ -110,6 +118,24 @@ impl Validator for PermissiveValidator {
         &self,
         _req: &InspectContainerHealthRequest,
     ) -> ValidatorResult {
+        Ok(())
+    }
+    fn validate_service_create(&self, _req: &SwarmServiceSpec) -> ValidatorResult {
+        Ok(())
+    }
+    fn validate_service_update_image(&self, _req: &ServiceUpdateImageRequest) -> ValidatorResult {
+        Ok(())
+    }
+    fn validate_service_scale(&self, _req: &ServiceScaleRequest) -> ValidatorResult {
+        Ok(())
+    }
+    fn validate_service_rollback(&self, _req: &ServiceRollbackRequest) -> ValidatorResult {
+        Ok(())
+    }
+    fn validate_service_remove(&self, _req: &ServiceRemoveRequest) -> ValidatorResult {
+        Ok(())
+    }
+    fn validate_list_service_tasks(&self, _req: &ListServiceTasksRequest) -> ValidatorResult {
         Ok(())
     }
 }
@@ -560,17 +586,24 @@ impl Validator for StrictValidator {
                 serde_json::json!({ "name": &req.name, "expected_prefix": "ploydok-" }),
             ));
         }
-        // Driver: only bridge allowed; reject host and macvlan.
+        // Driver: bridge for legacy runtime, overlay for Swarm app runtime.
         let driver = if req.driver.is_empty() {
             "bridge"
         } else {
             &req.driver
         };
-        if driver == "host" || driver == "macvlan" {
+        if !["bridge", "overlay"].contains(&driver) {
             return Err(deny(
                 tonic::Code::PermissionDenied,
                 "network_driver_forbidden",
-                serde_json::json!({ "driver": driver, "allowed": ["bridge"] }),
+                serde_json::json!({ "driver": driver, "allowed": ["bridge", "overlay"] }),
+            ));
+        }
+        if driver == "overlay" && !req.attachable {
+            return Err(deny(
+                tonic::Code::InvalidArgument,
+                "overlay_network_must_be_attachable",
+                serde_json::json!({ "name": &req.name }),
             ));
         }
         Ok(())
@@ -728,6 +761,122 @@ impl Validator for StrictValidator {
         validate_container_id(&req.container_id)?;
         Ok(())
     }
+
+    fn validate_service_create(&self, req: &SwarmServiceSpec) -> ValidatorResult {
+        validate_service_name(&req.name)?;
+        let registry = extract_registry(&req.image);
+        if !self.cfg.allowed_registries.iter().any(|r| r == registry) {
+            return Err(deny(
+                tonic::Code::PermissionDenied,
+                "image_registry_allowlist",
+                serde_json::json!({
+                    "image": &req.image,
+                    "registry": registry,
+                    "allowed": &self.cfg.allowed_registries
+                }),
+            ));
+        }
+        for network in &req.networks {
+            validate_network_name(network)?;
+        }
+        for mount in &req.mounts {
+            if let Err(reason) = validate_host_path(
+                &mount.host_path,
+                &[&self.cfg.volume_prefix, &self.cfg.app_volume_prefix],
+            ) {
+                return Err(deny(
+                    tonic::Code::PermissionDenied,
+                    "volume_host_path",
+                    serde_json::json!({ "host_path": &mount.host_path, "reason": reason }),
+                ));
+            }
+        }
+        for key in &["ploydok.app_id", "ploydok.owner_id"] {
+            match req.labels.get(*key) {
+                Some(v) if !v.is_empty() => {}
+                _ => {
+                    return Err(deny(
+                        tonic::Code::InvalidArgument,
+                        "required_labels",
+                        serde_json::json!({ "missing_label": key }),
+                    ));
+                }
+            }
+        }
+        if let Some(limits) = &req.resource_limits {
+            if limits.cpu > self.cfg.max_cpu && limits.cpu > 0.0 {
+                return Err(deny(
+                    tonic::Code::InvalidArgument,
+                    "resource_cpu_limit",
+                    serde_json::json!({ "cpu": limits.cpu, "max_cpu": self.cfg.max_cpu }),
+                ));
+            }
+            if limits.memory_bytes > self.cfg.max_memory_bytes && limits.memory_bytes > 0 {
+                return Err(deny(
+                    tonic::Code::InvalidArgument,
+                    "resource_memory_limit",
+                    serde_json::json!({
+                        "memory_bytes": limits.memory_bytes,
+                        "max_memory_bytes": self.cfg.max_memory_bytes
+                    }),
+                ));
+            }
+        }
+        Ok(())
+    }
+
+    fn validate_service_update_image(&self, req: &ServiceUpdateImageRequest) -> ValidatorResult {
+        validate_service_name(&req.service_name)?;
+        let registry = extract_registry(&req.image);
+        if !self.cfg.allowed_registries.iter().any(|r| r == registry) {
+            return Err(deny(
+                tonic::Code::PermissionDenied,
+                "image_registry_allowlist",
+                serde_json::json!({ "image": &req.image, "registry": registry }),
+            ));
+        }
+        Ok(())
+    }
+
+    fn validate_service_scale(&self, req: &ServiceScaleRequest) -> ValidatorResult {
+        validate_service_name(&req.service_name)
+    }
+
+    fn validate_service_rollback(&self, req: &ServiceRollbackRequest) -> ValidatorResult {
+        validate_service_name(&req.service_name)
+    }
+
+    fn validate_service_remove(&self, req: &ServiceRemoveRequest) -> ValidatorResult {
+        validate_service_name(&req.service_name)
+    }
+
+    fn validate_list_service_tasks(&self, req: &ListServiceTasksRequest) -> ValidatorResult {
+        validate_service_name(&req.service_name)
+    }
+}
+
+fn validate_service_name(name: &str) -> ValidatorResult {
+    let name_re =
+        regex_lite::Regex::new(r"^ploydok-app-[a-z0-9][a-z0-9-]{0,90}$").expect("static regex");
+    if !name_re.is_match(name) {
+        return Err(deny(
+            tonic::Code::InvalidArgument,
+            "service_name_prefix",
+            serde_json::json!({ "name": name, "expected": "^ploydok-app-..." }),
+        ));
+    }
+    Ok(())
+}
+
+fn validate_network_name(network: &str) -> ValidatorResult {
+    if network.is_empty() || !network.starts_with("ploydok-") {
+        return Err(deny(
+            tonic::Code::PermissionDenied,
+            "network_prefix",
+            serde_json::json!({ "network": network, "expected_prefix": "ploydok-" }),
+        ));
+    }
+    Ok(())
 }
 
 fn validate_container_id(container_id: &str) -> ValidatorResult {

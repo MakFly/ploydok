@@ -95,7 +95,26 @@ export const apps = pgTable("apps", {
   preview_wildcard: text("preview_wildcard"),
   preview_ttl_days: integer("preview_ttl_days").notNull().default(7),
   // Runtime
+  runtime_mode: text("runtime_mode", { enum: ["docker", "swarm"] })
+    .notNull()
+    .default("swarm"),
   container_id: text("container_id"),
+  swarm_service_name: text("swarm_service_name"),
+  replicas: integer("replicas").notNull().default(1),
+  update_order: text("update_order", {
+    enum: ["start-first", "stop-first"],
+  })
+    .notNull()
+    .default("start-first"),
+  update_parallelism: integer("update_parallelism").notNull().default(1),
+  update_delay_s: integer("update_delay_s").notNull().default(10),
+  update_monitor_s: integer("update_monitor_s").notNull().default(30),
+  failure_action: text("failure_action", {
+    enum: ["rollback", "pause", "continue"],
+  })
+    .notNull()
+    .default("rollback"),
+  stop_grace_period_s: integer("stop_grace_period_s").notNull().default(10),
   runtime_port: integer("runtime_port"),
   restart_policy: text("restart_policy", {
     enum: ["no", "always", "unless-stopped", "on-failure"],

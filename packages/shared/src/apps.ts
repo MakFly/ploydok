@@ -62,6 +62,28 @@ export const RestartPolicySchema = z.enum([
 ])
 export type RestartPolicy = z.infer<typeof RestartPolicySchema>
 
+export const RuntimeModeSchema = z.enum(["docker", "swarm"])
+export type RuntimeMode = z.infer<typeof RuntimeModeSchema>
+
+export const UpdateOrderSchema = z.enum(["start-first", "stop-first"])
+export type UpdateOrder = z.infer<typeof UpdateOrderSchema>
+
+export const FailureActionSchema = z.enum(["rollback", "pause", "continue"])
+export type FailureAction = z.infer<typeof FailureActionSchema>
+
+export const AppRuntimeSettingsSchema = z.object({
+  runtimeMode: RuntimeModeSchema.default("swarm"),
+  swarmServiceName: z.string().nullable().optional(),
+  replicas: z.number().int().min(1).max(10).default(1),
+  updateOrder: UpdateOrderSchema.default("start-first"),
+  updateParallelism: z.number().int().min(1).max(10).default(1),
+  updateDelayS: z.number().int().min(0).max(300).default(10),
+  updateMonitorS: z.number().int().min(1).max(600).default(30),
+  failureAction: FailureActionSchema.default("rollback"),
+  stopGracePeriodS: z.number().int().min(1).max(300).default(10),
+})
+export type AppRuntimeSettings = z.infer<typeof AppRuntimeSettingsSchema>
+
 export const JobStatusSchema = z.enum(["pending", "running", "done", "failed"])
 export type JobStatus = z.infer<typeof JobStatusSchema>
 
@@ -170,6 +192,7 @@ export const AppConfigSchema = z
     staticOutputDir: z.string().optional(),
     staticSpaFallback: z.boolean().optional(),
     runtimePort: z.number().int().positive().optional(),
+    runtime: AppRuntimeSettingsSchema.partial().optional(),
     restartPolicy: RestartPolicySchema.optional(),
     healthcheck: HealthcheckConfigSchema.optional(),
     domain: z.string().optional(),
@@ -191,6 +214,7 @@ export const BuildSchema = z.object({
   buildMethod: BuildMethodSchema.nullable().optional(),
   imageTag: z.string().optional(),
   containerId: z.string().optional(),
+  runtimeRef: z.string().nullable().optional(),
   commitSha: z.string().optional(),
   commitMessage: z.string().nullable().optional(),
   requestedByUserId: z.string().nullable().optional(),

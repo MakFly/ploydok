@@ -23,6 +23,8 @@ export interface AppForReconcile {
   id: string
   domain: string | null
   container_id: string | null
+  runtime_mode: "docker" | "swarm"
+  swarm_service_name: string | null
   runtime_port: number | null
   healthcheck_port: number | null
   build_method: string | null
@@ -65,6 +67,8 @@ export async function fetchRunningAppsForCaddy(
       id: appsTable.id,
       domain: appsTable.domain,
       container_id: appsTable.container_id,
+      runtime_mode: appsTable.runtime_mode,
+      swarm_service_name: appsTable.swarm_service_name,
       runtime_port: appsTable.runtime_port,
       healthcheck_port: appsTable.healthcheck_port,
       build_method: appsTable.build_method,
@@ -291,7 +295,9 @@ export async function reconcileCaddyRoutes(
           cdn: row,
         })
       } else {
-        if (!row.container_id) {
+        const upstreamHost =
+          row.runtime_mode === "swarm" ? row.swarm_service_name : row.container_id
+        if (!upstreamHost) {
           result.skipped++
           continue
         }
@@ -299,7 +305,7 @@ export async function reconcileCaddyRoutes(
         await caddy.setUpstream(
           row.id,
           row.domain,
-          { host: row.container_id, port },
+          { host: upstreamHost, port },
           { cdn: row }
         )
       }

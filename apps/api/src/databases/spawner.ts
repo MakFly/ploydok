@@ -541,6 +541,7 @@ export async function spawnDatabase(
       await agent.networkCreate({
         name: networkName,
         driver: "bridge",
+        attachable: false,
         labels: {},
       })
     } catch (err) {
