@@ -1264,6 +1264,8 @@ function BuildStep({
         return "Auto-pack PHP (nginx + php-fpm). Recipe managée recommandée pour la prod."
       case "next":
         return "Auto-pack Next.js (standalone output si configuré)."
+      case "hono":
+        return "Auto-pack Hono (serveur Node/Bun écoutant sur PORT)."
       case "node":
       case "bun":
         return "Auto-pack Node — pense à fixer NIXPACKS_NODE_VERSION."

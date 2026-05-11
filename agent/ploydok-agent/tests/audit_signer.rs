@@ -2,7 +2,7 @@
 //
 // Integration tests for the audit signer module.
 
-use ed25519_dalek::{Signature, VerifyingKey};
+use ed25519_dalek::{Verifier, VerifyingKey};
 use std::fs;
 use std::os::unix::fs::PermissionsExt;
 use tempfile::TempDir;

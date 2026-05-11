@@ -5,8 +5,12 @@ import { eq } from "drizzle-orm"
 import { nanoid } from "nanoid"
 import { z } from "zod"
 import { apps, builds, projects, system_jobs } from "@ploydok/db"
-import { ALL_PROBE_KEYS, classifyStack } from "@ploydok/shared"
-import type { StackClassification } from "@ploydok/shared"
+import {
+  ALL_PROBE_KEYS,
+  MANIFEST_FILE_PROBE_KEYS,
+  classifyStackWithManifests,
+} from "@ploydok/shared"
+import type { ManifestContents, StackClassification } from "@ploydok/shared"
 import { updateBuildStatus, getAppForUser } from "@ploydok/db/queries"
 import { claimQueuedRow } from "../queue-claim"
 import { auditUnauthorized, auditClaimed } from "../queue-audit"
@@ -49,7 +53,10 @@ import {
 } from "../../secrets/resolver"
 import { runPreDeployHook, runPostDeployHook } from "../hooks"
 import { getSharedAgent, getSharedCaddy } from "../../debug/singletons"
-import { ensureFrameworkEnvVars } from "../../services/framework-env"
+import {
+  assertDeployableFrameworkEnv,
+  ensureFrameworkEnvVars,
+} from "../../services/framework-env"
 import { purgeCloudflareForApp } from "../../cloudflare/purge"
 import { captureAppManifests } from "../../advisories/service"
 
@@ -222,7 +229,20 @@ async function classifyWorkspaceStack(params: {
       }
     })
   )
-  const base = classifyStack(probes)
+  const manifests: ManifestContents = {}
+  await Promise.all(
+    MANIFEST_FILE_PROBE_KEYS.map(async (key) => {
+      const filePath = path.join(root, key)
+      try {
+        const stat = await fs.promises.stat(filePath)
+        if (!stat.isFile() || stat.size > 64 * 1024) return
+        manifests[key] = await fs.promises.readFile(filePath, "utf8")
+      } catch {
+        // best-effort manifest enrichment
+      }
+    })
+  )
+  const base = classifyStackWithManifests(probes, manifests)
   if (base.stack !== "php" && base.stack !== "compose") return base
   if (!(await isSymfonyFlexWorkspace(root))) return base
   return {
@@ -251,6 +271,36 @@ function defaultRuntimePortForStack(
       classification.stack === "php")
   ) {
     return 80
+  }
+  if (method === "nixpacks" || method === "railpack") {
+    if (
+      classification.stack === "django" ||
+      classification.stack === "flask" ||
+      classification.stack === "fastapi" ||
+      classification.stack === "python"
+    ) {
+      return 8000
+    }
+    if (classification.stack === "astro") return 4321
+    if (classification.stack === "elixir") return 4000
+    if (
+      classification.stack === "go" ||
+      classification.stack === "rust" ||
+      classification.stack === "java"
+    ) {
+      return 8080
+    }
+    if (
+      classification.stack === "hono" ||
+      classification.stack === "next" ||
+      classification.stack === "remix" ||
+      classification.stack === "node" ||
+      classification.stack === "bun" ||
+      classification.stack === "deno" ||
+      classification.stack === "ruby"
+    ) {
+      return 3000
+    }
   }
   return null
 }
@@ -826,7 +876,7 @@ export async function handleDeploy(
       rootDir: app.root_dir,
     })
     try {
-      const { injected } = await ensureFrameworkEnvVars({
+      const { injected, repaired } = await ensureFrameworkEnvVars({
         db,
         appId: app.id,
         projectId: app.project_id,
@@ -844,6 +894,18 @@ export async function handleDeploy(
             injected,
           },
           "auto-injected framework env vars during deploy"
+        )
+      }
+      if (repaired.length > 0) {
+        onLog(`[deploy] repaired framework env vars: ${repaired.join(", ")}`)
+        log.info(
+          {
+            buildId,
+            appId: app.id,
+            stack: workspaceClassification.stack,
+            repaired,
+          },
+          "repaired framework env vars during deploy"
         )
       }
     } catch (autoEnvErr) {
@@ -934,6 +996,15 @@ export async function handleDeploy(
     const runtimeSecretEnv: Record<string, string> = {
       ...platformEnv,
       ...runtimeSecretEnvRaw,
+    }
+    try {
+      assertDeployableFrameworkEnv(workspaceClassification, runtimeSecretEnv)
+    } catch (frameworkEnvErr) {
+      throw new FatalDeployError(
+        frameworkEnvErr instanceof Error
+          ? frameworkEnvErr.message
+          : "Framework env is not deployable"
+      )
     }
 
     if (detected.method === "static") {

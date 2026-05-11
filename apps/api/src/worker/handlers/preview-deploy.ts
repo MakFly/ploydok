@@ -10,13 +10,21 @@ import {
   updatePreviewDeployment,
   updatePreviewDeploymentStatus,
 } from "@ploydok/db/queries"
-import { ALL_PROBE_KEYS, classifyStack, PLANS } from "@ploydok/shared"
-import type { StackClassification } from "@ploydok/shared"
+import {
+  ALL_PROBE_KEYS,
+  MANIFEST_FILE_PROBE_KEYS,
+  PLANS,
+  classifyStackWithManifests,
+} from "@ploydok/shared"
+import type { ManifestContents, StackClassification } from "@ploydok/shared"
 import {
   getInstallationToken,
   listAppInstallations,
 } from "../../github/installation-tokens"
-import { ensureFrameworkEnvVars } from "../../services/framework-env"
+import {
+  assertDeployableFrameworkEnv,
+  ensureFrameworkEnvVars,
+} from "../../services/framework-env"
 import {
   imageRepoForApp,
   runtimeContainerShortId,
@@ -247,7 +255,16 @@ async function classifyWorkspaceStack(params: {
       probes[key] = await Bun.file(path.join(root, key)).exists()
     })
   )
-  const base = classifyStack(probes)
+  const manifests: ManifestContents = {}
+  await Promise.all(
+    MANIFEST_FILE_PROBE_KEYS.map(async (key) => {
+      const file = Bun.file(path.join(root, key))
+      if (!(await file.exists())) return
+      if (file.size > 64 * 1024) return
+      manifests[key] = await file.text()
+    })
+  )
+  const base = classifyStackWithManifests(probes, manifests)
   if (base.stack !== "php" && base.stack !== "compose") return base
   if (!(await isSymfonyFlexWorkspace(root))) return base
   return {
@@ -276,6 +293,36 @@ function defaultRuntimePortForStack(
       classification.stack === "php")
   ) {
     return 80
+  }
+  if (method === "nixpacks" || method === "railpack") {
+    if (
+      classification.stack === "django" ||
+      classification.stack === "flask" ||
+      classification.stack === "fastapi" ||
+      classification.stack === "python"
+    ) {
+      return 8000
+    }
+    if (classification.stack === "astro") return 4321
+    if (classification.stack === "elixir") return 4000
+    if (
+      classification.stack === "go" ||
+      classification.stack === "rust" ||
+      classification.stack === "java"
+    ) {
+      return 8080
+    }
+    if (
+      classification.stack === "hono" ||
+      classification.stack === "next" ||
+      classification.stack === "remix" ||
+      classification.stack === "node" ||
+      classification.stack === "bun" ||
+      classification.stack === "deno" ||
+      classification.stack === "ruby"
+    ) {
+      return 3000
+    }
   }
   return null
 }
@@ -619,6 +666,7 @@ export async function handlePreviewDeploy(
     }
     const buildEnv = { ...platformEnv, ...buildEnvRaw }
     const runtimeEnv = { ...platformEnv, ...runtimeEnvRaw }
+    assertDeployableFrameworkEnv(classification, runtimeEnv)
 
     if (detected.method === "static") {
       await dispatchStaticDeploy(

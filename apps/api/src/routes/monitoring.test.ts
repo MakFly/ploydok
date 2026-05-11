@@ -316,6 +316,97 @@ describe("monitoringTick — diff loop logic", () => {
     expect(prev.get("ctr-1")).toBe("running")
   })
 
+  it("syncs app runtime state when a running app container appears", async () => {
+    const prev = new Map<string, ContainerStatus>()
+    const syncedContainers: unknown[] = []
+    const syncAppRuntime = mock(async (container: unknown) => {
+      syncedContainers.push(container)
+    })
+
+    const fakeAgent = {
+      listContainers: () =>
+        Promise.resolve({
+          containers: [
+            {
+              id: "ctr-1",
+              name: "ploydok-app-demo.1.task",
+              image: "nginx:alpine",
+              status: "running",
+              uptimeS: 10,
+              cpuPct: 1,
+              memBytes: 1024,
+              memLimitBytes: 2048,
+              restartCount: 0,
+              kind: "app",
+              appId: "app-abc",
+              color: "blue",
+              lastPingMs: 0,
+              lastPingOk: false,
+              lastSeenMs: 0,
+            },
+          ],
+        }),
+    } as unknown as Parameters<typeof monitoringTick>[0]
+
+    await monitoringTick(
+      fakeAgent,
+      (() => {}) as typeof eventBus.publish,
+      prev,
+      (_kind, _runtimeId) => Promise.resolve("user-1"),
+      syncAppRuntime,
+    )
+
+    expect(syncAppRuntime).toHaveBeenCalledTimes(1)
+    expect(syncedContainers[0]).toMatchObject({
+      id: "ctr-1",
+      name: "ploydok-app-demo.1.task",
+      app_id: "app-abc",
+      status: "running",
+    })
+  })
+
+  it("syncs app runtime state even when status did not change", async () => {
+    const prev = new Map<string, ContainerStatus>([["ctr-1", "running"]])
+    const syncAppRuntime = mock(async () => undefined)
+    const publishSpy = mock(() => undefined)
+
+    const fakeAgent = {
+      listContainers: () =>
+        Promise.resolve({
+          containers: [
+            {
+              id: "ctr-1",
+              name: "ploydok-app-demo.1.task",
+              image: "nginx:alpine",
+              status: "running",
+              uptimeS: 10,
+              cpuPct: 1,
+              memBytes: 1024,
+              memLimitBytes: 2048,
+              restartCount: 0,
+              kind: "app",
+              appId: "app-abc",
+              color: "blue",
+              lastPingMs: 0,
+              lastPingOk: false,
+              lastSeenMs: 0,
+            },
+          ],
+        }),
+    } as unknown as Parameters<typeof monitoringTick>[0]
+
+    await monitoringTick(
+      fakeAgent,
+      publishSpy as typeof eventBus.publish,
+      prev,
+      (_kind, _runtimeId) => Promise.resolve("user-1"),
+      syncAppRuntime,
+    )
+
+    expect(syncAppRuntime).toHaveBeenCalledTimes(1)
+    expect(publishSpy).not.toHaveBeenCalled()
+  })
+
   it("does NOT emit on first tick when container appears as non-running status", async () => {
     const prev = new Map<string, ContainerStatus>()
     const publishSpy = spyOn(eventBus, "publish")

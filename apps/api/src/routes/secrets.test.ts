@@ -73,6 +73,13 @@ mock.module("@ploydok/db", () => ({
     linked_database_id: "linked_database_id",
     created_at: "created_at",
   },
+  env_vars: {
+    id: "id",
+    app_id: "app_id",
+    key: "key",
+    value: "value",
+    updated_at: "updated_at",
+  },
 }))
 
 mock.module("@ploydok/db/queries", () => ({
@@ -592,6 +599,31 @@ describe("POST /:id/secrets/import", () => {
     expect(auditRows).toContainEqual(
       expect.objectContaining({ action: "secret.imported" })
     )
+  })
+
+  it("sanitizes Laravel zero-config values during import", async () => {
+    const { db, rows } = buildFakeDb([])
+    const app = buildApp(db)
+
+    const res = await app.fetch(
+      importRequest(
+        "/app1/secrets/import?scope=shared&phase=runtime",
+        [
+          "APP_KEY=",
+          "DB_CONNECTION=sqlite",
+          "SESSION_DRIVER=database",
+          "CACHE_STORE=database",
+        ].join("\n")
+      )
+    )
+
+    expect(res.status).toBe(200)
+    const byKey = new Map(
+      rows.map((row) => [row.key, row.value_ciphertext.toString()])
+    )
+    expect(byKey.get("APP_KEY")).toMatch(/^enc:base64:[A-Za-z0-9+/]+=*$/)
+    expect(byKey.get("SESSION_DRIVER")).toBe("enc:file")
+    expect(byKey.get("CACHE_STORE")).toBe("enc:file")
   })
 
   it("rejects invalid import modes", async () => {

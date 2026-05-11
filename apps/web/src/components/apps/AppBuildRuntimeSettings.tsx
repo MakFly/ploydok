@@ -158,6 +158,16 @@ function getBuildRuntimePlaceholders(
         runtimePort: "3000",
         healthcheckPort: "3000",
       })
+    case "hono":
+      return withDefaultPlaceholders({
+        buildMethod: "nixpacks",
+        nodeVersion: "22",
+        installCommand: "npm install",
+        buildCommand: "npm run build",
+        startCommand: "npm run start",
+        runtimePort: "3000",
+        healthcheckPort: "3000",
+      })
     case "remix":
       return withDefaultPlaceholders({
         buildMethod: "nixpacks",

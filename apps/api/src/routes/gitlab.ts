@@ -2,7 +2,7 @@
 import { Hono } from "hono"
 import { nanoid } from "nanoid"
 import { createHash, createHmac, randomBytes } from "node:crypto"
-import { ENV_FILE_PROBE_KEYS } from "@ploydok/shared"
+import { ENV_FILE_PROBE_KEYS, MANIFEST_FILE_PROBE_KEYS } from "@ploydok/shared"
 import { createDb } from "@ploydok/db"
 import {
   deleteGitLabConfig,
@@ -52,6 +52,12 @@ function readFileProbeQuery(
 
 function isAllowedEnvFilePath(path: string): boolean {
   return ENV_FILE_PROBE_KEYS.includes(path as (typeof ENV_FILE_PROBE_KEYS)[number])
+}
+
+function isAllowedManifestFilePath(path: string): boolean {
+  return MANIFEST_FILE_PROBE_KEYS.includes(
+    path as (typeof MANIFEST_FILE_PROBE_KEYS)[number]
+  )
 }
 
 // ---------------------------------------------------------------------------
@@ -606,6 +612,34 @@ gitlabRouter.get("/repos/:fullName{.+}/env-file", async (c) => {
     return c.json({ path: filePath, content })
   } catch (err) {
     log.error({ err, fullName, filePath }, "envFile read failed")
+    return c.json({ error: "gitlab_api_error" }, 502)
+  }
+})
+
+gitlabRouter.get("/repos/:fullName{.+}/manifest-file", async (c) => {
+  const user = c.get("user") ?? null
+  if (!user) return c.json({ error: "unauthenticated" }, 401)
+
+  const ctx = await getProviderAndTokenForUser(user.id)
+  if (!ctx) return c.json({ error: "gitlab_not_connected" }, 412)
+
+  const fullName = c.req.param("fullName")
+  const filePath = c.req.query("path")?.trim() ?? ""
+  const ref = c.req.query("ref")?.trim() ?? ""
+  if (!filePath || !ref || !isAllowedManifestFilePath(filePath)) {
+    return c.json({ error: "missing_or_invalid_path_or_ref" }, 400)
+  }
+
+  try {
+    const content = await ctx.provider.readFile(
+      ctx.accessToken,
+      fullName,
+      filePath,
+      ref
+    )
+    return c.json({ path: filePath, content })
+  } catch (err) {
+    log.error({ err, fullName, filePath }, "manifestFile read failed")
     return c.json({ error: "gitlab_api_error" }, 502)
   }
 })
