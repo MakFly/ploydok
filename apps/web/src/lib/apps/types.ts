@@ -1,9 +1,9 @@
 // SPDX-License-Identifier: AGPL-3.0-only
 import type {
+  AppRuntimeSettings,
   AppStatus,
   Build,
   BuildStatus,
-  AppRuntimeSettings,
   RestartPolicy,
 } from "@ploydok/shared"
 
