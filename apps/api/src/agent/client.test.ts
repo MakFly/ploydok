@@ -1,5 +1,8 @@
 // SPDX-License-Identifier: AGPL-3.0-only
 import { afterEach, describe, expect, it } from "bun:test"
+import * as fs from "node:fs"
+import * as os from "node:os"
+import * as path from "node:path"
 import * as grpc from "@grpc/grpc-js"
 import { createAgentClient } from "./client"
 
@@ -38,6 +41,29 @@ describe("createAgentClient mTLS policy", () => {
     })
     expect(client).toBeTruthy()
     client.close()
+  })
+
+  it("loads production TCP mTLS credentials from environment files", () => {
+    process.env["NODE_ENV"] = "production"
+    process.env["PLOYDOK_AGENT_ADDR"] = "agent:50051"
+    const dir = fs.mkdtempSync(path.join(os.tmpdir(), "ploydok-agent-mtls-"))
+    try {
+      const caPath = path.join(dir, "ca.pem")
+      const certPath = path.join(dir, "client.pem")
+      const keyPath = path.join(dir, "client.key")
+      fs.writeFileSync(caPath, "test-ca")
+      fs.writeFileSync(certPath, "test-cert")
+      fs.writeFileSync(keyPath, "test-key")
+      process.env["PLOYDOK_AGENT_CA"] = caPath
+      process.env["PLOYDOK_AGENT_CLIENT_CERT"] = certPath
+      process.env["PLOYDOK_AGENT_CLIENT_KEY"] = keyPath
+
+      const client = createAgentClient()
+      expect(client).toBeTruthy()
+      client.close()
+    } finally {
+      fs.rmSync(dir, { recursive: true, force: true })
+    }
   })
 
   it("keeps insecure TCP fallback available in development", () => {

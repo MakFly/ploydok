@@ -1,4 +1,5 @@
 // SPDX-License-Identifier: AGPL-3.0-only
+import * as fs from "node:fs"
 import * as grpc from "@grpc/grpc-js"
 import { AgentClient } from "@ploydok/agent-proto"
 import { childLogger } from "../logger"
@@ -49,6 +50,19 @@ function isUnixAddress(address: string): boolean {
   return address.startsWith("unix:")
 }
 
+function credentialsFromEnv(): grpc.ChannelCredentials | null {
+  const caPath = process.env["PLOYDOK_AGENT_CA"]
+  const certPath = process.env["PLOYDOK_AGENT_CLIENT_CERT"]
+  const keyPath = process.env["PLOYDOK_AGENT_CLIENT_KEY"]
+  if (!caPath || !certPath || !keyPath) return null
+
+  return grpc.credentials.createSsl(
+    fs.readFileSync(caPath),
+    fs.readFileSync(keyPath),
+    fs.readFileSync(certPath)
+  )
+}
+
 /**
  * Crée un AgentClient gRPC connecté au socket Unix de l'agent.
  *
@@ -61,22 +75,21 @@ export function createAgentClient(opts: AgentClientOptions = {}): AgentClient {
     opts.address ??
     defaultAddress() ??
     `unix://${opts.socketPath ?? defaultSocketPath()}`
+  const credentials = opts.credentials ?? credentialsFromEnv()
 
-  if (!opts.credentials && !isUnixAddress(address) && isProductionAgentMode()) {
+  if (!credentials && !isUnixAddress(address) && isProductionAgentMode()) {
     throw new Error(
       "Ploydok agent TCP address requires mTLS credentials in production",
     )
   }
 
-  if (!opts.credentials && !isUnixAddress(address)) {
+  if (!credentials && !isUnixAddress(address)) {
     if (process.env["PLOYDOK_AGENT_INSECURE"] === "1") {
       log.warn({ address }, "agent mTLS disabled by PLOYDOK_AGENT_INSECURE=1")
     } else {
       log.warn({ address }, "agent mTLS disabled; using insecure dev channel")
     }
   }
-
-  const credentials = opts.credentials ?? grpc.credentials.createInsecure()
 
   const channelOptions: grpc.ClientOptions = {
     // Large receive buffer for build context / image pull streams
@@ -89,5 +102,9 @@ export function createAgentClient(opts: AgentClientOptions = {}): AgentClient {
     "grpc.default_authority": "ploydok-agent",
   }
 
-  return new AgentClient(address, credentials, channelOptions)
+  return new AgentClient(
+    address,
+    credentials ?? grpc.credentials.createInsecure(),
+    channelOptions
+  )
 }
