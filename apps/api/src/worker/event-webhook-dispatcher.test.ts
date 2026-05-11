@@ -6,6 +6,7 @@ mock.module("@ploydok/db/queries", () => ({
   listEnabledWebhooksForEvent: mock(async () => []),
   updateEventWebhook: mock(async () => null),
   getMembership: mock(async () => null),
+  isOrgOwner: mock(async () => false),
   listEventWebhooks: mock(async () => []),
   getEventWebhook: mock(async () => null),
   createEventWebhook: mock(async () => null),
