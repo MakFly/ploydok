@@ -32,7 +32,7 @@ function writeLastSeen(version: string): void {
  * - `markSeen()` writes the current version, clearing the flag.
  *
  * Fully dynamic: no hardcoded changelog text, no manual reset. The badge
- * disappears for good once the user opens the Guide / release notes after a
+ * disappears for good once the user opens the Changelog after a
  * deploy, and reappears on the next version bump.
  */
 export function useUnseenRelease(): {

@@ -17,6 +17,7 @@ import {
   RiDashboardLine,
   RiDatabase2Line,
   RiFileListLine,
+  RiHistoryLine,
   RiKey2Line,
   RiKeyLine,
   RiLogoutBoxRLine,
@@ -222,6 +223,7 @@ const integrationsNav: Array<NavItem> = [
 
 const accountNav: Array<NavItem> = [
   { label: "Guide", icon: RiBookOpenLine, href: "/guide" },
+  { label: "Changelog", icon: RiHistoryLine, href: "/changelog" },
   { label: "Settings", icon: RiSettings3Line, href: "/settings" },
 ]
 
@@ -838,7 +840,7 @@ export function AppShell({
                     const Icon = item.icon
                     if (!item.to) return null
                     const showReleaseDot =
-                      item.label === "Guide" && unseenRelease
+                      item.label === "Changelog" && unseenRelease
                     return (
                       <li key={item.label} className="relative">
                         <Link
