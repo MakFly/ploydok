@@ -97,9 +97,52 @@ async function bootInfra(db: Db): Promise<void> {
   try {
     const result = await migrateDockerAppsToSwarmOnBoot(db)
     log.info(result, "docker apps swarm migration complete")
+    scheduleDockerAppsSwarmMigrationRetry(db, result.failed)
   } catch (err) {
     log.warn({ err }, "docker apps swarm migration failed (non-fatal)")
+    scheduleDockerAppsSwarmMigrationRetry(db, 1)
   }
+}
+
+function scheduleDockerAppsSwarmMigrationRetry(db: Db, failed: number): void {
+  if (failed <= 0) return
+  const retryMs = Number(Bun.env["PLOYDOK_SWARM_MIGRATION_RETRY_MS"] ?? 60_000)
+  const maxAttempts = Number(Bun.env["PLOYDOK_SWARM_MIGRATION_RETRY_ATTEMPTS"] ?? 120)
+  let attempts = 0
+  let running = false
+  const timer = setInterval(() => {
+    if (running) return
+    attempts++
+    running = true
+    void (async () => {
+      try {
+        const result = await migrateDockerAppsToSwarmOnBoot(db)
+        log.info(
+          { ...result, attempt: attempts },
+          "docker apps swarm migration retry complete"
+        )
+        if (result.failed === 0) {
+          clearInterval(timer)
+        } else if (attempts >= maxAttempts) {
+          log.warn(
+            { ...result, attempts },
+            "docker apps swarm migration retry exhausted"
+          )
+          clearInterval(timer)
+        }
+      } catch (err) {
+        log.warn(
+          { err, attempt: attempts },
+          "docker apps swarm migration retry failed"
+        )
+        if (attempts >= maxAttempts) {
+          clearInterval(timer)
+        }
+      } finally {
+        running = false
+      }
+    })()
+  }, retryMs)
 }
 
 async function reconcileIngressWithRetry(

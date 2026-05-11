@@ -46,12 +46,9 @@ services:
     labels:
       ploydok.kind: app
       ploydok.component: agent
-      # Excluded from Watchtower auto-update: an agent restart drops the gRPC
-      # connection to in-flight user builds (deploys + container ops). Update
-      # the agent manually when a release contains relevant changes:
-      #   docker compose -f /opt/ploydok/docker-compose.yml pull agent
-      #   docker compose -f /opt/ploydok/docker-compose.yml up -d --no-deps agent
-      com.centurylinklabs.watchtower.enable: "false"
+      # Keep the API and agent in lockstep: the API may depend on new gRPC
+      # methods immediately after a CI/CD image rollout.
+      com.centurylinklabs.watchtower.enable: "true"
     environment:
       PLOYDOK_AGENT_ADDR: 0.0.0.0:50051
       PLOYDOK_AGENT_PKI_DIR: /var/lib/ploydok/pki
