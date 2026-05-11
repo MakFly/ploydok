@@ -1,6 +1,6 @@
 // SPDX-License-Identifier: AGPL-3.0-only
 import { afterEach, beforeEach, describe, expect, it } from "bun:test"
-import { ALL_PROBE_KEYS } from "@ploydok/shared"
+import { ALL_PROBE_KEYS, MANIFEST_FILE_PROBE_KEYS } from "@ploydok/shared"
 import { invalidateGetCache, resetCsrfToken } from "../../lib/api/client"
 import { runStackClassificationProbes } from "../../lib/stack-classifier-hook"
 
@@ -22,6 +22,17 @@ describe("runStackClassificationProbes", () => {
     globalThis.fetch = (async (input: string | URL | Request) => {
       const url = typeof input === "string" ? input : input.toString()
       calls.push({ path: url.replace(BASE, "") })
+      if (url.includes("/manifest-file?")) {
+        return new Response(
+          JSON.stringify({
+            path: "composer.json",
+            content: JSON.stringify({
+              require: { "symfony/framework-bundle": "^7.0" },
+            }),
+          }),
+          { status: 200 }
+        )
+      }
       return new Response(
         JSON.stringify({
           files: {
@@ -41,14 +52,14 @@ describe("runStackClassificationProbes", () => {
     ;(globalThis as { window?: unknown }).window = originalWindow
   })
 
-  it("uses one batch file-exists request for the full probe set", async () => {
+  it("uses one batch file-exists request and reads detected manifests", async () => {
     const result = await runStackClassificationProbes(
       "github",
       "MakFly/fixture-symfony-api",
       "main"
     )
 
-    expect(calls).toHaveLength(1)
+    expect(calls).toHaveLength(2)
     expect(
       calls[0]?.path.startsWith(
         "/github/repos/MakFly/fixture-symfony-api/files-exist?"
@@ -57,7 +68,11 @@ describe("runStackClassificationProbes", () => {
 
     const url = new URL(calls[0].path, "http://localhost")
     expect(url.searchParams.get("ref")).toBe("main")
-    expect(url.searchParams.getAll("path")).toEqual([...ALL_PROBE_KEYS])
+    expect(url.searchParams.getAll("path")).toEqual(
+      Array.from(new Set([...ALL_PROBE_KEYS, ...MANIFEST_FILE_PROBE_KEYS]))
+    )
+    expect(calls[1]?.path).toContain("/manifest-file?")
+    expect(calls[1]?.path).toContain("path=composer.json")
     expect(result.probes).toEqual({
       "composer.json": true,
       "symfony.lock": true,
