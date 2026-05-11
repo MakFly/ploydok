@@ -1,9 +1,9 @@
 // SPDX-License-Identifier: AGPL-3.0-only
 import { nanoid } from "nanoid"
 import { Hono } from "hono"
-import { eq } from "drizzle-orm"
+import { and, eq } from "drizzle-orm"
 import type { Db } from "@ploydok/db"
-import { projects } from "@ploydok/db"
+import { membership_invitations, projects } from "@ploydok/db"
 import {
   listMembershipsForOrg,
   getMembership,
@@ -336,11 +336,22 @@ export function createMembershipsRouter(db: Db): Hono {
       )
     }
 
-    // Delete invitation (soft-delete by marking as accepted is not needed, just delete)
-    const { membership_invitations } = await import("@ploydok/db")
-    await db
+    const deleted = await db
       .delete(membership_invitations)
-      .where(eq(membership_invitations.id, invitationId))
+      .where(
+        and(
+          eq(membership_invitations.id, invitationId),
+          eq(membership_invitations.org_id, orgId)
+        )
+      )
+      .returning({ id: membership_invitations.id })
+
+    if (deleted.length === 0) {
+      return c.json(
+        { error: { code: "NOT_FOUND", message: "Invitation not found" } },
+        404
+      )
+    }
 
     return c.json({})
   })

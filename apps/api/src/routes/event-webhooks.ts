@@ -3,8 +3,10 @@ import { lookup } from "node:dns/promises"
 import { isIP } from "node:net"
 import { nanoid } from "nanoid"
 import { Hono } from "hono"
+import { eq } from "drizzle-orm"
+import { projects } from "@ploydok/db"
 import type { Db } from "@ploydok/db"
-import { getMembership } from "@ploydok/db/queries"
+import { getMembership, isOrgOwner } from "@ploydok/db/queries"
 import {
   listEventWebhooks,
   getEventWebhook,
@@ -18,6 +20,7 @@ import {
   UpdateEventWebhookSchema,
   WebhookSummarySchema,
 } from "@ploydok/shared"
+import type { UpdateEventWebhookInput } from "@ploydok/shared"
 import type { WebhookPayload } from "@ploydok/shared"
 import type { AuthUser } from "../auth/middleware"
 import { requireScope } from "../auth/require-scope"
@@ -26,6 +29,25 @@ export const WEBHOOK_REDIRECT_ERROR = "Webhook redirects are not allowed"
 
 function getUser(c: { get: (key: string) => unknown }): AuthUser {
   return c.get("user") as AuthUser
+}
+
+async function resolveOrgId(
+  db: Db,
+  slugOrId: string
+): Promise<string | null> {
+  const rows = await db
+    .select({ id: projects.id })
+    .from(projects)
+    .where(eq(projects.slug, slugOrId))
+    .limit(1)
+  if (rows[0]) return rows[0].id
+
+  const byId = await db
+    .select({ id: projects.id })
+    .from(projects)
+    .where(eq(projects.id, slugOrId))
+    .limit(1)
+  return byId[0]?.id ?? null
 }
 
 async function generateSecret(): Promise<string> {
@@ -138,7 +160,14 @@ export function createEventWebhooksRouter(db: Db): Hono {
   // GET /orgs/:orgId/event-webhooks
   router.get("/:orgId/event-webhooks", adminScope, async (c) => {
     const user = getUser(c)
-    const orgId = c.req.param("orgId")!
+    const orgParam = c.req.param("orgId")!
+    const orgId = await resolveOrgId(db, orgParam)
+    if (!orgId) {
+      return c.json(
+        { error: { code: "NOT_FOUND", message: "Organization not found" } },
+        404
+      )
+    }
 
     const membership = await getMembership(db, orgId, user.id)
     if (!membership) {
@@ -167,12 +196,24 @@ export function createEventWebhooksRouter(db: Db): Hono {
   // POST /orgs/:orgId/event-webhooks
   router.post("/:orgId/event-webhooks", adminScope, async (c) => {
     const user = getUser(c)
-    const orgId = c.req.param("orgId")!
-
-    const membership = await getMembership(db, orgId, user.id)
-    if (!membership) {
+    const orgParam = c.req.param("orgId")!
+    const orgId = await resolveOrgId(db, orgParam)
+    if (!orgId) {
       return c.json(
-        { error: { code: "FORBIDDEN", message: "Access denied" } },
+        { error: { code: "NOT_FOUND", message: "Organization not found" } },
+        404
+      )
+    }
+
+    const isOwner = await isOrgOwner(db, orgId, user.id)
+    if (!isOwner) {
+      return c.json(
+        {
+          error: {
+            code: "FORBIDDEN",
+            message: "Only owners can manage event webhooks",
+          },
+        },
         403
       )
     }
@@ -244,13 +285,25 @@ export function createEventWebhooksRouter(db: Db): Hono {
   // PATCH /orgs/:orgId/event-webhooks/:id
   router.patch("/:orgId/event-webhooks/:id", adminScope, async (c) => {
     const user = getUser(c)
-    const orgId = c.req.param("orgId")!
+    const orgParam = c.req.param("orgId")!
+    const orgId = await resolveOrgId(db, orgParam)
+    if (!orgId) {
+      return c.json(
+        { error: { code: "NOT_FOUND", message: "Organization not found" } },
+        404
+      )
+    }
     const webhookId = c.req.param("id")!
 
-    const membership = await getMembership(db, orgId, user.id)
-    if (!membership) {
+    const isOwner = await isOrgOwner(db, orgId, user.id)
+    if (!isOwner) {
       return c.json(
-        { error: { code: "FORBIDDEN", message: "Access denied" } },
+        {
+          error: {
+            code: "FORBIDDEN",
+            message: "Only owners can manage event webhooks",
+          },
+        },
         403
       )
     }
@@ -292,7 +345,14 @@ export function createEventWebhooksRouter(db: Db): Hono {
       }
     }
 
-    const updates: any = {}
+    const updates: {
+      name?: string
+      url?: string
+      events?: NonNullable<UpdateEventWebhookInput["events"]>
+      enabled?: boolean
+      secret_enc?: Buffer
+      secret_nonce?: Buffer
+    } = {}
     if (parsed.data.name !== undefined) updates.name = parsed.data.name
     if (parsed.data.url !== undefined) updates.url = parsed.data.url
     if (parsed.data.events !== undefined) updates.events = parsed.data.events
@@ -330,13 +390,25 @@ export function createEventWebhooksRouter(db: Db): Hono {
   // DELETE /orgs/:orgId/event-webhooks/:id
   router.delete("/:orgId/event-webhooks/:id", adminScope, async (c) => {
     const user = getUser(c)
-    const orgId = c.req.param("orgId")!
+    const orgParam = c.req.param("orgId")!
+    const orgId = await resolveOrgId(db, orgParam)
+    if (!orgId) {
+      return c.json(
+        { error: { code: "NOT_FOUND", message: "Organization not found" } },
+        404
+      )
+    }
     const webhookId = c.req.param("id")!
 
-    const membership = await getMembership(db, orgId, user.id)
-    if (!membership) {
+    const isOwner = await isOrgOwner(db, orgId, user.id)
+    if (!isOwner) {
       return c.json(
-        { error: { code: "FORBIDDEN", message: "Access denied" } },
+        {
+          error: {
+            code: "FORBIDDEN",
+            message: "Only owners can manage event webhooks",
+          },
+        },
         403
       )
     }
@@ -355,7 +427,14 @@ export function createEventWebhooksRouter(db: Db): Hono {
   // POST /orgs/:orgId/event-webhooks/:id/test
   router.post("/:orgId/event-webhooks/:id/test", adminScope, async (c) => {
     const user = getUser(c)
-    const orgId = c.req.param("orgId")!
+    const orgParam = c.req.param("orgId")!
+    const orgId = await resolveOrgId(db, orgParam)
+    if (!orgId) {
+      return c.json(
+        { error: { code: "NOT_FOUND", message: "Organization not found" } },
+        404
+      )
+    }
     const webhookId = c.req.param("id")!
 
     const membership = await getMembership(db, orgId, user.id)

@@ -16,6 +16,12 @@ const deletedTables: Array<unknown> = [];
 let liveInstallations: Array<{ id: number; accountLogin?: string }> = [];
 const revokedInstallations: number[] = [];
 let revokeFailure: Error | null = null;
+let fakeInstanceAdmin = true
+let recentDelivery: { id: string; decision: string } | null = null
+const deliveryInserts: Array<{
+  row: Record<string, unknown>
+  rawBodyBuffer?: Buffer
+}> = []
 
 const fakeProviderCredentials = {
   id: Symbol("provider_credentials.id"),
@@ -31,6 +37,13 @@ const fakeTable = new Proxy(
   },
 );
 const fakeDb = {
+  select: mock(() => ({
+    from: () => ({
+      where: () => ({
+        limit: async () => [{ is_instance_admin: fakeInstanceAdmin }],
+      }),
+    }),
+  })),
   insert: mock(() => ({
     values: (values: Record<string, unknown>) => ({
       onConflictDoUpdate: async (conflict: Record<string, unknown>) => {
@@ -53,6 +66,10 @@ mock.module("@ploydok/db", () => ({
   gitlab_tokens: fakeTable,
   provider_credentials: fakeProviderCredentials,
   provider_installations: fakeProviderInstallations,
+  users: {
+    id: "id",
+    is_instance_admin: "is_instance_admin",
+  },
   webhook_deliveries: fakeTable,
 }));
 mock.module("../github/installation-tokens", () => ({
@@ -69,6 +86,32 @@ mock.module("../worker/handlers/sync-provider-repos", () => ({
     enqueuedSyncs.push(payload);
   },
 }));
+mock.module("../github/app-credentials", () => ({
+  encryptField: async (value: string) => ({
+    enc: Buffer.from(`enc:${value}`),
+    nonce: Buffer.from("nonce"),
+  }),
+  decryptField: async (enc: Buffer) => enc.toString().replace(/^enc:/, ""),
+}))
+mock.module("../webhooks/deliveries", () => ({
+  findRecentByPayloadHash: async () => recentDelivery,
+  insertDelivery: async (
+    _db: unknown,
+    row: Record<string, unknown>,
+    rawBodyBuffer?: Buffer
+  ) => {
+    const insert = { row } as {
+      row: Record<string, unknown>
+      rawBodyBuffer?: Buffer
+    }
+    if (rawBodyBuffer !== undefined) {
+      insert.rawBodyBuffer = rawBodyBuffer
+    }
+    deliveryInserts.push(insert)
+    return "delivery-id"
+  },
+  markDeliveryCoalesced: async () => undefined,
+}))
 // Only override the GitHub-app config getters — other queries (jobs, builds…)
 // must keep their real implementations because `mock.module` is process-wide
 // in Bun and would otherwise break sibling test files.
@@ -127,6 +170,9 @@ beforeEach(() => {
   liveInstallations = [];
   revokedInstallations.length = 0;
   revokeFailure = null;
+  fakeInstanceAdmin = true
+  recentDelivery = null
+  deliveryInserts.length = 0
 });
 
 // ---------------------------------------------------------------------------
@@ -197,6 +243,28 @@ describe("POST /github/webhook", () => {
     });
     expect(res.status).not.toBe(200);
   });
+
+  it("does not insert a delivery for an invalid signature", async () => {
+    mockGitHubAppConfig = {
+      webhook_secret_enc: Buffer.from("enc:webhook-secret"),
+      webhook_secret_nonce: Buffer.from("nonce"),
+    }
+    const app = buildApp()
+    const res = await app.request("/github/webhook", {
+      method: "POST",
+      headers: {
+        "Content-Type": "application/json",
+        "X-Hub-Signature-256": "sha256=invalid",
+        "X-GitHub-Event": "push",
+        "X-GitHub-Delivery": "delivery-poison",
+      },
+      body: JSON.stringify({ ref: "refs/heads/main" }),
+    })
+
+    expect(res.status).toBe(401)
+    expect(await res.json()).toEqual({ error: "invalid signature" })
+    expect(deliveryInserts).toHaveLength(0)
+  })
 });
 
 // ---------------------------------------------------------------------------
@@ -244,6 +312,30 @@ describe("GET /github/repos/:owner/:repo/files-exist", () => {
 });
 
 describe("POST /github/app/import", () => {
+  it("rejects non-instance admins", async () => {
+    fakeInstanceAdmin = false
+    const app = buildApp(FAKE_USER)
+    const res = await app.request("/github/app/import", {
+      method: "POST",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify({
+        appId: "12345",
+        clientId: "Iv1.client",
+        clientSecret: "secret",
+        privateKey:
+          "-----BEGIN RSA PRIVATE KEY-----\\nabc\\n-----END RSA PRIVATE KEY-----",
+        webhookSecret: "",
+        slug: "ploydok-local",
+        name: "Ploydok Local",
+      }),
+    })
+
+    expect(res.status).toBe(403)
+    expect(await res.json()).toEqual({ error: "admin_required" })
+    expect(importedConfigs).toHaveLength(0)
+    expect(enqueuedSyncs).toHaveLength(0)
+  })
+
   it("saves an existing GitHub App config and enqueues a sync", async () => {
     const app = buildApp(FAKE_USER);
     const res = await app.request("/github/app/import", {

@@ -16,6 +16,7 @@ import {
   backup_codes,
   totp_secrets,
   api_tokens,
+  sessions,
 } from "@ploydok/db"
 import type { Db } from "@ploydok/db"
 import { nanoid } from "nanoid"
@@ -25,9 +26,147 @@ const skip = !TEST_PG_URL
 if (skip)
   console.log("[middleware.test] PLOYDOK_TEST_PG_URL not set — skipping")
 
+async function insertActiveSession(
+  db: Db,
+  userId: string,
+  sessionId: string
+) {
+  const now = new Date()
+  await db.insert(sessions).values({
+    id: sessionId,
+    user_id: userId,
+    refresh_token_hash: `hash-${sessionId}`,
+    user_agent: "test",
+    ip: "127.0.0.1",
+    created_at: now,
+    last_seen_at: now,
+    revoked_at: null,
+    expires_at: new Date(now.getTime() + 60_000),
+  })
+}
+
+type FakeSessionRow = {
+  id: string
+  user_id: string
+  revoked_at: Date | null
+  expires_at: Date
+}
+
+type FakeUserRow = {
+  id: string
+  email: string
+  display_name: string
+}
+
+function makeRequireAuthDb(opts: {
+  session: FakeSessionRow | null
+  user: FakeUserRow | null
+}): Db {
+  const db = {
+    select: () => {
+      let table: unknown
+      const chain = {
+        from(nextTable: unknown) {
+          table = nextTable
+          return chain
+        },
+        where() {
+          return chain
+        },
+        limit: async () => {
+          if (table === sessions) return opts.session ? [opts.session] : []
+          if (table === users) return opts.user ? [opts.user] : []
+          return []
+        },
+      }
+      return chain
+    },
+  }
+
+  return db as unknown as Db
+}
+
 // ---------------------------------------------------------------------------
 // Tests
 // ---------------------------------------------------------------------------
+
+describe("requireAuth session state", () => {
+  it("rejects a valid JWT when its session is revoked", async () => {
+    const userId = "revoked-user"
+    const sessionId = "revoked-session"
+    const token = await signAccessToken({
+      userId,
+      email: "revoked@example.com",
+      sessionId,
+    })
+    const db = makeRequireAuthDb({
+      session: {
+        id: sessionId,
+        user_id: userId,
+        revoked_at: new Date(),
+        expires_at: new Date(Date.now() + 60_000),
+      },
+      user: {
+        id: userId,
+        email: "revoked@example.com",
+        display_name: "Revoked User",
+      },
+    })
+
+    const app = new Hono()
+    app.get("/protected", requireAuth(db), (c) => c.json({ ok: true }))
+
+    const res = await app.request("/protected", {
+      headers: { cookie: `${ACCESS_COOKIE}=${encodeURIComponent(token)}` },
+    })
+
+    expect(res.status).toBe(401)
+    expect(await res.json()).toEqual({
+      error: {
+        code: "UNAUTHENTICATED",
+        message: "Session expired or revoked",
+      },
+    })
+  })
+
+  it("rejects a valid JWT when its session row is expired", async () => {
+    const userId = "expired-user"
+    const sessionId = "expired-session"
+    const token = await signAccessToken({
+      userId,
+      email: "expired@example.com",
+      sessionId,
+    })
+    const db = makeRequireAuthDb({
+      session: {
+        id: sessionId,
+        user_id: userId,
+        revoked_at: null,
+        expires_at: new Date(Date.now() - 60_000),
+      },
+      user: {
+        id: userId,
+        email: "expired@example.com",
+        display_name: "Expired User",
+      },
+    })
+
+    const app = new Hono()
+    app.get("/protected", requireAuth(db), (c) => c.json({ ok: true }))
+
+    const res = await app.request("/protected", {
+      headers: { cookie: `${ACCESS_COOKIE}=${encodeURIComponent(token)}` },
+    })
+
+    expect(res.status).toBe(401)
+    expect(await res.json()).toEqual({
+      error: {
+        code: "UNAUTHENTICATED",
+        message: "Session expired or revoked",
+      },
+    })
+  })
+})
 
 describe.skipIf(skip)("requireAuth middleware", () => {
   let db: Db
@@ -63,6 +202,7 @@ describe.skipIf(skip)("requireAuth middleware", () => {
   })
 
   it("returns 200 with valid access token cookie", async () => {
+    await insertActiveSession(db, userId, "sess-1")
     const token = await signAccessToken({
       userId,
       email: `user-${userId}@test.com`,
@@ -243,6 +383,7 @@ describe.skipIf(skip)("requireSecondFactor middleware", () => {
   })
 
   async function makeApp() {
+    await insertActiveSession(db, userId, "s")
     const token = await signAccessToken({
       userId,
       email: `user-${userId}@test.com`,
@@ -402,6 +543,8 @@ describe.skipIf(skip)("requireRole middleware", () => {
         created_at: now,
       })
       .onConflictDoNothing()
+
+    await insertActiveSession(db, userId, "s")
   })
 
   it("returns 401 without auth", async () => {

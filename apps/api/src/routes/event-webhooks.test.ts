@@ -4,17 +4,52 @@ import { Hono } from "hono"
 import type { Db } from "@ploydok/db"
 import type { AuthUser } from "../auth/middleware"
 
+type WebhookCreatePayload = {
+  id?: string
+  org_id?: string
+  name?: string
+  url?: string
+  events?: string[]
+}
+
+type WebhookUpdatePayload = {
+  name?: string
+  url?: string
+  events?: string[]
+  enabled?: boolean
+}
+
+let ownerAllowed = true
+
 const getMembershipMock = mock(async () => ({
   org_id: "org-1",
   user_id: "user-1",
   role: "owner",
 }))
-const createEventWebhookMock = mock(async (_db: Db, payload: any) => ({
+const isOrgOwnerMock = mock(async () => ownerAllowed)
+const createEventWebhookMock = mock(async (_db: Db, payload: WebhookCreatePayload) => ({
   ...payload,
   last_triggered_at: null,
   last_response_status: null,
   last_error: null,
 }))
+const updateEventWebhookMock = mock(
+  async (_db: Db, _id: string, _orgId: string, updates: WebhookUpdatePayload) => ({
+    id: "wh-1",
+    org_id: "org-1",
+    name: updates.name ?? "Webhook",
+    url: updates.url ?? "https://1.1.1.1/hook",
+    events: updates.events ?? ["deploy.succeeded"],
+    enabled: updates.enabled ?? true,
+    secret_enc: null,
+    secret_nonce: null,
+    last_triggered_at: null,
+    last_response_status: null,
+    last_error: null,
+    created_at: new Date("2025-01-01T00:00:00.000Z"),
+  })
+)
+const deleteEventWebhookMock = mock(async () => true)
 const getEventWebhookMock = mock(async () => ({
   id: "wh-1",
   org_id: "org-1",
@@ -33,24 +68,19 @@ const getEventWebhookMock = mock(async () => ({
 mock.module("@ploydok/db/queries", () => ({
   getAppForUser: mock(async () => null),
   getMembership: getMembershipMock,
+  isOrgOwner: isOrgOwnerMock,
   listEventWebhooks: mock(async () => []),
   getEventWebhook: getEventWebhookMock,
   createEventWebhook: createEventWebhookMock,
-  updateEventWebhook: mock(async (_db: Db, _id: string, _orgId: string, updates: any) => ({
-    id: "wh-1",
-    org_id: "org-1",
-    name: updates.name ?? "Webhook",
-    url: updates.url ?? "https://1.1.1.1/hook",
-    events: updates.events ?? ["deploy.succeeded"],
-    enabled: updates.enabled ?? true,
-    secret_enc: null,
-    secret_nonce: null,
-    last_triggered_at: null,
-    last_response_status: null,
-    last_error: null,
-    created_at: new Date("2025-01-01T00:00:00.000Z"),
-  })),
-  deleteEventWebhook: mock(async () => true),
+  updateEventWebhook: updateEventWebhookMock,
+  deleteEventWebhook: deleteEventWebhookMock,
+}))
+
+mock.module("@ploydok/db", () => ({
+  projects: {
+    id: "id",
+    slug: "slug",
+  },
 }))
 
 mock.module("../github/app-credentials", () => ({
@@ -63,14 +93,31 @@ mock.module("../github/app-credentials", () => ({
 
 const { createEventWebhooksRouter } = await import("./event-webhooks")
 
+function buildDb(): Db {
+  const db = {
+    select: () => {
+      const chain = {
+        from() {
+          return chain
+        },
+        where() {
+          return chain
+        },
+        limit: async () => [{ id: "org-1" }],
+      }
+      return chain
+    },
+  }
+  return db as unknown as Db
+}
+
 function buildApp(user: AuthUser) {
-  const app = new Hono()
+  const app = new Hono<{ Variables: { user: AuthUser } }>()
   app.use("*", async (c, next) => {
-    // eslint-disable-next-line @typescript-eslint/no-explicit-any
-    ;(c as any).set("user", user)
+    c.set("user", user)
     return next()
   })
-  app.route("/orgs", createEventWebhooksRouter({} as Db))
+  app.route("/orgs", createEventWebhooksRouter(buildDb()))
   return app
 }
 
@@ -83,8 +130,12 @@ const sessionUser: AuthUser = {
 
 describe("event-webhooks routes", () => {
   beforeEach(() => {
+    ownerAllowed = true
     getMembershipMock.mockClear()
+    isOrgOwnerMock.mockClear()
     createEventWebhookMock.mockClear()
+    updateEventWebhookMock.mockClear()
+    deleteEventWebhookMock.mockClear()
     getEventWebhookMock.mockClear()
   })
 
@@ -122,6 +173,42 @@ describe("event-webhooks routes", () => {
     const body = (await res.json()) as { url: string }
     expect(body.url).toBe("https://1.1.1.1/hook")
     expect(createEventWebhookMock).toHaveBeenCalled()
+  })
+
+  it("rejects non-owner POST/PATCH/DELETE mutations", async () => {
+    ownerAllowed = false
+    const app = buildApp(sessionUser)
+
+    const createRes = await app.request("/orgs/org-1/event-webhooks", {
+      method: "POST",
+      headers: { "content-type": "application/json" },
+      body: JSON.stringify({
+        name: "Blocked",
+        url: "https://1.1.1.1/hook",
+        events: ["deploy.succeeded"],
+      }),
+    })
+    const patchRes = await app.request("/orgs/org-1/event-webhooks/wh-1", {
+      method: "PATCH",
+      headers: { "content-type": "application/json" },
+      body: JSON.stringify({ name: "Blocked" }),
+    })
+    const deleteRes = await app.request("/orgs/org-1/event-webhooks/wh-1", {
+      method: "DELETE",
+    })
+
+    for (const res of [createRes, patchRes, deleteRes]) {
+      expect(res.status).toBe(403)
+      expect(await res.json()).toEqual({
+        error: {
+          code: "FORBIDDEN",
+          message: "Only owners can manage event webhooks",
+        },
+      })
+    }
+    expect(createEventWebhookMock).not.toHaveBeenCalled()
+    expect(updateEventWebhookMock).not.toHaveBeenCalled()
+    expect(deleteEventWebhookMock).not.toHaveBeenCalled()
   })
 
   it("rejects testing a stored webhook that points to a private address", async () => {
