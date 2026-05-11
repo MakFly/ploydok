@@ -1,0 +1,98 @@
+# SPDX-License-Identifier: AGPL-3.0-only
+name: ghcr-cleanup
+
+on:
+  schedule:
+    # Lundi 03:17 UTC — décalé d'une heure ronde pour éviter le rush GitHub.
+    - cron: "17 3 * * 1"
+  workflow_dispatch:
+    inputs:
+      dry_run:
+        description: "Ne supprime rien, log seulement"
+        required: false
+        default: "false"
+      keep_main:
+        description: "Nombre de tags main-<sha> à conserver"
+        required: false
+        default: "10"
+
+permissions:
+  packages: write
+
+env:
+  OWNER: makfly
+  IMAGES: "ploydok-api ploydok-web ploydok-agent ploydok-caddy ploydok-adminer"
+
+jobs:
+  prune:
+    runs-on: ubuntu-latest
+    steps:
+      - name: Prune old ghcr versions
+        env:
+          GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+          DRY_RUN: ${{ github.event.inputs.dry_run || 'false' }}
+          KEEP_MAIN: ${{ github.event.inputs.keep_main || '10' }}
+        run: |
+          set -euo pipefail
+
+          delete_version() {
+            local image="$1" id="$2" reason="$3" tags="$4"
+            if [[ "$DRY_RUN" == "true" ]]; then
+              echo "  [dry-run] would delete $image v$id ($reason) tags=[$tags]"
+            else
+              echo "  deleting $image v$id ($reason) tags=[$tags]"
+              gh api -X DELETE "users/${OWNER}/packages/container/${image}/versions/${id}" >/dev/null
+            fi
+          }
+
+          for image in $IMAGES; do
+            echo "=== $image ==="
+
+            # Toutes les versions, triées par date desc (récent en premier).
+            versions_json=$(gh api --paginate \
+              "users/${OWNER}/packages/container/${image}/versions" \
+              | jq -s 'add | sort_by(.created_at) | reverse')
+
+            # 1) Garde les `keep_main` derniers manifests porteurs d'un tag main-<sha>.
+            kept_digests=$(echo "$versions_json" \
+              | jq -r --argjson n "$KEEP_MAIN" '
+                  [ .[] | select(.metadata.container.tags | any(test("^main-")))
+                  ] | .[0:$n] | .[].name')
+
+            echo "  keep (main-<sha>, ${KEEP_MAIN} last): $(echo "$kept_digests" | tr "\n" " ")"
+
+            # 2) Itère et décide.
+            echo "$versions_json" | jq -c '.[]' | while read -r v; do
+              id=$(echo "$v" | jq -r '.id')
+              name=$(echo "$v" | jq -r '.name')       # = sha256:<digest>
+              tags=$(echo "$v" | jq -r '.metadata.container.tags | join(",")')
+
+              # Toujours garder edge / latest.
+              if echo ",$tags," | grep -qE ",edge,|,latest,"; then
+                echo "  keep $id ($tags) — protected tag"
+                continue
+              fi
+
+              # Si c'est un main-<sha> dans la fenêtre de rétention, garder.
+              if echo "$kept_digests" | grep -qx "$name"; then
+                echo "  keep $id ($tags) — within main-<sha> retention"
+                continue
+              fi
+
+              # Cosign signature ou attestation liée à un digest qu'on garde.
+              # Format des tags: sha256-<hex>.sig / .att / .sbom — on extrait le digest référencé.
+              referenced=$(echo "$tags" | grep -oE 'sha256-[a-f0-9]+' | head -1 | sed 's/sha256-/sha256:/' || true)
+              if [[ -n "$referenced" ]] && echo "$kept_digests" | grep -qx "$referenced"; then
+                echo "  keep $id ($tags) — sig/att for kept digest"
+                continue
+              fi
+
+              # Si arrivé ici: orphan untagged, vieux main-<sha>, ou .sig dont le parent est purgé.
+              reason="stale"
+              [[ -z "$tags" ]] && reason="untagged"
+              echo "$tags" | grep -qE '^main-' && reason="old-main"
+              echo "$tags" | grep -qE '\.sig$|\.att$|\.sbom$' && reason="orphan-sig-or-att"
+              delete_version "$image" "$id" "$reason" "$tags"
+            done
+          done
+          echo "=== cleanup done ==="
