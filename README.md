@@ -1,169 +1,361 @@
-# Ploydok
+# Ploydok - Self-Hosted PaaS for Docker, Git Deploys, Databases and Blue/Green Rollouts
 
-> PaaS self-hosted giga-lite, security-first, AI-native. Alternative minimaliste à Dokploy / Coolify / Vercel.
+[![CI](https://github.com/MakFly/ploydok/actions/workflows/ci.yml/badge.svg)](https://github.com/MakFly/ploydok/actions/workflows/ci.yml)
+[![Integration](https://github.com/MakFly/ploydok/actions/workflows/ci-integration.yml/badge.svg)](https://github.com/MakFly/ploydok/actions/workflows/ci-integration.yml)
+[![Release images](https://github.com/MakFly/ploydok/actions/workflows/release-images.yml/badge.svg)](https://github.com/MakFly/ploydok/actions/workflows/release-images.yml)
+[![License: AGPL-3.0-only](https://img.shields.io/badge/license-AGPL--3.0--only-blue.svg)](./LICENSE)
+[![Runtime: Docker Swarm](https://img.shields.io/badge/runtime-Docker%20Swarm-2496ED.svg)](https://docs.docker.com/engine/swarm/)
+[![Stack: Bun Hono React](https://img.shields.io/badge/stack-Bun%20%2B%20Hono%20%2B%20React-black.svg)](./package.json)
 
-**License**: AGPL-3.0-only · **Status**: active development
+Ploydok is an open-source, security-first, self-hosted PaaS for deploying web
+applications, APIs, background services and databases on your own VPS. It is
+designed as a pragmatic alternative to Dokploy, Coolify, CapRover, Heroku,
+Railway, Render and Vercel for teams that want Git-based deploys, Docker
+runtime control, blue/green rollouts, framework guardrails and clear operations
+without running Kubernetes.
 
-## Self-host install (one-liner)
+Ploydok focuses on the daily production workflow: connect a repository, deploy
+an app, attach domains and databases, scale replicas, inspect logs, monitor
+runtime health, recover safely, and keep the host clean over time.
+
+## Table of Contents
+
+- [Why Ploydok](#why-ploydok)
+- [Features](#features)
+- [Supported Stacks](#supported-stacks)
+- [Install on a VPS](#install-on-a-vps)
+- [Zero-Downtime Updates](#zero-downtime-updates)
+- [Local Development](#local-development)
+- [Architecture](#architecture)
+- [Security Model](#security-model)
+- [SEO Keywords](#seo-keywords)
+- [Contributing](#contributing)
+
+## Why Ploydok
+
+Ploydok is built for operators who want a small, inspectable deployment
+platform instead of a large cluster stack.
+
+| Need                         | Ploydok approach                                                                   |
+| ---------------------------- | ---------------------------------------------------------------------------------- |
+| Deploy from GitHub or GitLab | Repository import, branch tracking, webhook deploys and preview flows              |
+| Run many frameworks          | Dockerfile, Nixpacks and framework-specific env guardrails                         |
+| Scale apps over time         | Docker Swarm services, replicas, service updates and runtime monitoring            |
+| Avoid downtime on deploy     | Blue/green runtime model and Swarm `start-first` updates                           |
+| Keep storage under control   | Runtime image cleanup, registry garbage collection and build cache hygiene         |
+| Operate from a VPS           | One-line installer, systemd supervision, Caddy ingress, Postgres and Redis         |
+| Keep accounts secure         | Password login, TOTP, backup codes, passkeys on HTTPS origins and session controls |
+
+Use Ploydok if you want a self-hosted PaaS for a single server or small fleet,
+with practical production defaults and no Kubernetes dependency.
+
+## Features
+
+### Application Deployments
+
+- Deploy web apps, APIs and services from Git repositories.
+- Dockerfile and Nixpacks build paths.
+- Framework detection from repository files and manifests.
+- Runtime env and secret handling for build-time and runtime phases.
+- Production deployments and preview deployments.
+- GitHub/GitLab provider integration and webhook-driven auto-deploy.
+
+### Scaling and Rollouts
+
+- Docker Swarm runtime mode for long-lived application services.
+- Replica scaling per application.
+- Blue/green deployment model.
+- `start-first` updates for cleaner reloads.
+- Healthcheck-aware deployment status.
+- Runtime reconciliation so stale DB state follows real running services.
+
+### Framework Guardrails
+
+Ploydok adds framework-aware defaults before deploy so common 502s are caught
+or repaired early.
+
+- Laravel: `APP_KEY`, safe cache/session defaults when no external store exists.
+- Symfony: `APP_SECRET`, `APP_ENV=prod`, `APP_DEBUG=0`.
+- PHP: runtime port and web-root handling.
+- Next.js: Node runtime defaults and container host binding.
+- Hono and Node APIs: host/port/runtime guardrails.
+- Python: Django, Flask and FastAPI process defaults.
+- Rails and Phoenix: secret key checks.
+
+### Databases and Services
+
+- Provisioned databases managed as runtime resources.
+- Connection reveal and database env injection.
+- Adminer integration for database inspection.
+- Runtime monitoring for app and database containers.
+
+### Observability
+
+- Workspace dashboard with application status, service health and deploy history.
+- Monitoring page for runtime status, CPU, memory, uptime, restarts and images.
+- Runtime logs and live status updates.
+- Health pings and stale/offline agent states.
+
+### Security and Operations
+
+- Password login, TOTP, backup codes and passkey enrollment.
+- WebAuthn passkeys on trusted HTTPS origins.
+- HttpOnly access and refresh cookies.
+- mTLS between API and agent in production TCP mode.
+- Image signature verification in installer flows.
+- Host CLI for upgrade, uninstall and recovery operations.
+
+## Supported Stacks
+
+Ploydok is framework-friendly rather than framework-locked. It can deploy any
+containerized workload and has extra guardrails for popular stacks.
+
+| Ecosystem                 | Examples                                               |
+| ------------------------- | ------------------------------------------------------ |
+| JavaScript and TypeScript | Next.js, Hono, Node.js APIs, React frontends           |
+| PHP                       | Laravel, Symfony, generic PHP apps                     |
+| Python                    | FastAPI, Flask, Django                                 |
+| Ruby                      | Rails                                                  |
+| Elixir                    | Phoenix                                                |
+| JVM                       | Spring Boot through Dockerfile or build tooling        |
+| Custom                    | Any app with a Dockerfile or compatible Nixpacks build |
+
+## Install on a VPS
+
+Install Ploydok on a Debian or Ubuntu VPS with one command:
 
 ```bash
 curl -fsSL https://raw.githubusercontent.com/MakFly/ploydok/main/installer/bootstrap.sh | sudo bash
 ```
 
-Or with flags:
+Install in coexist mode when another proxy already owns ports 80 and 443:
 
 ```bash
 curl -fsSL https://raw.githubusercontent.com/MakFly/ploydok/main/installer/bootstrap.sh \
   | sudo bash -s -- --mode=coexist --yes
 ```
 
-> Once the domain is live, the alias will be `curl -fsSL https://install.ploydok.dev | sudo bash`. The bootstrap URL above keeps working in the meantime.
+The installer:
 
-What it does:
+- clones the installer into `/opt/ploydok-installer`;
+- installs Docker when missing, unless `--skip-docker-install` is provided;
+- creates the `ploydok` system user;
+- writes runtime descriptors under `/opt/ploydok`;
+- stores mutable data under `/var/lib/ploydok`;
+- generates platform secrets and mTLS material;
+- pulls and verifies platform images;
+- renders Docker Compose and systemd units;
+- starts the platform and waits for health checks;
+- installs `ploydok-cli` on the host.
 
-- Clones the repo into `/opt/ploydok-installer` (shallow).
-- Runs `installer/install.sh` which:
-  - **Installs Docker** automatically via [`get.docker.com`](https://get.docker.com) if missing (skip with `--skip-docker-install`).
-  - Creates the `ploydok` system user, keeps runtime descriptors in `/opt/ploydok`, and keeps mutable data under `/var/lib/ploydok/{data,builds,backups,certs,…}`.
-  - Generates secrets (`master.key`, `.env` with `SESSION_SECRET`, Postgres/Redis passwords) and a local mTLS CA for the agent.
-  - Pulls + verifies (cosign) the `ploydok-api`, `ploydok-web`, `ploydok-agent`, `ploydok-adminer`, `ploydok-caddy` images.
-  - Renders systemd units (`ploydok.target`) and `/opt/ploydok/docker-compose.yml`.
-  - **Installs the agent and the platform** as Docker services supervised by systemd — the agent runs as a long-lived daemon container (`ploydok-agent`) on Docker-internal TCP with mTLS.
-  - **Installs the `ploydok-cli`** (upgrade / uninstall) to `/usr/local/bin/ploydok-cli`.
-  - Starts everything via `systemctl enable --now ploydok.target` and waits for `/health`.
+### Install Modes
 
-Modes (`--mode=`):
+| Mode             | Use when                                                                        |
+| ---------------- | ------------------------------------------------------------------------------- |
+| `takeover`       | Ploydok should own ports 80 and 443. Existing nginx/apache config is backed up. |
+| `coexist`        | Another edge proxy keeps TLS and forwards to Ploydok on local ports.            |
+| `bootstrap-http` | Temporary first setup over HTTP from a controlled VPS security group.           |
+| `abort`          | Preflight only. Prints what would happen and exits.                             |
 
-- `takeover` — Ploydok takes ports 80/443 (existing nginx/apache configs are backed up under `/var/backups/ploydok-install/` then disabled).
-- `coexist` — Ploydok binds to `127.0.0.1:8080`/`8443`; your existing edge proxy keeps TLS.
-- `bootstrap-http` — Ploydok exposes HTTP on `0.0.0.0:8080` for first setup from an IP-allowlisted VPS security group. Use `--public-host=<server-ip>` and move to a real HTTPS domain after bootstrap.
-- `abort` — preflight report only, exits with code 2.
+Useful flags:
 
-Other useful flags: `--unattended` (forces `coexist` + `--yes`, IaC-friendly), `--manage-firewall`, `--public-host=…`, `--public-scheme=…`, `--public-port=…`, `--http-port=…`, `--https-port=…`, `--install-dir=…`, `--data-dir=…`, `--version=<tag>`, `--image-registry=<registry>`.
+```bash
+--unattended
+--manage-firewall
+--public-host=example.com
+--public-scheme=https
+--public-port=443
+--http-port=8080
+--https-port=8443
+--install-dir=/opt/ploydok
+--data-dir=/var/lib/ploydok
+--version=<tag>
+--image-registry=<registry>
+```
 
-For production use, prefer a real HTTPS domain. Browser passkeys require a
-secure WebAuthn-compatible origin; raw HTTP on an IP address is only suitable
-for temporary bootstrap access.
+For production, use a real HTTPS domain. Browser passkeys require a secure
+WebAuthn-compatible origin. Raw HTTP on an IP address is only suitable for
+temporary bootstrap access.
 
-## Updating without downtime
+## Zero-Downtime Updates
 
-Run the installed CLI on the host:
+Run upgrades from the host with the installed CLI:
 
 ```bash
 sudo ploydok-cli upgrade --version=1.2.3
 ```
 
-What gets restarted, what doesn't:
+Default upgrades roll the control plane and keep the data plane stable.
 
-| Component | On `upgrade` | Notes |
-|---|---|---|
-| `ploydok-api`, `ploydok-web`, `ploydok-agent`, `ploydok-adminer` | restarted (~5–15 s) | new image pulled and rolled via `docker compose up -d --no-deps api web agent adminer` |
-| `ploydok-caddy` | **not restarted** by default | use `--include-data-plane` only for ingress/Caddy releases |
-| `postgres`, `redis` | **not** restarted unless their image tag changed | most patch releases never touch them |
-| **Your deployed apps** (containers spawned by the agent) | **not touched** | they keep serving traffic the entire time |
-| **Your databases provisioned via Ploydok** | **not touched** | same |
+| Component                                                        | During `upgrade`                       | Notes                                            |
+| ---------------------------------------------------------------- | -------------------------------------- | ------------------------------------------------ |
+| `ploydok-api`, `ploydok-web`, `ploydok-agent`, `ploydok-adminer` | restarted                              | New images are pulled and applied.               |
+| `ploydok-caddy`                                                  | not restarted by default               | Use `--include-data-plane` for ingress releases. |
+| `postgres`, `redis`                                              | not restarted unless image tags change | Patch releases usually leave them alone.         |
+| User apps                                                        | not touched                            | Runtime app containers keep serving traffic.     |
+| User databases                                                   | not touched                            | Provisioned databases keep running.              |
 
-Safety net (built into the CLI):
+Safety checks:
 
-- Snapshot of the Postgres control-plane DB taken before upgrade → `/var/lib/ploydok/backups/pre-upgrade-<version>.sql`.
-- `/opt/ploydok/docker-compose.yml` backed up to `/var/lib/ploydok/backups/docker-compose.pre-upgrade-<version>.yml`.
-- Post-upgrade readiness check on `127.0.0.1:3335/health/ready` (60 s budget). If it fails the previous compose file is restored and services are brought back up.
-- Image signatures verified with `cosign verify` before pull.
+- control-plane database snapshot before upgrade;
+- compose file backup before upgrade;
+- image signature verification;
+- readiness check after upgrade;
+- rollback to the previous compose file if readiness fails.
 
-The control-plane (UI / API) has a brief 5–15 s cold window during the swap. Apps and databases keep serving because their containers and the Caddy ingress stay outside normal platform image rolls.
-
-If a release intentionally changes the ingress/data-plane image, run:
-
-```bash
-sudo ploydok-cli upgrade --version=1.2.3 --include-data-plane
-```
-
-That path may interrupt active HTTP/WebSocket connections and should be treated as a maintenance operation.
-
-To uninstall:
+Uninstall while preserving data as a tarball:
 
 ```bash
-sudo ploydok-cli uninstall --yes                          # stops + tarballs /var/lib/ploydok
-sudo ploydok-cli uninstall --yes --restore-previous-proxy # also restores the original nginx/apache config
+sudo ploydok-cli uninstall --yes
 ```
 
-## Quickstart (< 5 min)
+Restore a previous nginx/apache edge proxy as part of uninstall:
 
 ```bash
-git clone git@github.com:MakFly/ploydok.git
-cd ploydok
-bun install                                 # ~30 s
-bun --cwd packages/db run drizzle-kit migrate  # applies migrations to ./ploydok.db
-bun --cwd packages/db run seed              # 1 dev user + 1 project
-bun dev                                     # web (3000) + api (3001) via turbo
+sudo ploydok-cli uninstall --yes --restore-previous-proxy
 ```
 
-Open http://localhost:3000 and create the first admin account.
+## Local Development
 
-### Requirements
+Requirements:
 
-- Bun ≥ 1.1
-- Node ≥ 20 (tooling only)
-- Rust ≥ 1.75 (only for `agent/ploydok-cli`)
-- Docker (for integration tests from Sprint 2 onwards)
+- Bun 1.3 or newer
+- Node.js 22 or newer for tooling
+- Docker
+- Rust stable for the agent and host CLI
 
-## Monorepo layout
-
-```
-ploydok/
-├── apps/
-│   ├── web/              # React + TanStack Start + shadcn
-│   └── api/              # Bun + Hono + WebAuthn
-├── packages/
-│   ├── ui/               # shared shadcn components
-│   ├── db/               # Drizzle ORM + SQLite schema + migrations
-│   ├── shared/           # shared Zod schemas + types
-│   └── agent-proto/      # TS stubs (filled Sprint 2)
-├── agent/
-│   └── ploydok-cli/      # Rust CLI (host operations and recovery)
-├── installer/            # VPS installer and generated host descriptors
-├── infra/                # local infra and deployment helpers
-└── scripts/              # check-spdx.ts, tooling
-```
-
-## Scripts
+Install dependencies:
 
 ```bash
-bun test             # turbo test across all packages
-bun run typecheck    # turbo typecheck
-bun run lint         # turbo lint
-bun run check:spdx   # verify SPDX headers on source files
-bun run db:migrate   # drizzle-kit migrate
-bun run db:generate  # drizzle-kit generate (after schema changes)
+bun install
 ```
 
-Rust CLI:
+Start local infrastructure:
 
 ```bash
-cd agent/ploydok-cli
+make infra-up
+```
+
+Apply migrations:
+
+```bash
+make db-migrate
+```
+
+Run the development servers:
+
+```bash
+make dev
+```
+
+Local ports:
+
+| Service        | URL                             |
+| -------------- | ------------------------------- |
+| Web            | `http://localhost:5173`         |
+| API            | `http://localhost:3335`         |
+| Caddy admin    | `http://127.0.0.1:2020/config/` |
+| Local registry | `http://127.0.0.1:5000/v2/`     |
+| Postgres       | `127.0.0.1:5434`                |
+| Redis          | `127.0.0.1:6381`                |
+
+Useful commands:
+
+```bash
+bun test
+bun run typecheck
+bun run lint
+bun run check:spdx
+bun run db:migrate
+bun run db:generate
+```
+
+Agent and host CLI:
+
+```bash
+cd agent
 cargo test
 cargo build --release
-# emergency recovery (requires root on the host)
-sudo ./target/release/ploydok-cli admin-recovery --db /var/lib/ploydok/ploydok.db
 ```
 
-## Security
+## Architecture
 
-- Password-first bootstrap/login, with passkeys available after the instance has a trusted HTTPS origin.
-- JWT access 10 min + rotating refresh 7 d, cookies `HttpOnly; SameSite=Lax`; `Secure` follows the configured public origin.
-- Backup codes (bcrypt, one-shot) for recovery; `admin-recovery` CLI as last resort.
-- SPDX `AGPL-3.0-only` header enforced in CI.
+```text
+ploydok/
+├── apps/
+│   ├── web/              # React 19, TanStack Start, TanStack Router
+│   └── api/              # Bun, Hono, queues, auth, providers
+├── packages/
+│   ├── db/               # Drizzle schema and migrations
+│   ├── shared/           # shared Zod schemas and domain types
+│   ├── ui/               # shared UI components
+│   └── agent-proto/      # gRPC contract and generated client types
+├── agent/                # Rust agent and host CLI
+├── installer/            # VPS installer, systemd and host templates
+├── infra/                # local Postgres, Redis, Caddy, registry, BuildKit
+└── scripts/              # validation and maintenance scripts
+```
+
+Runtime overview:
+
+```text
+Browser
+  -> Ploydok web
+  -> Ploydok API
+  -> Rust agent over mTLS
+  -> Docker / Docker Swarm
+  -> App containers, database containers and Caddy routes
+```
+
+## Security Model
+
+Ploydok is designed for production self-hosting, not only local demos.
+
+- Access token: 10 minutes.
+- Refresh token: 7 days, rotating.
+- Cookies: `HttpOnly`, `SameSite=Lax`, `Secure` when public origin is HTTPS.
+- TOTP and backup codes for second-factor and recovery.
+- Passkeys through WebAuthn on secure origins.
+- Agent communication protected with mTLS in production TCP mode.
+- Secrets encrypted at rest with the configured master key.
+- SPDX `AGPL-3.0-only` headers enforced in CI.
 - Responsible disclosure: see [SECURITY.md](./SECURITY.md).
+
+## SEO Keywords
+
+Ploydok is relevant for searches around:
+
+- self-hosted PaaS
+- open-source PaaS
+- Docker PaaS
+- Docker Swarm PaaS
+- Dokploy alternative
+- Coolify alternative
+- CapRover alternative
+- Heroku alternative
+- Railway alternative
+- Render alternative
+- Vercel alternative
+- self-hosted deployment platform
+- Git-based deployments
+- blue/green deployments
+- zero-downtime deploys
+- Laravel hosting panel
+- Symfony hosting panel
+- Next.js self-hosting
+- Hono deployment
+- VPS app hosting
+- Docker app hosting
+- self-hosted CI/CD deployment platform
 
 ## Contributing
 
-See [CONTRIBUTING.md](./CONTRIBUTING.md) — DCO sign-off required (`git commit -s`).
+See [CONTRIBUTING.md](./CONTRIBUTING.md). DCO sign-off is required:
 
-## Project Notes
+```bash
+git commit -s
+```
 
-Ploydok is moving fast and the user-facing source of truth now lives in the
-application itself:
+## License
 
-- **Guide** for setup and operational guidance.
-- **Changelog** for shipped behavior and deployment notes.
-- **Settings** for runtime, security, providers, and workspace configuration.
+Ploydok is licensed under [AGPL-3.0-only](./LICENSE).

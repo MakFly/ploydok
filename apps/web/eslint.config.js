@@ -1,7 +1,6 @@
 //  @ts-check
 
 import { tanstackConfig } from "@tanstack/eslint-config"
-
 export default [
   {
     ignores: [
@@ -21,4 +20,4 @@ export default [
       "@typescript-eslint/no-unnecessary-condition": "warn",
     },
   },
-]
+];
