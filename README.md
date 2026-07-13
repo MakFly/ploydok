@@ -224,22 +224,18 @@ Requirements:
 - Docker
 - Rust stable for the agent and host CLI
 
-Install dependencies:
+Install everything in one step (dependencies + secrets + local infra + migrations):
 
 ```bash
-bun install
+make install
 ```
 
-Start local infrastructure:
+Or run the steps individually:
 
 ```bash
-make infra-up
-```
-
-Apply migrations:
-
-```bash
-make db-migrate
+bun install      # workspace dependencies
+make infra-up    # postgres + redis + caddy + buildkitd + registry + agent
+make db-migrate  # apply database migrations
 ```
 
 Run the development servers:

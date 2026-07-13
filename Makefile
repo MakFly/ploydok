@@ -1,25 +1,50 @@
-.PHONY: help dev dev-agent agent-restart agent-logs db-migrate db-reset db-seed infra-up infra-down infra-logs build start test lint typecheck clean secrets-init dod
+.PHONY: help install dev dev-agent agent-restart agent-logs db-migrate db-reset db-seed infra-up infra-down infra-logs build start test lint typecheck clean secrets-init dod
 
 # Ports locaux :
 #   API 3335 — Web 5173 — Caddy 8180/8543/2020 — Agent unix /tmp/ploydok/agent.sock
 
+# Couleurs ANSI (désactivées si stdout n'est pas un TTY)
+ifneq (,$(findstring xterm,$(TERM))$(MAKE_TERMOUT))
+  C_RESET  := \033[0m
+  C_TITLE  := \033[1;37m
+  C_CAT    := \033[1;35m
+  C_TARGET := \033[1;36m
+  C_DESC   := \033[0;37m
+  C_DIM    := \033[2;37m
+endif
+
 help:
-	@echo "Usage: make <target>"
-	@echo ""
-	@echo "  dev            - Lance web + api via turbo (http://localhost:5173 + :3335)"
-	@echo "  dev-agent      - [debug] Lance l'agent Rust en natif (insecure, /tmp/ploydok/agent.sock)"
-	@echo "                   ⚠ stop le container 'agent' d'abord — collision sur le socket"
-	@echo "  agent-restart  - Redémarre le container 'ploydok-agent' (utile après modif Rust)"
-	@echo "  agent-logs     - Tail logs du container 'ploydok-agent'"
-	@echo "  db-migrate     - Applique les migrations Postgres"
-	@echo "  db-reset       - Wipe runtime app/db containers + Postgres + Redis + apply migrations"
-	@echo "  db-seed        - Seed dev (user dev@ploydok.local + backup code DEVD-EVDE-VDEV)"
-	@echo "  secrets-init   - Génère PLOYDOK_PG_PASSWORD + PLOYDOK_REDIS_PASSWORD dans .env.local"
-	@echo "  infra-up       - docker compose up (postgres + redis + caddy + buildkitd + registry + agent)"
-	@echo "  infra-down     - cleanup infra"
-	@echo "  infra-logs     - tail logs Caddy"
-	@echo "  dod            - Lance les 11 specs Playwright DoD Sprint 3 (requiert infra + dev up)"
-	@echo "  build/start/test/lint/typecheck/clean - délégués à turbo"
+	@printf "$(C_TITLE)Usage: make <target>$(C_RESET)\n\n"
+	@printf "$(C_CAT)▶ Setup$(C_RESET)\n"
+	@printf "  $(C_TARGET)%-14s$(C_RESET) $(C_DESC)%s$(C_RESET)\n" "install" "Setup complet : bun install + secrets + infra + migrations"
+	@printf "\n$(C_CAT)▶ Dev$(C_RESET)\n"
+	@printf "  $(C_TARGET)%-14s$(C_RESET) $(C_DESC)%s$(C_RESET)\n" "dev"       "Lance web + api via turbo (http://localhost:5173 + :3335)"
+	@printf "  $(C_TARGET)%-14s$(C_RESET) $(C_DESC)%s$(C_RESET)\n" "dev-agent" "[debug] Lance l'agent Rust en natif (insecure, /tmp/ploydok/agent.sock)"
+	@printf "  %-14s $(C_DIM)%s$(C_RESET)\n" "" "⚠ stop le container 'agent' d'abord — collision sur le socket"
+	@printf "\n$(C_CAT)▶ Agent$(C_RESET)\n"
+	@printf "  $(C_TARGET)%-14s$(C_RESET) $(C_DESC)%s$(C_RESET)\n" "agent-restart" "Redémarre le container 'ploydok-agent' (utile après modif Rust)"
+	@printf "  $(C_TARGET)%-14s$(C_RESET) $(C_DESC)%s$(C_RESET)\n" "agent-logs"    "Tail logs du container 'ploydok-agent'"
+	@printf "\n$(C_CAT)▶ Database$(C_RESET)\n"
+	@printf "  $(C_TARGET)%-14s$(C_RESET) $(C_DESC)%s$(C_RESET)\n" "db-migrate" "Applique les migrations Postgres"
+	@printf "  $(C_TARGET)%-14s$(C_RESET) $(C_DESC)%s$(C_RESET)\n" "db-reset"   "Wipe runtime app/db containers + Postgres + Redis + apply migrations"
+	@printf "  $(C_TARGET)%-14s$(C_RESET) $(C_DESC)%s$(C_RESET)\n" "db-seed"    "Seed dev (user dev@ploydok.local + backup code DEVD-EVDE-VDEV)"
+	@printf "\n$(C_CAT)▶ Infra$(C_RESET)\n"
+	@printf "  $(C_TARGET)%-14s$(C_RESET) $(C_DESC)%s$(C_RESET)\n" "secrets-init" "Génère PLOYDOK_PG_PASSWORD + PLOYDOK_REDIS_PASSWORD dans .env.local"
+	@printf "  $(C_TARGET)%-14s$(C_RESET) $(C_DESC)%s$(C_RESET)\n" "infra-up"     "docker compose up (postgres + redis + caddy + buildkitd + registry + agent)"
+	@printf "  $(C_TARGET)%-14s$(C_RESET) $(C_DESC)%s$(C_RESET)\n" "infra-down"   "cleanup infra"
+	@printf "  $(C_TARGET)%-14s$(C_RESET) $(C_DESC)%s$(C_RESET)\n" "infra-logs"   "tail logs Caddy"
+	@printf "\n$(C_CAT)▶ Quality & Build$(C_RESET)\n"
+	@printf "  $(C_TARGET)%-14s$(C_RESET) $(C_DESC)%s$(C_RESET)\n" "dod" "Lance les 11 specs Playwright DoD Sprint 3 (requiert infra + dev up)"
+	@printf "  $(C_TARGET)%-14s$(C_RESET) $(C_DESC)%s$(C_RESET)\n" "build/start/test/lint/typecheck/clean" "délégués à turbo"
+
+install:
+	@echo "[install] installing workspace dependencies..."
+	bun install
+	@echo "[install] bringing up local infra (postgres + redis + caddy + buildkitd + registry + agent)..."
+	$(MAKE) infra-up
+	@echo "[install] applying database migrations..."
+	$(MAKE) db-migrate
+	@echo "[install] done — next: 'make dev' (web:5173 + api:3335)"
 
 dev:
 	bunx turbo dev
