@@ -2,6 +2,7 @@
 import * as React from "react"
 import { createFileRoute, useRouter } from "@tanstack/react-router"
 import { QRCodeSVG } from "qrcode.react"
+import { RiEyeLine, RiEyeOffLine } from "@remixicon/react"
 import { Button } from "@workspace/ui/components/button"
 import { Input } from "@workspace/ui/components/input"
 import { Label } from "@workspace/ui/components/label"
@@ -52,6 +53,8 @@ function SetupPage(): React.JSX.Element {
   const [displayName, setDisplayName] = React.useState("")
   const [password, setPassword] = React.useState("")
   const [passwordConfirm, setPasswordConfirm] = React.useState("")
+  const [showPassword, setShowPassword] = React.useState(false)
+  const [showPasswordConfirm, setShowPasswordConfirm] = React.useState(false)
   const [loading, setLoading] = React.useState(false)
   const [error, setError] = React.useState<string | null>(null)
   const [backupCodes, setBackupCodes] = React.useState<Array<string>>([])
@@ -193,7 +196,9 @@ function SetupPage(): React.JSX.Element {
             <div className="rounded-md border border-border bg-muted px-3 py-2 font-mono text-xs text-foreground">
               Open: …/setup?token=…
             </div>
-            <p>Copy that URL from the API logs, then open it in this browser.</p>
+            <p>
+              Copy that URL from the API logs, then open it in this browser.
+            </p>
           </AlertDescription>
         </Alert>
       </Shell>
@@ -204,7 +209,7 @@ function SetupPage(): React.JSX.Element {
     return (
       <Shell
         title="Enable two-factor authentication"
-        subtitle="Scan the QR code with your authenticator app, then enter the 6-digit code. This step is required."
+        subtitle="Scan the QR code with your authenticator app, then enter the 6-digit code. Optional — you can enable it later in Settings → Security."
       >
         {totpEnrolling || !totpData ? (
           <p className="text-sm text-muted-foreground">
@@ -271,6 +276,15 @@ function SetupPage(): React.JSX.Element {
             </Button>
           </form>
         )}
+        <Button
+          type="button"
+          variant="ghost"
+          className="w-full"
+          onClick={() => setStep("codes")}
+          disabled={totpVerifying}
+        >
+          Skip for now — enable later in Settings
+        </Button>
       </Shell>
     )
   }
@@ -359,31 +373,65 @@ function SetupPage(): React.JSX.Element {
         </div>
         <div className="space-y-1">
           <Label htmlFor="password">Password</Label>
-          <Input
-            id="password"
-            type="password"
-            value={password}
-            onChange={(e) => setPassword(e.target.value)}
-            required
-            autoComplete="new-password"
-            minLength={12}
-            maxLength={72}
-            placeholder="At least 12 characters"
-          />
+          <div className="relative">
+            <Input
+              id="password"
+              type={showPassword ? "text" : "password"}
+              value={password}
+              onChange={(e) => setPassword(e.target.value)}
+              required
+              autoComplete="new-password"
+              minLength={12}
+              maxLength={72}
+              placeholder="At least 12 characters"
+              className="pr-10"
+            />
+            <button
+              type="button"
+              onClick={() => setShowPassword((visible) => !visible)}
+              className="absolute top-1/2 right-2 -translate-y-1/2 text-muted-foreground hover:text-foreground"
+              aria-label={showPassword ? "Hide password" : "Show password"}
+              title={showPassword ? "Hide password" : "Show password"}
+            >
+              {showPassword ? (
+                <RiEyeOffLine className="size-4" />
+              ) : (
+                <RiEyeLine className="size-4" />
+              )}
+            </button>
+          </div>
         </div>
         <div className="space-y-1">
           <Label htmlFor="password_confirm">Confirm password</Label>
-          <Input
-            id="password_confirm"
-            type="password"
-            value={passwordConfirm}
-            onChange={(e) => setPasswordConfirm(e.target.value)}
-            required
-            autoComplete="new-password"
-            minLength={12}
-            maxLength={72}
-            placeholder="Repeat password"
-          />
+          <div className="relative">
+            <Input
+              id="password_confirm"
+              type={showPasswordConfirm ? "text" : "password"}
+              value={passwordConfirm}
+              onChange={(e) => setPasswordConfirm(e.target.value)}
+              required
+              autoComplete="new-password"
+              minLength={12}
+              maxLength={72}
+              placeholder="Repeat password"
+              className="pr-10"
+            />
+            <button
+              type="button"
+              onClick={() => setShowPasswordConfirm((visible) => !visible)}
+              className="absolute top-1/2 right-2 -translate-y-1/2 text-muted-foreground hover:text-foreground"
+              aria-label={
+                showPasswordConfirm ? "Hide password" : "Show password"
+              }
+              title={showPasswordConfirm ? "Hide password" : "Show password"}
+            >
+              {showPasswordConfirm ? (
+                <RiEyeOffLine className="size-4" />
+              ) : (
+                <RiEyeLine className="size-4" />
+              )}
+            </button>
+          </div>
         </div>
         {error && (
           <Alert variant="destructive">
