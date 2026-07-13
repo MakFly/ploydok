@@ -42,6 +42,14 @@ install:
 	bun install
 	@echo "[install] bringing up local infra (postgres + redis + caddy + buildkitd + registry + agent)..."
 	$(MAKE) infra-up
+	@echo "[install] waiting for postgres to accept connections..."
+	@for i in $$(seq 1 30); do \
+	  if docker compose --env-file apps/api/.env.local -f infra/docker-compose.yml exec -T postgres pg_isready -U ploydok >/dev/null 2>&1; then \
+	    echo "[install] postgres ready"; break; \
+	  fi; \
+	  if [ "$$i" = "30" ]; then echo "[install] postgres not ready after 30s — aborting" >&2; exit 1; fi; \
+	  sleep 1; \
+	done
 	@echo "[install] applying database migrations..."
 	$(MAKE) db-migrate
 	@echo "[install] done — next: 'make dev' (web:5173 + api:3335)"
