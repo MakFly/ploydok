@@ -100,7 +100,7 @@ export function useCreateSecret(appId: string) {
     mutationFn: async (payload) => {
       return apiFetch(`/apps/${appId}/secrets`, {
         method: "POST",
-        body: JSON.stringify(payload),
+        body: payload,
       })
     },
     onSuccess: () => {
@@ -181,7 +181,7 @@ export function useRevealSecret(appId: string) {
         {
           method: "POST",
           ...(headers ? { headers } : {}),
-          body: JSON.stringify({}),
+          body: {},
         }
       )
     },

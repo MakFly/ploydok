@@ -11,7 +11,8 @@ import { REFRESH_COOKIE } from "../auth/jwt"
 import { makeTestDb, TEST_PG_URL } from "../test/db-helpers"
 
 const skip = !TEST_PG_URL
-if (skip) console.log("[routes/auth.test] PLOYDOK_TEST_PG_URL not set - skipping")
+if (skip)
+  console.log("[routes/auth.test] PLOYDOK_TEST_PG_URL not set - skipping")
 
 describe.skipIf(skip)("POST /auth/refresh", () => {
   let db: Db
@@ -39,7 +40,10 @@ describe.skipIf(skip)("POST /auth/refresh", () => {
       .onConflictDoNothing()
   })
 
-  async function requestRefresh(sessionId: string, refreshToken: string): Promise<Response> {
+  async function requestRefresh(
+    sessionId: string,
+    refreshToken: string
+  ): Promise<Response> {
     return app.request("/auth/refresh", {
       method: "POST",
       headers: {
@@ -60,7 +64,13 @@ describe.skipIf(skip)("POST /auth/refresh", () => {
       requestRefresh(sessionId, refreshToken),
     ])
 
-    expect(responses.map((res) => res.status).sort()).toEqual([200, 401])
+    expect(responses.map((res) => res.status).sort()).toEqual([200, 409])
+    const rows = await db
+      .select()
+      .from(sessions)
+      .where(eq(sessions.id, sessionId))
+      .limit(1)
+    expect(rows[0]?.revoked_at).toBeNull()
   })
 
   it("revokes the session when an old refresh token is replayed", async () => {
@@ -73,10 +83,19 @@ describe.skipIf(skip)("POST /auth/refresh", () => {
     const first = await requestRefresh(sessionId, refreshToken)
     expect(first.status).toBe(200)
 
+    await db
+      .update(sessions)
+      .set({ rotated_at: new Date(Date.now() - 11_000) })
+      .where(eq(sessions.id, sessionId))
+
     const replay = await requestRefresh(sessionId, refreshToken)
     expect(replay.status).toBe(401)
 
-    const rows = await db.select().from(sessions).where(eq(sessions.id, sessionId)).limit(1)
+    const rows = await db
+      .select()
+      .from(sessions)
+      .where(eq(sessions.id, sessionId))
+      .limit(1)
     expect(rows[0]?.revoked_at).toBeInstanceOf(Date)
   })
 })

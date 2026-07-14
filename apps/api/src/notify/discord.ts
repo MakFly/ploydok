@@ -17,6 +17,9 @@ const EVENT_COLORS: Record<NotificationEvent, number> = {
   "backup.succeeded": 0x57f287,
   "backup.failed": 0xed4245,
   "cve.detected": 0xed4245,
+  "app.autohealed": 0xf0a500,
+  "app.autoheal_failed": 0xed4245,
+  "image.auto_updated": 0x5865f2,
 }
 
 function buildEmbed(event: NotificationEvent, payload: NotificationPayload) {

@@ -1,6 +1,4 @@
 // SPDX-License-Identifier: AGPL-3.0-only
-// TODO(lead): add seed to migration SQL - INSERT INTO memberships (id, org_id, user_id, role, invited_at, accepted_at)
-// SELECT nanoid(), id, owner_id, 'owner'::text, created_at, created_at FROM projects ON CONFLICT DO NOTHING;
 import { pgTable, text, timestamp, index, unique } from "drizzle-orm/pg-core"
 import { projects } from "./projects"
 import { users } from "./users"

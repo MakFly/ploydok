@@ -228,6 +228,43 @@ function verifyAppState(cookieValue: string, state: string): boolean {
   return diff === 0
 }
 
+function signInstallState(state: string, userId: string): string {
+  const payload = Buffer.from(JSON.stringify({ state, userId })).toString(
+    "base64url"
+  )
+  const mac = createHmac("sha256", env.SESSION_SECRET)
+    .update(payload)
+    .digest("hex")
+  return `${payload}.${mac}`
+}
+
+function verifyInstallState(cookieValue: string, state: string): string | null {
+  const lastDot = cookieValue.lastIndexOf(".")
+  if (lastDot === -1) return null
+  const payload = cookieValue.slice(0, lastDot)
+  const mac = cookieValue.slice(lastDot + 1)
+  const expected = createHmac("sha256", env.SESSION_SECRET)
+    .update(payload)
+    .digest("hex")
+  const expBuf = Buffer.from(expected, "hex")
+  const gotBuf = Buffer.from(mac, "hex")
+  if (expBuf.length !== gotBuf.length) return null
+  let diff = 0
+  for (let i = 0; i < expBuf.length; i++) diff |= expBuf[i]! ^ gotBuf[i]!
+  if (diff !== 0) return null
+
+  try {
+    const parsed = JSON.parse(Buffer.from(payload, "base64url").toString()) as {
+      state?: unknown
+      userId?: unknown
+    }
+    if (parsed.state !== state || typeof parsed.userId !== "string") return null
+    return parsed.userId
+  } catch {
+    return null
+  }
+}
+
 function buildCookieStr(
   name: string,
   value: string,
@@ -760,6 +797,10 @@ githubRouter.get("/installations", async (c) => {
 // ---------------------------------------------------------------------------
 
 githubRouter.get("/installations/start", async (c) => {
+  const user = c.get("user")
+  if (!user) {
+    return c.json({ error: "unauthenticated" }, 401)
+  }
   const config = await getGitHubAppConfig(db)
   if (!config) {
     return c.json({ error: "github_app_not_configured" }, 503)
@@ -770,7 +811,7 @@ githubRouter.get("/installations/start", async (c) => {
     "Set-Cookie",
     buildCookieStr(
       INSTALL_STATE_COOKIE,
-      signAppState(state),
+      signInstallState(state, user.id),
       APP_STATE_TTL_SECONDS,
       true
     )
@@ -824,10 +865,15 @@ githubRouter.get("/app/setup", async (c) => {
   if (setupAction) params.set("setup_action", setupAction)
   const cookieHeader = c.req.raw.headers.get("cookie") ?? ""
   const rawInstallStateCookie = parseCookie(cookieHeader, INSTALL_STATE_COOKIE)
+  const requestedBy =
+    state && rawInstallStateCookie
+      ? verifyInstallState(rawInstallStateCookie, state)
+      : null
   const stateValid =
-    !!state &&
-    !!rawInstallStateCookie &&
-    verifyAppState(rawInstallStateCookie, state)
+    !!requestedBy ||
+    (!!state &&
+      !!rawInstallStateCookie &&
+      verifyAppState(rawInstallStateCookie, state))
 
   c.header("Set-Cookie", clearCookieStr(INSTALL_STATE_COOKIE))
   if (stateValid) {
@@ -839,14 +885,17 @@ githubRouter.get("/app/setup", async (c) => {
       try {
         await markGitHubInstallationSyncPending({
           installationId: normalizedInstallationId,
+          actorUserId: requestedBy,
           source: "api",
         })
         await enqueueProviderReposSync({
           provider: "github",
           installationId: normalizedInstallationId,
+          ...(requestedBy ? { requestedBy } : {}),
           syncId,
         })
         params.set("installed", "1")
+        if (requestedBy) params.set("sync_id", syncId)
       } catch (err) {
         log.error(
           { err, installationId: normalizedInstallationId, syncId },

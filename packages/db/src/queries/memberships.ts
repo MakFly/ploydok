@@ -64,7 +64,8 @@ export async function hasRole(
       and(
         eq(memberships.org_id, orgId),
         eq(memberships.user_id, userId),
-        inArray(memberships.role, roles)
+        inArray(memberships.role, roles),
+        isNotNull(memberships.accepted_at)
       )
     )
     .limit(1)
@@ -134,7 +135,13 @@ export async function countOwners(db: Db, orgId: string): Promise<number> {
   const rows = await db
     .select({ count: memberships.id })
     .from(memberships)
-    .where(and(eq(memberships.org_id, orgId), eq(memberships.role, "owner")))
+    .where(
+      and(
+        eq(memberships.org_id, orgId),
+        eq(memberships.role, "owner"),
+        isNotNull(memberships.accepted_at)
+      )
+    )
 
   return rows.length
 }

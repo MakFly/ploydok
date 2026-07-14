@@ -107,6 +107,7 @@ export function useSyncWithProgress(): SyncProgressState {
   useEventsSubscription<ProviderSyncEnvelope>("provider.sync.failed", onFailed)
 
   function begin(newSyncId: string): void {
+    syncIdRef.current = newSyncId
     setSyncId(newSyncId)
     setStartedAt(Date.now())
     setStatus("running")
@@ -126,6 +127,7 @@ export function useSyncWithProgress(): SyncProgressState {
     setOpen(false)
     // Reset on next tick so the dialog fades out cleanly.
     window.setTimeout(() => {
+      syncIdRef.current = null
       setSyncId(null)
       setStartedAt(null)
       setStatus("idle")

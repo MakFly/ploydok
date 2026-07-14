@@ -10,6 +10,7 @@ import {
   filterByLevel,
   filterBySearch,
   parseLogEntries,
+  parseStructuredLine,
 } from "../../../lib/hooks/use-log-stream"
 import type { LogLine } from "../../../lib/hooks/use-log-stream"
 
@@ -214,5 +215,83 @@ describe("maxLines cap logic", () => {
     expect(result).toHaveLength(2)
     expect(result[0].id).toBe(2)
     expect(result[1].id).toBe(3)
+  })
+})
+
+// ---------------------------------------------------------------------------
+// parseStructuredLine — JSON
+// ---------------------------------------------------------------------------
+
+describe("parseStructuredLine — JSON", () => {
+  it("extracts message and fields from a JSON object", () => {
+    const parsed = parseStructuredLine(
+      '{"level":"info","msg":"server started","port":3000}'
+    )
+    expect(parsed).not.toBeNull()
+    expect(parsed?.format).toBe("json")
+    expect(parsed?.message).toBe("server started")
+    expect(parsed?.fields).toEqual([
+      { key: "level", value: "info" },
+      { key: "port", value: "3000" },
+    ])
+  })
+
+  it("stringifies nested object/array values", () => {
+    const parsed = parseStructuredLine('{"message":"x","meta":{"a":1},"tags":[1,2]}')
+    expect(parsed?.message).toBe("x")
+    expect(parsed?.fields).toEqual([
+      { key: "meta", value: '{"a":1}' },
+      { key: "tags", value: "[1,2]" },
+    ])
+  })
+
+  it("returns null for JSON arrays and plain text", () => {
+    expect(parseStructuredLine("[1,2,3]")).toBeNull()
+    expect(parseStructuredLine("just a normal log line")).toBeNull()
+  })
+})
+
+// ---------------------------------------------------------------------------
+// parseStructuredLine — logfmt
+// ---------------------------------------------------------------------------
+
+describe("parseStructuredLine — logfmt", () => {
+  it("parses key=value pairs with quoted values", () => {
+    const parsed = parseStructuredLine(
+      'level=error msg="db connection refused" retries=3'
+    )
+    expect(parsed?.format).toBe("logfmt")
+    expect(parsed?.message).toBe("db connection refused")
+    expect(parsed?.fields).toEqual([
+      { key: "level", value: "error" },
+      { key: "retries", value: "3" },
+    ])
+  })
+
+  it("does not treat a lone key=value or prose as logfmt", () => {
+    expect(parseStructuredLine("FOO=bar")).toBeNull()
+    expect(parseStructuredLine("the result was x=1 after run")).toBeNull()
+  })
+})
+
+// ---------------------------------------------------------------------------
+// detectLevel — structured level fields take precedence over message keywords
+// ---------------------------------------------------------------------------
+
+describe("detectLevel — structured level fields", () => {
+  it("prefers the JSON level over conflicting message keywords", () => {
+    // Heuristic would see "error" in the message; the structured level wins.
+    expect(
+      detectLevel('{"level":"info","msg":"error handler registered"}')
+    ).toBe("info")
+  })
+
+  it("prefers the logfmt level over conflicting message keywords", () => {
+    expect(detectLevel('level=info msg="error handler registered"')).toBe("info")
+  })
+
+  it("maps fatal/warning synonyms from structured logs", () => {
+    expect(detectLevel('level=fatal msg="down" component=db')).toBe("error")
+    expect(detectLevel('{"severity":"warning","msg":"slow"}')).toBe("warn")
   })
 })

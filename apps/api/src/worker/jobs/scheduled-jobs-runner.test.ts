@@ -2,8 +2,12 @@
 import { beforeEach, describe, expect, it, mock } from "bun:test"
 import * as realQueries from "@ploydok/db/queries"
 
-const mockCreateScheduledJobRun = mock(async (..._args: any[]): Promise<unknown> => null)
-const mockGetScheduledJob = mock(async (..._args: any[]): Promise<unknown> => null)
+const mockCreateScheduledJobRun = mock(
+  async (..._args: any[]): Promise<unknown> => null
+)
+const mockGetScheduledJob = mock(
+  async (..._args: any[]): Promise<unknown> => null
+)
 const mockListDueJobs = mock(async (..._args: any[]): Promise<unknown[]> => [])
 const mockUpdateScheduledJob = mock(
   async (_db: unknown, _id: string, patch: Record<string, unknown>) => patch
@@ -42,6 +46,11 @@ function makeDb(selectRows: unknown[][] = []) {
       where: mock(() => ({
         limit: mock(async () => selectRows[selectCount++] ?? []),
       })),
+    })),
+  }))
+  db.update = mock(() => ({
+    set: mock(() => ({
+      where: mock(async () => []),
     })),
   }))
 

@@ -147,6 +147,14 @@ function HostHealthBody({ data }: { data: HostStats }): React.JSX.Element {
                 : undefined
           }
         />
+        {data.gpu_count > 0 ? (
+          <Cell
+            icon={RiCpuLine}
+            label="GPU"
+            value={`${data.gpu_utilization_pct.toFixed(0)}%`}
+            sub={`${formatBytes(data.gpu_mem_used_bytes)} / ${formatBytes(data.gpu_mem_total_bytes)}${data.gpu_name ? ` · ${data.gpu_name}` : ""}${data.gpu_count > 1 ? ` · ${data.gpu_count} GPUs` : ""}`}
+          />
+        ) : null}
       </dl>
 
       {hasAlerts ? (

@@ -2,7 +2,6 @@
 import type { Context, Next } from "hono"
 import { eq } from "drizzle-orm"
 import { users, passkeys, totp_secrets, sessions } from "@ploydok/db"
-import { hasRole } from "@ploydok/db/queries"
 import { verifyAccessToken, ACCESS_COOKIE } from "./jwt"
 import { countActive } from "./backup-codes"
 import type { Db } from "@ploydok/db"
@@ -49,6 +48,17 @@ export interface AppVariables {
   user: AuthUser
   session_id: string
   access_exp: number
+  /**
+   * Organization (project) id resolved by `requireRole` from the `:slug` or
+   * `:orgId` route param. Set only after `requireRole` runs, so downstream
+   * handlers reuse it instead of re-resolving the slug.
+   */
+  org_id: string
+  /**
+   * Membership role of the current user in `org_id`, as validated by
+   * `requireRole`. `"owner" | "member"` in v1.
+   */
+  membership_role: "owner" | "member"
 }
 
 // ---------------------------------------------------------------------------
@@ -251,70 +261,8 @@ export function requireSecondFactor(db: Db) {
 }
 
 // ---------------------------------------------------------------------------
-// requireRole
+// requireRole — extracted to ./require-role to keep this module's import chain
+// out of route files. Re-exported here for backward compatibility.
 // ---------------------------------------------------------------------------
 
-/**
- * Must be called after requireAuth.
- * Checks that the user has one of the required roles in the organization.
- * Resolves slug → project.id if needed.
- * Returns 403 FORBIDDEN if user does not have the required role.
- */
-export function requireRole(db: Db, roles: Array<"owner" | "member">) {
-  return async (c: Context, next: Next) => {
-    // eslint-disable-next-line @typescript-eslint/no-explicit-any
-    const user = (c as any).get("user") as AuthUser | undefined
-    if (!user) {
-      return c.json(
-        {
-          error: {
-            code: "UNAUTHENTICATED",
-            message: "Authentication required",
-          },
-        },
-        401
-      )
-    }
-
-    // Try to get orgId from :slug or :orgId param
-    const slugParam = c.req.param("slug")
-    const idParam = c.req.param("orgId")
-    let orgId = slugParam || idParam
-
-    if (!orgId) {
-      return c.json(
-        { error: { code: "BAD_REQUEST", message: "Organization ID required" } },
-        400
-      )
-    }
-
-    // If slug was passed, resolve it to project.id
-    if (slugParam) {
-      const { projects } = await import("@ploydok/db")
-      const projectRows = await db
-        .select({ id: projects.id })
-        .from(projects)
-        .where(eq(projects.slug, slugParam))
-        .limit(1)
-
-      if (!projectRows[0]) {
-        return c.json(
-          { error: { code: "NOT_FOUND", message: "Organization not found" } },
-          404
-        )
-      }
-
-      orgId = projectRows[0].id
-    }
-
-    const hasRequiredRole = await hasRole(db, orgId, user.id, roles)
-    if (!hasRequiredRole) {
-      return c.json(
-        { error: { code: "FORBIDDEN", message: "Insufficient permissions" } },
-        403
-      )
-    }
-
-    return next()
-  }
-}
+export { requireRole } from "./require-role"

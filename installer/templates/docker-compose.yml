@@ -61,6 +61,7 @@ services:
       - ${PLOYDOK_DATA_DIR}/static:/var/lib/ploydok/static
       - ${PLOYDOK_DATA_DIR}/config:/etc/ploydok:ro
       - ${PLOYDOK_DATA_DIR}/pki:/var/lib/ploydok/pki:ro
+      - ${PLOYDOK_DATA_DIR}/keys:/var/lib/ploydok/keys
     networks:
       - ploydok
 

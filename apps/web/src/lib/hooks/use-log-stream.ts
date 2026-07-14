@@ -77,6 +77,12 @@ function detectExplicitLevel(text: string): LogSeverity | null {
  * Explicit level markers win over message text; unknown lines fall back to info.
  */
 export function detectLevel(text: string): LogSeverity {
+  const structured = parseStructuredLine(text)
+  if (structured) {
+    const structuredLevel = levelFromStructured(structured)
+    if (structuredLevel) return structuredLevel
+  }
+
   const explicitLevel = detectExplicitLevel(text)
   if (explicitLevel) return explicitLevel
 
@@ -93,6 +99,139 @@ export function detectLevel(text: string): LogSeverity {
     if (re.test(text)) return "info"
   }
   return "info"
+}
+
+// ---------------------------------------------------------------------------
+// Structured logs (JSON / logfmt) — pure helpers, exported for tests
+// ---------------------------------------------------------------------------
+
+export interface StructuredLogField {
+  key: string
+  value: string
+}
+
+export interface StructuredLogLine {
+  format: "json" | "logfmt"
+  message: string | null
+  fields: Array<StructuredLogField>
+}
+
+const MESSAGE_KEYS = ["msg", "message", "@message"]
+const LEVEL_KEYS = ["level", "lvl", "severity", "levelname", "loglevel"]
+
+const LOGFMT_PAIR_RE = /([\w.-]+)=("(?:[^"\\]|\\.)*"|[^\s"]*)/g
+const LOGFMT_LINE_RE =
+  /^\s*[\w.-]+=(?:"(?:[^"\\]|\\.)*"|[^\s"]*)(?:\s+[\w.-]+=(?:"(?:[^"\\]|\\.)*"|[^\s"]*))*\s*$/
+
+function stringifyStructuredValue(value: unknown): string {
+  if (value === null) return "null"
+  if (typeof value === "string") return value
+  if (typeof value === "number" || typeof value === "boolean") {
+    return String(value)
+  }
+  try {
+    return JSON.stringify(value)
+  } catch {
+    return String(value)
+  }
+}
+
+function levelFromStructured(structured: StructuredLogLine): LogSeverity | null {
+  for (const field of structured.fields) {
+    if (!LEVEL_KEYS.includes(field.key.toLowerCase())) continue
+    switch (field.value.trim().toLowerCase()) {
+      case "trace":
+      case "debug":
+        return "debug"
+      case "warn":
+      case "warning":
+        return "warn"
+      case "err":
+      case "error":
+      case "fatal":
+      case "critical":
+      case "crit":
+      case "alert":
+      case "emergency":
+      case "panic":
+        return "error"
+      case "info":
+      case "notice":
+      case "information":
+        return "info"
+    }
+  }
+  return null
+}
+
+/**
+ * Parses a log line as structured data — a JSON object or a logfmt
+ * (`key=value key2="value 2"`) line. Returns null for plain text.
+ * A recognised `msg`/`message` key becomes `message`; everything else
+ * (including `level`) is returned as ordered fields.
+ */
+export function parseStructuredLine(text: string): StructuredLogLine | null {
+  const trimmed = text.trim()
+  if (trimmed.length < 3) return null
+
+  if (trimmed.startsWith("{") && trimmed.endsWith("}")) {
+    try {
+      const parsed: unknown = JSON.parse(trimmed)
+      if (
+        parsed !== null &&
+        typeof parsed === "object" &&
+        !Array.isArray(parsed)
+      ) {
+        const fields: Array<StructuredLogField> = []
+        let message: string | null = null
+        for (const [key, value] of Object.entries(
+          parsed as Record<string, unknown>
+        )) {
+          if (
+            message === null &&
+            typeof value === "string" &&
+            MESSAGE_KEYS.includes(key.toLowerCase())
+          ) {
+            message = value
+            continue
+          }
+          fields.push({ key, value: stringifyStructuredValue(value) })
+        }
+        if (message === null && fields.length === 0) return null
+        return { format: "json", message, fields }
+      }
+    } catch {
+      // not valid JSON — fall through to logfmt
+    }
+  }
+
+  if (LOGFMT_LINE_RE.test(text)) {
+    const fields: Array<StructuredLogField> = []
+    let message: string | null = null
+    LOGFMT_PAIR_RE.lastIndex = 0
+    let match: RegExpExecArray | null
+    while ((match = LOGFMT_PAIR_RE.exec(text)) !== null) {
+      const key = match[1]
+      let value = match[2]
+      if (value.length >= 2 && value.startsWith('"') && value.endsWith('"')) {
+        try {
+          value = JSON.parse(value) as string
+        } catch {
+          value = value.slice(1, -1)
+        }
+      }
+      if (message === null && MESSAGE_KEYS.includes(key.toLowerCase())) {
+        message = value
+        continue
+      }
+      fields.push({ key, value })
+    }
+    // Require ≥2 tokens so a stray "FOO=bar" env echo isn't parsed as structured.
+    if (fields.length + (message === null ? 0 : 1) < 2) return null
+    return { format: "logfmt", message, fields }
+  }
+
+  return null
 }
 
 /**

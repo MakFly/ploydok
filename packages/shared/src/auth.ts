@@ -50,6 +50,7 @@ export const MeSchema = z.object({
   has_totp: z.boolean(), // verified TOTP enrolled
   require_totp_for_secret_reveal: z.boolean(),
   needs_second_factor: z.boolean(),
+  is_instance_admin: z.boolean(),
 })
 export type Me = z.infer<typeof MeSchema>
 

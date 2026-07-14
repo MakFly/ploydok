@@ -1,11 +1,9 @@
 // SPDX-License-Identifier: AGPL-3.0-only
 import { Hono } from "hono"
 import { HTTPException } from "hono/http-exception"
-import { eq } from "drizzle-orm"
 import type { Context } from "hono"
 import { createDb } from "@ploydok/db"
-import { listAuditEventsForOrg } from "@ploydok/db/queries"
-import { projects } from "@ploydok/db"
+import { listAuditEventsForOrg, getMembership } from "@ploydok/db/queries"
 import { env } from "../env"
 import type { AuthUser } from "../auth/middleware"
 
@@ -34,14 +32,11 @@ auditRouter.get("/", async (c: Context) => {
   const limit = Math.min(Math.max(parseInt(limitStr, 10) || 50, 1), 200)
   const cursor = cursorStr ? parseInt(cursorStr, 10) : undefined
 
-  // Verify ownership: user must be owner of the project in this org
-  const project = await db
-    .select()
-    .from(projects)
-    .where(eq(projects.owner_id, user.id))
-    .limit(1)
-
-  if (!project.length) {
+  // Verify ownership: user must be an accepted owner of THIS org (audit_log is
+  // keyed by project.id, which is what the client sends as orgId). Binding the
+  // check to the requested orgId prevents cross-tenant audit reads.
+  const membership = await getMembership(db, orgId, user.id)
+  if (!membership || !membership.accepted_at || membership.role !== "owner") {
     throw new HTTPException(403, { message: "Access denied" })
   }
 

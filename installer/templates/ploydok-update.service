@@ -8,10 +8,7 @@ Wants=network-online.target
 Type=oneshot
 WorkingDirectory=${PLOYDOK_INSTALL_DIR}
 EnvironmentFile=${PLOYDOK_DATA_DIR}/.env
-# `--resolve-image always` re-resolves each tagged image (e.g. :edge) to its
-# current registry digest. If the digest differs from what the running tasks
-# pinned, Swarm executes a rolling update per the deploy.update_config of
-# each service (start-first + healthcheck-gated cutover). When all digests
-# match, this is a no-op.
-ExecStart=/usr/bin/docker stack deploy --resolve-image always --with-registry-auth --prune -c ${PLOYDOK_INSTALL_DIR}/docker-stack.yml ploydok
+# The helper verifies every image against the pinned GitHub Actions identity
+# before pulling or asking Swarm to resolve a moving tag such as :edge.
+ExecStart=/usr/local/lib/ploydok/update-stack.sh
 TimeoutStartSec=300

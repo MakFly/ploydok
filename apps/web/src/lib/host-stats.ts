@@ -19,6 +19,11 @@ export interface HostStats {
   inodes_total: number
   inodes_used: number
   uptime_seconds: number
+  gpu_count: number
+  gpu_utilization_pct: number
+  gpu_mem_used_bytes: number
+  gpu_mem_total_bytes: number
+  gpu_name: string
   thresholds: {
     disk_warn_pct: number
     mem_warn_pct: number

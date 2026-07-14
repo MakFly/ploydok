@@ -10,11 +10,26 @@ import { organizationDashboardPath } from "../../lib/organizations"
 import type { Me } from "@ploydok/shared"
 
 export const Route = createFileRoute("/_public/login")({
+  validateSearch: (search: Record<string, unknown>): { redirect?: string } =>
+    typeof search.redirect === "string" ? { redirect: search.redirect } : {},
   component: LoginPage,
 })
 
+export function normalizeLoginRedirect(value?: string): string | null {
+  if (!value) return null
+  if (!value.startsWith("/") || value.startsWith("//")) return null
+  try {
+    const url = new URL(value, "http://ploydok.local")
+    if (url.origin !== "http://ploydok.local") return null
+    return `${url.pathname}${url.search}${url.hash}`
+  } catch {
+    return null
+  }
+}
+
 function LoginPage(): React.JSX.Element {
   const router = useRouter()
+  const { redirect } = Route.useSearch()
   const [mode, setMode] = React.useState<"password" | "passkey" | "backup">(
     "password"
   )
@@ -22,9 +37,11 @@ function LoginPage(): React.JSX.Element {
 
   const handleAuthSuccess = async (): Promise<void> => {
     const me = await apiFetch<Me>("/me")
-    const target = me.default_organization
-      ? organizationDashboardPath(me.default_organization.slug)
-      : "/dashboard"
+    const target =
+      normalizeLoginRedirect(redirect) ??
+      (me.default_organization
+        ? organizationDashboardPath(me.default_organization.slug)
+        : "/dashboard")
     await router.navigate({ href: target })
   }
 
@@ -306,7 +323,7 @@ function AuthSwitches({
           variant="outline"
           size="sm"
           onClick={onPrimary}
-          className="h-auto whitespace-normal py-2 text-center text-xs"
+          className="h-auto py-2 text-center text-xs whitespace-normal"
         >
           {primaryLabel}
         </Button>
@@ -315,7 +332,7 @@ function AuthSwitches({
           variant="outline"
           size="sm"
           onClick={onSecondary}
-          className="h-auto whitespace-normal py-2 text-center text-xs"
+          className="h-auto py-2 text-center text-xs whitespace-normal"
         >
           {secondaryLabel}
         </Button>

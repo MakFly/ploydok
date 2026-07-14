@@ -358,6 +358,55 @@
       "when": 1778346300000,
       "tag": "0051_app_swarm_runtime",
       "breakpoints": true
+    },
+    {
+      "idx": 52,
+      "version": "7",
+      "when": 1783987200000,
+      "tag": "0052_skipped_migrations_drift_repair",
+      "breakpoints": true
+    },
+    {
+      "idx": 53,
+      "version": "7",
+      "when": 1783987300000,
+      "tag": "0053_scheduled_job_single_run",
+      "breakpoints": true
+    },
+    {
+      "idx": 54,
+      "version": "7",
+      "when": 1783987400000,
+      "tag": "0054_app_metadata_icon_quicklinks",
+      "breakpoints": true
+    },
+    {
+      "idx": 55,
+      "version": "7",
+      "when": 1783987500000,
+      "tag": "0055_app_last_image_digest",
+      "breakpoints": true
+    },
+    {
+      "idx": 56,
+      "version": "7",
+      "when": 1783987600000,
+      "tag": "0056_build_scans",
+      "breakpoints": true
+    },
+    {
+      "idx": 57,
+      "version": "7",
+      "when": 1783987700000,
+      "tag": "0057_runtime_jobs_durability",
+      "breakpoints": true
+    },
+    {
+      "idx": 58,
+      "version": "7",
+      "when": 1783987800000,
+      "tag": "0058_rbac_owner_membership_backfill",
+      "breakpoints": true
     }
   ]
 }

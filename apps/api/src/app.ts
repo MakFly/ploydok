@@ -19,6 +19,7 @@ import { AgentError, GrpcStatus } from "./agent/index.js"
 import { childLogger } from "./logger"
 import { appsRouter } from "./routes/apps"
 import { appsEnvRouter } from "./routes/apps-env"
+import { createAppsScansRouter } from "./routes/apps-scans"
 import { appsDomainsRouter } from "./routes/apps-domains"
 import { appsVolumesRouter } from "./routes/apps-volumes"
 import { createCdnRouter } from "./routes/apps-cdn"
@@ -52,6 +53,7 @@ import { createScheduledJobsRouter } from "./routes/scheduled-jobs"
 import { createProjectEnvRouter } from "./routes/project-env"
 import { createOrgMonitoringRouter } from "./routes/org-monitoring"
 import { createHostStatsRouter } from "./routes/host-stats"
+import { createDiskRouter } from "./routes/disk"
 import { createAdvisoriesRouter } from "./routes/advisories"
 import { auditPubkeyRouter } from "./routes/audit-pubkey"
 import { getDefaultOrganizationForUser } from "./services/organizations"
@@ -385,11 +387,17 @@ app.use("/host-stats", requireAuth(db))
 app.use("/host-stats/*", requireAuth(db))
 app.route("/host-stats", createHostStatsRouter(db))
 
+// Host disk usage & reclaim — auth enforced here; instance-admin gate lives in the router.
+app.use("/disk", requireAuth(db))
+app.use("/disk/*", requireAuth(db))
+app.route("/disk", createDiskRouter(db))
+
 // Apps routes — auth enforced per-endpoint inside the router.
 // Order matters: specific sub-routers (env, domains) are mounted before
 // the main appsRouter to avoid path shadowing on `/:id`.
 app.use("/apps/*", requireAuth(db))
 app.route("/apps", appsEnvRouter)
+app.route("/apps", createAppsScansRouter(db))
 app.route("/apps", appsDomainsRouter)
 app.route("/apps", appsVolumesRouter)
 app.route("/apps", appsProtectionRouter)
@@ -605,6 +613,7 @@ app.get("/me", requireAuth(db), async (c) => {
     has_totp: hasTotp,
     require_totp_for_secret_reveal: fullUser.require_totp_for_secret_reveal,
     needs_second_factor: passkeyCount < 2 && backupCount < 1 && !hasTotp,
+    is_instance_admin: fullUser.is_instance_admin,
   })
 })
 

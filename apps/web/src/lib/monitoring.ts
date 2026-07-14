@@ -1,20 +1,11 @@
 // SPDX-License-Identifier: AGPL-3.0-only
 import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query"
 
-import {
-  
-  ContainerSnapshotSchema
-  
-} from "@ploydok/shared"
-import {
-  apiFetch,
-  apiFetchAllowErrorBody,
-  criticalRetryDelay,
-  shouldRetryCriticalQuery,
-} from "./api"
+import { ContainerSnapshotSchema } from "@ploydok/shared"
+import { apiFetch, criticalRetryDelay, shouldRetryCriticalQuery } from "./api"
 import { useBackendUnavailable } from "./backend-status"
 import { useEventsSubscription } from "./events-provider"
-import type {ContainerSnapshot, MonitoringOverview} from "@ploydok/shared";
+import type { ContainerSnapshot, MonitoringOverview } from "@ploydok/shared"
 import type { ApiError } from "./api"
 
 interface ContainerHealthNotification {
@@ -65,22 +56,7 @@ export function useMonitoring(options: { enabled?: boolean } = {}) {
 
   return useQuery<MonitoringOverview, ApiError>({
     queryKey: ["monitoring", "overview"],
-    queryFn: async () => {
-      const { response, data } =
-        await apiFetchAllowErrorBody<MonitoringOverview>(
-          "/monitoring/overview",
-          {
-            method: "GET",
-            credentials: "include",
-          }
-        )
-      if (!data) {
-        throw new Error(
-          `Monitoring request failed with status ${response.status}`
-        )
-      }
-      return data
-    },
+    queryFn: () => apiFetch<MonitoringOverview>("/monitoring/overview"),
     refetchInterval: backendUnavailable.active ? false : 30_000,
     refetchOnWindowFocus: true,
     staleTime: 5_000,
@@ -114,11 +90,11 @@ export function usePingContainer() {
     mutationFn: (args: PingArgs) =>
       apiFetch<PingResult>(`/monitoring/ping/${encodeURIComponent(args.id)}`, {
         method: "POST",
-        body: JSON.stringify({
+        body: {
           path: args.path,
           port: args.port,
           timeoutMs: args.timeoutMs,
-        }),
+        },
       }),
   })
 }

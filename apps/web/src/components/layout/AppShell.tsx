@@ -17,6 +17,7 @@ import {
   RiDashboardLine,
   RiDatabase2Line,
   RiFileListLine,
+  RiHardDriveLine,
   RiHistoryLine,
   RiKey2Line,
   RiKeyLine,
@@ -127,6 +128,7 @@ interface NavItem {
   fallbackHref?: string
   comingSoon?: boolean
   tooltip?: string
+  adminOnly?: boolean
 }
 
 interface ResolvedNavItem {
@@ -169,6 +171,12 @@ const workspaceNav: Array<NavItem> = [
 ]
 
 const platformNav: Array<NavItem> = [
+  {
+    label: "Disk",
+    icon: RiHardDriveLine,
+    href: "/admin/disk",
+    adminOnly: true,
+  },
   { label: "Members", icon: RiTeamLine, orgPathSuffix: "members" },
   { label: "Audit", icon: RiFileListLine, orgPathSuffix: "audit" },
   {
@@ -534,7 +542,9 @@ export function AppShell({
     },
     {
       title: "Platform",
-      items: platformNav.map((item) => resolveNavItem(item, currentOrgSlug)),
+      items: platformNav
+        .filter((item) => !item.adminOnly || me?.is_instance_admin)
+        .map((item) => resolveNavItem(item, currentOrgSlug)),
     },
     {
       title: "Integrations",
@@ -646,6 +656,7 @@ export function AppShell({
                   <>
                     <Link
                       to={brandTarget as never}
+                      preload={false}
                       className="flex h-10 min-w-0 flex-1 items-center gap-2 overflow-hidden rounded-md px-[11px] py-2 text-sm outline-none hover:bg-sidebar-accent"
                       aria-label="Ploydok"
                     >
@@ -811,6 +822,7 @@ export function AppShell({
                           <li key={item.label} className="relative">
                             <Link
                               to={item.to}
+                              preload={false}
                               title={item.label}
                               className={cx(
                                 "flex h-10 w-full items-center gap-2 overflow-hidden rounded-md px-[11px] py-2 text-sm transition-colors outline-none",
@@ -845,6 +857,7 @@ export function AppShell({
                       <li key={item.label} className="relative">
                         <Link
                           to={item.to}
+                          preload={false}
                           onClick={showReleaseDot ? markReleaseSeen : undefined}
                           title={
                             showReleaseDot
@@ -904,6 +917,7 @@ export function AppShell({
                     <div className="absolute bottom-full left-0 z-50 mb-1 w-full min-w-48 overflow-hidden rounded-md border border-border bg-popover p-1 shadow-md">
                       <Link
                         to="/settings/security"
+                        preload={false}
                         className="flex items-center gap-2 rounded-md px-2 py-1.5 text-xs hover:bg-muted"
                       >
                         <RiShieldCheckLine className="size-3.5" />
@@ -1099,7 +1113,9 @@ function TopbarBreadcrumb(): React.JSX.Element | null {
 
   const appId = extractAppId(matches)
   const { data: liveApp } = useApp(appId ?? "", { subscribeToEvents: false })
-  const { data: monitoring } = useMonitoring({ enabled: Boolean(appId && liveApp) })
+  const { data: monitoring } = useMonitoring({
+    enabled: Boolean(appId && liveApp),
+  })
   const appName = liveApp?.name ?? extractAppName(matches)
   const appRuntime = resolveDisplayedAppState(liveApp, monitoring?.containers)
   const appStatus = appRuntime.status ?? extractAppStatus(matches)

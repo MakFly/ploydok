@@ -582,6 +582,64 @@ export interface HostStatsResponse {
   uptimeSeconds: number;
   /** Optional error message if a partial read failed. */
   error: string;
+  /** GPU (host aggregate, via nvidia-smi). gpu_count = 0 when no GPU / nvidia-smi absent. */
+  gpuCount: number;
+  /** 0-100, averaged across GPUs */
+  gpuUtilizationPct: number;
+  gpuMemUsedBytes: number;
+  gpuMemTotalBytes: number;
+  /** first GPU's product name, empty if none */
+  gpuName: string;
+}
+
+export interface ImageDfRequest {
+}
+
+/** One resource category from `docker system df`. */
+export interface DiskUsageCategory {
+  /** "images" | "containers" | "volumes" | "build_cache" */
+  kind: string;
+  totalBytes: number;
+  reclaimableBytes: number;
+  count: number;
+}
+
+export interface ImageDfResponse {
+  categories: DiskUsageCategory[];
+  /** Total on-disk size of all image layers. */
+  layersSizeBytes: number;
+}
+
+export interface ImagePruneRequest {
+  /**
+   * false → dangling (untagged) images only — the safe default.
+   * true  → all unused images (still protected by keep_repo_tags below).
+   */
+  all: boolean;
+  /** Only remove images created strictly before this cutoff (unix seconds). 0 = no cutoff. */
+  untilUnix: number;
+  /**
+   * Repo tags that must never be removed — the Ploydok reference-set guard
+   * (running-container tag + last-good build tag). Honoured when all=true.
+   */
+  keepRepoTags: string[];
+}
+
+export interface ImagePruneResponse {
+  imagesDeleted: number;
+  spaceReclaimedBytes: number;
+}
+
+export interface RegistryImageDigestRequest {
+  /** Full image reference (e.g. "nginx:1.25" or "ghcr.io/org/app:latest"). */
+  image: string;
+  /** Optional registry credentials for private images. */
+  registryAuth: RegistryAuth | undefined;
+}
+
+export interface RegistryImageDigestResponse {
+  /** Current manifest digest in the registry ("sha256:..."), empty if unknown. */
+  digest: string;
 }
 
 export interface SwarmInfoRequest {
@@ -6395,6 +6453,11 @@ function createBaseHostStatsResponse(): HostStatsResponse {
     cpuCount: 0,
     uptimeSeconds: 0,
     error: "",
+    gpuCount: 0,
+    gpuUtilizationPct: 0,
+    gpuMemUsedBytes: 0,
+    gpuMemTotalBytes: 0,
+    gpuName: "",
   };
 }
 
@@ -6450,6 +6513,21 @@ export const HostStatsResponse: MessageFns<HostStatsResponse> = {
     }
     if (message.error !== "") {
       writer.uint32(138).string(message.error);
+    }
+    if (message.gpuCount !== 0) {
+      writer.uint32(144).uint32(message.gpuCount);
+    }
+    if (message.gpuUtilizationPct !== 0) {
+      writer.uint32(153).double(message.gpuUtilizationPct);
+    }
+    if (message.gpuMemUsedBytes !== 0) {
+      writer.uint32(160).uint64(message.gpuMemUsedBytes);
+    }
+    if (message.gpuMemTotalBytes !== 0) {
+      writer.uint32(168).uint64(message.gpuMemTotalBytes);
+    }
+    if (message.gpuName !== "") {
+      writer.uint32(178).string(message.gpuName);
     }
     return writer;
   },
@@ -6597,6 +6675,46 @@ export const HostStatsResponse: MessageFns<HostStatsResponse> = {
           message.error = reader.string();
           continue;
         }
+        case 18: {
+          if (tag !== 144) {
+            break;
+          }
+
+          message.gpuCount = reader.uint32();
+          continue;
+        }
+        case 19: {
+          if (tag !== 153) {
+            break;
+          }
+
+          message.gpuUtilizationPct = reader.double();
+          continue;
+        }
+        case 20: {
+          if (tag !== 160) {
+            break;
+          }
+
+          message.gpuMemUsedBytes = longToNumber(reader.uint64());
+          continue;
+        }
+        case 21: {
+          if (tag !== 168) {
+            break;
+          }
+
+          message.gpuMemTotalBytes = longToNumber(reader.uint64());
+          continue;
+        }
+        case 22: {
+          if (tag !== 178) {
+            break;
+          }
+
+          message.gpuName = reader.string();
+          continue;
+        }
       }
       if ((tag & 7) === 4 || tag === 0) {
         break;
@@ -6689,6 +6807,31 @@ export const HostStatsResponse: MessageFns<HostStatsResponse> = {
         ? globalThis.Number(object.uptime_seconds)
         : 0,
       error: isSet(object.error) ? globalThis.String(object.error) : "",
+      gpuCount: isSet(object.gpuCount)
+        ? globalThis.Number(object.gpuCount)
+        : isSet(object.gpu_count)
+        ? globalThis.Number(object.gpu_count)
+        : 0,
+      gpuUtilizationPct: isSet(object.gpuUtilizationPct)
+        ? globalThis.Number(object.gpuUtilizationPct)
+        : isSet(object.gpu_utilization_pct)
+        ? globalThis.Number(object.gpu_utilization_pct)
+        : 0,
+      gpuMemUsedBytes: isSet(object.gpuMemUsedBytes)
+        ? globalThis.Number(object.gpuMemUsedBytes)
+        : isSet(object.gpu_mem_used_bytes)
+        ? globalThis.Number(object.gpu_mem_used_bytes)
+        : 0,
+      gpuMemTotalBytes: isSet(object.gpuMemTotalBytes)
+        ? globalThis.Number(object.gpuMemTotalBytes)
+        : isSet(object.gpu_mem_total_bytes)
+        ? globalThis.Number(object.gpu_mem_total_bytes)
+        : 0,
+      gpuName: isSet(object.gpuName)
+        ? globalThis.String(object.gpuName)
+        : isSet(object.gpu_name)
+        ? globalThis.String(object.gpu_name)
+        : "",
     };
   },
 
@@ -6745,6 +6888,21 @@ export const HostStatsResponse: MessageFns<HostStatsResponse> = {
     if (message.error !== "") {
       obj.error = message.error;
     }
+    if (message.gpuCount !== 0) {
+      obj.gpuCount = Math.round(message.gpuCount);
+    }
+    if (message.gpuUtilizationPct !== 0) {
+      obj.gpuUtilizationPct = message.gpuUtilizationPct;
+    }
+    if (message.gpuMemUsedBytes !== 0) {
+      obj.gpuMemUsedBytes = Math.round(message.gpuMemUsedBytes);
+    }
+    if (message.gpuMemTotalBytes !== 0) {
+      obj.gpuMemTotalBytes = Math.round(message.gpuMemTotalBytes);
+    }
+    if (message.gpuName !== "") {
+      obj.gpuName = message.gpuName;
+    }
     return obj;
   },
 
@@ -6770,6 +6928,576 @@ export const HostStatsResponse: MessageFns<HostStatsResponse> = {
     message.cpuCount = object.cpuCount ?? 0;
     message.uptimeSeconds = object.uptimeSeconds ?? 0;
     message.error = object.error ?? "";
+    message.gpuCount = object.gpuCount ?? 0;
+    message.gpuUtilizationPct = object.gpuUtilizationPct ?? 0;
+    message.gpuMemUsedBytes = object.gpuMemUsedBytes ?? 0;
+    message.gpuMemTotalBytes = object.gpuMemTotalBytes ?? 0;
+    message.gpuName = object.gpuName ?? "";
+    return message;
+  },
+};
+
+function createBaseImageDfRequest(): ImageDfRequest {
+  return {};
+}
+
+export const ImageDfRequest: MessageFns<ImageDfRequest> = {
+  encode(_: ImageDfRequest, writer: BinaryWriter = new BinaryWriter()): BinaryWriter {
+    return writer;
+  },
+
+  decode(input: BinaryReader | Uint8Array, length?: number): ImageDfRequest {
+    const reader = input instanceof BinaryReader ? input : new BinaryReader(input);
+    const end = length === undefined ? reader.len : reader.pos + length;
+    const message = createBaseImageDfRequest();
+    while (reader.pos < end) {
+      const tag = reader.uint32();
+      switch (tag >>> 3) {
+      }
+      if ((tag & 7) === 4 || tag === 0) {
+        break;
+      }
+      reader.skip(tag & 7);
+    }
+    return message;
+  },
+
+  fromJSON(_: any): ImageDfRequest {
+    return {};
+  },
+
+  toJSON(_: ImageDfRequest): unknown {
+    const obj: any = {};
+    return obj;
+  },
+
+  create(base?: DeepPartial<ImageDfRequest>): ImageDfRequest {
+    return ImageDfRequest.fromPartial(base ?? {});
+  },
+  fromPartial(_: DeepPartial<ImageDfRequest>): ImageDfRequest {
+    const message = createBaseImageDfRequest();
+    return message;
+  },
+};
+
+function createBaseDiskUsageCategory(): DiskUsageCategory {
+  return { kind: "", totalBytes: 0, reclaimableBytes: 0, count: 0 };
+}
+
+export const DiskUsageCategory: MessageFns<DiskUsageCategory> = {
+  encode(message: DiskUsageCategory, writer: BinaryWriter = new BinaryWriter()): BinaryWriter {
+    if (message.kind !== "") {
+      writer.uint32(10).string(message.kind);
+    }
+    if (message.totalBytes !== 0) {
+      writer.uint32(16).int64(message.totalBytes);
+    }
+    if (message.reclaimableBytes !== 0) {
+      writer.uint32(24).int64(message.reclaimableBytes);
+    }
+    if (message.count !== 0) {
+      writer.uint32(32).int64(message.count);
+    }
+    return writer;
+  },
+
+  decode(input: BinaryReader | Uint8Array, length?: number): DiskUsageCategory {
+    const reader = input instanceof BinaryReader ? input : new BinaryReader(input);
+    const end = length === undefined ? reader.len : reader.pos + length;
+    const message = createBaseDiskUsageCategory();
+    while (reader.pos < end) {
+      const tag = reader.uint32();
+      switch (tag >>> 3) {
+        case 1: {
+          if (tag !== 10) {
+            break;
+          }
+
+          message.kind = reader.string();
+          continue;
+        }
+        case 2: {
+          if (tag !== 16) {
+            break;
+          }
+
+          message.totalBytes = longToNumber(reader.int64());
+          continue;
+        }
+        case 3: {
+          if (tag !== 24) {
+            break;
+          }
+
+          message.reclaimableBytes = longToNumber(reader.int64());
+          continue;
+        }
+        case 4: {
+          if (tag !== 32) {
+            break;
+          }
+
+          message.count = longToNumber(reader.int64());
+          continue;
+        }
+      }
+      if ((tag & 7) === 4 || tag === 0) {
+        break;
+      }
+      reader.skip(tag & 7);
+    }
+    return message;
+  },
+
+  fromJSON(object: any): DiskUsageCategory {
+    return {
+      kind: isSet(object.kind) ? globalThis.String(object.kind) : "",
+      totalBytes: isSet(object.totalBytes)
+        ? globalThis.Number(object.totalBytes)
+        : isSet(object.total_bytes)
+        ? globalThis.Number(object.total_bytes)
+        : 0,
+      reclaimableBytes: isSet(object.reclaimableBytes)
+        ? globalThis.Number(object.reclaimableBytes)
+        : isSet(object.reclaimable_bytes)
+        ? globalThis.Number(object.reclaimable_bytes)
+        : 0,
+      count: isSet(object.count) ? globalThis.Number(object.count) : 0,
+    };
+  },
+
+  toJSON(message: DiskUsageCategory): unknown {
+    const obj: any = {};
+    if (message.kind !== "") {
+      obj.kind = message.kind;
+    }
+    if (message.totalBytes !== 0) {
+      obj.totalBytes = Math.round(message.totalBytes);
+    }
+    if (message.reclaimableBytes !== 0) {
+      obj.reclaimableBytes = Math.round(message.reclaimableBytes);
+    }
+    if (message.count !== 0) {
+      obj.count = Math.round(message.count);
+    }
+    return obj;
+  },
+
+  create(base?: DeepPartial<DiskUsageCategory>): DiskUsageCategory {
+    return DiskUsageCategory.fromPartial(base ?? {});
+  },
+  fromPartial(object: DeepPartial<DiskUsageCategory>): DiskUsageCategory {
+    const message = createBaseDiskUsageCategory();
+    message.kind = object.kind ?? "";
+    message.totalBytes = object.totalBytes ?? 0;
+    message.reclaimableBytes = object.reclaimableBytes ?? 0;
+    message.count = object.count ?? 0;
+    return message;
+  },
+};
+
+function createBaseImageDfResponse(): ImageDfResponse {
+  return { categories: [], layersSizeBytes: 0 };
+}
+
+export const ImageDfResponse: MessageFns<ImageDfResponse> = {
+  encode(message: ImageDfResponse, writer: BinaryWriter = new BinaryWriter()): BinaryWriter {
+    for (const v of message.categories) {
+      DiskUsageCategory.encode(v!, writer.uint32(10).fork()).join();
+    }
+    if (message.layersSizeBytes !== 0) {
+      writer.uint32(16).int64(message.layersSizeBytes);
+    }
+    return writer;
+  },
+
+  decode(input: BinaryReader | Uint8Array, length?: number): ImageDfResponse {
+    const reader = input instanceof BinaryReader ? input : new BinaryReader(input);
+    const end = length === undefined ? reader.len : reader.pos + length;
+    const message = createBaseImageDfResponse();
+    while (reader.pos < end) {
+      const tag = reader.uint32();
+      switch (tag >>> 3) {
+        case 1: {
+          if (tag !== 10) {
+            break;
+          }
+
+          message.categories.push(DiskUsageCategory.decode(reader, reader.uint32()));
+          continue;
+        }
+        case 2: {
+          if (tag !== 16) {
+            break;
+          }
+
+          message.layersSizeBytes = longToNumber(reader.int64());
+          continue;
+        }
+      }
+      if ((tag & 7) === 4 || tag === 0) {
+        break;
+      }
+      reader.skip(tag & 7);
+    }
+    return message;
+  },
+
+  fromJSON(object: any): ImageDfResponse {
+    return {
+      categories: globalThis.Array.isArray(object?.categories)
+        ? object.categories.map((e: any) => DiskUsageCategory.fromJSON(e))
+        : [],
+      layersSizeBytes: isSet(object.layersSizeBytes)
+        ? globalThis.Number(object.layersSizeBytes)
+        : isSet(object.layers_size_bytes)
+        ? globalThis.Number(object.layers_size_bytes)
+        : 0,
+    };
+  },
+
+  toJSON(message: ImageDfResponse): unknown {
+    const obj: any = {};
+    if (message.categories?.length) {
+      obj.categories = message.categories.map((e) => DiskUsageCategory.toJSON(e));
+    }
+    if (message.layersSizeBytes !== 0) {
+      obj.layersSizeBytes = Math.round(message.layersSizeBytes);
+    }
+    return obj;
+  },
+
+  create(base?: DeepPartial<ImageDfResponse>): ImageDfResponse {
+    return ImageDfResponse.fromPartial(base ?? {});
+  },
+  fromPartial(object: DeepPartial<ImageDfResponse>): ImageDfResponse {
+    const message = createBaseImageDfResponse();
+    message.categories = object.categories?.map((e) => DiskUsageCategory.fromPartial(e)) || [];
+    message.layersSizeBytes = object.layersSizeBytes ?? 0;
+    return message;
+  },
+};
+
+function createBaseImagePruneRequest(): ImagePruneRequest {
+  return { all: false, untilUnix: 0, keepRepoTags: [] };
+}
+
+export const ImagePruneRequest: MessageFns<ImagePruneRequest> = {
+  encode(message: ImagePruneRequest, writer: BinaryWriter = new BinaryWriter()): BinaryWriter {
+    if (message.all !== false) {
+      writer.uint32(8).bool(message.all);
+    }
+    if (message.untilUnix !== 0) {
+      writer.uint32(16).int64(message.untilUnix);
+    }
+    for (const v of message.keepRepoTags) {
+      writer.uint32(26).string(v!);
+    }
+    return writer;
+  },
+
+  decode(input: BinaryReader | Uint8Array, length?: number): ImagePruneRequest {
+    const reader = input instanceof BinaryReader ? input : new BinaryReader(input);
+    const end = length === undefined ? reader.len : reader.pos + length;
+    const message = createBaseImagePruneRequest();
+    while (reader.pos < end) {
+      const tag = reader.uint32();
+      switch (tag >>> 3) {
+        case 1: {
+          if (tag !== 8) {
+            break;
+          }
+
+          message.all = reader.bool();
+          continue;
+        }
+        case 2: {
+          if (tag !== 16) {
+            break;
+          }
+
+          message.untilUnix = longToNumber(reader.int64());
+          continue;
+        }
+        case 3: {
+          if (tag !== 26) {
+            break;
+          }
+
+          message.keepRepoTags.push(reader.string());
+          continue;
+        }
+      }
+      if ((tag & 7) === 4 || tag === 0) {
+        break;
+      }
+      reader.skip(tag & 7);
+    }
+    return message;
+  },
+
+  fromJSON(object: any): ImagePruneRequest {
+    return {
+      all: isSet(object.all) ? globalThis.Boolean(object.all) : false,
+      untilUnix: isSet(object.untilUnix)
+        ? globalThis.Number(object.untilUnix)
+        : isSet(object.until_unix)
+        ? globalThis.Number(object.until_unix)
+        : 0,
+      keepRepoTags: globalThis.Array.isArray(object?.keepRepoTags)
+        ? object.keepRepoTags.map((e: any) => globalThis.String(e))
+        : globalThis.Array.isArray(object?.keep_repo_tags)
+        ? object.keep_repo_tags.map((e: any) => globalThis.String(e))
+        : [],
+    };
+  },
+
+  toJSON(message: ImagePruneRequest): unknown {
+    const obj: any = {};
+    if (message.all !== false) {
+      obj.all = message.all;
+    }
+    if (message.untilUnix !== 0) {
+      obj.untilUnix = Math.round(message.untilUnix);
+    }
+    if (message.keepRepoTags?.length) {
+      obj.keepRepoTags = message.keepRepoTags;
+    }
+    return obj;
+  },
+
+  create(base?: DeepPartial<ImagePruneRequest>): ImagePruneRequest {
+    return ImagePruneRequest.fromPartial(base ?? {});
+  },
+  fromPartial(object: DeepPartial<ImagePruneRequest>): ImagePruneRequest {
+    const message = createBaseImagePruneRequest();
+    message.all = object.all ?? false;
+    message.untilUnix = object.untilUnix ?? 0;
+    message.keepRepoTags = object.keepRepoTags?.map((e) => e) || [];
+    return message;
+  },
+};
+
+function createBaseImagePruneResponse(): ImagePruneResponse {
+  return { imagesDeleted: 0, spaceReclaimedBytes: 0 };
+}
+
+export const ImagePruneResponse: MessageFns<ImagePruneResponse> = {
+  encode(message: ImagePruneResponse, writer: BinaryWriter = new BinaryWriter()): BinaryWriter {
+    if (message.imagesDeleted !== 0) {
+      writer.uint32(8).int32(message.imagesDeleted);
+    }
+    if (message.spaceReclaimedBytes !== 0) {
+      writer.uint32(16).int64(message.spaceReclaimedBytes);
+    }
+    return writer;
+  },
+
+  decode(input: BinaryReader | Uint8Array, length?: number): ImagePruneResponse {
+    const reader = input instanceof BinaryReader ? input : new BinaryReader(input);
+    const end = length === undefined ? reader.len : reader.pos + length;
+    const message = createBaseImagePruneResponse();
+    while (reader.pos < end) {
+      const tag = reader.uint32();
+      switch (tag >>> 3) {
+        case 1: {
+          if (tag !== 8) {
+            break;
+          }
+
+          message.imagesDeleted = reader.int32();
+          continue;
+        }
+        case 2: {
+          if (tag !== 16) {
+            break;
+          }
+
+          message.spaceReclaimedBytes = longToNumber(reader.int64());
+          continue;
+        }
+      }
+      if ((tag & 7) === 4 || tag === 0) {
+        break;
+      }
+      reader.skip(tag & 7);
+    }
+    return message;
+  },
+
+  fromJSON(object: any): ImagePruneResponse {
+    return {
+      imagesDeleted: isSet(object.imagesDeleted)
+        ? globalThis.Number(object.imagesDeleted)
+        : isSet(object.images_deleted)
+        ? globalThis.Number(object.images_deleted)
+        : 0,
+      spaceReclaimedBytes: isSet(object.spaceReclaimedBytes)
+        ? globalThis.Number(object.spaceReclaimedBytes)
+        : isSet(object.space_reclaimed_bytes)
+        ? globalThis.Number(object.space_reclaimed_bytes)
+        : 0,
+    };
+  },
+
+  toJSON(message: ImagePruneResponse): unknown {
+    const obj: any = {};
+    if (message.imagesDeleted !== 0) {
+      obj.imagesDeleted = Math.round(message.imagesDeleted);
+    }
+    if (message.spaceReclaimedBytes !== 0) {
+      obj.spaceReclaimedBytes = Math.round(message.spaceReclaimedBytes);
+    }
+    return obj;
+  },
+
+  create(base?: DeepPartial<ImagePruneResponse>): ImagePruneResponse {
+    return ImagePruneResponse.fromPartial(base ?? {});
+  },
+  fromPartial(object: DeepPartial<ImagePruneResponse>): ImagePruneResponse {
+    const message = createBaseImagePruneResponse();
+    message.imagesDeleted = object.imagesDeleted ?? 0;
+    message.spaceReclaimedBytes = object.spaceReclaimedBytes ?? 0;
+    return message;
+  },
+};
+
+function createBaseRegistryImageDigestRequest(): RegistryImageDigestRequest {
+  return { image: "", registryAuth: undefined };
+}
+
+export const RegistryImageDigestRequest: MessageFns<RegistryImageDigestRequest> = {
+  encode(message: RegistryImageDigestRequest, writer: BinaryWriter = new BinaryWriter()): BinaryWriter {
+    if (message.image !== "") {
+      writer.uint32(10).string(message.image);
+    }
+    if (message.registryAuth !== undefined) {
+      RegistryAuth.encode(message.registryAuth, writer.uint32(18).fork()).join();
+    }
+    return writer;
+  },
+
+  decode(input: BinaryReader | Uint8Array, length?: number): RegistryImageDigestRequest {
+    const reader = input instanceof BinaryReader ? input : new BinaryReader(input);
+    const end = length === undefined ? reader.len : reader.pos + length;
+    const message = createBaseRegistryImageDigestRequest();
+    while (reader.pos < end) {
+      const tag = reader.uint32();
+      switch (tag >>> 3) {
+        case 1: {
+          if (tag !== 10) {
+            break;
+          }
+
+          message.image = reader.string();
+          continue;
+        }
+        case 2: {
+          if (tag !== 18) {
+            break;
+          }
+
+          message.registryAuth = RegistryAuth.decode(reader, reader.uint32());
+          continue;
+        }
+      }
+      if ((tag & 7) === 4 || tag === 0) {
+        break;
+      }
+      reader.skip(tag & 7);
+    }
+    return message;
+  },
+
+  fromJSON(object: any): RegistryImageDigestRequest {
+    return {
+      image: isSet(object.image) ? globalThis.String(object.image) : "",
+      registryAuth: isSet(object.registryAuth)
+        ? RegistryAuth.fromJSON(object.registryAuth)
+        : isSet(object.registry_auth)
+        ? RegistryAuth.fromJSON(object.registry_auth)
+        : undefined,
+    };
+  },
+
+  toJSON(message: RegistryImageDigestRequest): unknown {
+    const obj: any = {};
+    if (message.image !== "") {
+      obj.image = message.image;
+    }
+    if (message.registryAuth !== undefined) {
+      obj.registryAuth = RegistryAuth.toJSON(message.registryAuth);
+    }
+    return obj;
+  },
+
+  create(base?: DeepPartial<RegistryImageDigestRequest>): RegistryImageDigestRequest {
+    return RegistryImageDigestRequest.fromPartial(base ?? {});
+  },
+  fromPartial(object: DeepPartial<RegistryImageDigestRequest>): RegistryImageDigestRequest {
+    const message = createBaseRegistryImageDigestRequest();
+    message.image = object.image ?? "";
+    message.registryAuth = (object.registryAuth !== undefined && object.registryAuth !== null)
+      ? RegistryAuth.fromPartial(object.registryAuth)
+      : undefined;
+    return message;
+  },
+};
+
+function createBaseRegistryImageDigestResponse(): RegistryImageDigestResponse {
+  return { digest: "" };
+}
+
+export const RegistryImageDigestResponse: MessageFns<RegistryImageDigestResponse> = {
+  encode(message: RegistryImageDigestResponse, writer: BinaryWriter = new BinaryWriter()): BinaryWriter {
+    if (message.digest !== "") {
+      writer.uint32(10).string(message.digest);
+    }
+    return writer;
+  },
+
+  decode(input: BinaryReader | Uint8Array, length?: number): RegistryImageDigestResponse {
+    const reader = input instanceof BinaryReader ? input : new BinaryReader(input);
+    const end = length === undefined ? reader.len : reader.pos + length;
+    const message = createBaseRegistryImageDigestResponse();
+    while (reader.pos < end) {
+      const tag = reader.uint32();
+      switch (tag >>> 3) {
+        case 1: {
+          if (tag !== 10) {
+            break;
+          }
+
+          message.digest = reader.string();
+          continue;
+        }
+      }
+      if ((tag & 7) === 4 || tag === 0) {
+        break;
+      }
+      reader.skip(tag & 7);
+    }
+    return message;
+  },
+
+  fromJSON(object: any): RegistryImageDigestResponse {
+    return { digest: isSet(object.digest) ? globalThis.String(object.digest) : "" };
+  },
+
+  toJSON(message: RegistryImageDigestResponse): unknown {
+    const obj: any = {};
+    if (message.digest !== "") {
+      obj.digest = message.digest;
+    }
+    return obj;
+  },
+
+  create(base?: DeepPartial<RegistryImageDigestResponse>): RegistryImageDigestResponse {
+    return RegistryImageDigestResponse.fromPartial(base ?? {});
+  },
+  fromPartial(object: DeepPartial<RegistryImageDigestResponse>): RegistryImageDigestResponse {
+    const message = createBaseRegistryImageDigestResponse();
+    message.digest = object.digest ?? "";
     return message;
   },
 };
@@ -9624,6 +10352,37 @@ export const AgentService = {
     responseSerialize: (value: HostStatsResponse): Buffer => Buffer.from(HostStatsResponse.encode(value).finish()),
     responseDeserialize: (value: Buffer): HostStatsResponse => HostStatsResponse.decode(value),
   },
+  /** Disk usage & image reclaim */
+  imageDf: {
+    path: "/ploydok.agent.v1.Agent/ImageDf" as const,
+    requestStream: false as const,
+    responseStream: false as const,
+    requestSerialize: (value: ImageDfRequest): Buffer => Buffer.from(ImageDfRequest.encode(value).finish()),
+    requestDeserialize: (value: Buffer): ImageDfRequest => ImageDfRequest.decode(value),
+    responseSerialize: (value: ImageDfResponse): Buffer => Buffer.from(ImageDfResponse.encode(value).finish()),
+    responseDeserialize: (value: Buffer): ImageDfResponse => ImageDfResponse.decode(value),
+  },
+  imagePrune: {
+    path: "/ploydok.agent.v1.Agent/ImagePrune" as const,
+    requestStream: false as const,
+    responseStream: false as const,
+    requestSerialize: (value: ImagePruneRequest): Buffer => Buffer.from(ImagePruneRequest.encode(value).finish()),
+    requestDeserialize: (value: Buffer): ImagePruneRequest => ImagePruneRequest.decode(value),
+    responseSerialize: (value: ImagePruneResponse): Buffer => Buffer.from(ImagePruneResponse.encode(value).finish()),
+    responseDeserialize: (value: Buffer): ImagePruneResponse => ImagePruneResponse.decode(value),
+  },
+  /** Registry image digest (auto-update watch) */
+  registryImageDigest: {
+    path: "/ploydok.agent.v1.Agent/RegistryImageDigest" as const,
+    requestStream: false as const,
+    responseStream: false as const,
+    requestSerialize: (value: RegistryImageDigestRequest): Buffer =>
+      Buffer.from(RegistryImageDigestRequest.encode(value).finish()),
+    requestDeserialize: (value: Buffer): RegistryImageDigestRequest => RegistryImageDigestRequest.decode(value),
+    responseSerialize: (value: RegistryImageDigestResponse): Buffer =>
+      Buffer.from(RegistryImageDigestResponse.encode(value).finish()),
+    responseDeserialize: (value: Buffer): RegistryImageDigestResponse => RegistryImageDigestResponse.decode(value),
+  },
   /** Swarm runtime */
   swarmInfo: {
     path: "/ploydok.agent.v1.Agent/SwarmInfo" as const,
@@ -9764,6 +10523,11 @@ export interface AgentServer extends UntypedServiceImplementation {
   restoreDatabase: handleClientStreamingCall<RestoreChunk, RestoreResult>;
   /** Host monitoring (VPS health — Sprint 6.6) */
   hostStats: handleUnaryCall<HostStatsRequest, HostStatsResponse>;
+  /** Disk usage & image reclaim */
+  imageDf: handleUnaryCall<ImageDfRequest, ImageDfResponse>;
+  imagePrune: handleUnaryCall<ImagePruneRequest, ImagePruneResponse>;
+  /** Registry image digest (auto-update watch) */
+  registryImageDigest: handleUnaryCall<RegistryImageDigestRequest, RegistryImageDigestResponse>;
   /** Swarm runtime */
   swarmInfo: handleUnaryCall<SwarmInfoRequest, SwarmInfoResponse>;
   swarmEnsureSingleNode: handleUnaryCall<SwarmEnsureSingleNodeRequest, SwarmEnsureSingleNodeResponse>;
@@ -10046,6 +10810,53 @@ export interface AgentClient extends Client {
     metadata: Metadata,
     options: Partial<CallOptions>,
     callback: (error: ServiceError | null, response: HostStatsResponse) => void,
+  ): ClientUnaryCall;
+  /** Disk usage & image reclaim */
+  imageDf(
+    request: ImageDfRequest,
+    callback: (error: ServiceError | null, response: ImageDfResponse) => void,
+  ): ClientUnaryCall;
+  imageDf(
+    request: ImageDfRequest,
+    metadata: Metadata,
+    callback: (error: ServiceError | null, response: ImageDfResponse) => void,
+  ): ClientUnaryCall;
+  imageDf(
+    request: ImageDfRequest,
+    metadata: Metadata,
+    options: Partial<CallOptions>,
+    callback: (error: ServiceError | null, response: ImageDfResponse) => void,
+  ): ClientUnaryCall;
+  imagePrune(
+    request: ImagePruneRequest,
+    callback: (error: ServiceError | null, response: ImagePruneResponse) => void,
+  ): ClientUnaryCall;
+  imagePrune(
+    request: ImagePruneRequest,
+    metadata: Metadata,
+    callback: (error: ServiceError | null, response: ImagePruneResponse) => void,
+  ): ClientUnaryCall;
+  imagePrune(
+    request: ImagePruneRequest,
+    metadata: Metadata,
+    options: Partial<CallOptions>,
+    callback: (error: ServiceError | null, response: ImagePruneResponse) => void,
+  ): ClientUnaryCall;
+  /** Registry image digest (auto-update watch) */
+  registryImageDigest(
+    request: RegistryImageDigestRequest,
+    callback: (error: ServiceError | null, response: RegistryImageDigestResponse) => void,
+  ): ClientUnaryCall;
+  registryImageDigest(
+    request: RegistryImageDigestRequest,
+    metadata: Metadata,
+    callback: (error: ServiceError | null, response: RegistryImageDigestResponse) => void,
+  ): ClientUnaryCall;
+  registryImageDigest(
+    request: RegistryImageDigestRequest,
+    metadata: Metadata,
+    options: Partial<CallOptions>,
+    callback: (error: ServiceError | null, response: RegistryImageDigestResponse) => void,
   ): ClientUnaryCall;
   /** Swarm runtime */
   swarmInfo(

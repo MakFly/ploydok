@@ -1,9 +1,10 @@
 // SPDX-License-Identifier: AGPL-3.0-only
 import * as React from "react"
-import { detectLevel } from "../../lib/hooks/use-log-stream"
+import { detectLevel, parseStructuredLine } from "../../lib/hooks/use-log-stream"
 import type {
   LogLine as LogLineData,
   LogSeverity,
+  StructuredLogLine,
 } from "../../lib/hooks/use-log-stream"
 
 // ---------------------------------------------------------------------------
@@ -129,6 +130,41 @@ function HighlightedText({
 }
 
 // ---------------------------------------------------------------------------
+// StructuredBody — renders a parsed JSON/logfmt line as message + field chips
+// ---------------------------------------------------------------------------
+
+function StructuredBody({
+  structured,
+  search,
+}: {
+  structured: StructuredLogLine
+  search: string
+}): React.JSX.Element {
+  return (
+    <span className="inline-flex flex-wrap items-baseline gap-x-2 gap-y-0.5 whitespace-normal align-baseline">
+      {structured.message !== null && (
+        <span className="break-all">
+          <HighlightedText text={structured.message} query={search} />
+        </span>
+      )}
+      {structured.fields.map((field, i) => (
+        <span
+          key={i}
+          className="inline-flex items-baseline gap-0.5 rounded bg-zinc-800/70 px-1 font-mono text-[11px] leading-5"
+          data-log-field={field.key}
+        >
+          <span className="text-zinc-500">{field.key}</span>
+          <span className="text-zinc-600">=</span>
+          <span className="break-all text-zinc-300">
+            <HighlightedText text={field.value} query={search} />
+          </span>
+        </span>
+      ))}
+    </span>
+  )
+}
+
+// ---------------------------------------------------------------------------
 // LogLine — memoized log line renderer
 // ---------------------------------------------------------------------------
 
@@ -160,6 +196,7 @@ export const LogLine = React.memo(function LogLineRow({
   const bodyText = inlineMatch
     ? line.text.slice(inlineMatch[0].length)
     : line.text
+  const structured = isStackTrace ? null : parseStructuredLine(bodyText)
 
   const textColor = isStackTrace ? "text-zinc-400" : levelColorClass(level)
   const rowBg = isError
@@ -214,7 +251,11 @@ export const LogLine = React.memo(function LogLineRow({
       <span
         className={`min-w-0 flex-1 ${textColor} ${isStackTrace ? "pl-4 text-xs" : ""}`}
       >
-        <HighlightedText text={bodyText} query={search} />
+        {structured ? (
+          <StructuredBody structured={structured} search={search} />
+        ) : (
+          <HighlightedText text={bodyText} query={search} />
+        )}
       </span>
     </div>
   )

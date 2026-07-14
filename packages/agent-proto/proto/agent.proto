@@ -529,6 +529,65 @@ message HostStatsResponse {
   uint64 uptime_seconds = 16;
   // Optional error message if a partial read failed.
   string error = 17;
+  // GPU (host aggregate, via nvidia-smi). gpu_count = 0 when no GPU / nvidia-smi absent.
+  uint32 gpu_count = 18;
+  double gpu_utilization_pct = 19;   // 0-100, averaged across GPUs
+  uint64 gpu_mem_used_bytes = 20;
+  uint64 gpu_mem_total_bytes = 21;
+  string gpu_name = 22;              // first GPU's product name, empty if none
+}
+
+// ─────────────────────────────────────────────────────────────────────────────
+// Disk usage & image reclaim (docker system df + image prune)
+// ─────────────────────────────────────────────────────────────────────────────
+
+message ImageDfRequest {}
+
+// One resource category from `docker system df`.
+message DiskUsageCategory {
+  // "images" | "containers" | "volumes" | "build_cache"
+  string kind = 1;
+  int64 total_bytes = 2;
+  int64 reclaimable_bytes = 3;
+  int64 count = 4;
+}
+
+message ImageDfResponse {
+  repeated DiskUsageCategory categories = 1;
+  // Total on-disk size of all image layers.
+  int64 layers_size_bytes = 2;
+}
+
+message ImagePruneRequest {
+  // false → dangling (untagged) images only — the safe default.
+  // true  → all unused images (still protected by keep_repo_tags below).
+  bool all = 1;
+  // Only remove images created strictly before this cutoff (unix seconds). 0 = no cutoff.
+  int64 until_unix = 2;
+  // Repo tags that must never be removed — the Ploydok reference-set guard
+  // (running-container tag + last-good build tag). Honoured when all=true.
+  repeated string keep_repo_tags = 3;
+}
+
+message ImagePruneResponse {
+  int32 images_deleted = 1;
+  int64 space_reclaimed_bytes = 2;
+}
+
+// ─────────────────────────────────────────────────────────────────────────────
+// Registry image digest (image auto-update watch)
+// ─────────────────────────────────────────────────────────────────────────────
+
+message RegistryImageDigestRequest {
+  // Full image reference (e.g. "nginx:1.25" or "ghcr.io/org/app:latest").
+  string image = 1;
+  // Optional registry credentials for private images.
+  RegistryAuth registry_auth = 2;
+}
+
+message RegistryImageDigestResponse {
+  // Current manifest digest in the registry ("sha256:..."), empty if unknown.
+  string digest = 1;
 }
 
 // ─────────────────────────────────────────────────────────────────────────────
@@ -732,6 +791,13 @@ service Agent {
 
   // Host monitoring (VPS health — Sprint 6.6)
   rpc HostStats       (HostStatsRequest)        returns (HostStatsResponse);
+
+  // Disk usage & image reclaim
+  rpc ImageDf         (ImageDfRequest)          returns (ImageDfResponse);
+  rpc ImagePrune      (ImagePruneRequest)       returns (ImagePruneResponse);
+
+  // Registry image digest (auto-update watch)
+  rpc RegistryImageDigest (RegistryImageDigestRequest) returns (RegistryImageDigestResponse);
 
   // Swarm runtime
   rpc SwarmInfo              (SwarmInfoRequest)              returns (SwarmInfoResponse);

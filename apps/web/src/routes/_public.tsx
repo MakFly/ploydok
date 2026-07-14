@@ -8,7 +8,10 @@ import {
 export const Route = createFileRoute("/_public")({
   beforeLoad: async ({ location }) => {
     await enforceInstanceState(location.pathname)
-    if (location.pathname !== "/setup") {
+    if (
+      location.pathname !== "/setup" &&
+      location.pathname !== "/invitations/accept"
+    ) {
       await redirectIfAuthenticated()
     }
   },

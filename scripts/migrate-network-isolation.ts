@@ -45,7 +45,12 @@ async function main(): Promise<void> {
   const summary = { attached: 0, detached: 0, skipped: 0, failed: 0 }
 
   const appsRows = await sql<
-    Array<{ id: string; container_id: string | null; project_id: string; network_name: string | null }>
+    Array<{
+      id: string
+      container_id: string | null
+      project_id: string
+      network_name: string | null
+    }>
   >`
     SELECT a.id, a.container_id, a.project_id, p.network_name
     FROM apps a
@@ -56,7 +61,7 @@ async function main(): Promise<void> {
 
   // 1. Ensure Caddy is attached to every project network that has >= 1 app.
   const projectNetworks = new Set(
-    appsRows.map((r) => r.network_name).filter((n): n is string => !!n),
+    appsRows.map((r) => r.network_name).filter((n): n is string => !!n)
   )
   for (const projectNetwork of projectNetworks) {
     try {
@@ -66,6 +71,16 @@ async function main(): Promise<void> {
       console.warn(`[migrate] attach caddy → ${projectNetwork} failed:`, err)
       summary.failed++
     }
+  }
+
+  if (summary.failed > 0) {
+    console.error(
+      "[migrate] aborting before detach: Caddy is not attached to every project network",
+      summary
+    )
+    agent.close()
+    await sql.end()
+    process.exit(1)
   }
 
   // 2. Detach every app container from the legacy `ploydok-ingress` network.
@@ -81,7 +96,9 @@ async function main(): Promise<void> {
       summary.detached++
     } catch (err) {
       if (isNotFound(err)) {
-        console.log(`[migrate] ${c.name} not on ${LEGACY_INGRESS} (already migrated)`)
+        console.log(
+          `[migrate] ${c.name} not on ${LEGACY_INGRESS} (already migrated)`
+        )
         summary.skipped++
         continue
       }

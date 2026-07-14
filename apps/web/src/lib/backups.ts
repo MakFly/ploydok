@@ -77,15 +77,11 @@ const backupsKey = (target: BackupTarget) =>
 const backupConfigKey = (target: BackupTarget) =>
   target.kind === "database"
     ? (["backup-config", "database", target.databaseId] as const)
-    : ([
-        "backup-config",
-        "app-volume",
-        target.appId,
-        target.volumeId,
-      ] as const)
+    : (["backup-config", "app-volume", target.appId, target.volumeId] as const)
 
 function backupsPath(target: BackupTarget): string {
-  if (target.kind === "database") return `/databases/${target.databaseId}/backups`
+  if (target.kind === "database")
+    return `/databases/${target.databaseId}/backups`
   return `/apps/${target.appId}/volumes/${target.volumeId}/backups`
 }
 
@@ -142,7 +138,7 @@ export function useUpdateTargetBackupConfig(target: BackupTarget) {
     mutationFn: async (input: UpdateBackupConfigInput) => {
       return apiFetch<{ config: BackupConfig }>(backupConfigPath(target), {
         method: "PUT",
-        body: JSON.stringify(input),
+        body: input,
         headers: { "content-type": "application/json" },
       })
     },
@@ -164,9 +160,12 @@ export function useTargetBackupNow(target: BackupTarget) {
   const queryClient = useQueryClient()
   return useMutation({
     mutationFn: async () => {
-      return apiFetch<{ message: string; backupId: string }>(backupNowPath(target), {
-        method: "POST",
-      })
+      return apiFetch<{ message: string; backupId: string }>(
+        backupNowPath(target),
+        {
+          method: "POST",
+        }
+      )
     },
     onSuccess: () => {
       toast.success("Backup started")
@@ -189,7 +188,7 @@ export function useRestoreBackup(databaseId: string) {
     mutationFn: async (input: RestoreInput) => {
       return apiFetch<{ ok: boolean }>(`/databases/${databaseId}/restore`, {
         method: "POST",
-        body: JSON.stringify(input),
+        body: input,
         headers: { "content-type": "application/json" },
       })
     },
@@ -206,7 +205,9 @@ export function useDeleteBackup(target: BackupTarget) {
   const queryClient = useQueryClient()
   return useMutation({
     mutationFn: async (backupId: string) => {
-      return apiFetch<{ ok: boolean }>(`/backups/${backupId}`, { method: "DELETE" })
+      return apiFetch<{ ok: boolean }>(`/backups/${backupId}`, {
+        method: "DELETE",
+      })
     },
     onSuccess: () => {
       queryClient.invalidateQueries({ queryKey: backupsKey(target) })

@@ -38,7 +38,7 @@ export async function upsertProjectEnvVars(
     `/projects/${projectId}/env`,
     {
       method: "PUT",
-      body: JSON.stringify({ vars }),
+      body: { vars },
     }
   )
   return data.vars

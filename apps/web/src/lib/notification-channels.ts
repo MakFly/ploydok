@@ -21,6 +21,9 @@ export type ChannelEvent =
   | "deploy.succeeded"
   | "deploy.failed"
   | "webhook.rotated"
+  | "app.autohealed"
+  | "app.autoheal_failed"
+  | "image.auto_updated"
 
 export interface DiscordConfig {
   webhook_url: string
@@ -242,6 +245,9 @@ export const EVENT_LABELS: Record<ChannelEvent, string> = {
   "deploy.succeeded": "Déploiement réussi",
   "deploy.failed": "Déploiement échoué",
   "webhook.rotated": "Secret webhook pivoté",
+  "app.autohealed": "App auto-réparée",
+  "app.autoheal_failed": "Auto-réparation abandonnée",
+  "image.auto_updated": "Image auto-mise à jour",
 }
 
 export const ALL_EVENTS: ReadonlyArray<ChannelEvent> = [
@@ -251,6 +257,9 @@ export const ALL_EVENTS: ReadonlyArray<ChannelEvent> = [
   "deploy.succeeded",
   "deploy.failed",
   "webhook.rotated",
+  "app.autohealed",
+  "app.autoheal_failed",
+  "image.auto_updated",
 ]
 
 export const KIND_LABELS: Record<NotificationKind, string> = {

@@ -19,8 +19,12 @@ run() {
 
 verify_image() {
   local image="$1"
+  local identity_regex='^https://github\.com/MakFly/ploydok/\.github/workflows/release-images\.yml@.*$'
   if command -v cosign >/dev/null 2>&1; then
-    run cosign verify "$image"
+    run cosign verify \
+      --certificate-oidc-issuer https://token.actions.githubusercontent.com \
+      --certificate-identity-regexp "$identity_regex" \
+      "$image"
   elif [[ "$DRY_RUN" == "1" || "${PLOYDOK_INSTALL_SKIP_COSIGN:-0}" == "1" ]]; then
     echo "[ploydok-cli] WARN: cosign not installed; image signature verification skipped for $image" >&2
   else
@@ -37,6 +41,28 @@ compose_healthcheck() {
     fi
     sleep 1
   done
+  return 1
+}
+
+swarm_healthcheck() {
+  [[ "$DRY_RUN" == "1" ]] && return 0
+  local desired running healthy ids id status
+  desired="$(docker service inspect --format '{{.Spec.Mode.Replicated.Replicas}}' ploydok_api 2>/dev/null || echo 0)"
+  for _ in $(seq 1 90); do
+    ids="$(docker ps -q --filter label=com.docker.swarm.service.name=ploydok_api)"
+    running="$(grep -c . <<<"$ids" || true)"
+    healthy=0
+    while IFS= read -r id; do
+      [[ -n "$id" ]] || continue
+      status="$(docker inspect --format '{{if .State.Health}}{{.State.Health.Status}}{{else}}{{.State.Status}}{{end}}' "$id" 2>/dev/null || true)"
+      [[ "$status" == "healthy" || "$status" == "running" ]] && healthy=$((healthy + 1))
+    done <<<"$ids"
+    if [[ "$desired" -gt 0 && "$running" -ge "$desired" && "$healthy" -ge "$desired" ]]; then
+      return 0
+    fi
+    sleep 1
+  done
+  docker service ps --no-trunc ploydok_api >&2 || true
   return 1
 }
 
@@ -62,6 +88,18 @@ compose_file_path() {
   fi
 }
 
+stack_file_path() {
+  printf '%s\n' "$(real_path "$INSTALL_DIR/docker-stack.yml")"
+}
+
+runtime_kind() {
+  if [[ -f "$(stack_file_path)" ]]; then
+    printf 'swarm\n'
+  else
+    printf 'compose\n'
+  fi
+}
+
 cmd="${1:-}"
 [[ -n "$cmd" ]] || { usage >&2; exit 1; }
 shift || true
@@ -82,10 +120,17 @@ case "$cmd" in
       echo "This will stop Ploydok. Re-run with --yes to confirm." >&2
       exit 2
     fi
-    run systemctl disable --now ploydok.target
-    compose_file="$(compose_file_path)"
-    if [[ -f "$compose_file" ]]; then
-      run docker compose --env-file "$(real_path "$DATA_DIR/.env")" -f "$compose_file" down
+    runtime="$(runtime_kind)"
+    if [[ "$runtime" == "swarm" ]]; then
+      run systemctl disable --now ploydok.service
+      run systemctl disable --now ploydok-port-isolation.service
+      run systemctl disable --now ploydok.target
+    else
+      run systemctl disable --now ploydok.target
+      compose_file="$(compose_file_path)"
+      if [[ -f "$compose_file" ]]; then
+        run docker compose --env-file "$(real_path "$DATA_DIR/.env")" -f "$compose_file" down
+      fi
     fi
     backup="/var/backups/ploydok-data-$(date -u +%Y%m%dT%H%M%SZ).tar.gz"
     if [[ -d "$(real_path "$DATA_DIR")" ]]; then
@@ -119,13 +164,18 @@ case "$cmd" in
       esac
     done
     [[ -n "$VERSION" ]] || { echo "--version is required" >&2; exit 1; }
-    compose_file="$(compose_file_path)"
+    runtime="$(runtime_kind)"
+    if [[ "$runtime" == "swarm" ]]; then
+      descriptor="$(stack_file_path)"
+    else
+      descriptor="$(compose_file_path)"
+    fi
     env_file="$(real_path "$DATA_DIR/.env")"
-    [[ -f "$compose_file" ]] || { echo "missing compose file: $compose_file" >&2; exit 1; }
+    [[ -f "$descriptor" ]] || { echo "missing $runtime descriptor: $descriptor" >&2; exit 1; }
     [[ -f "$env_file" ]] || { echo "missing env file: $env_file" >&2; exit 1; }
 
     if [[ -z "$REGISTRY" ]]; then
-      REGISTRY="$(grep -E 'image: .*/ploydok-api:' "$compose_file" | head -n1 | sed -E 's/^.*image: (.*)\/ploydok-api:.*$/\1/')"
+      REGISTRY="$(grep -E 'image: .*/ploydok-api:' "$descriptor" | head -n1 | sed -E 's/^.*image: (.*)\/ploydok-api:.*$/\1/')"
     fi
     [[ -n "$REGISTRY" ]] || { echo "could not infer image registry; pass --image-registry=<registry>" >&2; exit 1; }
 
@@ -137,30 +187,40 @@ case "$cmd" in
       verify_image "$REGISTRY/ploydok-caddy:$VERSION"
     fi
 
-    backup_compose="$(real_path "$DATA_DIR/backups/docker-compose.pre-upgrade-$VERSION.yml")"
+    backup_descriptor="$(real_path "$DATA_DIR/backups/$(basename "$descriptor").pre-upgrade-$VERSION.yml")"
     snapshot="$(real_path "$DATA_DIR/backups/pre-upgrade-$VERSION.sql")"
     install -d -m 0750 "$(dirname "$snapshot")"
-    run cp "$compose_file" "$backup_compose"
+    run cp "$descriptor" "$backup_descriptor"
 
     if [[ "${PLOYDOK_SKIP_DB_SNAPSHOT:-0}" == "1" ]]; then
       echo "[ploydok-cli] WARN: pre-upgrade DB snapshot skipped by PLOYDOK_SKIP_DB_SNAPSHOT=1" >&2
     elif [[ "$DRY_RUN" == "1" ]]; then
-      echo "[ploydok-cli] dry-run: docker compose --env-file $env_file -f $compose_file exec -T postgres pg_dump -U ploydok ploydok > $snapshot"
+      if [[ "$runtime" == "swarm" ]]; then
+        echo "[ploydok-cli] dry-run: docker exec <ploydok_postgres-task> pg_dump -U ploydok ploydok > $snapshot"
+      else
+        echo "[ploydok-cli] dry-run: docker compose --env-file $env_file -f $descriptor exec -T postgres pg_dump -U ploydok ploydok > $snapshot"
+      fi
     else
-      docker compose --env-file "$env_file" -f "$compose_file" exec -T postgres pg_dump -U ploydok ploydok >"$snapshot"
+      if [[ "$runtime" == "swarm" ]]; then
+        postgres_id="$(docker ps -q --filter label=com.docker.swarm.service.name=ploydok_postgres | head -n1)"
+        [[ -n "$postgres_id" ]] || { echo "running ploydok_postgres task not found" >&2; exit 1; }
+        docker exec "$postgres_id" pg_dump -U ploydok ploydok >"$snapshot"
+      else
+        docker compose --env-file "$env_file" -f "$descriptor" exec -T postgres pg_dump -U ploydok ploydok >"$snapshot"
+      fi
     fi
 
     if [[ "$DRY_RUN" == "1" ]]; then
       if [[ "$INCLUDE_DATA_PLANE" == "1" ]]; then
-        echo "[ploydok-cli] dry-run: update $compose_file api/web/agent/adminer/caddy images to $VERSION"
+        echo "[ploydok-cli] dry-run: update $descriptor api/web/agent/adminer/caddy images to $VERSION"
       else
-        echo "[ploydok-cli] dry-run: update $compose_file api/web/agent/adminer images to $VERSION"
+        echo "[ploydok-cli] dry-run: update $descriptor api/web/agent/adminer images to $VERSION"
       fi
     else
       if [[ "$INCLUDE_DATA_PLANE" == "1" ]]; then
-        sed -E -i "s#(image: .*/ploydok-(api|web|agent|adminer|caddy):).*#\\1$VERSION#" "$compose_file"
+        sed -E -i "s#(image: .*/ploydok-(api|web|agent|adminer|caddy):).*#\\1$VERSION#" "$descriptor"
       else
-        sed -E -i "s#(image: .*/ploydok-(api|web|agent|adminer):).*#\\1$VERSION#" "$compose_file"
+        sed -E -i "s#(image: .*/ploydok-(api|web|agent|adminer):).*#\\1$VERSION#" "$descriptor"
       fi
     fi
 
@@ -172,9 +232,17 @@ case "$cmd" in
     if [[ "${PLOYDOK_SKIP_PULL:-0}" == "1" ]]; then
       echo "[ploydok-cli] WARN: image pull skipped by PLOYDOK_SKIP_PULL=1" >&2
     else
-      if ! run docker compose --env-file "$env_file" -f "$compose_file" pull "${services[@]}"; then
+      if [[ "$runtime" == "swarm" ]]; then
+        for service in "${services[@]}"; do
+          if ! run docker pull "$REGISTRY/ploydok-$service:$VERSION"; then
+            echo "image pull failed; restoring previous stack descriptor" >&2
+            run cp "$backup_descriptor" "$descriptor"
+            exit 1
+          fi
+        done
+      elif ! run docker compose --env-file "$env_file" -f "$descriptor" pull "${services[@]}"; then
         echo "image pull failed; restoring previous compose file" >&2
-        run cp "$backup_compose" "$compose_file"
+        run cp "$backup_descriptor" "$descriptor"
         exit 1
       fi
     fi
@@ -182,26 +250,50 @@ case "$cmd" in
     if [[ "$SKIP_MIGRATIONS" == "1" ]]; then
       echo "[ploydok-cli] WARN: migrations skipped by --skip-migrations" >&2
     elif [[ "$DRY_RUN" == "1" ]]; then
-      echo "[ploydok-cli] dry-run: docker compose --env-file $env_file -f $compose_file run --rm --no-deps api bun run --cwd packages/db migrate"
+      if [[ "$runtime" == "swarm" ]]; then
+        echo "[ploydok-cli] dry-run: docker run --rm --env-file $env_file --network ploydok_ploydok $REGISTRY/ploydok-api:$VERSION bun run /app/packages/db/src/migrate.ts"
+      else
+        echo "[ploydok-cli] dry-run: docker compose --env-file $env_file -f $descriptor run --rm --no-deps api bun run /app/packages/db/src/migrate.ts"
+      fi
     else
-      if ! docker compose --env-file "$env_file" -f "$compose_file" run --rm --no-deps api bun run --cwd packages/db migrate; then
-        echo "database migration failed; restoring previous compose file" >&2
-        run cp "$backup_compose" "$compose_file"
+      if [[ "$runtime" == "swarm" ]]; then
+        migration_cmd=(docker run --rm --env-file "$env_file" --network ploydok_ploydok "$REGISTRY/ploydok-api:$VERSION" bun run /app/packages/db/src/migrate.ts)
+      else
+        migration_cmd=(docker compose --env-file "$env_file" -f "$descriptor" run --rm --no-deps api bun run /app/packages/db/src/migrate.ts)
+      fi
+      if ! "${migration_cmd[@]}"; then
+        echo "database migration failed; restoring previous $runtime descriptor" >&2
+        run cp "$backup_descriptor" "$descriptor"
         exit 1
       fi
     fi
 
-    if ! run docker compose --env-file "$env_file" -f "$compose_file" up -d --no-deps "${services[@]}"; then
-      echo "compose up failed; restoring previous compose file" >&2
-      run cp "$backup_compose" "$compose_file"
-      run docker compose --env-file "$env_file" -f "$compose_file" up -d --no-deps "${services[@]}"
-      exit 1
-    fi
-    if ! compose_healthcheck; then
-      echo "post-upgrade healthcheck failed; restoring previous compose file" >&2
-      run cp "$backup_compose" "$compose_file"
-      run docker compose --env-file "$env_file" -f "$compose_file" up -d --no-deps "${services[@]}"
-      exit 1
+    if [[ "$runtime" == "swarm" ]]; then
+      if ! run docker stack deploy --resolve-image always --with-registry-auth --prune -c "$descriptor" ploydok; then
+        echo "stack deploy failed; restoring previous stack descriptor" >&2
+        run cp "$backup_descriptor" "$descriptor"
+        run docker stack deploy --resolve-image always --with-registry-auth --prune -c "$descriptor" ploydok
+        exit 1
+      fi
+      if ! swarm_healthcheck; then
+        echo "post-upgrade healthcheck failed; restoring previous stack descriptor" >&2
+        run cp "$backup_descriptor" "$descriptor"
+        run docker stack deploy --resolve-image always --with-registry-auth --prune -c "$descriptor" ploydok
+        exit 1
+      fi
+    else
+      if ! run docker compose --env-file "$env_file" -f "$descriptor" up -d --no-deps "${services[@]}"; then
+        echo "compose up failed; restoring previous compose file" >&2
+        run cp "$backup_descriptor" "$descriptor"
+        run docker compose --env-file "$env_file" -f "$descriptor" up -d --no-deps "${services[@]}"
+        exit 1
+      fi
+      if ! compose_healthcheck; then
+        echo "post-upgrade healthcheck failed; restoring previous compose file" >&2
+        run cp "$backup_descriptor" "$descriptor"
+        run docker compose --env-file "$env_file" -f "$descriptor" up -d --no-deps "${services[@]}"
+        exit 1
+      fi
     fi
     ;;
   *)

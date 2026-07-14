@@ -1,5 +1,5 @@
 // SPDX-License-Identifier: AGPL-3.0-only
-import { describe, it, expect, mock } from "bun:test"
+import { beforeEach, describe, it, expect, mock } from "bun:test"
 
 // eslint-disable-next-line @typescript-eslint/no-explicit-any
 async function json(res: Response): Promise<any> {
@@ -72,6 +72,13 @@ import { createServicesRouter } from "./services"
 import { Hono } from "hono"
 import type { Db } from "@ploydok/db"
 
+beforeEach(() => {
+  mockGetServiceForUser.mockReset()
+  mockGetServiceForUser.mockResolvedValue(null)
+  mockListServicesForProject.mockReset()
+  mockListServicesForProject.mockResolvedValue([])
+})
+
 // ---------------------------------------------------------------------------
 // Helpers
 // ---------------------------------------------------------------------------
@@ -94,7 +101,7 @@ function makeApp(db: Db) {
   return app
 }
 
-function makeDb(): Db {
+function makeDb(ownerRows: unknown[] = []): Db {
   // thenable array: awaitable AND has .limit()
   function rows(data: unknown[] = []) {
     const p = Promise.resolve(data)
@@ -104,7 +111,7 @@ function makeDb(): Db {
     select: mock(() => ({
       from: mock(() => ({
         where: mock(() => rows()),
-        innerJoin: mock(() => ({ where: mock(() => rows()) })),
+        innerJoin: mock(() => ({ where: mock(() => rows(ownerRows)) })),
       })),
     })),
     insert: mock(() => ({ values: mock(async () => {}) })),
@@ -253,7 +260,7 @@ describe("DELETE /services/:id", () => {
       status: "stopped",
       container_ids: [],
     })
-    const app = makeApp(makeDb())
+    const app = makeApp(makeDb([{ id: "svc-1" }]))
     const res = await app.request("/services/svc-1", {
       method: "DELETE",
       headers: { "Content-Type": "application/json" },
@@ -271,7 +278,7 @@ describe("DELETE /services/:id", () => {
       status: "stopped",
       container_ids: [],
     })
-    const app = makeApp(makeDb())
+    const app = makeApp(makeDb([{ id: "svc-1" }]))
     const res = await app.request("/services/svc-1", {
       method: "DELETE",
       headers: { "Content-Type": "application/json" },

@@ -175,7 +175,7 @@ export function useImportGitHubApp() {
     mutationFn: (payload) =>
       apiFetch<GitHubAppConfig>("/github/app/import", {
         method: "POST",
-        body: JSON.stringify(payload),
+        body: payload,
         headers: { "content-type": "application/json" },
       }),
     onSuccess: (config) => {
@@ -302,7 +302,7 @@ export function useSyncGitHubInstallations() {
         "/github/installations/sync",
         {
           method: "POST",
-          body: JSON.stringify(vars ?? {}),
+          body: vars ?? {},
           headers: { "content-type": "application/json" },
         }
       ),

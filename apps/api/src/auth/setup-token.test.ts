@@ -6,6 +6,7 @@ import {
   clearSetupToken,
   consumeSetupToken,
   getSetupTokenState,
+  validateSetupToken,
 } from "./setup-token"
 import type { Db } from "@ploydok/db"
 
@@ -48,13 +49,17 @@ describe("setup-token", () => {
     expect(getSetupTokenState().active).toBe(false)
   })
 
-  test("env override is permanent (no expiry)", async () => {
+  test("env override has no expiry but is consumed once", async () => {
     Bun.env["PLOYDOK_SETUP_TOKEN"] = "x".repeat(32)
     await bootstrapSetupToken(makeDb(0))
     const state = getSetupTokenState()
     expect(state.active).toBe(true)
     expect(state.expires_at).toBeNull()
+    expect(validateSetupToken("x".repeat(32))).toBe(true)
+    expect(validateSetupToken("x".repeat(32))).toBe(true)
     expect(consumeSetupToken("x".repeat(32))).toBe(true)
+    expect(consumeSetupToken("x".repeat(32))).toBe(false)
+    expect(getSetupTokenState().active).toBe(false)
   })
 
   test("bootstrap is idempotent", async () => {

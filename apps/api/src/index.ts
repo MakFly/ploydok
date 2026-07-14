@@ -34,13 +34,25 @@ async function runMigrationsOnBoot(): Promise<void> {
     return
   }
   const here = dirname(fileURLToPath(import.meta.url))
-  const migrationsFolder = join(here, "..", "..", "..", "packages", "db", "migrations")
+  const migrationsFolder = join(
+    here,
+    "..",
+    "..",
+    "..",
+    "packages",
+    "db",
+    "migrations"
+  )
   const sql = postgres(env.DATABASE_URL, { max: 1, onnotice: () => {} })
   try {
+    await sql`SELECT pg_advisory_lock(hashtext('ploydok:drizzle-migrations'))`
     log.info({ migrationsFolder }, "applying drizzle migrations on boot")
     await migrate(drizzle(sql), { migrationsFolder })
     log.info("drizzle migrations applied")
   } finally {
+    await sql`SELECT pg_advisory_unlock(hashtext('ploydok:drizzle-migrations'))`.catch(
+      () => undefined
+    )
     await sql.end()
   }
 }
@@ -115,7 +127,9 @@ async function bootInfra(db: Db): Promise<void> {
 function scheduleDockerAppsSwarmMigrationRetry(db: Db, failed: number): void {
   if (failed <= 0) return
   const retryMs = Number(Bun.env["PLOYDOK_SWARM_MIGRATION_RETRY_MS"] ?? 60_000)
-  const maxAttempts = Number(Bun.env["PLOYDOK_SWARM_MIGRATION_RETRY_ATTEMPTS"] ?? 120)
+  const maxAttempts = Number(
+    Bun.env["PLOYDOK_SWARM_MIGRATION_RETRY_ATTEMPTS"] ?? 120
+  )
   let attempts = 0
   let running = false
   const timer = setInterval(() => {
@@ -163,7 +177,12 @@ async function reconcileIngressWithRetry(
 
   for (let attempt = 1; attempt <= attempts; attempt++) {
     try {
-      const result = await reconcileIngressOnce({ db, caddy, agent, logger: log })
+      const result = await reconcileIngressOnce({
+        db,
+        caddy,
+        agent,
+        logger: log,
+      })
       if (result.ok) {
         log.info({ ...result, attempt }, "ingress reconcile complete")
         return
@@ -201,7 +220,10 @@ if (import.meta.main) {
     websocket: wsHandler,
     idleTimeout: 0,
   })
-  log.info({ port: env.PORT, marker: "ci-cd-loop-test-1" }, `api listening on :${env.PORT}`)
+  log.info(
+    { port: env.PORT, marker: "ci-cd-loop-test-1" },
+    `api listening on :${env.PORT}`
+  )
 
   const workerDb = createDb(env.DATABASE_URL)
   const worker = startWorker(workerDb)

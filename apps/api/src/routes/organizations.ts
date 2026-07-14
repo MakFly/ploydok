@@ -3,6 +3,7 @@ import { Hono } from "hono"
 import type { Db } from "@ploydok/db"
 import { CreateOrganizationBodySchema } from "@ploydok/shared"
 import type { AuthUser } from "../auth/middleware"
+import { requireRole } from "../auth/require-role"
 import {
   createOrganizationForUser,
   deleteOrganizationForUser,
@@ -79,12 +80,12 @@ export function createOrganizationsRouter(db: Db): Hono {
     return c.json({ organization })
   })
 
-  router.delete("/:slug", async (c) => {
+  router.delete("/:slug", requireRole(db, ["owner"]), async (c) => {
     const user = getUser(c)
     const result = await deleteOrganizationForUser(
       db,
       user.id,
-      c.req.param("slug")
+      c.req.param("slug")!
     )
     if (!result.ok) {
       if (result.reason === "not_found") {

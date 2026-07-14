@@ -1,0 +1,14 @@
+[Unit]
+Description=Ploydok Swarm published-port isolation
+Requires=docker.service
+After=docker.service
+Before=ploydok.service
+
+[Service]
+Type=oneshot
+RemainAfterExit=yes
+ExecStart=/usr/local/lib/ploydok/port-isolation.sh start
+ExecStop=/usr/local/lib/ploydok/port-isolation.sh stop
+
+[Install]
+WantedBy=ploydok.target

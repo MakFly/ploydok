@@ -20,9 +20,10 @@ export async function getScheduledJob(
   orgSlug: string,
   jobId: string
 ): Promise<{ job: ScheduledJobDetail; recentRuns: Array<ScheduledJobRun> }> {
-  return apiFetch<{ job: ScheduledJobDetail; recentRuns: Array<ScheduledJobRun> }>(
-    `/orgs/${orgSlug}/scheduled-jobs/${jobId}`
-  )
+  return apiFetch<{
+    job: ScheduledJobDetail
+    recentRuns: Array<ScheduledJobRun>
+  }>(`/orgs/${orgSlug}/scheduled-jobs/${jobId}`)
 }
 
 export async function createScheduledJob(
@@ -31,7 +32,7 @@ export async function createScheduledJob(
 ): Promise<ScheduledJobSummary> {
   return apiFetch<ScheduledJobSummary>(`/orgs/${orgSlug}/scheduled-jobs`, {
     method: "POST",
-    body: JSON.stringify(input),
+    body: input,
   })
 }
 
@@ -44,7 +45,7 @@ export async function updateScheduledJob(
     `/orgs/${orgSlug}/scheduled-jobs/${jobId}`,
     {
       method: "PATCH",
-      body: JSON.stringify(input),
+      body: input,
     }
   )
 }

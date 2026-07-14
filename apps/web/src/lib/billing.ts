@@ -1,6 +1,6 @@
 // SPDX-License-Identifier: AGPL-3.0-only
 import { useMutation, useSuspenseQuery } from "@tanstack/react-query"
-import { apiFetchAllowErrorBody } from "./api"
+import { apiFetch } from "./api"
 import type {
   CheckoutResponse,
   CurrentPlanResponse,
@@ -10,13 +10,8 @@ import type {
 export function useCurrentPlan(orgSlug: string) {
   return useSuspenseQuery({
     queryKey: ["billing", "current", orgSlug],
-    queryFn: async (): Promise<CurrentPlanResponse> => {
-      const { data } = await apiFetchAllowErrorBody(
-        `/orgs/${orgSlug}/billing/current`,
-        { method: "GET" }
-      )
-      return data as CurrentPlanResponse
-    },
+    queryFn: (): Promise<CurrentPlanResponse> =>
+      apiFetch<CurrentPlanResponse>(`/orgs/${orgSlug}/billing/current`),
   })
 }
 
@@ -29,24 +24,10 @@ export function useCheckoutSession() {
       planSlug: "pro" | "enterprise"
       orgSlug: string
     }): Promise<CheckoutResponse> => {
-      const { response, data } = await apiFetchAllowErrorBody(
-        `/orgs/${orgSlug}/billing/checkout`,
-        {
-          method: "POST",
-          body: JSON.stringify({ planSlug }),
-        }
-      )
-      if (!response.ok) {
-        const errorMessage =
-          data &&
-          typeof data === "object" &&
-          "error" in data &&
-          typeof (data as Record<string, unknown>).error === "string"
-            ? ((data as Record<string, unknown>).error as string)
-            : "Checkout failed"
-        throw new Error(errorMessage)
-      }
-      return data as CheckoutResponse
+      return apiFetch<CheckoutResponse>(`/orgs/${orgSlug}/billing/checkout`, {
+        method: "POST",
+        body: { planSlug },
+      })
     },
   })
 }
@@ -58,21 +39,9 @@ export function useBillingPortal() {
     }: {
       orgSlug: string
     }): Promise<PortalResponse> => {
-      const { response, data } = await apiFetchAllowErrorBody(
-        `/orgs/${orgSlug}/billing/portal`,
-        { method: "POST" }
-      )
-      if (!response.ok) {
-        const errorMessage =
-          data &&
-          typeof data === "object" &&
-          "error" in data &&
-          typeof (data as Record<string, unknown>).error === "string"
-            ? ((data as Record<string, unknown>).error as string)
-            : "Portal failed"
-        throw new Error(errorMessage)
-      }
-      return data as PortalResponse
+      return apiFetch<PortalResponse>(`/orgs/${orgSlug}/billing/portal`, {
+        method: "POST",
+      })
     },
   })
 }

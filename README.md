@@ -135,6 +135,10 @@ curl -fsSL https://raw.githubusercontent.com/MakFly/ploydok/main/installer/boots
   | sudo bash -s -- --mode=coexist --yes
 ```
 
+The installer deploys the production control plane as a single-node Docker
+Swarm stack by default. Docker Compose remains available only for explicit
+local and test workflows (`--runtime=compose`).
+
 The installer:
 
 - clones the installer into `/opt/ploydok-installer`;

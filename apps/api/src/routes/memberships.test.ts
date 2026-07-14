@@ -29,7 +29,7 @@ mock.module("@ploydok/db/queries", () => ({
   countOwners: async () => 2,
   createInvitation: async () => null,
   findPendingInvitationByEmail: async () => null,
-  getMembership: async () => ({ role: "owner" }),
+  getMembership: async () => ({ role: "owner", accepted_at: new Date() }),
   isOrgOwner: async () => true,
   listMembershipsForOrg: async () => [],
   listPendingInvitationsForOrg: async () => [],
@@ -68,9 +68,7 @@ function stringChunk(value: unknown): string | null {
     return null
   }
   const parts = value["value"]
-  return parts.every((part) => typeof part === "string")
-    ? parts.join("")
-    : null
+  return parts.every((part) => typeof part === "string") ? parts.join("") : null
 }
 
 function columnName(value: unknown): InvitationColumn | null {

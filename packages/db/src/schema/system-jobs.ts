@@ -8,7 +8,7 @@ export const system_jobs = pgTable(
   {
     id: text("id").primaryKey(),
     kind: text("kind", {
-      enum: ["gc.registry"],
+      enum: ["gc.registry", "gc.images", "gc.buildcache"],
     }).notNull(),
     status: text("status", {
       enum: ["pending", "running", "succeeded", "failed", "cancelled"],
@@ -33,6 +33,7 @@ export const system_jobs = pgTable(
     claimed_at: timestamp("claimed_at", { withTimezone: true, mode: "date" }),
     finished_at: timestamp("finished_at", { withTimezone: true, mode: "date" }),
     error_message: text("error_message"),
+    result: jsonb("result"),
   },
   (t) => [
     index("system_jobs_kind_status_idx").on(t.kind, t.status),

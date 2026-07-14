@@ -166,6 +166,12 @@ function signState(state: string): string {
   return `${state}.${mac}`;
 }
 
+function signInstallState(state: string, userId = FAKE_USER.id): string {
+  const payload = Buffer.from(JSON.stringify({ state, userId })).toString("base64url");
+  const mac = createHmac("sha256", env.SESSION_SECRET).update(payload).digest("hex");
+  return `${payload}.${mac}`;
+}
+
 beforeEach(() => {
   mockGitHubAppConfig = null;
   importedConfigs.length = 0;
@@ -508,20 +514,27 @@ describe("GET /github/app/setup", () => {
       `/github/app/setup?installation_id=42&setup_action=install&state=${state}`,
       {
         headers: {
-          cookie: `gh_install_state=${encodeURIComponent(signState(state))}`,
+          cookie: `gh_install_state=${encodeURIComponent(signInstallState(state))}`,
         },
       },
     );
     expect(res.status).toBe(302);
-    expect(res.headers.get("location")).toBe(
-      `${env.WEB_ORIGIN}/settings/git-providers/github?installation_id=42&setup_action=install&installed=1`,
+    const location = new URL(res.headers.get("location")!);
+    expect(`${location.origin}${location.pathname}`).toBe(
+      `${env.WEB_ORIGIN}/settings/git-providers/github`,
     );
+    expect(location.searchParams.get("installation_id")).toBe("42");
+    expect(location.searchParams.get("setup_action")).toBe("install");
+    expect(location.searchParams.get("installed")).toBe("1");
+    const syncId = location.searchParams.get("sync_id");
+    expect(syncId).toBeTruthy();
     expect(credentialUpserts).toHaveLength(1);
     expect(credentialUpserts[0]?.values).toMatchObject({
       id: "github:42",
       provider: "github",
       credential_type: "installation",
       last_sync_status: "pending",
+      last_sync_actor_user_id: FAKE_USER.id,
       last_sync_source: "api",
       last_sync_claimed_at: null,
     });
@@ -529,6 +542,8 @@ describe("GET /github/app/setup", () => {
     expect(enqueuedSyncs[0]).toMatchObject({
       provider: "github",
       installationId: "42",
+      requestedBy: FAKE_USER.id,
+      syncId,
     });
   });
 
@@ -538,7 +553,7 @@ describe("GET /github/app/setup", () => {
       "/github/app/setup?installation_id=42&setup_action=install&state=bad",
       {
         headers: {
-          cookie: `gh_install_state=${encodeURIComponent(signState("good"))}`,
+          cookie: `gh_install_state=${encodeURIComponent(signInstallState("good"))}`,
         },
       },
     );
@@ -550,11 +565,11 @@ describe("GET /github/app/setup", () => {
     expect(enqueuedSyncs).toHaveLength(0);
   });
 
-  it("treats an update setup action as the same update-or-create sync path", async () => {
+  it("keeps an in-flight installation using the legacy state cookie working", async () => {
     const app = buildApp();
-    const state = "update-state";
+    const state = "legacy-state";
     const res = await app.request(
-      `/github/app/setup?installation_id=77&setup_action=update&state=${state}`,
+      `/github/app/setup?installation_id=42&setup_action=install&state=${state}`,
       {
         headers: {
           cookie: `gh_install_state=${encodeURIComponent(signState(state))}`,
@@ -563,17 +578,46 @@ describe("GET /github/app/setup", () => {
     );
 
     expect(res.status).toBe(302);
-    expect(res.headers.get("location")).toBe(
-      `${env.WEB_ORIGIN}/settings/git-providers/github?installation_id=77&setup_action=update&installed=1`,
+    const location = new URL(res.headers.get("location")!);
+    expect(location.searchParams.get("installed")).toBe("1");
+    expect(location.searchParams.get("sync_id")).toBeNull();
+    expect(enqueuedSyncs[0]).toMatchObject({
+      provider: "github",
+      installationId: "42",
+    });
+    expect(enqueuedSyncs[0]).not.toHaveProperty("requestedBy");
+  });
+
+  it("treats an update setup action as the same update-or-create sync path", async () => {
+    const app = buildApp();
+    const state = "update-state";
+    const res = await app.request(
+      `/github/app/setup?installation_id=77&setup_action=update&state=${state}`,
+      {
+        headers: {
+          cookie: `gh_install_state=${encodeURIComponent(signInstallState(state))}`,
+        },
+      },
     );
+
+    expect(res.status).toBe(302);
+    const location = new URL(res.headers.get("location")!);
+    expect(location.searchParams.get("installation_id")).toBe("77");
+    expect(location.searchParams.get("setup_action")).toBe("update");
+    expect(location.searchParams.get("installed")).toBe("1");
+    const syncId = location.searchParams.get("sync_id");
+    expect(syncId).toBeTruthy();
     expect(credentialUpserts[0]?.values).toMatchObject({
       id: "github:77",
       last_sync_status: "pending",
+      last_sync_actor_user_id: FAKE_USER.id,
       last_sync_source: "api",
     });
     expect(enqueuedSyncs[0]).toMatchObject({
       provider: "github",
       installationId: "77",
+      requestedBy: FAKE_USER.id,
+      syncId,
     });
   });
 });

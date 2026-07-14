@@ -47,4 +47,13 @@ export type {
   // Host stats (Sprint 6.6)
   HostStatsRequest,
   HostStatsResponse,
+  // Disk usage & image reclaim (Phase 1)
+  ImageDfRequest,
+  ImageDfResponse,
+  ImagePruneRequest,
+  ImagePruneResponse,
+  DiskUsageCategory,
+  // Registry digest polling (image auto-update watch)
+  RegistryImageDigestRequest,
+  RegistryImageDigestResponse,
 } from "@ploydok/agent-proto"

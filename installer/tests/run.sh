@@ -12,17 +12,17 @@ assert_file() {
 
 assert_contains() {
   local file="$1" needle="$2"
-  grep -Fq "$needle" "$file" || { echo "expected $file to contain $needle" >&2; exit 1; }
+  grep -Fq -- "$needle" "$file" || { echo "expected $file to contain $needle" >&2; exit 1; }
 }
 
 assert_text_contains() {
   local text="$1" needle="$2"
-  grep -Fq "$needle" <<<"$text" || { echo "expected text to contain $needle" >&2; exit 1; }
+  grep -Fq -- "$needle" <<<"$text" || { echo "expected text to contain $needle" >&2; exit 1; }
 }
 
 assert_text_not_contains() {
   local text="$1" needle="$2"
-  ! grep -Fq "$needle" <<<"$text" || { echo "expected text not to contain $needle" >&2; exit 1; }
+  ! grep -Fq -- "$needle" <<<"$text" || { echo "expected text not to contain $needle" >&2; exit 1; }
 }
 
 assert_not_exists() {
@@ -34,6 +34,7 @@ PLOYDOK_INSTALL_ROOT="$TMP/root" \
 PLOYDOK_PUBLIC_HOST="ploydok.test" \
 bash "$ROOT/installer/install.sh" \
   --mode=coexist \
+  --runtime=compose \
   --http-port=18080 \
   --https-port=18443 \
   --data-dir=/var/lib/ploydok \
@@ -99,6 +100,7 @@ PLOYDOK_INSTALL_ROOT="$TMP/root" \
 PLOYDOK_PUBLIC_HOST="ploydok.test" \
 bash "$ROOT/installer/install.sh" \
   --mode=coexist \
+  --runtime=compose \
   --http-port=18080 \
   --https-port=18443 \
   --data-dir=/var/lib/ploydok \
@@ -122,7 +124,7 @@ upgrade_output="$(
 assert_text_contains "$upgrade_output" "update $TMP/root/opt/ploydok/docker-compose.yml api/web/agent/adminer images to test2"
 assert_text_contains "$upgrade_output" "pull api web agent adminer"
 assert_text_contains "$upgrade_output" "up -d --no-deps api web agent adminer"
-assert_text_contains "$upgrade_output" "run --rm --no-deps api bun run --cwd packages/db migrate"
+assert_text_contains "$upgrade_output" "run --rm --no-deps api bun run /app/packages/db/src/migrate.ts"
 assert_text_not_contains "$upgrade_output" "ploydok-caddy:test2"
 
 upgrade_data_plane_output="$(
@@ -141,6 +143,7 @@ PLOYDOK_INSTALL_DRY_RUN=1 \
 PLOYDOK_INSTALL_ROOT="$TMP/takeover-root" \
 bash "$ROOT/installer/install.sh" \
   --mode=takeover \
+  --runtime=compose \
   --data-dir=/var/lib/ploydok \
   --skip-docker-install \
   --yes \
@@ -153,6 +156,7 @@ PLOYDOK_INSTALL_DRY_RUN=1 \
 PLOYDOK_INSTALL_ROOT="$TMP/bootstrap-root" \
 bash "$ROOT/installer/install.sh" \
   --mode=bootstrap-http \
+  --runtime=compose \
   --http-port=18080 \
   --https-port=18443 \
   --public-host=212.47.249.36 \
@@ -170,6 +174,81 @@ assert_contains "$TMP/bootstrap-root/var/lib/ploydok/.env" "PLOYDOK_PUBLIC_PORT=
 assert_contains "$TMP/bootstrap-root/var/lib/ploydok/.env" "PLOYDOK_DOMAIN_BASE=212-47-249-36.sslip.io"
 assert_contains "$TMP/bootstrap-root/var/lib/ploydok/.env" "PLOYDOK_SETUP_TOKEN_REQUIRED=0"
 assert_contains "$TMP/bootstrap-root/var/lib/ploydok/.env" "PLOYDOK_COOKIE_SECURE=auto"
+
+PLOYDOK_INSTALL_DRY_RUN=1 \
+PLOYDOK_INSTALL_ROOT="$TMP/swarm-root" \
+PLOYDOK_PUBLIC_HOST="ploydok.test" \
+bash "$ROOT/installer/install.sh" \
+  --mode=takeover \
+  --data-dir=/var/lib/ploydok \
+  --skip-docker-install \
+  --yes \
+  --version=test
+
+assert_file "$TMP/swarm-root/opt/ploydok/docker-stack.yml"
+assert_file "$TMP/swarm-root/usr/local/lib/ploydok/port-isolation.sh"
+assert_file "$TMP/swarm-root/usr/local/lib/ploydok/update-stack.sh"
+assert_file "$TMP/swarm-root/etc/systemd/system/ploydok-port-isolation.service"
+assert_not_exists "$TMP/swarm-root/opt/ploydok/docker-compose.yml"
+assert_contains "$TMP/swarm-root/etc/systemd/system/ploydok.service" "docker stack deploy"
+assert_contains "$TMP/swarm-root/opt/ploydok/docker-stack.yml" "published: 80"
+assert_contains "$TMP/swarm-root/opt/ploydok/docker-stack.yml" "published: 443"
+assert_contains "$TMP/swarm-root/opt/ploydok/docker-stack.yml" "/var/lib/ploydok/keys:/var/lib/ploydok/keys"
+assert_text_not_contains "$(cat "$TMP/swarm-root/opt/ploydok/docker-stack.yml")" "host_ip:"
+assert_contains "$TMP/swarm-root/usr/local/lib/ploydok/port-isolation.sh" 'MODE="takeover"'
+assert_contains "$TMP/swarm-root/usr/local/lib/ploydok/port-isolation.sh" 'ports=(5000)'
+assert_contains "$TMP/swarm-root/usr/local/lib/ploydok/port-isolation.sh" 'DOCKER-USER'
+assert_contains "$TMP/swarm-root/usr/local/lib/ploydok/port-isolation.sh" 'apply_input_rules'
+assert_contains "$TMP/swarm-root/usr/local/lib/ploydok/update-stack.sh" 'cosign verify'
+assert_contains "$TMP/swarm-root/etc/systemd/system/ploydok-update.service" '/usr/local/lib/ploydok/update-stack.sh'
+
+swarm_upgrade_output="$(
+  PLOYDOK_INSTALL_DRY_RUN=1 PLOYDOK_INSTALL_ROOT="$TMP/swarm-root" PLOYDOK_INSTALL_SKIP_COSIGN=1 \
+    bash "$ROOT/installer/ploydok-cli" upgrade --data-dir=/var/lib/ploydok --version=test2 2>&1
+)"
+assert_text_contains "$swarm_upgrade_output" "update $TMP/swarm-root/opt/ploydok/docker-stack.yml api/web/agent/adminer images to test2"
+assert_text_contains "$swarm_upgrade_output" "docker pull ghcr.io/makfly/ploydok-api:test2"
+assert_text_contains "$swarm_upgrade_output" "--network ploydok_ploydok ghcr.io/makfly/ploydok-api:test2"
+assert_text_contains "$swarm_upgrade_output" "bun run /app/packages/db/src/migrate.ts"
+assert_text_contains "$swarm_upgrade_output" "docker stack deploy --resolve-image always"
+
+swarm_uninstall_output="$(
+  PLOYDOK_INSTALL_DRY_RUN=1 PLOYDOK_INSTALL_ROOT="$TMP/swarm-root" \
+    bash "$ROOT/installer/ploydok-cli" uninstall --data-dir=/var/lib/ploydok --yes 2>&1
+)"
+assert_text_contains "$swarm_uninstall_output" "systemctl disable --now ploydok.service"
+assert_text_contains "$swarm_uninstall_output" "systemctl disable --now ploydok-port-isolation.service"
+assert_text_not_contains "$swarm_uninstall_output" "docker compose"
+
+PLOYDOK_INSTALL_DRY_RUN=1 \
+PLOYDOK_INSTALL_ROOT="$TMP/transition-root" \
+PLOYDOK_PUBLIC_HOST="ploydok.test" \
+bash "$ROOT/installer/install.sh" \
+  --mode=coexist \
+  --runtime=compose \
+  --http-port=18080 \
+  --https-port=18443 \
+  --data-dir=/var/lib/ploydok \
+  --skip-docker-install \
+  --yes \
+  --version=test >/dev/null
+
+transition_output="$(
+  PLOYDOK_INSTALL_DRY_RUN=1 \
+  PLOYDOK_INSTALL_ROOT="$TMP/transition-root" \
+  PLOYDOK_PUBLIC_HOST="ploydok.test" \
+  bash "$ROOT/installer/install.sh" \
+    --mode=coexist \
+    --http-port=18080 \
+    --https-port=18443 \
+    --data-dir=/var/lib/ploydok \
+    --skip-docker-install \
+    --yes \
+    --version=test 2>&1
+)"
+assert_text_contains "$transition_output" "migrating the control plane runtime from Compose to Swarm"
+assert_text_contains "$transition_output" "docker compose --env-file"
+assert_file "$TMP/transition-root/opt/ploydok/docker-stack.yml"
 
 set +e
 PLOYDOK_INSTALL_DRY_RUN=1 \

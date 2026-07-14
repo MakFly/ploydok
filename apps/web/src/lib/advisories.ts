@@ -65,10 +65,13 @@ export function useAcknowledgeAdvisory() {
   const qc = useQueryClient()
   return useMutation({
     mutationFn: (args: { matchId: string; note?: string }) =>
-      apiFetch(`/admin/advisories/${encodeURIComponent(args.matchId)}/acknowledge`, {
-        method: "POST",
-        body: JSON.stringify({ note: args.note ?? "" }),
-      }),
+      apiFetch(
+        `/admin/advisories/${encodeURIComponent(args.matchId)}/acknowledge`,
+        {
+          method: "POST",
+          body: { note: args.note ?? "" },
+        }
+      ),
     onSuccess: () => {
       void qc.invalidateQueries({ queryKey: ["admin", "advisories"] })
       void qc.invalidateQueries({ queryKey: ["app", "advisories"] })

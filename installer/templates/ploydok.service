@@ -1,7 +1,7 @@
 [Unit]
 Description=Ploydok control-plane (Docker Swarm stack)
-Requires=docker.service
-After=docker.service network-online.target
+Requires=docker.service ploydok-port-isolation.service
+After=docker.service ploydok-port-isolation.service network-online.target
 Wants=network-online.target
 
 [Service]

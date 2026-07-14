@@ -99,10 +99,16 @@ export async function listAppsForUser(
     status: string | null
     git_provider: string | null
     repo_full_name: string | null
+    image_ref: string | null
     branch: string | null
     build_method: string | null
     domain: string | null
     container_id: string | null
+    icon_url: string | null
+    quick_links: string | null
+    track_latest: boolean
+    last_image_digest: string | null
+    pending_image_digest: string | null
     created_at: Date | null
     updated_at: Date | null
   }[]
@@ -118,10 +124,16 @@ export async function listAppsForUser(
       status: apps.status,
       git_provider: apps.git_provider,
       repo_full_name: apps.repo_full_name,
+      image_ref: apps.image_ref,
       branch: apps.branch,
       build_method: apps.build_method,
       domain: apps.domain,
       container_id: apps.container_id,
+      icon_url: apps.icon_url,
+      quick_links: apps.quick_links,
+      track_latest: apps.track_latest,
+      last_image_digest: apps.last_image_digest,
+      pending_image_digest: apps.pending_image_digest,
       created_at: apps.created_at,
       updated_at: apps.updated_at,
     })

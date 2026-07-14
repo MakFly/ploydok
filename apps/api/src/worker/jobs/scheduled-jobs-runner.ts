@@ -12,9 +12,9 @@
  * 5. Persist last_run_* and next_run_at on the job row
  */
 import { nanoid } from "nanoid"
-import { and, eq } from "drizzle-orm"
+import { and, eq, lt } from "drizzle-orm"
 import { CronExpressionParser } from "cron-parser"
-import { apps, projects, type Db } from "@ploydok/db"
+import { apps, projects, scheduled_job_runs, type Db } from "@ploydok/db"
 import {
   createScheduledJobRun,
   getScheduledJob,
@@ -31,6 +31,7 @@ const log = childLogger("scheduled-jobs.cron")
 let _interval: ReturnType<typeof setInterval> | null = null
 let _isRunning = false
 const _activeJobs = new Set<string>()
+const MAX_CAPTURED_LOG_BYTES = 32 * 1024
 
 type RunnableJob = NonNullable<Awaited<ReturnType<typeof getScheduledJob>>>
 
@@ -80,8 +81,28 @@ function normalizeEnv(value: unknown): Record<string, string> {
 
 function truncateLog(text: string): string | null {
   if (text.length === 0) return null
-  const maxLen = 32 * 1024
-  return text.length > maxLen ? text.slice(-maxLen) : text
+  return text.length > MAX_CAPTURED_LOG_BYTES
+    ? text.slice(-MAX_CAPTURED_LOG_BYTES)
+    : text
+}
+
+function appendLogTail(current: string, chunk: string): string {
+  const combined = current + chunk
+  return combined.length > MAX_CAPTURED_LOG_BYTES
+    ? combined.slice(-MAX_CAPTURED_LOG_BYTES)
+    : combined
+}
+
+function isConcurrentRunConstraint(err: unknown): boolean {
+  if (!err || typeof err !== "object") return false
+  const record = err as Record<string, unknown>
+  return (
+    record["code"] === "23505" &&
+    (record["constraint"] === "scheduled_job_runs_one_running_per_job_idx" ||
+      String(record["message"] ?? "").includes(
+        "scheduled_job_runs_one_running_per_job_idx"
+      ))
+  )
 }
 
 function scheduledJobContainerName(jobId: string): string {
@@ -127,10 +148,16 @@ async function execCommandInContainer(
   try {
     for await (const frame of exec.events) {
       if (frame.stdout?.length) {
-        stdout += Buffer.from(frame.stdout).toString("utf-8")
+        stdout = appendLogTail(
+          stdout,
+          Buffer.from(frame.stdout).toString("utf-8")
+        )
       }
       if (frame.stderr?.length) {
-        stderr += Buffer.from(frame.stderr).toString("utf-8")
+        stderr = appendLogTail(
+          stderr,
+          Buffer.from(frame.stderr).toString("utf-8")
+        )
       }
       if (frame.exit !== undefined) {
         exitCode = frame.exit.code
@@ -302,33 +329,58 @@ async function claimScheduledJobRun(
 
   const startedAt = new Date()
 
-  return db.transaction(async (tx) => {
-    const txDb = tx as unknown as Db
-    const job = await getScheduledJob(txDb, jobId)
-    if (!job) throw new Error("scheduled job not found")
-    if (!job.enabled && !opts.allowDisabled) {
-      throw new Error("scheduled job is disabled")
+  try {
+    return await db.transaction(async (tx) => {
+      const txDb = tx as unknown as Db
+      const job = await getScheduledJob(txDb, jobId)
+      if (!job) throw new Error("scheduled job not found")
+      if (!job.enabled && !opts.allowDisabled) {
+        throw new Error("scheduled job is disabled")
+      }
+
+      const staleBefore = new Date(
+        startedAt.getTime() - ((job.timeout_seconds || 300) + 60) * 1000
+      )
+      await tx
+        .update(scheduled_job_runs)
+        .set({
+          status: "timeout",
+          finished_at: startedAt,
+          error: "Previous runner stopped before recording completion",
+        })
+        .where(
+          and(
+            eq(scheduled_job_runs.job_id, job.id),
+            eq(scheduled_job_runs.status, "running"),
+            lt(scheduled_job_runs.started_at, staleBefore)
+          )
+        )
+
+      const nextRunAt = computeNextRunAt(job, startedAt, opts.source)
+      const run = await createScheduledJobRun(txDb, {
+        job_id: job.id,
+        started_at: startedAt,
+        finished_at: null,
+        status: "running",
+        exit_code: null,
+        output: null,
+        error: null,
+      })
+
+      await updateScheduledJob(txDb, job.id, {
+        last_run_at: startedAt,
+        last_run_status: "running",
+        next_run_at: nextRunAt,
+      })
+
+      return { job, run, nextRunAt }
+    })
+  } catch (err) {
+    if (isConcurrentRunConstraint(err)) {
+      throw new ScheduledJobAlreadyRunningError(jobId)
     }
-
-    const nextRunAt = computeNextRunAt(job, startedAt, opts.source)
-    const run = await createScheduledJobRun(txDb, {
-      job_id: job.id,
-      started_at: startedAt,
-      finished_at: null,
-      status: "running",
-      exit_code: null,
-      output: null,
-      error: null,
-    })
-
-    await updateScheduledJob(txDb, job.id, {
-      last_run_at: startedAt,
-      last_run_status: "running",
-      next_run_at: nextRunAt,
-    })
-
-    return { job, run, nextRunAt }
-  })
+    throw err
+  }
 }
 
 export async function runScheduledJobNow(

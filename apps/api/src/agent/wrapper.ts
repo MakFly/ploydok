@@ -45,6 +45,12 @@ import type {
   RestoreResult,
   HostStatsRequest,
   HostStatsResponse,
+  ImageDfRequest,
+  ImageDfResponse,
+  ImagePruneRequest,
+  ImagePruneResponse,
+  RegistryImageDigestRequest,
+  RegistryImageDigestResponse,
 } from "@ploydok/agent-proto"
 import { createAgentClient, type AgentClientOptions } from "./client.js"
 import { AgentError, toAgentError } from "./errors.js"
@@ -374,6 +380,42 @@ export class Agent {
     )
     return callUnary(
       (r, m, opts, cb) => this.client.readContainerFile(r, m, opts, cb),
+      req,
+      timeoutMs
+    )
+  }
+
+  imageDf(
+    req: ImageDfRequest = {},
+    timeoutMs?: number
+  ): Promise<ImageDfResponse> {
+    log.debug({}, "imageDf")
+    return callUnary(
+      (r, m, opts, cb) => this.client.imageDf(r, m, opts, cb),
+      req,
+      timeoutMs
+    )
+  }
+
+  imagePrune(
+    req: ImagePruneRequest,
+    timeoutMs?: number
+  ): Promise<ImagePruneResponse> {
+    log.debug({ all: req.all, untilUnix: req.untilUnix }, "imagePrune")
+    return callUnary(
+      (r, m, opts, cb) => this.client.imagePrune(r, m, opts, cb),
+      req,
+      timeoutMs
+    )
+  }
+
+  registryImageDigest(
+    req: RegistryImageDigestRequest,
+    timeoutMs?: number
+  ): Promise<RegistryImageDigestResponse> {
+    log.debug({ image: req.image }, "registryImageDigest")
+    return callUnary(
+      (r, m, opts, cb) => this.client.registryImageDigest(r, m, opts, cb),
       req,
       timeoutMs
     )

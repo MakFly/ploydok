@@ -14,6 +14,7 @@ import {
   ShellPanel,
 } from "../../../../../components/layout/AppShell"
 import { AppStatusBadge } from "../../../../../components/apps/AppStatusBadge"
+import { AppIcon } from "../../../../../components/apps/AppIcon"
 import {
   resolveAppHealth,
   resolveRuntimeAppStatus,
@@ -122,16 +123,23 @@ function AppCard({
   currentOrgSlug: string | null
 }): React.JSX.Element {
   const isDeleting = app.status === "deleting"
+  const quickLinks = (app.quickLinks ?? []).slice(0, 3)
+  const settingsPath = currentOrgSlug
+    ? organizationPath(currentOrgSlug, `apps/${app.id}/settings`)
+    : `/apps/${app.id}/settings`
   const content = (
     <>
       <div className="flex items-start justify-between gap-3">
-        <div className="min-w-0">
-          <p className="truncate text-sm font-semibold text-foreground">
-            {app.name}
-          </p>
-          <p className="mt-1 truncate text-xs text-muted-foreground">
-            {app.repoFullName ?? "Repository pending"}
-          </p>
+        <div className="flex min-w-0 items-center gap-3">
+          <AppIcon name={app.name} src={app.iconUrl} />
+          <div className="min-w-0">
+            <p className="truncate text-sm font-semibold text-foreground">
+              {app.name}
+            </p>
+            <p className="mt-1 truncate text-xs text-muted-foreground">
+              {app.repoFullName ?? app.imageRef ?? "Repository pending"}
+            </p>
+          </div>
         </div>
         <AppStatusBadge status={app.runtimeStatus} health={app.runtimeHealth} />
       </div>
@@ -177,16 +185,29 @@ function AppCard({
   }
 
   return (
-    <Link
-      to={
-        (currentOrgSlug
-          ? organizationPath(currentOrgSlug, `apps/${app.id}/settings`)
-          : `/apps/${app.id}/settings`) as never
-      }
-      className="group rounded-lg border border-border bg-card p-4 transition-colors hover:border-foreground/20 hover:bg-accent/30"
-    >
-      {content}
-    </Link>
+    <article className="group overflow-hidden rounded-lg border border-border bg-card transition-colors hover:border-foreground/20">
+      <Link
+        to={settingsPath as never}
+        className="block p-4 hover:bg-accent/30 focus-visible:ring-2 focus-visible:ring-ring focus-visible:outline-none"
+      >
+        {content}
+      </Link>
+      {quickLinks.length > 0 ? (
+        <div className="flex flex-wrap gap-2 border-t border-border px-4 py-3">
+          {quickLinks.map((link) => (
+            <a
+              key={`${link.label}-${link.url}`}
+              href={link.url}
+              target="_blank"
+              rel="noopener noreferrer"
+              className="rounded-md bg-muted px-2 py-1 text-xs text-muted-foreground hover:text-foreground focus-visible:ring-2 focus-visible:ring-ring focus-visible:outline-none"
+            >
+              {link.label}
+            </a>
+          ))}
+        </div>
+      ) : null}
+    </article>
   )
 }
 

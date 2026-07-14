@@ -46,7 +46,7 @@ export function useSaveGitLabConfig() {
       apiFetch<{ ok: true }>("/gitlab/config", {
         method: "POST",
         headers: { "Content-Type": "application/json" },
-        body: JSON.stringify(payload),
+        body: payload,
       }),
     onSuccess: () => {
       toast.success("GitLab OAuth app enregistrée")
@@ -121,10 +121,11 @@ export function useGitLabRepos(params: GitLabReposParams = {}) {
       const page = (pageParam as number | undefined) ?? 1
       const searchParam = search ? `&search=${encodeURIComponent(search)}` : ""
       return apiFetch<GitLabReposPage>(
-        `/gitlab/repos?page=${page}&per_page=${perPage}${searchParam}`,
+        `/gitlab/repos?page=${page}&per_page=${perPage}${searchParam}`
       )
     },
-    getNextPageParam: (last, pages) => (last.hasMore ? pages.length + 1 : undefined),
+    getNextPageParam: (last, pages) =>
+      last.hasMore ? pages.length + 1 : undefined,
     initialPageParam: 1,
     staleTime: 60_000,
     refetchOnWindowFocus: true,
@@ -138,7 +139,7 @@ export function useGitLabBranches(fullName?: string) {
     queryFn: async () => {
       if (!fullName) return []
       const res = await apiFetch<{ branches: Array<GitBranch> }>(
-        `/gitlab/repos/${encodeURIComponent(fullName)}/branches`,
+        `/gitlab/repos/${encodeURIComponent(fullName)}/branches`
       )
       return res.branches
     },
@@ -150,14 +151,14 @@ export function useGitLabBranches(fullName?: string) {
 export function useGitLabFileExists(
   fullName: string | undefined,
   filePath: string,
-  ref: string | undefined,
+  ref: string | undefined
 ) {
   return useQuery<boolean, ApiError>({
     queryKey: ["gitlab", "file-exists", fullName ?? "", filePath, ref ?? ""],
     queryFn: async () => {
       if (!fullName || !ref) return false
       const res = await apiFetch<{ exists: boolean }>(
-        `/gitlab/repos/${encodeURIComponent(fullName)}/file-exists?path=${encodeURIComponent(filePath)}&ref=${encodeURIComponent(ref)}`,
+        `/gitlab/repos/${encodeURIComponent(fullName)}/file-exists?path=${encodeURIComponent(filePath)}&ref=${encodeURIComponent(ref)}`
       )
       return res.exists
     },
@@ -190,7 +191,8 @@ export interface GitLabCacheStatusResponse {
 export function useGitLabCacheStatus(opts: { autoRefresh?: boolean } = {}) {
   return useQuery<GitLabCacheStatusResponse, ApiError>({
     queryKey: ["gitlab", "cache-status"],
-    queryFn: () => apiFetch<GitLabCacheStatusResponse>("/gitlab/installations/cache-status"),
+    queryFn: () =>
+      apiFetch<GitLabCacheStatusResponse>("/gitlab/installations/cache-status"),
     staleTime: 5_000,
     refetchInterval: opts.autoRefresh ? 3_000 : false,
   })
@@ -200,7 +202,10 @@ export function useSyncGitLabInstallations() {
   const qc = useQueryClient()
   return useMutation<{ enqueued: true; syncId: string }, ApiError, void>({
     mutationFn: () =>
-      apiFetch<{ enqueued: true; syncId: string }>("/gitlab/installations/sync", { method: "POST" }),
+      apiFetch<{ enqueued: true; syncId: string }>(
+        "/gitlab/installations/sync",
+        { method: "POST" }
+      ),
     onSuccess: () => {
       void qc.invalidateQueries({ queryKey: ["gitlab", "cache-status"] })
       void qc.invalidateQueries({ queryKey: ["gitlab", "repos"] })

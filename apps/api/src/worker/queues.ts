@@ -17,6 +17,17 @@ export const deployQueue = new Queue("deploy", {
   defaultJobOptions: deployDefaults,
 })
 export const gcQueue = new Queue("gc.registry", { connection })
+export const gcImagesQueue = new Queue("gc.images", { connection })
+export const gcBuildCacheQueue = new Queue("gc.buildcache", { connection })
+export const imageScanQueue = new Queue("scan.image", {
+  connection,
+  defaultJobOptions: {
+    removeOnComplete: 100,
+    removeOnFail: 500,
+    attempts: 3,
+    backoff: { type: "exponential" as const, delay: 10_000 },
+  },
+})
 export const cleanupQueue = new Queue("cleanup.build", { connection })
 export const appDeleteQueue = new Queue("app.delete", { connection })
 
@@ -84,7 +95,10 @@ export const logArchiveQueue = new Queue("logs.archive", {
 
 export type QueueName =
   | "deploy"
+  | "scan.image"
   | "gc.registry"
+  | "gc.images"
+  | "gc.buildcache"
   | "cleanup.build"
   | "app.delete"
   | "domain.verify"

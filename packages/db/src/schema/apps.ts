@@ -62,6 +62,13 @@ export const apps = pgTable("apps", {
   ),
   // Auto-redeploy on new :latest digest (opt-in, checked by BullMQ repeat job).
   track_latest: boolean("track_latest").notNull().default(false),
+  // Per-app dashboard metadata (cosmetic): theme-aware icon URL + quick links.
+  icon_url: text("icon_url"),
+  quick_links: text("quick_links"), // JSON array of { label, url }
+  // Last registry manifest digest observed for image apps (auto-update watch).
+  last_image_digest: text("last_image_digest"),
+  // Digest reserved by an auto-update deploy that has not succeeded yet.
+  pending_image_digest: text("pending_image_digest"),
   // Build overrides
   install_command: text("install_command"),
   build_command: text("build_command"),

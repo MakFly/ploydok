@@ -13,9 +13,8 @@
 #   - Caddy publishes 80/443 in mode: host so ACME's same-source-IP rule
 #     still works (the Swarm routing-mesh would otherwise NAT inbound
 #     traffic to a random task).
-#   - api/web run with replicas: 2 + start-first updates → zero-downtime
-#     rolling deploys when `docker stack deploy --resolve-image always` is
-#     re-run after a new GHCR image lands.
+#   - web runs with replicas: 2 + start-first updates. API stays at one task
+#     while its WebAuthn/setup challenge state is process-local.
 #   - postgres / redis / registry / agent / buildkitd / caddy stay at
 #     replicas: 1 (stateful or singleton).
 #   - Watchtower is gone — replaced by `ploydok-update.timer` on the host.
@@ -34,22 +33,24 @@ services:
       - ${PLOYDOK_DATA_DIR}/pki:/var/lib/ploydok/pki:ro
       - ${PLOYDOK_DATA_DIR}/agent:/run/ploydok
       - /var/run/docker.sock:/var/run/docker.sock
-    ports:
-      - target: 3335
-        published: 3335
-        host_ip: 127.0.0.1
-        protocol: tcp
-        mode: host
     networks:
       - ploydok
     healthcheck:
-      test: ["CMD", "wget", "-qO-", "http://localhost:3335/health"]
+      test:
+        [
+          "CMD",
+          "bun",
+          "-e",
+          "const r=await fetch('http://127.0.0.1:3335/health/ready');process.exit(r.ok?0:1)",
+        ]
       interval: 10s
       timeout: 3s
       retries: 3
       start_period: 30s
     deploy:
-      replicas: 2
+      # WebAuthn challenges and first-boot state are process-local today.
+      # Keep one API task until that state is moved to Redis.
+      replicas: 1
       update_config:
         parallelism: 1
         order: start-first
@@ -114,6 +115,7 @@ services:
       - ${PLOYDOK_DATA_DIR}/static:/var/lib/ploydok/static
       - ${PLOYDOK_DATA_DIR}/config:/etc/ploydok:ro
       - ${PLOYDOK_DATA_DIR}/pki:/var/lib/ploydok/pki:ro
+      - ${PLOYDOK_DATA_DIR}/keys:/var/lib/ploydok/keys
     networks:
       - ploydok
     deploy:
@@ -137,16 +139,11 @@ services:
       - ${PLOYDOK_DATA_DIR}/static:/var/lib/ploydok/static:ro
     ports:
       - target: 80
-        published: ${PLOYDOK_HTTP_PORT}
+        published: ${PLOYDOK_HTTP_PUBLISHED_PORT}
         protocol: tcp
         mode: host
       - target: 443
-        published: ${PLOYDOK_HTTPS_PORT}
-        protocol: tcp
-        mode: host
-      - target: 2019
-        published: 2019
-        host_ip: 127.0.0.1
+        published: ${PLOYDOK_HTTPS_PUBLISHED_PORT}
         protocol: tcp
         mode: host
     networks:
@@ -233,7 +230,6 @@ services:
     ports:
       - target: 5000
         published: 5000
-        host_ip: 127.0.0.1
         protocol: tcp
         mode: host
     networks:

@@ -35,7 +35,7 @@ RUN apt-get update \
       tini \
  && rm -rf /var/lib/apt/lists/*
 
-ENV NODE_ENV=production \
+ENV NODE_ENV=prod \
     PORT=3335
 
 COPY --from=buildkit /usr/bin/buildctl /usr/local/bin/buildctl

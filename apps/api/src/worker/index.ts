@@ -29,6 +29,8 @@ import {
 import { claimQueuedRow } from "./queue-claim"
 import { auditClaimed, auditUnauthorized } from "./queue-audit"
 import { gcQueue } from "./queues"
+import { handleGcImagesJob } from "./handlers/gc-images"
+import { handleGcBuildcacheJob } from "./handlers/gc-buildcache"
 import {
   startAuditRetentionCron,
   stopAuditRetentionCron,
@@ -89,9 +91,15 @@ import {
   startCleanupBuildCachesCron,
   stopCleanupBuildCachesCron,
 } from "./jobs/cleanup-build-caches"
+import { startAutoHealCron, stopAutoHealCron } from "./jobs/auto-heal"
+import {
+  startImageUpdateWatchCron,
+  stopImageUpdateWatchCron,
+} from "./jobs/image-update-watch"
 import { handleArchiveBuildLog } from "./handlers/archive-build-log"
 import type { ArchiveBuildLogPayload } from "./handlers/archive-build-log"
 import { withAppDeployLock } from "./app-deploy-lock"
+import { handleImageScan } from "./handlers/scan-image"
 
 // ---------------------------------------------------------------------------
 // Types
@@ -286,6 +294,30 @@ export function startWorker(
     ),
 
     new Worker(
+      "gc.images",
+      async (job) => {
+        await handleGcImagesJob(db, job)
+      },
+      { connection, concurrency: 1 }
+    ),
+
+    new Worker(
+      "gc.buildcache",
+      async (job) => {
+        await handleGcBuildcacheJob(db, job)
+      },
+      { connection, concurrency: 1 }
+    ),
+
+    new Worker(
+      "scan.image",
+      async (job) => {
+        await handleImageScan(db, job.data)
+      },
+      { connection, concurrency: 1 }
+    ),
+
+    new Worker(
       "cleanup.build",
       async (job) => {
         logger.info({ jobId: job.id }, "cleanup.build job started")
@@ -470,6 +502,8 @@ export function startWorker(
   startPurgeBuildLogsCron(db)
   startCaddyReconcileCron(db)
   startCleanupBuildCachesCron()
+  startAutoHealCron(db)
+  startImageUpdateWatchCron(db)
 
   const abortHandler = () => stop()
   opts?.signal?.addEventListener("abort", abortHandler)
@@ -490,6 +524,8 @@ export function startWorker(
     stopPurgeBuildLogsCron()
     stopCaddyReconcileCron()
     stopCleanupBuildCachesCron()
+    stopAutoHealCron()
+    stopImageUpdateWatchCron()
     await Promise.all(workers.map((w) => w.close())).catch((err) => {
       logger.error({ err }, "error closing BullMQ workers")
     })

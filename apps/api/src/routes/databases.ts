@@ -1,5 +1,6 @@
 // SPDX-License-Identifier: AGPL-3.0-only
 import { Hono } from "hono"
+import type { MiddlewareHandler } from "hono"
 import { z } from "zod"
 import { and, eq, isNotNull } from "drizzle-orm"
 import { nanoid } from "nanoid"
@@ -35,6 +36,7 @@ import { ensureDefaultOrganizationForUser } from "../services/organizations"
 import { encryptSecret } from "../secrets/crypto"
 import { normalizePostgresConnectionString } from "../databases/connection-strings"
 import { createAdminerSession, isAdminerSupportedDatabase } from "../adminer"
+import { requireScope } from "../auth/require-scope"
 
 const log = childLogger("databases.routes")
 
@@ -231,13 +233,44 @@ async function getDbForUser(db: Db, dbId: string, userId: string) {
   return rows[0]?.db ?? null
 }
 
+async function getDbForOwner(db: Db, dbId: string, userId: string) {
+  const rows = await db
+    .select({ id: databases.id })
+    .from(databases)
+    .innerJoin(projects, eq(databases.project_id, projects.id))
+    .innerJoin(
+      memberships,
+      and(
+        eq(memberships.org_id, projects.id),
+        eq(memberships.user_id, userId),
+        eq(memberships.role, "owner"),
+        isNotNull(memberships.accepted_at)
+      )
+    )
+    .where(eq(databases.id, dbId))
+    .limit(1)
+  return Boolean(rows[0])
+}
+
 // eslint-disable-next-line @typescript-eslint/no-explicit-any
 export function createDatabasesRouter(db: Db): Hono<any, any, any> {
   const router = new Hono<AppEnv>()
   const totpMiddleware = requireTotpVerified(db)
+  const databasesRead = requireScope("databases:read")
+  const databasesWrite = requireScope("databases:write")
+  const ownerOnly: MiddlewareHandler = async (c, next) => {
+    const user = getUser(c)
+    if (!(await getDbForOwner(db, c.req.param("id")!, user.id))) {
+      return c.json(
+        { error: { code: "NOT_FOUND", message: "Database not found" } },
+        404
+      )
+    }
+    await next()
+  }
 
   // POST /databases — spawn a new managed database
-  router.post("/", async (c) => {
+  router.post("/", databasesWrite, async (c) => {
     const user = getUser(c)
     const body = await c.req.json().catch(() => null)
     const parsed = CreateDatabaseBody.safeParse(body)
@@ -326,7 +359,7 @@ export function createDatabasesRouter(db: Db): Hono<any, any, any> {
   })
 
   // POST /databases/external — register an existing PostgreSQL endpoint
-  router.post("/external", async (c) => {
+  router.post("/external", databasesWrite, async (c) => {
     const user = getUser(c)
     const body = await c.req.json().catch(() => null)
     const parsed = RegisterExternalPostgresBody.safeParse(body)
@@ -411,7 +444,7 @@ export function createDatabasesRouter(db: Db): Hono<any, any, any> {
   })
 
   // GET /databases?projectId=... — list databases without connection strings
-  router.get("/", async (c) => {
+  router.get("/", databasesRead, async (c) => {
     const user = getUser(c)
     const projectId = c.req.query("projectId") ?? c.req.query("organizationId")
 
@@ -438,9 +471,9 @@ export function createDatabasesRouter(db: Db): Hono<any, any, any> {
   })
 
   // GET /databases/:id — detail without connection string plaintext
-  router.get("/:id", async (c) => {
+  router.get("/:id", databasesRead, async (c) => {
     const user = getUser(c)
-    const dbId = c.req.param("id")
+    const dbId = c.req.param("id")!
 
     const row = await getDbForUser(db, dbId, user.id)
     if (!row) {
@@ -488,7 +521,7 @@ export function createDatabasesRouter(db: Db): Hono<any, any, any> {
   })
 
   // POST /databases/:id/reveal — returns connection string (client-side confirmation only)
-  router.post("/:id/reveal", async (c) => {
+  router.post("/:id/reveal", databasesRead, ownerOnly, async (c) => {
     const user = getUser(c)
     const dbId = c.req.param("id")
 
@@ -518,49 +551,58 @@ export function createDatabasesRouter(db: Db): Hono<any, any, any> {
     }
   })
 
-  router.post("/:id/adminer/session", totpMiddleware, async (c) => {
-    const user = getUser(c)
-    const dbId = c.req.param("id")
+  router.post(
+    "/:id/adminer/session",
+    databasesRead,
+    ownerOnly,
+    totpMiddleware,
+    async (c) => {
+      const user = getUser(c)
+      const dbId = c.req.param("id")
 
-    const row = await getDbForUser(db, dbId!, user.id)
-    if (!row) {
-      return c.json(
-        { error: { code: "NOT_FOUND", message: "Database not found" } },
-        404
-      )
-    }
-    if (!isAdminerSupportedDatabase(row)) {
-      return c.json(
-        {
-          error: {
-            code: "UNSUPPORTED_DATABASE_KIND",
-            message: "Adminer is only available for managed SQL databases",
+      const row = await getDbForUser(db, dbId!, user.id)
+      if (!row) {
+        return c.json(
+          { error: { code: "NOT_FOUND", message: "Database not found" } },
+          404
+        )
+      }
+      if (!isAdminerSupportedDatabase(row)) {
+        return c.json(
+          {
+            error: {
+              code: "UNSUPPORTED_DATABASE_KIND",
+              message: "Adminer is only available for managed SQL databases",
+            },
           },
-        },
-        400
-      )
-    }
-    if (row.status !== "running") {
-      return c.json(
-        {
-          error: {
-            code: "DATABASE_NOT_RUNNING",
-            message: "Database must be running before opening Adminer",
+          400
+        )
+      }
+      if (row.status !== "running") {
+        return c.json(
+          {
+            error: {
+              code: "DATABASE_NOT_RUNNING",
+              message: "Database must be running before opening Adminer",
+            },
           },
-        },
-        409
-      )
-    }
+          409
+        )
+      }
 
-    try {
-      const session = await createAdminerSession(db, row, user.id)
-      return c.json(session, 201)
-    } catch (err) {
-      const message = err instanceof Error ? err.message : String(err)
-      log.warn({ err, dbId: row.id }, "adminer session creation failed")
-      return c.json({ error: { code: "ADMINER_SESSION_FAILED", message } }, 500)
+      try {
+        const session = await createAdminerSession(db, row, user.id)
+        return c.json(session, 201)
+      } catch (err) {
+        const message = err instanceof Error ? err.message : String(err)
+        log.warn({ err, dbId: row.id }, "adminer session creation failed")
+        return c.json(
+          { error: { code: "ADMINER_SESSION_FAILED", message } },
+          500
+        )
+      }
     }
-  })
+  )
 
   // Statuses in which a mutation (start/stop/restart/network-change) is
   // already in flight. A second mutation kicked off from a double-click would
@@ -569,7 +611,7 @@ export function createDatabasesRouter(db: Db): Hono<any, any, any> {
   // once it sees the status settle.
   const BUSY_STATUSES = new Set<string>(["creating", "starting"])
 
-  router.post("/:id/start", async (c) => {
+  router.post("/:id/start", databasesWrite, ownerOnly, async (c) => {
     const user = getUser(c)
     const dbId = c.req.param("id")
     const row = await getDbForUser(db, dbId!, user.id)
@@ -609,7 +651,7 @@ export function createDatabasesRouter(db: Db): Hono<any, any, any> {
     }
   })
 
-  router.post("/:id/stop", async (c) => {
+  router.post("/:id/stop", databasesWrite, ownerOnly, async (c) => {
     const user = getUser(c)
     const dbId = c.req.param("id")
     const row = await getDbForUser(db, dbId!, user.id)
@@ -649,7 +691,7 @@ export function createDatabasesRouter(db: Db): Hono<any, any, any> {
     }
   })
 
-  router.post("/:id/restart", async (c) => {
+  router.post("/:id/restart", databasesWrite, ownerOnly, async (c) => {
     const user = getUser(c)
     const dbId = c.req.param("id")
     const row = await getDbForUser(db, dbId!, user.id)
@@ -696,7 +738,7 @@ export function createDatabasesRouter(db: Db): Hono<any, any, any> {
     }
   })
 
-  router.patch("/:id/network", async (c) => {
+  router.patch("/:id/network", databasesWrite, ownerOnly, async (c) => {
     const user = getUser(c)
     const dbId = c.req.param("id")
     const row = await getDbForUser(db, dbId!, user.id)
@@ -756,7 +798,7 @@ export function createDatabasesRouter(db: Db): Hono<any, any, any> {
     }
   })
 
-  router.get("/:id/logs", async (c) => {
+  router.get("/:id/logs", databasesRead, async (c) => {
     const user = getUser(c)
     const dbId = c.req.param("id")
     const tailRaw = Number(c.req.query("tail") ?? 200)
@@ -803,7 +845,7 @@ export function createDatabasesRouter(db: Db): Hono<any, any, any> {
     }
   })
 
-  router.get("/:id/stats", async (c) => {
+  router.get("/:id/stats", databasesRead, async (c) => {
     const user = getUser(c)
     const dbId = c.req.param("id")
     const row = await getDbForUser(db, dbId!, user.id)
@@ -843,87 +885,94 @@ export function createDatabasesRouter(db: Db): Hono<any, any, any> {
   })
 
   // POST /databases/:id/rotate — TOTP required, triggers password rotation
-  router.post("/:id/rotate", totpMiddleware, async (c) => {
-    const user = getUser(c)
-    const dbId = c.req.param("id")
+  router.post(
+    "/:id/rotate",
+    databasesWrite,
+    ownerOnly,
+    totpMiddleware,
+    async (c) => {
+      const user = getUser(c)
+      const dbId = c.req.param("id")
 
-    const row = await getDbForUser(db, dbId!, user.id)
-    if (!row) {
-      return c.json(
-        { error: { code: "NOT_FOUND", message: "Database not found" } },
-        404
-      )
-    }
-    if (row.kind === "libsql") {
-      return c.json(
-        {
-          error: {
-            code: "UNSUPPORTED_DATABASE_KIND",
-            message: "Password rotation is not supported for libSQL yet",
+      const row = await getDbForUser(db, dbId!, user.id)
+      if (!row) {
+        return c.json(
+          { error: { code: "NOT_FOUND", message: "Database not found" } },
+          404
+        )
+      }
+      if (row.kind === "libsql") {
+        return c.json(
+          {
+            error: {
+              code: "UNSUPPORTED_DATABASE_KIND",
+              message: "Password rotation is not supported for libSQL yet",
+            },
           },
-        },
-        400
-      )
-    }
-    if (isExternalDatabase(row)) {
-      return c.json(
-        {
-          error: {
-            code: "UNSUPPORTED_DATABASE_MODE",
-            message: "External database passwords are managed outside Ploydok",
+          400
+        )
+      }
+      if (isExternalDatabase(row)) {
+        return c.json(
+          {
+            error: {
+              code: "UNSUPPORTED_DATABASE_MODE",
+              message:
+                "External database passwords are managed outside Ploydok",
+            },
           },
-        },
-        400
-      )
-    }
+          400
+        )
+      }
 
-    try {
-      const result = await rotatePassword(db, row.id, { reason: "manual" })
-      log.info(
-        {
-          dbId: row.id,
-          userId: user.id,
+      try {
+        const result = await rotatePassword(db, row.id, { reason: "manual" })
+        log.info(
+          {
+            dbId: row.id,
+            userId: user.id,
+            appsRedeployed: result.appsRedeployed,
+          },
+          "manual rotation triggered"
+        )
+        return c.json({
+          ok: true,
+          rotatedAt: result.rotatedAt.toISOString(),
           appsRedeployed: result.appsRedeployed,
-        },
-        "manual rotation triggered"
-      )
-      return c.json({
-        ok: true,
-        rotatedAt: result.rotatedAt.toISOString(),
-        appsRedeployed: result.appsRedeployed,
-      })
-    } catch (err) {
-      if (err instanceof RotationInProgressError) {
-        return c.json(
-          {
-            error: {
-              code: "CONFLICT",
-              message: "Rotation already in progress",
+        })
+      } catch (err) {
+        if (err instanceof RotationInProgressError) {
+          return c.json(
+            {
+              error: {
+                code: "CONFLICT",
+                message: "Rotation already in progress",
+              },
             },
-          },
-          409
-        )
-      }
-      if (err instanceof RotationFailedError) {
-        log.error({ err, dbId: row.id }, "rotation failed — rolled back")
-        return c.json(
-          {
-            error: {
-              code: "ROTATION_FAILED",
-              message: "Rotation failed — rolled back to previous password",
+            409
+          )
+        }
+        if (err instanceof RotationFailedError) {
+          log.error({ err, dbId: row.id }, "rotation failed — rolled back")
+          return c.json(
+            {
+              error: {
+                code: "ROTATION_FAILED",
+                message: "Rotation failed — rolled back to previous password",
+              },
             },
-          },
-          500
-        )
+            500
+          )
+        }
+        const msg = err instanceof Error ? err.message : String(err)
+        log.error({ err, dbId: row.id }, "unexpected rotation error")
+        return c.json({ error: { code: "INTERNAL", message: msg } }, 500)
       }
-      const msg = err instanceof Error ? err.message : String(err)
-      log.error({ err, dbId: row.id }, "unexpected rotation error")
-      return c.json({ error: { code: "INTERNAL", message: msg } }, 500)
     }
-  })
+  )
 
   // DELETE /databases/:id — confirm challenge
-  router.delete("/:id", async (c) => {
+  router.delete("/:id", databasesWrite, ownerOnly, async (c) => {
     const user = getUser(c)
     const dbId = c.req.param("id")
 

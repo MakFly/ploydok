@@ -97,6 +97,19 @@ const fakeDb = {} as import("@ploydok/db").Db
 // Tests
 // ---------------------------------------------------------------------------
 
+describe("pinImageReference", () => {
+  it("replaces tags without mistaking a registry port for a tag", async () => {
+    const { pinImageReference } = await import("./deploy")
+    expect(
+      pinImageReference(
+        "registry.example.com:5000/org/app:latest",
+        "sha256:abc"
+      )
+    ).toBe("registry.example.com:5000/org/app@sha256:abc")
+    expect(pinImageReference("nginx", "sha256:def")).toBe("nginx@sha256:def")
+  })
+})
+
 describe("handleDeploy", () => {
   beforeEach(() => {
     // Reset all spies before each test.
@@ -133,10 +146,15 @@ describe("handleDeploy", () => {
   it("claims by buildId when provided (legacy appId is ignored)", async () => {
     const { handleDeploy } = await import("./deploy")
 
-    const claimSpy = spyOn(queueClaimMod, "claimQueuedRow").mockResolvedValue(null)
+    const claimSpy = spyOn(queueClaimMod, "claimQueuedRow").mockResolvedValue(
+      null
+    )
     const auditSpy = spyOn(queueAuditMod, "auditUnauthorized")
 
-    await handleDeploy(fakeDb, makeJob({ buildId: "build-123", appId: "legacy-app" }))
+    await handleDeploy(
+      fakeDb,
+      makeJob({ buildId: "build-123", appId: "legacy-app" })
+    )
 
     expect(claimSpy).toHaveBeenCalledTimes(1)
     expect(claimSpy.mock.calls[0]?.[0]).toMatchObject({ id: "build-123" })
@@ -313,11 +331,14 @@ describe.skipIf(skipIntegration)("handleDeploy — log archiving", () => {
       }
     )
     spyOn(registryMod, "gcKeepLast").mockResolvedValue([])
-    spyOn(Bun, "spawn").mockImplementation(() => ({
-      stdout: new Response("").body,
-      stderr: new Response("").body,
-      exited: Promise.resolve(0),
-    }) as unknown as ReturnType<typeof Bun.spawn>)
+    spyOn(Bun, "spawn").mockImplementation(
+      () =>
+        ({
+          stdout: new Response("").body,
+          stderr: new Response("").body,
+          exited: Promise.resolve(0),
+        }) as unknown as ReturnType<typeof Bun.spawn>
+    )
     // Mock runBlueGreen so the log archiving test doesn't need a running agent.
     spyOn(runnerMod, "runBlueGreen").mockResolvedValue({
       containerId: "cont-log-1",
@@ -506,11 +527,14 @@ describe.skipIf(skipIntegration)("handleDeploy — blue-green", () => {
     spyOn(registryMod, "diskGuard").mockResolvedValue(undefined)
     spyOn(nixpacksMod, "nixpacksBuild").mockResolvedValue(undefined)
     spyOn(registryMod, "gcKeepLast").mockResolvedValue([])
-    spyOn(Bun, "spawn").mockImplementation(() => ({
-      stdout: new Response("").body,
-      stderr: new Response("").body,
-      exited: Promise.resolve(0),
-    }) as unknown as ReturnType<typeof Bun.spawn>)
+    spyOn(Bun, "spawn").mockImplementation(
+      () =>
+        ({
+          stdout: new Response("").body,
+          stderr: new Response("").body,
+          exited: Promise.resolve(0),
+        }) as unknown as ReturnType<typeof Bun.spawn>
+    )
   })
 
   it("calls runBlueGreen after push, updates build containerId, publishes Container live event", async () => {

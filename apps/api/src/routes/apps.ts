@@ -3,6 +3,7 @@ import { readFile } from "node:fs/promises"
 import * as nodePath from "node:path"
 import { randomBytes } from "node:crypto"
 import { Hono } from "hono"
+import type { MiddlewareHandler } from "hono"
 import { z } from "zod"
 import { and, eq, isNotNull } from "drizzle-orm"
 import { nanoid } from "nanoid"
@@ -28,10 +29,13 @@ import {
   ALL_PROBE_KEYS,
   MANIFEST_FILE_PROBE_KEYS,
   classifyStackWithManifests,
+  AppQuickLinkSchema,
+  SafeHttpUrlSchema,
 } from "@ploydok/shared"
 import type { ManifestContents, StackClassification } from "@ploydok/shared"
 import {
   getAppActivity,
+  getAppForOwner,
   getAppForUser,
   getBuildForApp,
   getBuildLogPath,
@@ -256,6 +260,8 @@ const CreateAppBodyBase = z.object({
   imagePullPolicy: ImagePullPolicySchema.optional(),
   registryCredentialId: z.string().min(1).optional(),
   trackLatest: z.boolean().optional(),
+  iconUrl: SafeHttpUrlSchema.nullable().optional(),
+  quickLinks: z.array(AppQuickLinkSchema).max(8).optional(),
   // Quotas (Phase 1.C). `custom` disables enforcement.
   plan: PlanSchema.optional(),
   cpuLimit: z.number().positive().optional(),
@@ -565,6 +571,8 @@ function serializeApp(
     slug: row.slug,
     status: row.status,
     gitProvider: row.git_provider,
+    imageRef: row.image_ref,
+    imagePullPolicy: row.image_pull_policy,
     repoFullName: row.repo_full_name,
     branch: row.branch,
     githubInstallationId: row.github_installation_id,
@@ -599,6 +607,11 @@ function serializeApp(
     containerId: row.container_id,
     currentCommitSha: buildMetadata.currentCommitSha,
     latestBuildId: buildMetadata.latestBuildId,
+    iconUrl: row.icon_url,
+    quickLinks: parseQuickLinks(row.quick_links),
+    trackLatest: row.track_latest,
+    lastImageDigest: row.last_image_digest,
+    pendingImageDigest: row.pending_image_digest,
     keepPerRepo: nullToUndefined(row.keep_per_repo),
     autoDeployEnabled: row.auto_deploy_enabled,
     postCommitStatus: row.post_commit_status,
@@ -636,10 +649,16 @@ type AppPartialRow = {
   status: string | null
   git_provider: string | null
   repo_full_name: string | null
+  image_ref: string | null
   branch: string | null
   build_method: string | null
   domain: string | null
   container_id: string | null
+  icon_url: string | null
+  quick_links: string | null
+  track_latest: boolean
+  last_image_digest: string | null
+  pending_image_digest: string | null
   created_at: Date | null
   updated_at: Date | null
 }
@@ -654,6 +673,7 @@ function serializeAppPartial(row: AppPartialRow) {
     status: row.status,
     gitProvider: row.git_provider,
     repoFullName: row.repo_full_name,
+    imageRef: row.image_ref,
     branch: nullToUndefined(row.branch),
     buildMethod: nullToUndefined(row.build_method),
     domain: nullToUndefined(row.domain),
@@ -661,6 +681,11 @@ function serializeAppPartial(row: AppPartialRow) {
     // Exposed so the dashboard can pin runtime/health to the canonical container
     // and ignore orphan slots left behind by failed deploys (Sprint 7-bis fix).
     containerId: row.container_id,
+    iconUrl: row.icon_url,
+    quickLinks: parseQuickLinks(row.quick_links),
+    trackLatest: row.track_latest,
+    lastImageDigest: row.last_image_digest,
+    pendingImageDigest: row.pending_image_digest,
     createdAt:
       row.created_at instanceof Date
         ? row.created_at.toISOString()
@@ -669,6 +694,16 @@ function serializeAppPartial(row: AppPartialRow) {
       row.updated_at instanceof Date
         ? row.updated_at.toISOString()
         : row.updated_at,
+  }
+}
+
+function parseQuickLinks(raw: string | null) {
+  if (!raw) return []
+  try {
+    const parsed = z.array(AppQuickLinkSchema).max(8).safeParse(JSON.parse(raw))
+    return parsed.success ? parsed.data : []
+  } catch {
+    return []
   }
 }
 
@@ -734,6 +769,16 @@ export function createAppsRouter(db: Db): Hono {
   const appsRead = requireScope("apps:read")
   const appsWrite = requireScope("apps:write")
   const appsDeploy = requireScope("apps:deploy")
+  const ownerOnly: MiddlewareHandler = async (c, next) => {
+    const user = getUser(c)
+    if (!(await getAppForOwner(db, c.req.param("id")!, user.id))) {
+      return c.json(
+        { error: { code: "NOT_FOUND", message: "App not found" } },
+        404
+      )
+    }
+    await next()
+  }
 
   router.get("/default-domain-config", appsRead, (c) => {
     const domainBase = deriveDefaultAppDomainBase({
@@ -783,6 +828,17 @@ export function createAppsRouter(db: Db): Hono {
           error: {
             code: "VALIDATION_ERROR",
             message: "repoFullName and branch are required for git sources",
+          },
+        },
+        400
+      )
+    }
+    if (body.trackLatest && body.gitProvider !== "image") {
+      return c.json(
+        {
+          error: {
+            code: "VALIDATION_ERROR",
+            message: "trackLatest is only supported for image sources",
           },
         },
         400
@@ -934,6 +990,8 @@ export function createAppsRouter(db: Db): Hono {
         image_pull_policy: body.imagePullPolicy ?? null,
         registry_credential_id: body.registryCredentialId ?? null,
         track_latest: body.trackLatest ?? false,
+        icon_url: body.iconUrl ?? null,
+        quick_links: body.quickLinks ? JSON.stringify(body.quickLinks) : null,
         plan: body.plan ?? "custom",
         cpu_limit: body.cpuLimit ?? null,
         mem_limit_bytes: body.memLimitMB ? body.memLimitMB * 1024 * 1024 : null,
@@ -1105,11 +1163,7 @@ export function createAppsRouter(db: Db): Hono {
           projectId,
           classification,
         })
-        if (
-          injected.length > 0 ||
-          skipped.length > 0 ||
-          repaired.length > 0
-        ) {
+        if (injected.length > 0 || skipped.length > 0 || repaired.length > 0) {
           childLogger("apps-autoinject").info(
             {
               appId: id,
@@ -1218,12 +1272,12 @@ export function createAppsRouter(db: Db): Hono {
   // PATCH /apps/:id — Update app config
   // -------------------------------------------------------------------------
 
-  router.patch("/:id", appsWrite, sf, async (c) => {
+  router.patch("/:id", appsWrite, ownerOnly, sf, async (c) => {
     const user = getUser(c)
     const appId = c.req.param("id")!
 
     // Verify ownership
-    const existing = await getAppForUser(db, appId, user.id)
+    const existing = await getAppForOwner(db, appId, user.id)
     if (!existing) {
       return c.json(
         { error: { code: "NOT_FOUND", message: "App not found" } },
@@ -1240,6 +1294,20 @@ export function createAppsRouter(db: Db): Hono {
         400
       )
     }
+    if (
+      body.trackLatest &&
+      (body.gitProvider ?? existing.git_provider) !== "image"
+    ) {
+      return c.json(
+        {
+          error: {
+            code: "VALIDATION_ERROR",
+            message: "trackLatest is only supported for image sources",
+          },
+        },
+        400
+      )
+    }
 
     // Build update set — only provided fields
     const patch: Record<string, unknown> = { updated_at: new Date() }
@@ -1251,6 +1319,18 @@ export function createAppsRouter(db: Db): Hono {
     if (body.repoFullName !== undefined)
       patch.repo_full_name = body.repoFullName
     if (body.branch !== undefined) patch.branch = body.branch
+    if (body.imageRef !== undefined) patch.image_ref = body.imageRef
+    if (body.imagePullPolicy !== undefined)
+      patch.image_pull_policy = body.imagePullPolicy
+    if (body.registryCredentialId !== undefined)
+      patch.registry_credential_id = body.registryCredentialId
+    if (body.trackLatest !== undefined) {
+      patch.track_latest = body.trackLatest
+      if (!body.trackLatest) patch.pending_image_digest = null
+    }
+    if (body.iconUrl !== undefined) patch.icon_url = body.iconUrl
+    if (body.quickLinks !== undefined)
+      patch.quick_links = JSON.stringify(body.quickLinks)
     if (body.installationId !== undefined)
       patch.github_installation_id = body.installationId
     if (body.rootDir !== undefined) patch.root_dir = body.rootDir
@@ -1375,7 +1455,7 @@ export function createAppsRouter(db: Db): Hono {
       .transform((v) => (v === undefined ? undefined : v === "true")),
   })
 
-  router.delete("/:id", appsWrite, sf, async (c) => {
+  router.delete("/:id", appsWrite, ownerOnly, sf, async (c) => {
     const user = getUser(c)
     const appId = c.req.param("id")!
 
@@ -1443,7 +1523,7 @@ export function createAppsRouter(db: Db): Hono {
   // Stubs for endpoints owned by other milestones
   // -------------------------------------------------------------------------
 
-  router.post("/:id/deploy", appsDeploy, sf, async (c) => {
+  router.post("/:id/deploy", appsDeploy, ownerOnly, sf, async (c) => {
     const user = getUser(c)
     const appId = c.req.param("id")!
 
@@ -1715,93 +1795,99 @@ export function createAppsRouter(db: Db): Hono {
   // worker will finish that phase and its final updateBuildStatus(succeeded)
   // will lose the race with our cancel write (the build row will flip
   // back to succeeded). For mid-flight builds, this is best-effort.
-  router.post("/:id/builds/:buildId/cancel", appsDeploy, sf, async (c) => {
-    const user = getUser(c)
-    const appId = c.req.param("id")!
-    const buildId = c.req.param("buildId")!
+  router.post(
+    "/:id/builds/:buildId/cancel",
+    appsDeploy,
+    ownerOnly,
+    sf,
+    async (c) => {
+      const user = getUser(c)
+      const appId = c.req.param("id")!
+      const buildId = c.req.param("buildId")!
 
-    const app = await getAppForUser(db, appId, user.id)
-    if (!app) {
-      return c.json(
-        { error: { code: "NOT_FOUND", message: "App not found" } },
-        404
-      )
-    }
-
-    const build = await getBuildForApp(db, buildId, appId)
-    if (!build) {
-      return c.json(
-        { error: { code: "NOT_FOUND", message: "Build not found" } },
-        404
-      )
-    }
-
-    if (
-      build.status === "succeeded" ||
-      build.status === "succeeded_with_warning" ||
-      build.status === "failed" ||
-      build.status === "cancelled"
-    ) {
-      return c.json(
-        {
-          error: {
-            code: "INVALID_STATE",
-            message: `Build is already in terminal state: ${build.status}`,
-          },
-        },
-        409
-      )
-    }
-
-    // Remove queued BullMQ jobs for this app (best-effort).
-    try {
-      const jobs = await deployQueue.getJobs([
-        "waiting",
-        "delayed",
-        "active",
-        "paused",
-        "prioritized",
-      ])
-      for (const j of jobs) {
-        const jobAppId = await resolveDeployJobAppIdFromPayload(db, j.data)
-        if (jobAppId === appId) {
-          await j.remove().catch(() => {})
-        }
+      const app = await getAppForUser(db, appId, user.id)
+      if (!app) {
+        return c.json(
+          { error: { code: "NOT_FOUND", message: "App not found" } },
+          404
+        )
       }
-    } catch (err) {
-      childLogger("apps-cancel-build").warn(
-        { err, appId, buildId },
-        "failed to remove BullMQ jobs (non-fatal)"
-      )
-    }
 
-    await updateBuildStatus(db, buildId, "cancelled", {
-      finishedAt: new Date(),
-      errorMessage: `Cancelled by user ${user.email ?? user.id}`,
-    })
+      const build = await getBuildForApp(db, buildId, appId)
+      if (!build) {
+        return c.json(
+          { error: { code: "NOT_FOUND", message: "Build not found" } },
+          404
+        )
+      }
 
-    try {
-      eventBus.publish(`user:${user.id}`, {
-        type: "build.cancelled",
-        appId,
-        buildId,
-        message: "Build annulé",
-        data: { status: "cancelled" },
+      if (
+        build.status === "succeeded" ||
+        build.status === "succeeded_with_warning" ||
+        build.status === "failed" ||
+        build.status === "cancelled"
+      ) {
+        return c.json(
+          {
+            error: {
+              code: "INVALID_STATE",
+              message: `Build is already in terminal state: ${build.status}`,
+            },
+          },
+          409
+        )
+      }
+
+      // Remove queued BullMQ jobs for this app (best-effort).
+      try {
+        const jobs = await deployQueue.getJobs([
+          "waiting",
+          "delayed",
+          "active",
+          "paused",
+          "prioritized",
+        ])
+        for (const j of jobs) {
+          const jobAppId = await resolveDeployJobAppIdFromPayload(db, j.data)
+          if (jobAppId === appId) {
+            await j.remove().catch(() => {})
+          }
+        }
+      } catch (err) {
+        childLogger("apps-cancel-build").warn(
+          { err, appId, buildId },
+          "failed to remove BullMQ jobs (non-fatal)"
+        )
+      }
+
+      await updateBuildStatus(db, buildId, "cancelled", {
+        finishedAt: new Date(),
+        errorMessage: `Cancelled by user ${user.email ?? user.id}`,
       })
-    } catch (pubErr) {
-      childLogger("apps-cancel-build").warn(
-        { pubErr, appId, buildId, userId: user.id },
-        "eventBus publish build.cancelled failed (non-fatal)"
+
+      try {
+        eventBus.publish(`user:${user.id}`, {
+          type: "build.cancelled",
+          appId,
+          buildId,
+          message: "Build annulé",
+          data: { status: "cancelled" },
+        })
+      } catch (pubErr) {
+        childLogger("apps-cancel-build").warn(
+          { pubErr, appId, buildId, userId: user.id },
+          "eventBus publish build.cancelled failed (non-fatal)"
+        )
+      }
+
+      childLogger("apps-cancel-build").info(
+        { appId, buildId, userId: user.id },
+        "build cancelled by user"
       )
+
+      return c.json({ ok: true })
     }
-
-    childLogger("apps-cancel-build").info(
-      { appId, buildId, userId: user.id },
-      "build cancelled by user"
-    )
-
-    return c.json({ ok: true })
-  })
+  )
   // [M3.2 logs — END]
 
   // [M3.3 lifecycle — BEGIN]
@@ -1819,7 +1905,8 @@ export function createAppsRouter(db: Db): Hono {
       )
     }
     const { listSwarmTasks } = await import("../worker/swarm-runner.js")
-    const tasks = app.runtime_mode === "swarm" ? await listSwarmTasks(appId, db) : []
+    const tasks =
+      app.runtime_mode === "swarm" ? await listSwarmTasks(appId, db) : []
     return c.json({
       runtimeMode: app.runtime_mode,
       swarmServiceName: app.swarm_service_name,
@@ -1834,7 +1921,7 @@ export function createAppsRouter(db: Db): Hono {
     })
   })
 
-  router.patch("/:id/runtime", appsWrite, sf, async (c) => {
+  router.patch("/:id/runtime", appsWrite, ownerOnly, sf, async (c) => {
     const user = getUser(c)
     const appId = c.req.param("id")!
     const app = await getAppForUser(db, appId, user.id)
@@ -1859,10 +1946,12 @@ export function createAppsRouter(db: Db): Hono {
     if (body.updateOrder !== undefined) patch.update_order = body.updateOrder
     if (body.updateParallelism !== undefined)
       patch.update_parallelism = body.updateParallelism
-    if (body.updateDelayS !== undefined) patch.update_delay_s = body.updateDelayS
+    if (body.updateDelayS !== undefined)
+      patch.update_delay_s = body.updateDelayS
     if (body.updateMonitorS !== undefined)
       patch.update_monitor_s = body.updateMonitorS
-    if (body.failureAction !== undefined) patch.failure_action = body.failureAction
+    if (body.failureAction !== undefined)
+      patch.failure_action = body.failureAction
     if (body.stopGracePeriodS !== undefined)
       patch.stop_grace_period_s = body.stopGracePeriodS
 
@@ -1870,7 +1959,7 @@ export function createAppsRouter(db: Db): Hono {
     return c.json({ ok: true })
   })
 
-  router.post("/:id/scale", appsDeploy, sf, async (c) => {
+  router.post("/:id/scale", appsDeploy, ownerOnly, sf, async (c) => {
     const user = getUser(c)
     const appId = c.req.param("id")!
     const app = await getAppForUser(db, appId, user.id)
@@ -1915,7 +2004,7 @@ export function createAppsRouter(db: Db): Hono {
     buildId: z.string().optional(),
   })
 
-  router.post("/:id/rollback", appsDeploy, sf, async (c) => {
+  router.post("/:id/rollback", appsDeploy, ownerOnly, sf, async (c) => {
     const user = getUser(c)
     const appId = c.req.param("id")!
 
@@ -1985,7 +2074,7 @@ export function createAppsRouter(db: Db): Hono {
     }
   })
 
-  router.post("/:id/stop", appsDeploy, sf, async (c) => {
+  router.post("/:id/stop", appsDeploy, ownerOnly, sf, async (c) => {
     const user = getUser(c)
     const appId = c.req.param("id")!
 
@@ -2015,7 +2104,9 @@ export function createAppsRouter(db: Db): Hono {
       }
 
       const stopPromise =
-        app.runtime_mode === "swarm" ? stopSwarmApp(appId, db) : stopApp(appId, db)
+        app.runtime_mode === "swarm"
+          ? stopSwarmApp(appId, db)
+          : stopApp(appId, db)
       void stopPromise
         .then(() => {
           try {
@@ -2072,7 +2163,7 @@ export function createAppsRouter(db: Db): Hono {
     }
   })
 
-  router.post("/:id/restart", appsDeploy, sf, async (c) => {
+  router.post("/:id/restart", appsDeploy, ownerOnly, sf, async (c) => {
     const user = getUser(c)
     const appId = c.req.param("id")!
 
@@ -2127,7 +2218,7 @@ export function createAppsRouter(db: Db): Hono {
     }
   })
 
-  router.post("/:id/registry-gc", appsDeploy, sf, async (c) => {
+  router.post("/:id/registry-gc", appsDeploy, ownerOnly, sf, async (c) => {
     const user = getUser(c)
     const appId = c.req.param("id")!
 
@@ -2221,84 +2312,90 @@ export function createAppsRouter(db: Db): Hono {
 
   const totpMw = requireTotpVerified(db)
 
-  router.post("/:id/webhook-secret/rotate", appsWrite, totpMw, async (c) => {
-    const user = getUser(c)
-    const appId = c.req.param("id")!
+  router.post(
+    "/:id/webhook-secret/rotate",
+    appsWrite,
+    ownerOnly,
+    totpMw,
+    async (c) => {
+      const user = getUser(c)
+      const appId = c.req.param("id")!
 
-    const app = await getAppForUser(db, appId, user.id)
-    if (!app) {
-      return c.json(
-        { error: { code: "NOT_FOUND", message: "App not found" } },
-        404
-      )
-    }
-
-    // Anti-abuse: reject if the existing old secret hasn't expired yet (< 24h since last rotation)
-    const now = new Date()
-    if (
-      app.webhook_secret_old_expires_at &&
-      app.webhook_secret_old_expires_at > now
-    ) {
-      return c.json(
-        {
-          code: "rotation_cooldown",
-          message: "A rotation already happened in the last 24h",
-        },
-        409
-      )
-    }
-
-    const newSecretPlain = randomBytes(32).toString("hex")
-    const { enc, nonce } = await encryptField(newSecretPlain)
-    // Store as nonce (12 bytes) || enc concatenated in a single bytea
-    const newSecretBlob = Buffer.concat([nonce, enc])
-
-    // Move current secret → old before overwriting
-    await rotateAppWebhookSecret(
-      db,
-      appId,
-      app.webhook_secret ?? null,
-      newSecretBlob,
-      now
-    )
-
-    // Audit
-    await insertAuditLog(db, {
-      user_id: user.id,
-      action: "webhook.secret.rotated",
-      target_type: "app",
-      target_id: appId,
-      created_at: now,
-    })
-
-    childLogger("apps-webhook-secret").info(
-      { appId, userId: user.id },
-      "webhook secret rotated"
-    )
-
-    // Notification dispatch — webhook.rotated (best-effort, non-fatal)
-    const redisForNotify = createRedis(env.REDIS_URL)
-    notifyDispatch(
-      db,
-      redisForNotify,
-      "webhook.rotated",
-      {
-        appId: app.id,
-        appName: app.name,
-      },
-      { userId: user.id, projectId: app.project_id ?? undefined }
-    )
-      .catch((err) =>
-        childLogger("apps-webhook-secret").warn(
-          { err, appId },
-          "dispatch webhook.rotated failed (non-fatal)"
+      const app = await getAppForUser(db, appId, user.id)
+      if (!app) {
+        return c.json(
+          { error: { code: "NOT_FOUND", message: "App not found" } },
+          404
         )
-      )
-      .finally(() => redisForNotify.disconnect())
+      }
 
-    // Return plain secret once — caller must copy it to GitHub/GitLab
-    return c.json({ secret: newSecretPlain })
-  })
+      // Anti-abuse: reject if the existing old secret hasn't expired yet (< 24h since last rotation)
+      const now = new Date()
+      if (
+        app.webhook_secret_old_expires_at &&
+        app.webhook_secret_old_expires_at > now
+      ) {
+        return c.json(
+          {
+            code: "rotation_cooldown",
+            message: "A rotation already happened in the last 24h",
+          },
+          409
+        )
+      }
+
+      const newSecretPlain = randomBytes(32).toString("hex")
+      const { enc, nonce } = await encryptField(newSecretPlain)
+      // Store as nonce (12 bytes) || enc concatenated in a single bytea
+      const newSecretBlob = Buffer.concat([nonce, enc])
+
+      // Move current secret → old before overwriting
+      await rotateAppWebhookSecret(
+        db,
+        appId,
+        app.webhook_secret ?? null,
+        newSecretBlob,
+        now
+      )
+
+      // Audit
+      await insertAuditLog(db, {
+        user_id: user.id,
+        action: "webhook.secret.rotated",
+        target_type: "app",
+        target_id: appId,
+        created_at: now,
+      })
+
+      childLogger("apps-webhook-secret").info(
+        { appId, userId: user.id },
+        "webhook secret rotated"
+      )
+
+      // Notification dispatch — webhook.rotated (best-effort, non-fatal)
+      const redisForNotify = createRedis(env.REDIS_URL)
+      notifyDispatch(
+        db,
+        redisForNotify,
+        "webhook.rotated",
+        {
+          appId: app.id,
+          appName: app.name,
+        },
+        { userId: user.id, projectId: app.project_id ?? undefined }
+      )
+        .catch((err) =>
+          childLogger("apps-webhook-secret").warn(
+            { err, appId },
+            "dispatch webhook.rotated failed (non-fatal)"
+          )
+        )
+        .finally(() => redisForNotify.disconnect())
+
+      // Return plain secret once — caller must copy it to GitHub/GitLab
+      return c.json({ secret: newSecretPlain })
+    }
+  )
 
   // -------------------------------------------------------------------------
   // POST /apps/:id/webhook-deliveries/:deliveryId/replay — replay a delivery
@@ -2308,6 +2405,7 @@ export function createAppsRouter(db: Db): Hono {
   router.post(
     "/:id/webhook-deliveries/:deliveryId/replay",
     appsDeploy,
+    ownerOnly,
     totpMw,
     async (c) => {
       const user = getUser(c)

@@ -26,6 +26,7 @@ import { Route as AuthedSettingsNotificationsRouteImport } from './routes/_authe
 import { Route as AuthedOrgsOrgSlugRouteImport } from './routes/_authed/orgs/$orgSlug'
 import { Route as AuthedDatabasesSplatRouteImport } from './routes/_authed/databases.$'
 import { Route as AuthedAppsSplatRouteImport } from './routes/_authed/apps.$'
+import { Route as AuthedAdminDiskRouteImport } from './routes/_authed/admin/disk'
 import { Route as AuthedSettingsSecurityIndexRouteImport } from './routes/_authed/settings/security/index'
 import { Route as AuthedSettingsGitProvidersIndexRouteImport } from './routes/_authed/settings/git-providers/index'
 import { Route as AuthedOrgsOrgSlugIndexRouteImport } from './routes/_authed/orgs/$orgSlug/index'
@@ -152,6 +153,11 @@ const AuthedDatabasesSplatRoute = AuthedDatabasesSplatRouteImport.update({
 const AuthedAppsSplatRoute = AuthedAppsSplatRouteImport.update({
   id: '/apps/$',
   path: '/apps/$',
+  getParentRoute: () => AuthedRoute,
+} as any)
+const AuthedAdminDiskRoute = AuthedAdminDiskRouteImport.update({
+  id: '/admin/disk',
+  path: '/admin/disk',
   getParentRoute: () => AuthedRoute,
 } as any)
 const AuthedSettingsSecurityIndexRoute =
@@ -417,6 +423,7 @@ export interface FileRoutesByFullPath {
   '/monitoring': typeof AuthedMonitoringRoute
   '/login': typeof PublicLoginRoute
   '/setup': typeof PublicSetupRoute
+  '/admin/disk': typeof AuthedAdminDiskRoute
   '/apps/$': typeof AuthedAppsSplatRoute
   '/databases/$': typeof AuthedDatabasesSplatRoute
   '/orgs/$orgSlug': typeof AuthedOrgsOrgSlugRouteWithChildren
@@ -477,6 +484,7 @@ export interface FileRoutesByTo {
   '/monitoring': typeof AuthedMonitoringRoute
   '/login': typeof PublicLoginRoute
   '/setup': typeof PublicSetupRoute
+  '/admin/disk': typeof AuthedAdminDiskRoute
   '/apps/$': typeof AuthedAppsSplatRoute
   '/databases/$': typeof AuthedDatabasesSplatRoute
   '/settings/notifications': typeof AuthedSettingsNotificationsRoute
@@ -536,6 +544,7 @@ export interface FileRoutesById {
   '/_public/login': typeof PublicLoginRoute
   '/_public/setup': typeof PublicSetupRoute
   '/_public/': typeof PublicIndexRoute
+  '/_authed/admin/disk': typeof AuthedAdminDiskRoute
   '/_authed/apps/$': typeof AuthedAppsSplatRoute
   '/_authed/databases/$': typeof AuthedDatabasesSplatRoute
   '/_authed/orgs/$orgSlug': typeof AuthedOrgsOrgSlugRouteWithChildren
@@ -598,6 +607,7 @@ export interface FileRouteTypes {
     | '/monitoring'
     | '/login'
     | '/setup'
+    | '/admin/disk'
     | '/apps/$'
     | '/databases/$'
     | '/orgs/$orgSlug'
@@ -658,6 +668,7 @@ export interface FileRouteTypes {
     | '/monitoring'
     | '/login'
     | '/setup'
+    | '/admin/disk'
     | '/apps/$'
     | '/databases/$'
     | '/settings/notifications'
@@ -716,6 +727,7 @@ export interface FileRouteTypes {
     | '/_public/login'
     | '/_public/setup'
     | '/_public/'
+    | '/_authed/admin/disk'
     | '/_authed/apps/$'
     | '/_authed/databases/$'
     | '/_authed/orgs/$orgSlug'
@@ -893,6 +905,13 @@ declare module '@tanstack/react-router' {
       path: '/apps/$'
       fullPath: '/apps/$'
       preLoaderRoute: typeof AuthedAppsSplatRouteImport
+      parentRoute: typeof AuthedRoute
+    }
+    '/_authed/admin/disk': {
+      id: '/_authed/admin/disk'
+      path: '/admin/disk'
+      fullPath: '/admin/disk'
+      preLoaderRoute: typeof AuthedAdminDiskRouteImport
       parentRoute: typeof AuthedRoute
     }
     '/_authed/settings/security/': {
@@ -1332,6 +1351,7 @@ interface AuthedRouteChildren {
   AuthedDashboardRoute: typeof AuthedDashboardRoute
   AuthedGuideRoute: typeof AuthedGuideRoute
   AuthedMonitoringRoute: typeof AuthedMonitoringRoute
+  AuthedAdminDiskRoute: typeof AuthedAdminDiskRoute
   AuthedAppsSplatRoute: typeof AuthedAppsSplatRoute
   AuthedDatabasesSplatRoute: typeof AuthedDatabasesSplatRoute
   AuthedOrgsOrgSlugRoute: typeof AuthedOrgsOrgSlugRouteWithChildren
@@ -1349,6 +1369,7 @@ const AuthedRouteChildren: AuthedRouteChildren = {
   AuthedDashboardRoute: AuthedDashboardRoute,
   AuthedGuideRoute: AuthedGuideRoute,
   AuthedMonitoringRoute: AuthedMonitoringRoute,
+  AuthedAdminDiskRoute: AuthedAdminDiskRoute,
   AuthedAppsSplatRoute: AuthedAppsSplatRoute,
   AuthedDatabasesSplatRoute: AuthedDatabasesSplatRoute,
   AuthedOrgsOrgSlugRoute: AuthedOrgsOrgSlugRouteWithChildren,

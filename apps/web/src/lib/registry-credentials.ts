@@ -51,28 +51,32 @@ export function useRegistryCredentials() {
 
 export function useCreateRegistryCredential() {
   const qc = useQueryClient()
-  return useMutation<CreateResponse, ApiError, CreateRegistryCredentialPayload>({
-    mutationFn: (payload) =>
-      apiFetch<CreateResponse>("/registry/credentials", {
-        method: "POST",
-        headers: { "Content-Type": "application/json" },
-        body: JSON.stringify(payload),
-      }),
-    onSuccess: () => {
-      toast.success("Registry credential saved")
-      void qc.invalidateQueries({ queryKey: ["registry", "credentials"] })
-    },
-    onError: (err) => {
-      toast.error(err.message)
-    },
-  })
+  return useMutation<CreateResponse, ApiError, CreateRegistryCredentialPayload>(
+    {
+      mutationFn: (payload) =>
+        apiFetch<CreateResponse>("/registry/credentials", {
+          method: "POST",
+          headers: { "Content-Type": "application/json" },
+          body: payload,
+        }),
+      onSuccess: () => {
+        toast.success("Registry credential saved")
+        void qc.invalidateQueries({ queryKey: ["registry", "credentials"] })
+      },
+      onError: (err) => {
+        toast.error(err.message)
+      },
+    }
+  )
 }
 
 export function useDeleteRegistryCredential() {
   const qc = useQueryClient()
   return useMutation<{ ok: true }, ApiError, string>({
     mutationFn: (id) =>
-      apiFetch<{ ok: true }>(`/registry/credentials/${id}`, { method: "DELETE" }),
+      apiFetch<{ ok: true }>(`/registry/credentials/${id}`, {
+        method: "DELETE",
+      }),
     onSuccess: () => {
       toast.success("Credential deleted")
       void qc.invalidateQueries({ queryKey: ["registry", "credentials"] })

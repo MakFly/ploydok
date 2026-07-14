@@ -1,5 +1,6 @@
 // SPDX-License-Identifier: AGPL-3.0-only
 import * as React from "react"
+import { useQueryClient } from "@tanstack/react-query"
 import { Button } from "@workspace/ui/components/button"
 import { Input } from "@workspace/ui/components/input"
 import { Textarea } from "@workspace/ui/components/textarea"
@@ -109,6 +110,7 @@ function InstallationsCard(): React.JSX.Element {
   const [justInstalled, setJustInstalled] = React.useState<{
     id: string
     action: string
+    syncId: string | null
   } | null>(null)
   const [installError, setInstallError] = React.useState<string | null>(null)
 
@@ -118,6 +120,7 @@ function InstallationsCard(): React.JSX.Element {
     const installationId = params.get("installation_id")
     const setupAction = params.get("setup_action")
     const installed = params.get("installed")
+    const syncId = params.get("sync_id")
     const installErrorParam = params.get("install_error")
 
     if (installErrorParam) {
@@ -135,7 +138,7 @@ function InstallationsCard(): React.JSX.Element {
       )
       setJustInstalled(null)
     } else if (installationId && setupAction && installed === "1") {
-      setJustInstalled({ id: installationId, action: setupAction })
+      setJustInstalled({ id: installationId, action: setupAction, syncId })
       setInstallError(null)
       void refetch()
     } else if (!installationId && !setupAction) {
@@ -145,6 +148,7 @@ function InstallationsCard(): React.JSX.Element {
     params.delete("installation_id")
     params.delete("setup_action")
     params.delete("installed")
+    params.delete("sync_id")
     params.delete("install_error")
     params.delete("state")
     const next = params.toString()
@@ -253,26 +257,55 @@ function InstallationsCard(): React.JSX.Element {
         )}
       </div>
 
-      {hasInstallation && <GitHubCacheSection />}
+      {hasInstallation && (
+        <GitHubCacheSection
+          autoSync={
+            justInstalled?.syncId
+              ? {
+                  installationId: justInstalled.id,
+                  syncId: justInstalled.syncId,
+                }
+              : null
+          }
+        />
+      )}
     </>
   )
 }
 
-function GitHubCacheSection(): React.JSX.Element {
+function GitHubCacheSection({
+  autoSync,
+}: {
+  autoSync: { installationId: string; syncId: string } | null
+}): React.JSX.Element {
+  const queryClient = useQueryClient()
   const sync = useSyncGitHubInstallations()
   const cache = useGitHubCacheStatus({})
   const progress = useSyncWithProgress()
   const [scope, setScope] = React.useState<"all" | string | undefined>(undefined)
+  const autoSyncStartedRef = React.useRef<string | null>(null)
+  const previousStatusRef = React.useRef(progress.status)
 
   React.useEffect(() => {
-    if (progress.status === "done") {
+    const previousStatus = previousStatusRef.current
+    previousStatusRef.current = progress.status
+
+    if (progress.status === "done" && previousStatus !== "done") {
       void cache.refetch()
+      void queryClient.invalidateQueries({ queryKey: ["github", "repos"] })
       setScope(undefined)
     }
     if (progress.status === "error" || progress.status === "idle") {
       setScope(undefined)
     }
-  }, [progress.status, cache])
+  }, [progress.status, cache.refetch, queryClient])
+
+  React.useEffect(() => {
+    if (!autoSync || autoSyncStartedRef.current === autoSync.syncId) return
+    autoSyncStartedRef.current = autoSync.syncId
+    setScope(autoSync.installationId)
+    progress.begin(autoSync.syncId)
+  }, [autoSync, progress.begin])
 
   async function startSync(opts: { installationId?: string }): Promise<void> {
     setScope(opts.installationId ?? "all")

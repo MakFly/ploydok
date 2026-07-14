@@ -6,7 +6,8 @@
 // --------------
 // The validator enforces **shape** (registries allowlist, prefix `ploydok-`,
 // path prefix, resource ceilings, exec cmd[0] whitelist, age recipient
-// format). It does **NOT** enforce ownership or per-tenant authorisation —
+// format). The service layer also requires a `ploydok.kind` Docker label before
+// start/stop/remove. It does **NOT** enforce per-tenant authorisation —
 // the API is responsible for ensuring that the caller owns the resource
 // before forwarding the RPC. See `service.rs` module-level comment for the
 // full security model.

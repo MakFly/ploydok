@@ -18,7 +18,7 @@ export const ScheduledJobCreateSchema = z.object({
   image: z.string().optional(),
   command: z.array(z.string()).optional(),
   env: z.record(z.string(), z.string()).optional(),
-  timeout_seconds: z.number().int().positive().default(300),
+  timeout_seconds: z.number().int().positive().max(86_400).default(300),
   enabled: z.boolean().default(true),
 })
 

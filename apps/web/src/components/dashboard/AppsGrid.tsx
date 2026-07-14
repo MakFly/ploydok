@@ -2,6 +2,7 @@
 import * as React from "react"
 import { Link } from "@tanstack/react-router"
 import { AppStatusBadge } from "../apps/AppStatusBadge"
+import { AppIcon } from "../apps/AppIcon"
 import {
   resolveAppHealth,
   resolveRuntimeAppStatus,
@@ -82,16 +83,23 @@ function AppMiniCard({
 }): React.JSX.Element {
   const orgSlug = useCurrentOrganizationSlug()
   const isDeleting = app.status === "deleting"
+  const quickLinks = (app.quickLinks ?? []).slice(0, 2)
+  const settingsPath = orgSlug
+    ? organizationPath(orgSlug, `apps/${app.id}/settings`)
+    : `/apps/${app.id}/settings`
   const content = (
     <>
       <div className="flex items-start justify-between gap-2">
-        <div className="min-w-0 flex-1">
-          <p className="truncate text-sm font-medium">{app.name}</p>
-          {app.repoFullName && (
-            <p className="mt-0.5 truncate text-xs text-muted-foreground">
-              {app.repoFullName}
-            </p>
-          )}
+        <div className="flex min-w-0 flex-1 items-center gap-3">
+          <AppIcon name={app.name} src={app.iconUrl} className="size-8" />
+          <div className="min-w-0 flex-1">
+            <p className="truncate text-sm font-medium">{app.name}</p>
+            {app.repoFullName || app.imageRef ? (
+              <p className="mt-0.5 truncate text-xs text-muted-foreground">
+                {app.repoFullName ?? app.imageRef}
+              </p>
+            ) : null}
+          </div>
         </div>
         <AppStatusBadge status={app.runtimeStatus} health={app.runtimeHealth} />
       </div>
@@ -119,16 +127,29 @@ function AppMiniCard({
   }
 
   return (
-    <Link
-      to={
-        (orgSlug
-          ? organizationPath(orgSlug, `apps/${app.id}/settings`)
-          : `/apps/${app.id}/settings`) as never
-      }
-      className="block space-y-2 rounded-lg border border-border bg-card p-4 transition-colors hover:border-muted-foreground/30 hover:bg-accent/30 focus-visible:ring-2 focus-visible:ring-ring focus-visible:outline-none"
-    >
-      {content}
-    </Link>
+    <article className="overflow-hidden rounded-lg border border-border bg-card transition-colors hover:border-muted-foreground/30">
+      <Link
+        to={settingsPath as never}
+        className="block space-y-2 p-4 hover:bg-accent/30 focus-visible:ring-2 focus-visible:ring-ring focus-visible:outline-none"
+      >
+        {content}
+      </Link>
+      {quickLinks.length > 0 ? (
+        <div className="flex flex-wrap gap-2 border-t border-border px-4 py-2.5">
+          {quickLinks.map((link) => (
+            <a
+              key={`${link.label}-${link.url}`}
+              href={link.url}
+              target="_blank"
+              rel="noopener noreferrer"
+              className="rounded bg-muted px-2 py-1 text-[11px] text-muted-foreground hover:text-foreground"
+            >
+              {link.label}
+            </a>
+          ))}
+        </div>
+      ) : null}
+    </article>
   )
 }
 

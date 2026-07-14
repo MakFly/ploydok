@@ -23,6 +23,7 @@ const fakeMe: Me = {
   has_totp: false,
   require_totp_for_secret_reveal: true,
   needs_second_factor: false,
+  is_instance_admin: false,
 }
 
 describe("auth route guards", () => {

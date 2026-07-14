@@ -6,15 +6,16 @@
 // --------------
 // The agent enforces three things at this layer:
 //   1. **Shape validation** via `validator::Validator` (image registries,
-//      volume prefixes, container/network name patterns, exec cmd[0] whitelist).
+//      volume prefixes, container/network name patterns, exec cmd[0] whitelist)
+//      plus a Docker label check before destructive container operations.
 //   2. **mTLS authentication** of the calling process when
 //      `PLOYDOK_AGENT_INSECURE != "1"` (see `main.rs` and `pki.rs`).
 //   3. **Audit logging** of each RPC entry/exit with the mTLS CN
 //      (`audit_with_client(...)` from request-driven sites).
 //
 // What the agent does **NOT** do — and why this matters at every call site:
-//   - **No ownership check.** The agent does not verify that the calling user
-//     is authorised to act on the target container/network/image. It trusts
+//   - **No tenant ownership check.** The agent verifies that a target container
+//     carries `ploydok.kind`, but not which user owns it. It trusts
 //     that the API has performed that check before forwarding the RPC.
 //     Callers exposing the agent socket to less-trusted clients must layer
 //     their own authorisation in front.
@@ -35,11 +36,14 @@ use std::sync::Arc;
 
 use bollard::auth::DockerCredentials;
 use bollard::container::{
-    Config, CreateContainerOptions, ListContainersOptions, LogsOptions, RemoveContainerOptions,
-    StatsOptions, StopContainerOptions,
+    Config, CreateContainerOptions, InspectContainerOptions, ListContainersOptions, LogsOptions,
+    RemoveContainerOptions, StatsOptions, StopContainerOptions,
 };
 use bollard::exec::{CreateExecOptions, ResizeExecOptions, StartExecOptions, StartExecResults};
-use bollard::image::{BuildImageOptions, CreateImageOptions};
+use bollard::image::{
+    BuildImageOptions, CreateImageOptions, ListImagesOptions, PruneImagesOptions,
+    RemoveImageOptions,
+};
 use bollard::models::EndpointSettings;
 use bollard::models::{
     HealthConfig, HostConfig, Limit, Mount, MountTypeEnum, NetworkAttachmentConfig, PortBinding,
@@ -63,21 +67,22 @@ use ploydok_proto::agent::{
     agent_server::Agent, exec_frame, restore_chunk, BuildProgress, ContainerCreateRequest,
     ContainerCreateResponse, ContainerLogsRequest, ContainerRemoveRequest, ContainerRemoveResponse,
     ContainerStartRequest, ContainerStartResponse, ContainerStatsRequest, ContainerStopRequest,
-    ContainerStopResponse, DumpChunk, DumpRequest, ExecFrame, FileEntry, GetAuditPubkeyRequest,
-    GetAuditPubkeyResponse, HostStatsRequest, HostStatsResponse, ImageBuildRequest,
+    ContainerStopResponse, DiskUsageCategory, DumpChunk, DumpRequest, ExecFrame, FileEntry,
+    GetAuditPubkeyRequest, GetAuditPubkeyResponse, HostStatsRequest, HostStatsResponse,
+    ImageBuildRequest, ImageDfRequest, ImageDfResponse, ImagePruneRequest, ImagePruneResponse,
     ImagePullRequest, InspectContainerHealthRequest, InspectContainerHealthResponse,
     ListContainerFilesRequest, ListContainerFilesResponse, ListContainersRequest,
     ListContainersResponse, ListServiceTasksRequest, ListServiceTasksResponse, LogLine,
     NetworkConnectRequest, NetworkConnectResponse, NetworkCreateRequest, NetworkCreateResponse,
     NetworkDisconnectRequest, NetworkDisconnectResponse, NetworkRemoveRequest,
     NetworkRemoveResponse, PingContainerRequest, PingContainerResponse, PullProgress,
-    ReadContainerFileRequest, ReadContainerFileResponse, RestoreChunk, RestoreResult,
-    ServiceCreateRequest, ServiceCreateResponse, ServiceRemoveRequest, ServiceRemoveResponse,
-    ServiceRollbackRequest, ServiceRollbackResponse, ServiceScaleRequest, ServiceScaleResponse,
-    ServiceUpdateImageRequest, ServiceUpdateImageResponse, SignAuditEntryRequest,
-    SignAuditEntryResponse, StatsFrame, SwarmEnsureSingleNodeRequest,
-    SwarmEnsureSingleNodeResponse, SwarmInfoRequest, SwarmInfoResponse, SwarmServiceSpec,
-    SwarmTaskSnapshot,
+    ReadContainerFileRequest, ReadContainerFileResponse, RegistryImageDigestRequest,
+    RegistryImageDigestResponse, RestoreChunk, RestoreResult, ServiceCreateRequest,
+    ServiceCreateResponse, ServiceRemoveRequest, ServiceRemoveResponse, ServiceRollbackRequest,
+    ServiceRollbackResponse, ServiceScaleRequest, ServiceScaleResponse, ServiceUpdateImageRequest,
+    ServiceUpdateImageResponse, SignAuditEntryRequest, SignAuditEntryResponse, StatsFrame,
+    SwarmEnsureSingleNodeRequest, SwarmEnsureSingleNodeResponse, SwarmInfoRequest,
+    SwarmInfoResponse, SwarmServiceSpec, SwarmTaskSnapshot,
 };
 
 use crate::audit::{audit, audit_with_client, client_identity_from_request};
@@ -444,6 +449,27 @@ impl AgentService {
             audit_signer,
         }
     }
+
+    async fn ensure_managed_container(&self, container_id: &str) -> Result<(), Status> {
+        let inspect = self
+            .docker
+            .inspect_container(container_id, None::<InspectContainerOptions>)
+            .await
+            .map_err(|e| bollard_err("inspect_container", e))?;
+        let labels = inspect
+            .config
+            .and_then(|config| config.labels)
+            .unwrap_or_default();
+        if labels
+            .get("ploydok.kind")
+            .is_some_and(|kind| !kind.trim().is_empty())
+        {
+            return Ok(());
+        }
+        Err(Status::permission_denied(
+            "container is not managed by Ploydok (missing ploydok.kind label)",
+        ))
+    }
 }
 
 // ─────────────────────────────────────────────────────────────────────────────
@@ -653,6 +679,7 @@ impl Agent for AgentService {
         self.validator
             .validate_container_start(&req)
             .map_err(|e| *e)?;
+        self.ensure_managed_container(&req.container_id).await?;
 
         self.docker
             .start_container::<String>(&req.container_id, None)
@@ -674,6 +701,7 @@ impl Agent for AgentService {
         self.validator
             .validate_container_stop(&req)
             .map_err(|e| *e)?;
+        self.ensure_managed_container(&req.container_id).await?;
 
         let options = if req.timeout_seconds > 0 {
             Some(StopContainerOptions {
@@ -703,6 +731,7 @@ impl Agent for AgentService {
         self.validator
             .validate_container_remove(&req)
             .map_err(|e| *e)?;
+        self.ensure_managed_container(&req.container_id).await?;
 
         let options = RemoveContainerOptions {
             force: req.force,
@@ -1001,6 +1030,208 @@ impl Agent for AgentService {
         });
 
         Ok(Response::new(ReceiverStream::new(rx)))
+    }
+
+    // ── ImageDf ──────────────────────────────────────────────────────────────
+    //
+    // `docker system df` equivalent. Read-only and host-scoped, so no per-container
+    // guard applies. Feeds the disk-usage / reclaim panel.
+
+    async fn image_df(
+        &self,
+        _request: Request<ImageDfRequest>,
+    ) -> Result<Response<ImageDfResponse>, Status> {
+        let df = self.docker.df().await.map_err(|e| bollard_err("df", e))?;
+
+        let mut categories = Vec::new();
+
+        if let Some(images) = df.images.as_ref() {
+            let total: i64 = images.iter().map(|i| i.size).sum();
+            // An image is reclaimable when no container references it.
+            let reclaimable: i64 = images
+                .iter()
+                .filter(|i| i.containers <= 0)
+                .map(|i| i.size)
+                .sum();
+            categories.push(DiskUsageCategory {
+                kind: "images".to_string(),
+                total_bytes: total,
+                reclaimable_bytes: reclaimable,
+                count: images.len() as i64,
+            });
+        }
+
+        if let Some(containers) = df.containers.as_ref() {
+            let total: i64 = containers.iter().filter_map(|c| c.size_rw).sum();
+            categories.push(DiskUsageCategory {
+                kind: "containers".to_string(),
+                total_bytes: total,
+                reclaimable_bytes: 0,
+                count: containers.len() as i64,
+            });
+        }
+
+        if let Some(volumes) = df.volumes.as_ref() {
+            let total: i64 = volumes
+                .iter()
+                .filter_map(|v| v.usage_data.as_ref().map(|u| u.size))
+                .sum();
+            let reclaimable: i64 = volumes
+                .iter()
+                .filter_map(|v| v.usage_data.as_ref())
+                .filter(|u| u.ref_count <= 0)
+                .map(|u| u.size)
+                .sum();
+            categories.push(DiskUsageCategory {
+                kind: "volumes".to_string(),
+                total_bytes: total,
+                reclaimable_bytes: reclaimable,
+                count: volumes.len() as i64,
+            });
+        }
+
+        if let Some(build_cache) = df.build_cache.as_ref() {
+            let total: i64 = build_cache.iter().filter_map(|b| b.size).sum();
+            let reclaimable: i64 = build_cache
+                .iter()
+                .filter(|b| !b.in_use.unwrap_or(false))
+                .filter_map(|b| b.size)
+                .sum();
+            categories.push(DiskUsageCategory {
+                kind: "build_cache".to_string(),
+                total_bytes: total,
+                reclaimable_bytes: reclaimable,
+                count: build_cache.len() as i64,
+            });
+        }
+
+        Ok(Response::new(ImageDfResponse {
+            categories,
+            layers_size_bytes: df.layers_size.unwrap_or(0),
+        }))
+    }
+
+    // ── ImagePrune ───────────────────────────────────────────────────────────
+    //
+    // Reclaims disk from unused images. Host-scoped, so `ensure_managed_container`
+    // does not apply; the guard is the DEFAULT (dangling-only) plus `keep_repo_tags`
+    // (the Ploydok reference-set) which is honoured when `all=true`. `remove_image`
+    // runs with force=false, so Docker itself refuses to delete an image still bound
+    // to a container (running OR stopped) — a second line of defence.
+
+    async fn image_prune(
+        &self,
+        request: Request<ImagePruneRequest>,
+    ) -> Result<Response<ImagePruneResponse>, Status> {
+        let req = request.into_inner();
+        audit(
+            "image_prune",
+            if req.all { "all" } else { "dangling" },
+            Ok(()),
+        );
+
+        // Precise path: prune *all* unused images while protecting the reference-set.
+        if req.all && !req.keep_repo_tags.is_empty() {
+            let keep: std::collections::HashSet<&str> =
+                req.keep_repo_tags.iter().map(String::as_str).collect();
+            let images = self
+                .docker
+                .list_images(Some(ListImagesOptions::<String> {
+                    all: false,
+                    ..Default::default()
+                }))
+                .await
+                .map_err(|e| bollard_err("list_images", e))?;
+
+            let mut deleted = 0i32;
+            let mut reclaimed = 0i64;
+            for img in images {
+                if img.repo_tags.iter().any(|t| keep.contains(t.as_str())) {
+                    continue;
+                }
+                if req.until_unix > 0 && img.created >= req.until_unix {
+                    continue;
+                }
+                match self
+                    .docker
+                    .remove_image(
+                        &img.id,
+                        Some(RemoveImageOptions {
+                            force: false,
+                            noprune: false,
+                        }),
+                        None,
+                    )
+                    .await
+                {
+                    Ok(_) => {
+                        deleted += 1;
+                        reclaimed += img.size.max(0);
+                    }
+                    Err(e) => {
+                        tracing::debug!(image = %img.id, error = %e, "image_prune: skipped (in use / conflict)");
+                    }
+                }
+            }
+            return Ok(Response::new(ImagePruneResponse {
+                images_deleted: deleted,
+                space_reclaimed_bytes: reclaimed,
+            }));
+        }
+
+        // Blanket path via Docker's own prune filters (dangling by default).
+        let mut filters: HashMap<String, Vec<String>> = HashMap::new();
+        let dangling = if req.all { "false" } else { "true" };
+        filters.insert("dangling".to_string(), vec![dangling.to_string()]);
+        if req.until_unix > 0 {
+            filters.insert("until".to_string(), vec![req.until_unix.to_string()]);
+        }
+
+        let result = self
+            .docker
+            .prune_images(Some(PruneImagesOptions { filters }))
+            .await
+            .map_err(|e| bollard_err("prune_images", e))?;
+
+        Ok(Response::new(ImagePruneResponse {
+            images_deleted: result.images_deleted.map(|v| v.len() as i32).unwrap_or(0),
+            space_reclaimed_bytes: result.space_reclaimed.unwrap_or(0),
+        }))
+    }
+
+    // ── RegistryImageDigest ──────────────────────────────────────────────────
+    //
+    // Resolves the CURRENT manifest digest of an image reference in its registry
+    // WITHOUT pulling it (bollard inspect_registry_image). The image auto-update
+    // watch compares this against the last-seen digest to detect a moved tag.
+
+    async fn registry_image_digest(
+        &self,
+        request: Request<RegistryImageDigestRequest>,
+    ) -> Result<Response<RegistryImageDigestResponse>, Status> {
+        let req = request.into_inner();
+
+        let credentials = req.registry_auth.as_ref().and_then(|a| {
+            if a.username.is_empty() && a.password.is_empty() {
+                None
+            } else {
+                Some(DockerCredentials {
+                    username: Some(a.username.clone()),
+                    password: Some(a.password.clone()),
+                    ..Default::default()
+                })
+            }
+        });
+
+        let inspect = self
+            .docker
+            .inspect_registry_image(&req.image, credentials)
+            .await
+            .map_err(|e| bollard_err("inspect_registry_image", e))?;
+
+        Ok(Response::new(RegistryImageDigestResponse {
+            digest: inspect.descriptor.digest.unwrap_or_default(),
+        }))
     }
 
     // ── NetworkCreate ────────────────────────────────────────────────────────

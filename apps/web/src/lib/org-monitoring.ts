@@ -1,20 +1,12 @@
 // SPDX-License-Identifier: AGPL-3.0-only
 import { useMutation, useQuery } from "@tanstack/react-query"
 
-import {
-  apiFetch,
-  apiFetchAllowErrorBody,
-  criticalRetryDelay,
-  shouldRetryCriticalQuery,
-} from "./api"
+import { apiFetch, criticalRetryDelay, shouldRetryCriticalQuery } from "./api"
 import { useBackendUnavailable } from "./backend-status"
 import { useEventsSubscription } from "./events-provider"
 import { getContainerHealthSnapshot } from "./monitoring"
 import type { ApiError } from "./api"
-import type {
-  ContainerSnapshot,
-  MonitoringOverview,
-} from "@ploydok/shared"
+import type { ContainerSnapshot, MonitoringOverview } from "@ploydok/shared"
 
 // ---------------------------------------------------------------------------
 // useOrgMonitoring — GET /organizations/:slug/monitoring/overview
@@ -25,22 +17,10 @@ export function useOrgMonitoring(orgSlug: string) {
 
   return useQuery<MonitoringOverview, ApiError>({
     queryKey: ["org-monitoring", "overview", orgSlug],
-    queryFn: async () => {
-      const { response, data } =
-        await apiFetchAllowErrorBody<MonitoringOverview>(
-          `/organizations/${encodeURIComponent(orgSlug)}/monitoring/overview`,
-          {
-            method: "GET",
-            credentials: "include",
-          }
-        )
-      if (!data) {
-        throw new Error(
-          `Org monitoring request failed with status ${response.status}`
-        )
-      }
-      return data
-    },
+    queryFn: () =>
+      apiFetch<MonitoringOverview>(
+        `/organizations/${encodeURIComponent(orgSlug)}/monitoring/overview`
+      ),
     refetchInterval: backendUnavailable.active ? false : 5000,
     staleTime: 2000,
     retry: shouldRetryCriticalQuery,
@@ -75,11 +55,11 @@ export function usePingOrgContainer(orgSlug: string) {
         `/organizations/${encodeURIComponent(orgSlug)}/monitoring/ping/${encodeURIComponent(args.id)}`,
         {
           method: "POST",
-          body: JSON.stringify({
+          body: {
             path: args.path,
             port: args.port,
             timeoutMs: args.timeoutMs,
-          }),
+          },
         }
       ),
   })

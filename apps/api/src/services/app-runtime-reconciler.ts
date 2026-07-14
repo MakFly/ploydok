@@ -33,7 +33,7 @@ export type RestartAppForRecovery = (
   appId: string,
   db: Db,
   userId: undefined,
-  opts: { background: true }
+  opts: { background: boolean }
 ) => Promise<void>
 
 export type RuntimeRecoveryResult = {
@@ -54,7 +54,9 @@ const LIVE_STATUSES = new Set(["running", "starting", "unhealthy"])
 function isRecoverableIntent(app: RuntimeRecoveryApp): boolean {
   return (
     RECOVERABLE_STATUSES.includes(app.status as RuntimeRecoveryStatus) &&
-    RECOVERABLE_POLICIES.includes(app.restart_policy as RuntimeRecoveryPolicy) &&
+    RECOVERABLE_POLICIES.includes(
+      app.restart_policy as RuntimeRecoveryPolicy
+    ) &&
     app.build_method !== "static"
   )
 }
@@ -65,8 +67,8 @@ export function hasLiveRuntime(
 ): boolean {
   let snap =
     app.container_id !== null
-      ? index.byContainerId.get(app.container_id) ??
-        index.byContainerName.get(app.container_id)
+      ? (index.byContainerId.get(app.container_id) ??
+        index.byContainerName.get(app.container_id))
       : undefined
 
   if (!snap) {

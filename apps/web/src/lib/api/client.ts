@@ -300,6 +300,20 @@ async function doRefresh(): Promise<RefreshResult> {
   } catch {
     return { ok: false, reason: "network_error" }
   }
+  if (res.status === 409) {
+    const data = (await res
+      .clone()
+      .json()
+      .catch(() => ({}))) as {
+      error?: { code?: string }
+    }
+    if (data.error?.code === "REFRESH_CONFLICT") {
+      // A concurrent browser tab won the rotation. Cookies are shared between
+      // tabs, so let its Set-Cookie settle before retrying the original call.
+      await new Promise((resolve) => setTimeout(resolve, 50))
+      return { ok: true, accessExpiresAt: null }
+    }
+  }
   if (!res.ok) {
     const reason: "refresh_expired" | "server_error" =
       res.status === 401 ? "refresh_expired" : "server_error"
@@ -453,32 +467,13 @@ export async function apiFetch<T = unknown>(
     const state = await getRuntimeState()
     const cached = state.getCache.get(path)
     if (cached) return cached as Promise<T>
-    const promise = apiFetchCore<T>(
-      path,
-      method,
-      body,
-      extraHeaders,
-      false
-    ).catch((err) => {
-      state.getCache.delete(path)
-      throw err
-    })
+    const promise = apiFetchCore<T>(path, method, body, extraHeaders, false)
     state.getCache.set(path, promise)
-    return promise
+    try {
+      return await promise
+    } finally {
+      if (state.getCache.get(path) === promise) state.getCache.delete(path)
+    }
   }
   return apiFetchCore<T>(path, method, body, extraHeaders, false)
-}
-
-export async function apiFetchAllowErrorBody<T = unknown>(
-  path: string,
-  init: RequestInit = {}
-): Promise<{ response: Response; data: T | undefined }> {
-  let response: Response
-  try {
-    response = await rawRequest(path, init)
-  } catch (error) {
-    throw toBackendUnavailableError(error)
-  }
-  const data = (await response.json().catch(() => undefined)) as T | undefined
-  return { response, data }
 }

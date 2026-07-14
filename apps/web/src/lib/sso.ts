@@ -37,7 +37,7 @@ export async function createSSOConfig(
       `/orgs/${orgSlug}/sso-configs`,
       {
         method: "POST",
-        body: JSON.stringify(body),
+        body,
       }
     )
   } catch {
@@ -57,7 +57,7 @@ export async function updateSSOConfig(
       `/orgs/${orgSlug}/sso-configs`,
       {
         method: "PATCH",
-        body: JSON.stringify(body),
+        body,
       }
     )
   } catch {

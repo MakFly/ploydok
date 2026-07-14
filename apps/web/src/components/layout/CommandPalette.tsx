@@ -8,6 +8,7 @@ import {
   RiDashboardLine,
   RiDatabase2Line,
   RiFileListLine,
+  RiHardDriveLine,
   RiKeyLine,
   RiNotificationLine,
   RiPlugLine,
@@ -33,6 +34,7 @@ import {
   CommandSeparator,
 } from "@workspace/ui/components/command"
 import { useApps } from "../../lib/apps"
+import { useMe } from "../../lib/auth"
 import { useDeployApp, useStopApp } from "../../lib/apps-mutations"
 import { useCommandPaletteContext } from "../../lib/hooks/command-palette-context"
 import {
@@ -52,6 +54,7 @@ interface NavEntry {
   to: string
   orgPathSuffix?: string
   params?: Record<string, string>
+  adminOnly?: boolean
 }
 
 // ---------------------------------------------------------------------------
@@ -73,6 +76,13 @@ export function matchesQuery(item: FilterableItem, query: string): boolean {
 // ---------------------------------------------------------------------------
 
 const NAV_ITEMS: Array<NavEntry> = [
+  {
+    id: "nav-admin-disk",
+    label: "Admin — Disk",
+    icon: RiHardDriveLine,
+    to: "/admin/disk",
+    adminOnly: true,
+  },
   {
     id: "nav-dashboard",
     label: "Dashboard",
@@ -274,6 +284,7 @@ function CommandPaletteContent({
   const matches = useMatches()
   const organization = useCurrentOrganization()
   const currentOrgSlug = useCurrentOrganizationSlug()
+  const { data: me } = useMe()
   const { data: apps } = useApps(organization?.id)
 
   const currentAppMatch = matches.find(
@@ -328,7 +339,9 @@ function CommandPaletteContent({
       <CommandSeparator />
 
       <CommandGroup heading="Navigation">
-        {NAV_ITEMS.map((item) => {
+        {NAV_ITEMS.filter(
+          (item) => !item.adminOnly || me?.is_instance_admin
+        ).map((item) => {
           const Icon = item.icon
           const target =
             currentOrgSlug && item.orgPathSuffix

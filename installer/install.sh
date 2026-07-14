@@ -4,7 +4,7 @@ set -Eeuo pipefail
 
 VERSION="${PLOYDOK_VERSION:-edge}"
 MODE=""
-RUNTIME="${PLOYDOK_RUNTIME:-compose}"
+RUNTIME="${PLOYDOK_RUNTIME:-swarm}"
 HTTP_PORT="8080"
 HTTPS_PORT="8443"
 INSTALL_DIR="/opt/ploydok"
@@ -48,7 +48,7 @@ Options:
   --unattended
   --version=<tag>
   --image-registry=<registry>
-  --runtime=swarm|compose      (default: compose — pass swarm for rolling-update single-node Swarm)
+  --runtime=swarm|compose      (default: swarm for production; compose is local/test only)
   --help
 
 Environment for tests:
@@ -148,18 +148,21 @@ render_template() {
   esac
   printf -v control_plane_site '%s://%s {\n\timport control_plane\n}' "${PUBLIC_SCHEME:-https}" "$public_host"
   PLOYDOK_VERSION="$VERSION" \
+  PLOYDOK_MODE="$MODE" \
   PLOYDOK_IMAGE_REGISTRY="$IMAGE_REGISTRY" \
   PLOYDOK_INSTALL_DIR="$INSTALL_DIR" \
   PLOYDOK_DATA_DIR="$DATA_DIR" \
   PLOYDOK_HTTP_PORT="$HTTP_PORT" \
   PLOYDOK_HTTPS_PORT="$HTTPS_PORT" \
+  PLOYDOK_HTTP_PUBLISHED_PORT="$HTTP_PUBLISHED_PORT" \
+  PLOYDOK_HTTPS_PUBLISHED_PORT="$HTTPS_PUBLISHED_PORT" \
   PLOYDOK_HTTP_BIND="$HTTP_BIND" \
   PLOYDOK_HTTPS_BIND="$HTTPS_BIND" \
   PLOYDOK_PUBLIC_HOST="$public_host" \
   PLOYDOK_PUBLIC_SCHEME="${PUBLIC_SCHEME:-https}" \
   PLOYDOK_CONTROL_PLANE_SITE="$control_plane_site" \
   PLOYDOK_CONTROL_PLANE_HOSTS="$control_plane_hosts" \
-  envsubst '$PLOYDOK_VERSION $PLOYDOK_IMAGE_REGISTRY $PLOYDOK_INSTALL_DIR $PLOYDOK_DATA_DIR $PLOYDOK_HTTP_PORT $PLOYDOK_HTTPS_PORT $PLOYDOK_HTTP_BIND $PLOYDOK_HTTPS_BIND $PLOYDOK_PUBLIC_HOST $PLOYDOK_PUBLIC_SCHEME $PLOYDOK_CONTROL_PLANE_SITE $PLOYDOK_CONTROL_PLANE_HOSTS' <"$(install_dir)/templates/$template"
+  envsubst '$PLOYDOK_VERSION $PLOYDOK_MODE $PLOYDOK_IMAGE_REGISTRY $PLOYDOK_INSTALL_DIR $PLOYDOK_DATA_DIR $PLOYDOK_HTTP_PORT $PLOYDOK_HTTPS_PORT $PLOYDOK_HTTP_PUBLISHED_PORT $PLOYDOK_HTTPS_PUBLISHED_PORT $PLOYDOK_HTTP_BIND $PLOYDOK_HTTPS_BIND $PLOYDOK_PUBLIC_HOST $PLOYDOK_PUBLIC_SCHEME $PLOYDOK_CONTROL_PLANE_SITE $PLOYDOK_CONTROL_PLANE_HOSTS' <"$(install_dir)/templates/$template"
 }
 
 detect_public_host() {
@@ -326,6 +329,10 @@ preflight() {
   local major
   major="$(docker_major)"
   [[ -n "$major" && "$major" -ge 24 ]] || die "Docker server >= 24 is required" 3
+  if [[ "$RUNTIME" == "swarm" ]]; then
+    command -v iptables >/dev/null 2>&1 ||
+      die "iptables is required to isolate Swarm published ports" 3
+  fi
 
   [[ "$(total_mem_mb)" -ge 2048 ]] || die "at least 2 GB RAM is required" 3
   [[ "$(free_disk_mb)" -ge 10240 ]] || die "at least 10 GB free disk is required" 3
@@ -365,12 +372,18 @@ configure_binds() {
   if [[ "$MODE" == "coexist" ]]; then
     HTTP_BIND="127.0.0.1:${HTTP_PORT}"
     HTTPS_BIND="127.0.0.1:${HTTPS_PORT}"
+    HTTP_PUBLISHED_PORT="$HTTP_PORT"
+    HTTPS_PUBLISHED_PORT="$HTTPS_PORT"
   elif [[ "$MODE" == "bootstrap-http" ]]; then
     HTTP_BIND="0.0.0.0:${HTTP_PORT}"
     HTTPS_BIND="127.0.0.1:${HTTPS_PORT}"
+    HTTP_PUBLISHED_PORT="$HTTP_PORT"
+    HTTPS_PUBLISHED_PORT="$HTTPS_PORT"
   else
     HTTP_BIND="80"
     HTTPS_BIND="443"
+    HTTP_PUBLISHED_PORT="80"
+    HTTPS_PUBLISHED_PORT="443"
   fi
 }
 
@@ -403,7 +416,7 @@ create_system_user() {
 create_directories() {
   local dir
   install -d -m 0750 "$(real_path "$INSTALL_DIR")"
-  for dir in data builds backups volumes app-volumes certs pki logs agent config static caddy-ip-cert; do
+  for dir in data builds backups volumes app-volumes certs pki keys logs agent config static caddy-ip-cert; do
     install -d -m 0750 "$(real_path "$DATA_DIR/$dir")"
   done
   if [[ "$DRY_RUN" != "1" && -z "$ROOT_PREFIX" ]]; then
@@ -606,6 +619,26 @@ install_docker() {
   command -v docker >/dev/null 2>&1 || die "Docker installation failed" 3
 }
 
+prepare_runtime_transition() {
+  local compose_file stack_file env_file
+  compose_file="$(real_path "$INSTALL_DIR/docker-compose.yml")"
+  stack_file="$(real_path "$INSTALL_DIR/docker-stack.yml")"
+  env_file="$(real_path "$DATA_DIR/.env")"
+
+  if [[ "$RUNTIME" == "compose" && -f "$stack_file" ]]; then
+    die "refusing to replace an existing production Swarm stack with Compose; uninstall the Swarm runtime first" 2
+  fi
+
+  [[ "$RUNTIME" == "swarm" && -f "$compose_file" ]] || return 0
+  log "migrating the control plane runtime from Compose to Swarm (named volumes are preserved)"
+  if [[ ! -f "$stack_file" && "$DRY_RUN" != "1" ]] &&
+    systemctl is-active --quiet ploydok.service; then
+    run systemctl stop ploydok.service
+  fi
+  [[ -f "$env_file" ]] || die "cannot migrate Compose to Swarm: missing $env_file" 2
+  run docker compose --env-file "$env_file" -f "$compose_file" down
+}
+
 # Initialise un Swarm single-node si la machine n'en fait pas déjà partie.
 # Idempotent — si Swarm est déjà actif, on ne touche à rien (un opérateur a
 # pu joindre la machine à un cluster multi-node existant).
@@ -673,12 +706,15 @@ verify_or_pull_images() {
 write_templates() {
   if [[ "$RUNTIME" == "swarm" ]]; then
     render_template docker-stack.yml | write_file "$INSTALL_DIR/docker-stack.yml" 0640 "$INSTALL_OWNER:$INSTALL_OWNER"
+    render_template ploydok-port-isolation.sh | write_file "/usr/local/lib/ploydok/port-isolation.sh" 0755
+    render_template ploydok-update-stack.sh | write_file "/usr/local/lib/ploydok/update-stack.sh" 0755
+    render_template ploydok-port-isolation.service | write_file "/etc/systemd/system/ploydok-port-isolation.service" 0644
     render_template ploydok.service | write_file "/etc/systemd/system/ploydok.service" 0644
     render_template ploydok-update.service | write_file "/etc/systemd/system/ploydok-update.service" 0644
     render_template ploydok-update.timer | write_file "/etc/systemd/system/ploydok-update.timer" 0644
   else
     render_template docker-compose.yml | write_file "$INSTALL_DIR/docker-compose.yml" 0640 "$INSTALL_OWNER:$INSTALL_OWNER"
-    render_template ploydok.service | write_file "/etc/systemd/system/ploydok.service" 0644
+    render_template ploydok-compose.service | write_file "/etc/systemd/system/ploydok.service" 0644
   fi
   render_template validator.toml | write_file "$DATA_DIR/config/validator.toml" 0640 ploydok:ploydok
   render_template buildkitd.toml | write_file "$DATA_DIR/config/buildkitd.toml" 0644 ploydok:ploydok
@@ -722,19 +758,37 @@ configure_firewall() {
 
 start_services() {
   run systemctl daemon-reload
-  run systemctl enable ploydok.target ploydok.service
+  if [[ "$RUNTIME" == "swarm" ]]; then
+    run systemctl enable ploydok.target ploydok-port-isolation.service ploydok.service
+    run systemctl restart ploydok-port-isolation.service
+  else
+    run systemctl enable ploydok.target ploydok.service
+  fi
   # `restart` (not `start`) so a fresh install re-runs ExecStart even if the
   # oneshot/RemainAfterExit service was left in `active (exited)` by a prior
   # run — `systemctl start` is a no-op on an already-active oneshot.
   run systemctl restart ploydok.service
   if [[ "$RUNTIME" == "swarm" ]]; then
-    run systemctl enable --now ploydok-update.timer
+    if [[ "${PLOYDOK_INSTALL_SKIP_COSIGN:-0}" == "1" ]]; then
+      warn "automatic Swarm updates disabled because signature verification was explicitly skipped"
+      if [[ "$DRY_RUN" == "1" ]]; then
+        log "dry-run: systemctl disable --now ploydok-update.timer"
+      else
+        systemctl disable --now ploydok-update.timer >/dev/null 2>&1 || true
+      fi
+    else
+      run systemctl enable --now ploydok-update.timer
+    fi
   fi
 }
 
 wait_health() {
   [[ "$DRY_RUN" == "1" ]] && return
-  local url="http://127.0.0.1:3335/health"
+  if [[ "$RUNTIME" == "swarm" ]]; then
+    wait_health_swarm
+    return
+  fi
+  local url="http://127.0.0.1:3335/health/ready"
   for _ in $(seq 1 60); do
     if curl -fsS "$url" >/dev/null 2>&1; then
       log "healthcheck OK"
@@ -743,6 +797,28 @@ wait_health() {
     sleep 1
   done
   die "healthcheck timed out: $url" 1
+}
+
+wait_health_swarm() {
+  local desired running healthy ids id status
+  desired="$(docker service inspect --format '{{.Spec.Mode.Replicated.Replicas}}' ploydok_api 2>/dev/null || echo 0)"
+  for _ in $(seq 1 90); do
+    ids="$(docker ps -q --filter label=com.docker.swarm.service.name=ploydok_api)"
+    running="$(grep -c . <<<"$ids" || true)"
+    healthy=0
+    while IFS= read -r id; do
+      [[ -n "$id" ]] || continue
+      status="$(docker inspect --format '{{if .State.Health}}{{.State.Health.Status}}{{else}}{{.State.Status}}{{end}}' "$id" 2>/dev/null || true)"
+      [[ "$status" == "healthy" || "$status" == "running" ]] && healthy=$((healthy + 1))
+    done <<<"$ids"
+    if [[ "$desired" -gt 0 && "$running" -ge "$desired" && "$healthy" -ge "$desired" ]]; then
+      log "Swarm API readiness OK ($healthy/$desired tasks)"
+      return
+    fi
+    sleep 1
+  done
+  docker service ps --no-trunc ploydok_api >&2 || true
+  die "Swarm API readiness timed out" 1
 }
 
 db_migrate() {
@@ -802,6 +878,7 @@ main() {
   generate_secrets
   generate_mtls
   generate_agent_pki
+  prepare_runtime_transition
   ensure_swarm
   verify_or_pull_images
   write_templates
@@ -810,6 +887,7 @@ main() {
   start_services
   wait_health
   db_migrate
+  wait_health
   log "Ploydok installed. Open ${PUBLIC_ORIGIN}/setup"
 }
 

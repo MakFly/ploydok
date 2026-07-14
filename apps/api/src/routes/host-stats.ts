@@ -28,6 +28,11 @@ interface HostStatsBody {
   inodes_total: number
   inodes_used: number
   uptime_seconds: number
+  gpu_count: number
+  gpu_utilization_pct: number
+  gpu_mem_used_bytes: number
+  gpu_mem_total_bytes: number
+  gpu_name: string
   thresholds: {
     disk_warn_pct: number
     mem_warn_pct: number
@@ -112,6 +117,11 @@ export function createHostStatsRouter(db: Db): Hono<AppEnv> {
         inodes_total: Number(r.inodesTotal),
         inodes_used: Number(r.inodesUsed),
         uptime_seconds: Number(r.uptimeSeconds),
+        gpu_count: r.gpuCount,
+        gpu_utilization_pct: r.gpuUtilizationPct,
+        gpu_mem_used_bytes: Number(r.gpuMemUsedBytes),
+        gpu_mem_total_bytes: Number(r.gpuMemTotalBytes),
+        gpu_name: r.gpuName,
         thresholds: DEFAULT_THRESHOLDS,
         alerts,
         error: r.error ?? "",

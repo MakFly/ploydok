@@ -29,7 +29,7 @@ export function useCreateAppVolume(appId: string) {
       apiFetch<{ volume: AppVolume }>(`/apps/${appId}/volumes`, {
         method: "POST",
         headers: { "content-type": "application/json" },
-        body: JSON.stringify(input),
+        body: input,
       }),
     onSuccess: () => {
       queryClient.invalidateQueries({ queryKey: appVolumesKey(appId) })
@@ -54,7 +54,7 @@ export function useUpdateAppVolume(appId: string) {
       apiFetch<{ volume: AppVolume }>(`/apps/${appId}/volumes/${volumeId}`, {
         method: "PATCH",
         headers: { "content-type": "application/json" },
-        body: JSON.stringify(input),
+        body: input,
       }),
     onSuccess: () => {
       queryClient.invalidateQueries({ queryKey: appVolumesKey(appId) })

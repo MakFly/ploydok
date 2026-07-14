@@ -5,6 +5,7 @@ import type {
   Build,
   BuildStatus,
   RestartPolicy,
+  AppQuickLink,
 } from "@ploydok/shared"
 
 export interface AppListItem {
@@ -18,15 +19,22 @@ export interface AppListItem {
   domain?: string
   publicUrl?: string
   repoFullName?: string
+  imageRef?: string | null
   /** apps.container_id — the canonical container the runner wrote at last
    * successful deploy. Null when the app has never been deployed. */
   containerId?: string | null
   createdAt: number
   updatedAt: number
+  iconUrl?: string | null
+  quickLinks?: Array<AppQuickLink>
+  trackLatest?: boolean
+  lastImageDigest?: string | null
+  pendingImageDigest?: string | null
 }
 
 export interface AppDetail extends AppListItem {
   gitProvider?: string
+  imagePullPolicy?: "always" | "if_not_present" | null
   rootDir?: string
   dockerfilePath?: string
   nixpacksConfigPath?: string
@@ -123,6 +131,9 @@ export type AppSettingsPatch = Partial<
     | "hooksPreDeploy"
     | "hooksPostDeploy"
     | "hooksTimeoutS"
+    | "iconUrl"
+    | "quickLinks"
+    | "trackLatest"
   >
 >
 

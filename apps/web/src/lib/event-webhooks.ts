@@ -19,7 +19,7 @@ export async function createEventWebhook(
     `/orgs/${orgSlug}/event-webhooks`,
     {
       method: "POST",
-      body: JSON.stringify(payload),
+      body: payload,
     }
   )
 }
@@ -39,7 +39,7 @@ export async function updateEventWebhook(
     `/orgs/${orgSlug}/event-webhooks/${webhookId}`,
     {
       method: "PATCH",
-      body: JSON.stringify(payload),
+      body: payload,
     }
   )
 }

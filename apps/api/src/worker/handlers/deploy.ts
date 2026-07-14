@@ -1,7 +1,7 @@
 // SPDX-License-Identifier: AGPL-3.0-only
 import fs from "node:fs"
 import path from "node:path"
-import { eq } from "drizzle-orm"
+import { and, eq } from "drizzle-orm"
 import { nanoid } from "nanoid"
 import { z } from "zod"
 import { apps, builds, projects, system_jobs } from "@ploydok/db"
@@ -11,7 +11,11 @@ import {
   classifyStackWithManifests,
 } from "@ploydok/shared"
 import type { ManifestContents, StackClassification } from "@ploydok/shared"
-import { updateBuildStatus, getAppForUser } from "@ploydok/db/queries"
+import {
+  updateBuildStatus,
+  getAppForUser,
+  insertAuditLog,
+} from "@ploydok/db/queries"
 import { claimQueuedRow } from "../queue-claim"
 import { auditUnauthorized, auditClaimed } from "../queue-audit"
 import { enqueueWithDbRow } from "../queue-enqueue"
@@ -59,6 +63,7 @@ import {
 } from "../../services/framework-env"
 import { purgeCloudflareForApp } from "../../cloudflare/purge"
 import { captureAppManifests } from "../../advisories/service"
+import { enqueueImageScan } from "./scan-image"
 
 // Shared Redis client for commit status dedup (singleton per worker process).
 const redis = createRedis(env.REDIS_URL)
@@ -75,6 +80,13 @@ const DeployPayloadSchema = z.object({
   commitMessage: z.string().nullish(),
   kind: z.enum(["tag"]).optional(),
   tag: z.string().optional(),
+  imageUpdate: z
+    .object({
+      fromDigest: z.string(),
+      toDigest: z.string(),
+      previousStatus: z.string(),
+    })
+    .optional(),
 })
 
 // ---------------------------------------------------------------------------
@@ -117,6 +129,9 @@ interface AppForDeploy {
   keep_per_repo: number | null
   image_ref: string | null
   registry_credential_id: string | null
+  track_latest: boolean
+  last_image_digest: string | null
+  pending_image_digest: string | null
   owner_id: string
   post_commit_status: boolean
   hooks_pre_deploy: string | null
@@ -153,6 +168,15 @@ function removeLocalImageAfterPush(imageRef: string, log: DeployLog): void {
   })().catch((err) => {
     log.warn({ err, imageRef }, "local image removal after push failed")
   })
+}
+
+export function pinImageReference(imageRef: string, digest: string): string {
+  const withoutDigest = imageRef.split("@", 1)[0]!
+  const lastSlash = withoutDigest.lastIndexOf("/")
+  const lastColon = withoutDigest.lastIndexOf(":")
+  const repository =
+    lastColon > lastSlash ? withoutDigest.slice(0, lastColon) : withoutDigest
+  return `${repository}@${digest}`
 }
 
 /**
@@ -197,6 +221,9 @@ async function getAppForDeploy(db: Db, appId: string): Promise<AppForDeploy> {
       keep_per_repo: apps.keep_per_repo,
       image_ref: apps.image_ref,
       registry_credential_id: apps.registry_credential_id,
+      track_latest: apps.track_latest,
+      last_image_digest: apps.last_image_digest,
+      pending_image_digest: apps.pending_image_digest,
       owner_id: projects.owner_id,
       post_commit_status: apps.post_commit_status,
       hooks_pre_deploy: apps.hooks_pre_deploy,
@@ -405,6 +432,7 @@ export async function handleDeploy(
       db,
       table: builds,
       id: buildId,
+      expectedStatuses: job.attempts > 1 ? ["pending", "failed"] : ["pending"],
     })
 
     if (!claimed) {
@@ -452,6 +480,28 @@ export async function handleDeploy(
       throw new FatalDeployError(
         `App ${app.id} has git_provider='image' but no image_ref set`
       )
+    }
+    if (
+      payload.imageUpdate &&
+      (!app.track_latest ||
+        app.last_image_digest !== payload.imageUpdate.fromDigest ||
+        app.pending_image_digest !== payload.imageUpdate.toDigest)
+    ) {
+      await updateBuildStatus(db, buildId, "cancelled", {
+        errorMessage:
+          "Image auto-update reservation is stale or tracking was disabled",
+        finishedAt: new Date(),
+      })
+      await db
+        .update(apps)
+        .set({ pending_image_digest: null, updated_at: new Date() })
+        .where(
+          and(
+            eq(apps.id, app.id),
+            eq(apps.pending_image_digest, payload.imageUpdate.toDigest)
+          )
+        )
+      return
     }
   } else if (!app.repo_full_name || !app.branch) {
     throw new FatalDeployError(
@@ -614,6 +664,7 @@ export async function handleDeploy(
   // Resolved commit sha (updated once clone resolves HEAD, used for commit status)
   let resolvedCommitShaFinal: string | null = payload.commitSha ?? null
   let workspacePathForAudit: string | null = null
+  let scanImageRef: string | null = null
   // Commit status state to post on failure: FatalDeployError → failure, unknown → error
   let commitStatusErrorState: "failure" | "error" = "error"
   const deployStartMs = Date.now()
@@ -625,7 +676,10 @@ export async function handleDeploy(
     // reference is used directly; runBlueGreen's pre-spawn pullImage handles
     // authentication via the registry credential associated with the app.
     if (isImageSource) {
-      const imageRef = app.image_ref!
+      const imageRef = payload.imageUpdate
+        ? pinImageReference(app.image_ref!, payload.imageUpdate.toDigest)
+        : app.image_ref!
+      scanImageRef = imageRef
       const imageLog = (line: string) => {
         log.debug({ buildId }, line)
         logBus.publish(`build:${buildId}`, line)
@@ -698,7 +752,9 @@ export async function handleDeploy(
             env: secretEnv,
             db,
             ...(registryAuth ? { registryAuth } : {}),
-            ...(app.runtime_port !== null ? { runtimePort: app.runtime_port } : {}),
+            ...(app.runtime_port !== null
+              ? { runtimePort: app.runtime_port }
+              : {}),
           })
           runtimeRef = result.runtimeRef
         }
@@ -771,6 +827,55 @@ export async function handleDeploy(
 
       if (finalStatus !== "succeeded_with_warning") {
         finalStatus = "succeeded"
+      }
+      if (payload.imageUpdate) {
+        const finalized = await db
+          .update(apps)
+          .set({
+            last_image_digest: payload.imageUpdate.toDigest,
+            pending_image_digest: null,
+            updated_at: new Date(),
+          })
+          .where(
+            and(
+              eq(apps.id, app.id),
+              eq(apps.track_latest, true),
+              eq(apps.pending_image_digest, payload.imageUpdate.toDigest)
+            )
+          )
+          .returning({ id: apps.id })
+
+        if (finalized[0]) {
+          await insertAuditLog(db, {
+            user_id: app.owner_id,
+            action: "image.auto_updated",
+            target_type: "app",
+            target_id: app.id,
+            metadata: JSON.stringify({
+              old_digest: payload.imageUpdate.fromDigest,
+              new_digest: payload.imageUpdate.toDigest,
+              build_id: buildId,
+            }),
+            created_at: new Date(),
+          }).catch((err) =>
+            log.warn(
+              { err, appId: app.id, buildId },
+              "image auto-update audit failed (non-fatal)"
+            )
+          )
+          await dispatch(
+            db,
+            redis,
+            "image.auto_updated",
+            { appId: app.id, appName: app.name },
+            { userId: app.owner_id, projectId: app.project_id }
+          ).catch((err) =>
+            log.warn(
+              { err, appId: app.id, buildId },
+              "image.auto_updated notification failed (non-fatal)"
+            )
+          )
+        }
       }
       log.info({ buildId, imageRef, finalStatus }, "image deploy completed")
       return
@@ -971,6 +1076,7 @@ export async function handleDeploy(
     const repo = imageRepoForApp(app.id)
     const pushRef = `${pushRegistry}/${repo}:${commitSha}`
     const imageRef = `${pullRegistry}/${repo}:${commitSha}`
+    scanImageRef = detected.method === "static" ? null : imageRef
 
     // onLog is defined earlier in this handler (right after logStream creation)
     // so it can be used by both the image-source path and the git-source path.
@@ -1387,7 +1493,9 @@ export async function handleDeploy(
           imageRef,
           env: runtimeSecretEnv,
           db,
-          ...(app.runtime_port !== null ? { runtimePort: app.runtime_port } : {}),
+          ...(app.runtime_port !== null
+            ? { runtimePort: app.runtime_port }
+            : {}),
         })
         runtimeRef = result.runtimeRef
       }
@@ -1516,13 +1624,28 @@ export async function handleDeploy(
     // must NOT overwrite that — blue-green keeps the old container alive.
     // Otherwise (first deploy, previously stopped/failed, etc.) surface the
     // failure on the app row so the dashboard doesn't stick to "created".
-    const fallbackStatus: typeof apps.$inferSelect.status =
-      app.status === "running" ? "running" : "failed"
+    const fallbackStatus: typeof apps.$inferSelect.status = payload.imageUpdate
+      ? (payload.imageUpdate.previousStatus as typeof apps.$inferSelect.status)
+      : app.status === "running"
+        ? "running"
+        : "failed"
 
     await db
       .update(apps)
       .set({ status: fallbackStatus, updated_at: new Date() })
       .where(eq(apps.id, app.id))
+
+    if (payload.imageUpdate && job.attempts >= job.max_attempts) {
+      await db
+        .update(apps)
+        .set({ pending_image_digest: null, updated_at: new Date() })
+        .where(
+          and(
+            eq(apps.id, app.id),
+            eq(apps.pending_image_digest, payload.imageUpdate.toDigest)
+          )
+        )
+    }
 
     throw err
   } finally {
@@ -1554,6 +1677,20 @@ export async function handleDeploy(
           postDeployError: finalPatch.postDeployError,
         }),
       })
+    }
+
+    const deploySucceeded =
+      !wasCancelled &&
+      (finalStatus === "succeeded" || finalStatus === "succeeded_with_warning")
+
+    if (deploySucceeded && scanImageRef) {
+      await enqueueImageScan(db, { buildId, imageRef: scanImageRef }).catch(
+        (err) =>
+          log.warn(
+            { err, buildId, imageRef: scanImageRef },
+            "image scan enqueue failed (non-fatal)"
+          )
+      )
     }
 
     // Commit status — success / failure / error (best-effort, non-fatal)

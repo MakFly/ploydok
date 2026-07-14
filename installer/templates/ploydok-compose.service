@@ -1,0 +1,17 @@
+[Unit]
+Description=Ploydok local/test control-plane (Docker Compose)
+Requires=docker.service
+After=docker.service network-online.target
+Wants=network-online.target
+
+[Service]
+Type=oneshot
+RemainAfterExit=yes
+WorkingDirectory=${PLOYDOK_INSTALL_DIR}
+EnvironmentFile=${PLOYDOK_DATA_DIR}/.env
+ExecStart=/usr/bin/docker compose --env-file ${PLOYDOK_DATA_DIR}/.env -f ${PLOYDOK_INSTALL_DIR}/docker-compose.yml up -d
+ExecStop=/usr/bin/docker compose --env-file ${PLOYDOK_DATA_DIR}/.env -f ${PLOYDOK_INSTALL_DIR}/docker-compose.yml down
+TimeoutStartSec=0
+
+[Install]
+WantedBy=ploydok.target

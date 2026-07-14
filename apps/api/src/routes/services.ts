@@ -1,5 +1,6 @@
 // SPDX-License-Identifier: AGPL-3.0-only
 import { Hono } from "hono"
+import type { MiddlewareHandler } from "hono"
 import { and, eq } from "drizzle-orm"
 import { services, projects } from "@ploydok/db"
 import { createDb } from "@ploydok/db"
@@ -28,6 +29,24 @@ function getUser(c: { get: (k: string) => unknown }): AuthUser {
 // eslint-disable-next-line @typescript-eslint/no-explicit-any
 export function createServicesRouter(db: Db): Hono<any, any, any> {
   const router = new Hono<AppEnv>()
+  const ownerOnly: MiddlewareHandler = async (c, next) => {
+    const user = getUser(c)
+    const rows = await db
+      .select({ id: services.id })
+      .from(services)
+      .innerJoin(projects, eq(services.project_id, projects.id))
+      .where(
+        and(eq(services.id, c.req.param("id")!), eq(projects.owner_id, user.id))
+      )
+      .limit(1)
+    if (!rows[0]) {
+      return c.json(
+        { error: { code: "NOT_FOUND", message: "Service not found" } },
+        404
+      )
+    }
+    await next()
+  }
 
   // GET /services?projectId=<id>
   router.get("/", async (c) => {
@@ -116,7 +135,7 @@ export function createServicesRouter(db: Db): Hono<any, any, any> {
   })
 
   // POST /services/:id/start
-  router.post("/:id/start", async (c) => {
+  router.post("/:id/start", ownerOnly, async (c) => {
     const user = getUser(c)
     const serviceId = c.req.param("id")
 
@@ -146,7 +165,7 @@ export function createServicesRouter(db: Db): Hono<any, any, any> {
   })
 
   // POST /services/:id/stop
-  router.post("/:id/stop", async (c) => {
+  router.post("/:id/stop", ownerOnly, async (c) => {
     const user = getUser(c)
     const serviceId = c.req.param("id")
 
@@ -176,7 +195,7 @@ export function createServicesRouter(db: Db): Hono<any, any, any> {
   })
 
   // DELETE /services/:id
-  router.delete("/:id", async (c) => {
+  router.delete("/:id", ownerOnly, async (c) => {
     const user = getUser(c)
     const serviceId = c.req.param("id")
 

@@ -1,7 +1,7 @@
 // SPDX-License-Identifier: AGPL-3.0-only
 import { Hono } from "hono"
 import { nanoid } from "nanoid"
-import { eq, and } from "drizzle-orm"
+import { eq, and, sql } from "drizzle-orm"
 import {
   users,
   passkeys,
@@ -45,6 +45,7 @@ import {
   bootstrapSetupToken,
   clearSetupToken,
   consumeSetupToken,
+  validateSetupToken,
 } from "../auth/setup-token"
 import {
   saveTotpSecret,
@@ -175,6 +176,7 @@ async function getUserMeta(db: Db, userId: string) {
   const userRows = await db
     .select({
       require_totp_for_secret_reveal: users.require_totp_for_secret_reveal,
+      is_instance_admin: users.is_instance_admin,
     })
     .from(users)
     .where(eq(users.id, userId))
@@ -186,6 +188,7 @@ async function getUserMeta(db: Db, userId: string) {
     require_totp_for_secret_reveal:
       userRows[0]?.require_totp_for_secret_reveal ?? true,
     needs_second_factor: passkeyCount < 2 && backupCount < 1 && !hasTotp,
+    is_instance_admin: userRows[0]?.is_instance_admin ?? false,
   }
 }
 
@@ -286,10 +289,7 @@ export function createAuthRouter(db: Db): Hono {
       )
     }
 
-    if (
-      env.PLOYDOK_SETUP_TOKEN_REQUIRED &&
-      !consumeSetupToken(body.token)
-    ) {
+    if (env.PLOYDOK_SETUP_TOKEN_REQUIRED && !consumeSetupToken(body.token)) {
       return c.json(
         {
           error: {
@@ -309,17 +309,40 @@ export function createAuthRouter(db: Db): Hono {
     }
     const passwordHash = await hashPassword(password)
 
-    await db.insert(users).values({
-      id: user.id,
-      email: user.email,
-      display_name: user.display_name,
-      password_hash: passwordHash,
-      is_instance_admin: true,
-      created_at: now,
-      updated_at: now,
-      recovery_token_hash: null,
-      recovery_expires_at: null,
+    const created = await db.transaction(async (tx) => {
+      await tx.execute(
+        sql`SELECT pg_advisory_xact_lock(hashtext('ploydok:first-admin'))`
+      )
+      const concurrentUser = await tx
+        .select({ id: users.id })
+        .from(users)
+        .limit(1)
+      if (concurrentUser.length > 0) return false
+      await tx.insert(users).values({
+        id: user.id,
+        email: user.email,
+        display_name: user.display_name,
+        password_hash: passwordHash,
+        is_instance_admin: true,
+        created_at: now,
+        updated_at: now,
+        recovery_token_hash: null,
+        recovery_expires_at: null,
+      })
+      return true
     })
+    if (!created) {
+      clearSetupToken()
+      return c.json(
+        {
+          error: {
+            code: "ALREADY_BOOTSTRAPPED",
+            message: "Instance already bootstrapped",
+          },
+        },
+        409
+      )
+    }
 
     await ensureDefaultOrganizationForUser(db, user.id, user.display_name)
     const backupCodes = await BackupCodes.generate(db, user.id)
@@ -374,7 +397,21 @@ export function createAuthRouter(db: Db): Hono {
         () => ({}) as { token?: string; email?: string; display_name?: string }
       )
 
-    if (!consumeSetupToken(body.token)) {
+    const email = body.email?.trim().toLowerCase()
+    const displayName = body.display_name?.trim()
+    if (!email || !displayName) {
+      return c.json(
+        {
+          error: {
+            code: "BAD_REQUEST",
+            message: "email and display_name required",
+          },
+        },
+        400
+      )
+    }
+
+    if (!validateSetupToken(body.token)) {
       return c.json(
         {
           error: {
@@ -397,20 +434,6 @@ export function createAuthRouter(db: Db): Hono {
           },
         },
         409
-      )
-    }
-
-    const email = body.email?.trim().toLowerCase()
-    const displayName = body.display_name?.trim()
-    if (!email || !displayName) {
-      return c.json(
-        {
-          error: {
-            code: "BAD_REQUEST",
-            message: "email and display_name required",
-          },
-        },
-        400
       )
     }
 
@@ -538,7 +561,16 @@ export function createAuthRouter(db: Db): Hono {
       display_name: pendingAdmin.displayName,
     }
 
-    await db.transaction(async (tx) => {
+    const created = await db.transaction(async (tx) => {
+      await tx.execute(
+        sql`SELECT pg_advisory_xact_lock(hashtext('ploydok:first-admin'))`
+      )
+      const concurrentUser = await tx
+        .select({ id: users.id })
+        .from(users)
+        .limit(1)
+      if (concurrentUser.length > 0) return false
+
       await tx.insert(users).values({
         id: user.id,
         email: user.email,
@@ -561,7 +593,22 @@ export function createAuthRouter(db: Db): Hono {
         created_at: now,
         last_used_at: now,
       })
+      return true
     })
+
+    if (!created) {
+      pendingSetupAdmins.delete(body.userId)
+      clearSetupToken()
+      return c.json(
+        {
+          error: {
+            code: "ALREADY_BOOTSTRAPPED",
+            message: "Instance already bootstrapped",
+          },
+        },
+        409
+      )
+    }
 
     pendingSetupAdmins.delete(body.userId)
 
@@ -1130,8 +1177,35 @@ export function createAuthRouter(db: Db): Hono {
       )
     }
 
+    const rejectConcurrentRotation = () =>
+      c.json(
+        {
+          error: {
+            code: "REFRESH_CONFLICT",
+            message: "Refresh token was rotated by another request",
+          },
+        },
+        409
+      )
+
     const session = await Sessions.verifyRefreshToken(db, sessionId, rawToken)
     if (!session) {
+      const currentRows = await db
+        .select({
+          rotated_at: sessionsTable.rotated_at,
+          revoked_at: sessionsTable.revoked_at,
+        })
+        .from(sessionsTable)
+        .where(eq(sessionsTable.id, sessionId))
+        .limit(1)
+      const current = currentRows[0]
+      if (
+        current?.revoked_at === null &&
+        current.rotated_at !== null &&
+        Date.now() - current.rotated_at.getTime() < 10_000
+      ) {
+        return rejectConcurrentRotation()
+      }
       return rejectReplay()
     }
 
@@ -1141,7 +1215,7 @@ export function createAuthRouter(db: Db): Hono {
       session.refresh_token_hash
     )
     if (!newRefreshToken) {
-      return rejectReplay()
+      return rejectConcurrentRotation()
     }
 
     const userRows = await db
@@ -1185,10 +1259,24 @@ export function createAuthRouter(db: Db): Hono {
       )
     }
 
+    const email = body.email.trim().toLowerCase()
+    const { userAgent, ip } = getClientInfo(c.req.raw)
+    if (!checkPasswordLoginRateLimit(ip, email)) {
+      return c.json(
+        {
+          error: {
+            code: "RATE_LIMITED",
+            message: "Too many authentication attempts. Try again later.",
+          },
+        },
+        429
+      )
+    }
+
     const userRows = await db
       .select()
       .from(users)
-      .where(eq(users.email, body.email))
+      .where(eq(users.email, email))
       .limit(1)
     const user = userRows[0]
     if (!user) {
@@ -1215,7 +1303,7 @@ export function createAuthRouter(db: Db): Hono {
       )
     }
 
-    const { userAgent, ip } = getClientInfo(c.req.raw)
+    clearPasswordLoginRateLimit(ip, email)
     const { sessionId, refreshToken } = await Sessions.createSession(db, {
       userId: user.id,
       userAgent,
@@ -1460,7 +1548,11 @@ export function createAuthRouter(db: Db): Hono {
 
     const code = String(body.code ?? "")
     if (!verifyCode(totpRow.secret, code, { window: 1 })) {
-      const throttle = await recordTotpVerificationFailure(db, user.id, "enrollment")
+      const throttle = await recordTotpVerificationFailure(
+        db,
+        user.id,
+        "enrollment"
+      )
       if (throttle.locked) {
         c.header("Retry-After", String(throttle.retryAfterSec))
         return c.json(

@@ -94,7 +94,7 @@ export function getSetupTokenState(): {
   }
 }
 
-export function consumeSetupToken(presented: string | undefined): boolean {
+export function validateSetupToken(presented: string | undefined): boolean {
   if (!current || !presented) return false
   if (!current.permanent && Date.now() > current.expires_at) {
     current = null
@@ -104,6 +104,12 @@ export function consumeSetupToken(presented: string | undefined): boolean {
   const b = Buffer.from(current.value)
   if (a.length !== b.length) return false
   return timingSafeEqual(a, b)
+}
+
+export function consumeSetupToken(presented: string | undefined): boolean {
+  if (!validateSetupToken(presented)) return false
+  current = null
+  return true
 }
 
 // Called after a successful first-admin creation to make further setup attempts

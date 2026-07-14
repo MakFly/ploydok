@@ -13,6 +13,7 @@ import {
 } from "@remixicon/react"
 import { Button } from "@workspace/ui/components/button"
 import { Input } from "@workspace/ui/components/input"
+import { Switch } from "@workspace/ui/components/switch"
 import {
   Select,
   SelectContent,
@@ -99,6 +100,7 @@ interface FormState {
   imageRef: string
   imagePullPolicy: ImagePullPolicy
   registryCredentialId: string
+  trackLatest: boolean
   buildMethod: BuildMethod
   buildMethodTouched: boolean
   rootDir: string
@@ -127,6 +129,7 @@ const INITIAL_FORM: FormState = {
   imageRef: "",
   imagePullPolicy: "always",
   registryCredentialId: "",
+  trackLatest: false,
   buildMethod: "auto",
   buildMethodTouched: false,
   rootDir: "",
@@ -957,6 +960,8 @@ function SourceStep({
           onRegistryCredentialIdChange={(v) =>
             setField("registryCredentialId", v)
           }
+          trackLatest={form.trackLatest}
+          onTrackLatestChange={(v) => setField("trackLatest", v)}
         />
       )}
     </div>
@@ -1131,6 +1136,8 @@ interface ImageSectionProps {
   onImagePullPolicyChange: (v: ImagePullPolicy) => void
   registryCredentialId: string
   onRegistryCredentialIdChange: (v: string) => void
+  trackLatest: boolean
+  onTrackLatestChange: (v: boolean) => void
 }
 
 function ImageSection({
@@ -1140,6 +1147,8 @@ function ImageSection({
   onImagePullPolicyChange,
   registryCredentialId,
   onRegistryCredentialIdChange,
+  trackLatest,
+  onTrackLatestChange,
 }: ImageSectionProps): React.JSX.Element {
   const { data: credentials, isLoading } = useRegistryCredentials()
 
@@ -1215,6 +1224,23 @@ function ImageSection({
           />
         </div>
       </fieldset>
+
+      <div className="flex items-center justify-between gap-4 rounded-md border border-border bg-muted/30 p-3">
+        <div className="space-y-1">
+          <label htmlFor="create-track-latest" className="text-sm font-medium">
+            Suivre les mises à jour de l'image
+          </label>
+          <p className="text-xs text-muted-foreground">
+            Redéploie automatiquement quand ce tag pointe vers un nouveau
+            digest.
+          </p>
+        </div>
+        <Switch
+          id="create-track-latest"
+          checked={trackLatest}
+          onCheckedChange={onTrackLatestChange}
+        />
+      </div>
     </div>
   )
 }
@@ -2735,6 +2761,7 @@ function buildCreateAppBody(
   if (form.source === "image") {
     body.imageRef = form.imageRef.trim()
     body.imagePullPolicy = form.imagePullPolicy
+    body.trackLatest = form.trackLatest
     if (form.registryCredentialId) {
       body.registryCredentialId = form.registryCredentialId
     }
