@@ -1,4 +1,4 @@
-.PHONY: help install dev dev-agent agent-restart agent-logs db-migrate db-reset db-seed infra-up infra-down infra-logs build start test lint typecheck clean secrets-init dod
+.PHONY: help install dev dev-agent agent-restart agent-logs db-migrate db-reset db-seed infra-up infra-down infra-stop infra-logs build start test lint typecheck clean secrets-init dod
 
 # Ports locaux :
 #   API 3335 — Web 5173 — Caddy 8180/8543/2020 — Agent unix /tmp/ploydok/agent.sock
@@ -31,7 +31,8 @@ help:
 	@printf "\n$(C_CAT)▶ Infra$(C_RESET)\n"
 	@printf "  $(C_TARGET)%-14s$(C_RESET) $(C_DESC)%s$(C_RESET)\n" "secrets-init" "Génère PLOYDOK_PG_PASSWORD + PLOYDOK_REDIS_PASSWORD dans .env.local"
 	@printf "  $(C_TARGET)%-14s$(C_RESET) $(C_DESC)%s$(C_RESET)\n" "infra-up"     "docker compose up (postgres + redis + caddy + buildkitd + registry + agent)"
-	@printf "  $(C_TARGET)%-14s$(C_RESET) $(C_DESC)%s$(C_RESET)\n" "infra-down"   "cleanup infra"
+	@printf "  $(C_TARGET)%-14s$(C_RESET) $(C_DESC)%s$(C_RESET)\n" "infra-down"   "cleanup infra (stop + rm containers + networks)"
+	@printf "  $(C_TARGET)%-14s$(C_RESET) $(C_DESC)%s$(C_RESET)\n" "infra-stop"   "stop infra containers (sans les supprimer)"
 	@printf "  $(C_TARGET)%-14s$(C_RESET) $(C_DESC)%s$(C_RESET)\n" "infra-logs"   "tail logs Caddy"
 	@printf "\n$(C_CAT)▶ Quality & Build$(C_RESET)\n"
 	@printf "  $(C_TARGET)%-14s$(C_RESET) $(C_DESC)%s$(C_RESET)\n" "dod" "Lance les 11 specs Playwright DoD Sprint 3 (requiert infra + dev up)"
@@ -137,6 +138,9 @@ infra-down:
 	-docker compose --env-file apps/api/.env.local -f infra/docker-compose.yml down --timeout 10
 	-docker network rm ploydok-public 2>/dev/null
 	-docker network rm ploydok-ingress 2>/dev/null
+
+infra-stop:
+	docker compose --env-file apps/api/.env.local -f infra/docker-compose.yml stop --timeout 15
 
 infra-logs:
 	docker compose --env-file apps/api/.env.local -f infra/docker-compose.yml logs -f caddy
