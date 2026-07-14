@@ -8,6 +8,7 @@ import {
   getOrgBranding,
   upsertOrgBranding,
   deleteOrgBranding,
+  hasRole,
 } from "@ploydok/db/queries"
 import { requireFeature } from "../billing/feature-gate"
 import { childLogger } from "../logger"
@@ -34,7 +35,7 @@ export function createBrandingRouter(db: Db): Hono<any, any, any> {
       where: eq(projects.slug, slug),
     })
 
-    if (!org || org.owner_id !== user.id) {
+    if (!org || !(await hasRole(db, org.id, user.id, ["owner"]))) {
       return c.json({ error: "Organization not found" }, { status: 404 })
     }
 
@@ -66,7 +67,7 @@ export function createBrandingRouter(db: Db): Hono<any, any, any> {
         where: eq(projects.slug, slug),
       })
 
-      if (!org || org.owner_id !== user.id) {
+      if (!org || !(await hasRole(db, org.id, user.id, ["owner"]))) {
         return c.json({ error: "Organization not found" }, { status: 404 })
       }
 
@@ -98,7 +99,7 @@ export function createBrandingRouter(db: Db): Hono<any, any, any> {
         where: eq(projects.slug, slug),
       })
 
-      if (!org || org.owner_id !== user.id) {
+      if (!org || !(await hasRole(db, org.id, user.id, ["owner"]))) {
         return c.json({ error: "Organization not found" }, { status: 404 })
       }
 

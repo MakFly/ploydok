@@ -11,11 +11,17 @@ async function json(res: Response): Promise<any> {
 // ---------------------------------------------------------------------------
 
 const mockGetServiceForUser = mock(async () => null as unknown)
+const mockGetServiceForOwner = mock(async () => null as unknown)
 const mockListServicesForProject = mock(async () => [] as unknown[])
+const mockListServicesForOwner = mock(async () => [] as unknown[])
+const mockHasRole = mock(async () => false)
 
 mock.module("@ploydok/db/queries", () => ({
   getServiceForUser: mockGetServiceForUser,
+  getServiceForOwner: mockGetServiceForOwner,
   listServicesForProject: mockListServicesForProject,
+  listServicesForOwner: mockListServicesForOwner,
+  hasRole: mockHasRole,
   insertService: mock(async () => ({})),
   updateServiceStatus: mock(async () => {}),
   updateServiceContainers: mock(async () => {}),
@@ -75,8 +81,14 @@ import type { Db } from "@ploydok/db"
 beforeEach(() => {
   mockGetServiceForUser.mockReset()
   mockGetServiceForUser.mockResolvedValue(null)
+  mockGetServiceForOwner.mockReset()
+  mockGetServiceForOwner.mockResolvedValue(null)
   mockListServicesForProject.mockReset()
   mockListServicesForProject.mockResolvedValue([])
+  mockListServicesForOwner.mockReset()
+  mockListServicesForOwner.mockResolvedValue([])
+  mockHasRole.mockReset()
+  mockHasRole.mockResolvedValue(false)
 })
 
 // ---------------------------------------------------------------------------
@@ -147,28 +159,11 @@ describe("GET /services", () => {
 
   it("returns services when projectId matches", async () => {
     const fakeSvc = { id: "svc-1" }
-    // ownership check returns a project row; listServicesForProject returns fakeSvc
+    // ownership check (hasRole owner) passes; listServicesForProject returns fakeSvc
+    mockHasRole.mockResolvedValueOnce(true)
     mockListServicesForProject.mockResolvedValueOnce([fakeSvc])
 
-    let selectCount = 0
-    const db = {
-      select: mock(() => {
-        selectCount++
-        const data =
-          selectCount === 1 ? [{ id: "proj-1", owner_id: "user-1" }] : []
-        const p = Promise.resolve(data)
-        return {
-          from: mock(() => ({
-            where: mock(() =>
-              Object.assign(p, { limit: mock(async () => data) })
-            ),
-            innerJoin: mock(() => ({ where: mock(() => p) })),
-          })),
-        }
-      }),
-    } as unknown as Db
-
-    const app = makeApp(db)
+    const app = makeApp(makeDb())
     const res = await app.request("/services?projectId=proj-1")
     expect(res.status).toBe(200)
     const body = await json(res)
@@ -254,13 +249,14 @@ describe("DELETE /services/:id", () => {
   })
 
   it("returns 400 when confirm string is wrong", async () => {
+    mockGetServiceForOwner.mockResolvedValueOnce({ id: "svc-1" })
     mockGetServiceForUser.mockResolvedValueOnce({
       id: "svc-1",
       name: "My PB",
       status: "stopped",
       container_ids: [],
     })
-    const app = makeApp(makeDb([{ id: "svc-1" }]))
+    const app = makeApp(makeDb())
     const res = await app.request("/services/svc-1", {
       method: "DELETE",
       headers: { "Content-Type": "application/json" },
@@ -272,13 +268,14 @@ describe("DELETE /services/:id", () => {
   })
 
   it("returns 200 ok when confirm matches", async () => {
+    mockGetServiceForOwner.mockResolvedValueOnce({ id: "svc-1" })
     mockGetServiceForUser.mockResolvedValueOnce({
       id: "svc-1",
       name: "My PB",
       status: "stopped",
       container_ids: [],
     })
-    const app = makeApp(makeDb([{ id: "svc-1" }]))
+    const app = makeApp(makeDb())
     const res = await app.request("/services/svc-1", {
       method: "DELETE",
       headers: { "Content-Type": "application/json" },

@@ -10,6 +10,7 @@ import {
   createSSOConfig,
   updateSSOConfig,
   deleteSSOConfig,
+  hasRole,
 } from "@ploydok/db/queries"
 import {
   SSOConfigCreateBodySchema,
@@ -62,7 +63,7 @@ export function createSSORouter(db: Db): Hono<any, any, any> {
         return c.json({ error: "Organization not found" }, 404)
       }
 
-      if (project.owner_id !== user.id) {
+      if (!(await hasRole(db, project.id, user.id, ["owner"]))) {
         return c.json({ error: "Forbidden" }, 403)
       }
 
@@ -122,7 +123,7 @@ export function createSSORouter(db: Db): Hono<any, any, any> {
         return c.json({ error: "Organization not found" }, 404)
       }
 
-      if (project.owner_id !== user.id) {
+      if (!(await hasRole(db, project.id, user.id, ["owner"]))) {
         return c.json({ error: "Forbidden" }, 403)
       }
 
@@ -203,7 +204,7 @@ export function createSSORouter(db: Db): Hono<any, any, any> {
         return c.json({ error: "Organization not found" }, 404)
       }
 
-      if (project.owner_id !== user.id) {
+      if (!(await hasRole(db, project.id, user.id, ["owner"]))) {
         return c.json({ error: "Forbidden" }, 403)
       }
 
@@ -272,7 +273,7 @@ export function createSSORouter(db: Db): Hono<any, any, any> {
         return c.json({ error: "Organization not found" }, 404)
       }
 
-      if (project.owner_id !== user.id) {
+      if (!(await hasRole(db, project.id, user.id, ["owner"]))) {
         return c.json({ error: "Forbidden" }, 403)
       }
 
@@ -307,7 +308,7 @@ export function createSSORouter(db: Db): Hono<any, any, any> {
         return c.json({ error: "Organization not found" }, 404)
       }
 
-      if (project.owner_id !== user.id) {
+      if (!(await hasRole(db, project.id, user.id, ["owner"]))) {
         return c.json({ error: "Forbidden" }, 403)
       }
 

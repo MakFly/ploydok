@@ -9,6 +9,7 @@ import {
   markServiceDeleting,
   uniqueServiceSlug,
   getServiceForUser,
+  hasRole,
 } from "@ploydok/db/queries"
 import type { ServiceRow, Db } from "@ploydok/db"
 import { resolveTemplate } from "@ploydok/shared"
@@ -84,14 +85,14 @@ export async function installFromTemplate(
   const caddy = deps.caddy ?? getSharedCaddy()
 
   const projectRows = await db
-    .select({ id: projects.id, owner_id: projects.owner_id })
+    .select({ id: projects.id })
     .from(projects)
     .where(eq(projects.id, input.projectId))
     .limit(1)
   if (!projectRows[0]) {
     throw Object.assign(new Error("Project not found"), { code: "NOT_FOUND" })
   }
-  if (projectRows[0].owner_id !== userId) {
+  if (!(await hasRole(db, input.projectId, userId, ["owner"]))) {
     throw Object.assign(new Error("Forbidden"), { code: "FORBIDDEN" })
   }
 

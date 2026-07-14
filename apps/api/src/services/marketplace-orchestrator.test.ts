@@ -28,6 +28,7 @@ const mockUpdateServiceContainers = mock(async () => {})
 const mockMarkServiceDeleting = mock(async () => {})
 const mockUniqueServiceSlug = mock(async () => "my-pb")
 const mockGetServiceForUser = mock(async () => null as unknown)
+const mockHasRole = mock(async () => true)
 
 mock.module("@ploydok/db/queries", () => ({
   insertService: mockInsertService,
@@ -36,6 +37,7 @@ mock.module("@ploydok/db/queries", () => ({
   markServiceDeleting: mockMarkServiceDeleting,
   uniqueServiceSlug: mockUniqueServiceSlug,
   getServiceForUser: mockGetServiceForUser,
+  hasRole: mockHasRole,
   // re-export everything else as no-ops to satisfy wide imports
   listServicesForProject: mock(async () => []),
 }))
@@ -144,6 +146,7 @@ describe("installFromTemplate", () => {
   })
 
   it("throws FORBIDDEN when project belongs to another user", async () => {
+    mockHasRole.mockResolvedValueOnce(false)
     const db = {
       select: mock(() => ({
         from: mock(() => ({

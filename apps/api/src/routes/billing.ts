@@ -3,7 +3,7 @@ import { Hono } from "hono"
 import { eq } from "drizzle-orm"
 import type { Db } from "@ploydok/db"
 import { projects, org_subscriptions } from "@ploydok/db"
-import { getOrgPlan } from "@ploydok/db/queries"
+import { getOrgPlan, hasRole } from "@ploydok/db/queries"
 import { CheckoutBodySchema, CurrentPlanResponseSchema } from "@ploydok/shared"
 import { env } from "../env"
 import { stripeClient } from "../billing/stripe"
@@ -45,7 +45,7 @@ export function createBillingRouter(db: Db) {
       where: eq(projects.slug, slug),
     })
 
-    if (!org || org.owner_id !== user.id) {
+    if (!org || !(await hasRole(db, org.id, user.id, ["owner"]))) {
       return c.json({ error: "Organization not found" }, { status: 404 })
     }
 
@@ -84,7 +84,7 @@ export function createBillingRouter(db: Db) {
       where: eq(projects.slug, slug),
     })
 
-    if (!org || org.owner_id !== user.id) {
+    if (!org || !(await hasRole(db, org.id, user.id, ["owner"]))) {
       return c.json({ error: "Organization not found" }, { status: 404 })
     }
 
@@ -122,7 +122,7 @@ export function createBillingRouter(db: Db) {
       where: eq(projects.slug, slug),
     })
 
-    if (!org || org.owner_id !== user.id) {
+    if (!org || !(await hasRole(db, org.id, user.id, ["owner"]))) {
       return c.json({ error: "Organization not found" }, { status: 404 })
     }
 

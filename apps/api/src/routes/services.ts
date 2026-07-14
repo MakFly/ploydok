@@ -1,11 +1,15 @@
 // SPDX-License-Identifier: AGPL-3.0-only
 import { Hono } from "hono"
 import type { MiddlewareHandler } from "hono"
-import { and, eq } from "drizzle-orm"
-import { services, projects } from "@ploydok/db"
 import { createDb } from "@ploydok/db"
 import type { Db } from "@ploydok/db"
-import { listServicesForProject, getServiceForUser } from "@ploydok/db/queries"
+import {
+  listServicesForProject,
+  listServicesForOwner,
+  getServiceForUser,
+  getServiceForOwner,
+  hasRole,
+} from "@ploydok/db/queries"
 import { CreateServiceFromTemplateBody } from "@ploydok/shared"
 import { env } from "../env"
 import { getSharedAgent } from "../debug/singletons"
@@ -31,15 +35,8 @@ export function createServicesRouter(db: Db): Hono<any, any, any> {
   const router = new Hono<AppEnv>()
   const ownerOnly: MiddlewareHandler = async (c, next) => {
     const user = getUser(c)
-    const rows = await db
-      .select({ id: services.id })
-      .from(services)
-      .innerJoin(projects, eq(services.project_id, projects.id))
-      .where(
-        and(eq(services.id, c.req.param("id")!), eq(projects.owner_id, user.id))
-      )
-      .limit(1)
-    if (!rows[0]) {
+    const svc = await getServiceForOwner(db, c.req.param("id")!, user.id)
+    if (!svc) {
       return c.json(
         { error: { code: "NOT_FOUND", message: "Service not found" } },
         404
@@ -54,12 +51,7 @@ export function createServicesRouter(db: Db): Hono<any, any, any> {
     const projectId = c.req.query("projectId")
 
     if (projectId) {
-      const projectRows = await db
-        .select({ id: projects.id })
-        .from(projects)
-        .where(and(eq(projects.id, projectId), eq(projects.owner_id, user.id)))
-        .limit(1)
-      if (!projectRows[0]) {
+      if (!(await hasRole(db, projectId, user.id, ["owner"]))) {
         return c.json(
           { error: { code: "NOT_FOUND", message: "Project not found" } },
           404
@@ -69,13 +61,9 @@ export function createServicesRouter(db: Db): Hono<any, any, any> {
       return c.json({ services: rows })
     }
 
-    // All services across all user projects
-    const rows = await db
-      .select({ service: services })
-      .from(services)
-      .innerJoin(projects, eq(services.project_id, projects.id))
-      .where(eq(projects.owner_id, user.id))
-    return c.json({ services: rows.map((r) => r.service) })
+    // All services across projects the user owns (accepted owner membership)
+    const rows = await listServicesForOwner(db, user.id)
+    return c.json({ services: rows })
   })
 
   // GET /services/:id

@@ -47,6 +47,49 @@ export async function getServiceForUser(
   return rows[0]?.service ?? null
 }
 
+export async function getServiceForOwner(
+  db: Db,
+  serviceId: string,
+  userId: string
+): Promise<ServiceRow | null> {
+  const rows = await db
+    .select({ service: services })
+    .from(services)
+    .innerJoin(projects, eq(services.project_id, projects.id))
+    .innerJoin(
+      memberships,
+      and(
+        eq(memberships.org_id, projects.id),
+        eq(memberships.user_id, userId),
+        eq(memberships.role, "owner"),
+        isNotNull(memberships.accepted_at)
+      )
+    )
+    .where(eq(services.id, serviceId))
+    .limit(1)
+  return rows[0]?.service ?? null
+}
+
+export async function listServicesForOwner(
+  db: Db,
+  userId: string
+): Promise<ServiceRow[]> {
+  const rows = await db
+    .select({ service: services })
+    .from(services)
+    .innerJoin(projects, eq(services.project_id, projects.id))
+    .innerJoin(
+      memberships,
+      and(
+        eq(memberships.org_id, projects.id),
+        eq(memberships.user_id, userId),
+        eq(memberships.role, "owner"),
+        isNotNull(memberships.accepted_at)
+      )
+    )
+  return rows.map((r) => r.service)
+}
+
 export async function insertService(
   db: Db,
   values: ServiceInsert
