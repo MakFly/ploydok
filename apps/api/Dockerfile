@@ -1,7 +1,7 @@
 # SPDX-License-Identifier: AGPL-3.0-only
 # Production image for the Ploydok API (Bun runtime).
 # Build context must be the monorepo root.
-#   docker build -f apps/api/Dockerfile -t ghcr.io/makfly/ploydok-api:0.0.1 .
+#   docker build -f apps/api/Dockerfile -t ghcr.io/dev-toolings/ploydok-api:0.0.1 .
 
 FROM oven/bun:1.3-debian AS builder
 WORKDIR /app

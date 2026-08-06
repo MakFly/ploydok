@@ -1,7 +1,7 @@
 # SPDX-License-Identifier: AGPL-3.0-only
 # Production image for the Ploydok web control-plane (TanStack Start/Nitro).
 # Build context must be the monorepo root.
-#   docker build -f apps/web/Dockerfile -t ghcr.io/makfly/ploydok-web:0.0.1 .
+#   docker build -f apps/web/Dockerfile -t ghcr.io/dev-toolings/ploydok-web:0.0.1 .
 
 FROM oven/bun:1.3-debian AS builder
 WORKDIR /app

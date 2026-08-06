@@ -207,8 +207,8 @@ swarm_upgrade_output="$(
     bash "$ROOT/installer/ploydok-cli" upgrade --data-dir=/var/lib/ploydok --version=test2 2>&1
 )"
 assert_text_contains "$swarm_upgrade_output" "update $TMP/swarm-root/opt/ploydok/docker-stack.yml api/web/agent/adminer images to test2"
-assert_text_contains "$swarm_upgrade_output" "docker pull ghcr.io/makfly/ploydok-api:test2"
-assert_text_contains "$swarm_upgrade_output" "--network ploydok_ploydok ghcr.io/makfly/ploydok-api:test2"
+assert_text_contains "$swarm_upgrade_output" "docker pull ghcr.io/dev-toolings/ploydok-api:test2"
+assert_text_contains "$swarm_upgrade_output" "--network ploydok_ploydok ghcr.io/dev-toolings/ploydok-api:test2"
 assert_text_contains "$swarm_upgrade_output" "bun run /app/packages/db/src/migrate.ts"
 assert_text_contains "$swarm_upgrade_output" "docker stack deploy --resolve-image always"
 
