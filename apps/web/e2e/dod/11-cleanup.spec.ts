@@ -69,7 +69,7 @@ test.describe("DoD #10 — workspace + registry cleanup", () => {
     // 1. Create app — build #1 auto-enqueued.
     ;({ id: appId } = await createApp(auth, {
       name: `fixture-cleanup-${Date.now()}`,
-      repoFullName: "MakFly/fixture-hello",
+      repoFullName: "dev-toolings/fixture-hello",
       branch: "main",
       buildMethod: "docker",
     }))
@@ -112,7 +112,7 @@ test.describe("DoD #10 — workspace + registry cleanup", () => {
     if (!appId) {
       ;({ id: appId } = await createApp(auth, {
         name: `fixture-gc-${Date.now()}`,
-        repoFullName: "MakFly/fixture-hello",
+        repoFullName: "dev-toolings/fixture-hello",
         branch: "main",
         buildMethod: "docker",
       }))

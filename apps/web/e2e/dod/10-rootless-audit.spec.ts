@@ -52,7 +52,7 @@ test.describe("DoD #9 — rootless container audit", () => {
     // 1. Create app — build #1 uses fixture-hello which has `USER node`.
     ;({ id: appId } = await createApp(auth, {
       name: `fixture-rootless-${Date.now()}`,
-      repoFullName: "MakFly/fixture-hello",
+      repoFullName: "dev-toolings/fixture-hello",
       branch: "main",
       buildMethod: "docker",
     }))

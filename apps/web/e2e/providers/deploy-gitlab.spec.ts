@@ -15,7 +15,7 @@
  *
  * Env:
  *   E2E_TEST_PROJECT_ID         — existing project id
- *   E2E_GITLAB_REPO_FULL_NAME   — e.g. "makfly/ploydok-hello"
+ *   E2E_GITLAB_REPO_FULL_NAME   — e.g. "dev-toolings/ploydok-hello"
  *   E2E_GITLAB_PROJECT_ID       — numeric GitLab project id
  *   E2E_GITLAB_BRANCH           — default "main"
  */

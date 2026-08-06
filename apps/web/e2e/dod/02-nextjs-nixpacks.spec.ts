@@ -34,7 +34,7 @@ test.describe("DoD #1 — deploy Next.js via Nixpacks", () => {
     //    Dockerfile present in the repo and let Nixpacks handle detection.
     const created = await createApp(auth, {
       name: "fixture-nextjs-nixpacks",
-      repoFullName: "MakFly/fixture-nextjs",
+      repoFullName: "dev-toolings/fixture-nextjs",
       branch: "main",
       buildMethod: "nixpacks",
     })

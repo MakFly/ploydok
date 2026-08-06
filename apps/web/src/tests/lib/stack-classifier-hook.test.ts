@@ -55,14 +55,14 @@ describe("runStackClassificationProbes", () => {
   it("uses one batch file-exists request and reads detected manifests", async () => {
     const result = await runStackClassificationProbes(
       "github",
-      "MakFly/fixture-symfony-api",
+      "dev-toolings/fixture-symfony-api",
       "main"
     )
 
     expect(calls).toHaveLength(2)
     expect(
       calls[0]?.path.startsWith(
-        "/github/repos/MakFly/fixture-symfony-api/files-exist?"
+        "/github/repos/dev-toolings/fixture-symfony-api/files-exist?"
       )
     ).toBe(true)
 

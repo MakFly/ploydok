@@ -308,7 +308,7 @@ describe("GET /github/repos/:owner/:repo/files-exist", () => {
 
     const app = buildApp(FAKE_USER);
     const res = await app.request(
-      "/github/repos/MakFly/fixture-symfony-api/files-exist?path=composer.json&path=symfony.lock&path=Dockerfile&ref=main",
+      "/github/repos/dev-toolings/fixture-symfony-api/files-exist?path=composer.json&path=symfony.lock&path=Dockerfile&ref=main",
     );
 
     expect(res.status).toBe(200);

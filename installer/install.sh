@@ -676,7 +676,7 @@ install_cli() {
 # Vérifie la signature keyless OIDC des images publiées par
 # .github/workflows/release-images.yml. Identité attendue :
 #   issuer   : https://token.actions.githubusercontent.com
-#   identity : https://github.com/MakFly/ploydok/.github/workflows/release-images.yml@<ref>
+#   identity : https://github.com/dev-toolings/ploydok/.github/workflows/release-images.yml@<ref>
 # Bypass (CI / dry-run / image registry custom non signé) : PLOYDOK_INSTALL_SKIP_COSIGN=1.
 verify_or_pull_images() {
   local images=(
@@ -686,7 +686,7 @@ verify_or_pull_images() {
     "$IMAGE_REGISTRY/ploydok-adminer:$VERSION"
     "$IMAGE_REGISTRY/ploydok-caddy:$VERSION"
   )
-  local cosign_identity_regex='^https://github\.com/MakFly/ploydok/\.github/workflows/release-images\.yml@.*$'
+  local cosign_identity_regex='^https://github\.com/dev-toolings/ploydok/\.github/workflows/release-images\.yml@.*$'
   local image
   for image in "${images[@]}"; do
     if [[ "$DRY_RUN" == "1" || "${PLOYDOK_INSTALL_SKIP_COSIGN:-0}" == "1" ]]; then

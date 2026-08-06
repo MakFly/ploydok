@@ -11,7 +11,7 @@
 #   APP_ID       app uuid in Ploydok (export APP_ID=<uuid>)
 #   AUTH_COOKIE  value of the ploydok_access cookie (export AUTH_COOKIE="...")
 # Optional env:
-#   REPO         default: MakFly/ploydok-hello
+#   REPO         default: dev-toolings/ploydok-hello
 #   BRANCH       default: main
 #   API          default: http://localhost:4000
 #   TIMEOUT_S    default: 180
@@ -20,7 +20,7 @@
 
 set -euo pipefail
 
-REPO="${REPO:-MakFly/ploydok-hello}"
+REPO="${REPO:-dev-toolings/ploydok-hello}"
 BRANCH="${BRANCH:-main}"
 API="${API:-http://localhost:4000}"
 TIMEOUT_S="${TIMEOUT_S:-180}"

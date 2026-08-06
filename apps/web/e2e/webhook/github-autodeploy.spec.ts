@@ -56,7 +56,7 @@ const FULL_INFRA = process.env.PLOYDOK_FULL_INFRA === "1";
 const WEBHOOK_GATE = process.env.E2E_WEBHOOK === "1";
 
 const APP_ID = process.env.E2E_TEST_APP_ID;
-const REPO = process.env.E2E_WEBHOOK_REPO ?? "MakFly/ploydok-hello";
+const REPO = process.env.E2E_WEBHOOK_REPO ?? "dev-toolings/ploydok-hello";
 const BRANCH = process.env.E2E_WEBHOOK_BRANCH ?? "main";
 // Global GitHub App webhook secret — used to sign simulated webhook payloads.
 const WEBHOOK_SECRET = process.env.E2E_WEBHOOK_SECRET ?? "";
