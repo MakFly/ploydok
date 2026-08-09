@@ -127,7 +127,7 @@ function AppMiniCard({
   }
 
   return (
-    <article className="overflow-hidden rounded-lg border border-border bg-card transition-colors hover:border-muted-foreground/30">
+    <article className="overflow-hidden rounded-2xl bg-panel transition-colors hover:border-muted-foreground/30">
       <Link
         to={settingsPath as never}
         className="block space-y-2 p-4 hover:bg-accent/30 focus-visible:ring-2 focus-visible:ring-ring focus-visible:outline-none"
@@ -163,7 +163,7 @@ function AppsEmptyState({
   onCreateApp: () => void
 }): React.JSX.Element {
   return (
-    <div className="flex flex-col items-center justify-center rounded-lg border border-dashed border-border bg-muted/20 py-10 text-center">
+    <div className="flex flex-col items-center justify-center rounded-lg border border-dashed border-panel-border bg-panel-inset py-10 text-center">
       <div className="mb-3 rounded-full bg-muted p-3">
         <GridIcon className="size-5 text-muted-foreground" />
       </div>
@@ -194,7 +194,7 @@ function AppsGridSkeleton(): React.JSX.Element {
         {[...Array<null>(4)].map((_, i) => (
           <div
             key={i}
-            className="space-y-2 rounded-lg border border-border bg-card p-4"
+            className="space-y-2 rounded-2xl bg-panel p-4"
           >
             <div className="flex items-start justify-between">
               <div className="space-y-1.5">

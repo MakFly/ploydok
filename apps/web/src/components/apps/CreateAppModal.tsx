@@ -1422,7 +1422,7 @@ function BuildStep({
       </button>
 
       {showAdvanced && (
-        <div className="space-y-3 rounded-lg border border-dashed border-border bg-muted/20 p-4 motion-safe:animate-in motion-safe:fade-in-0 motion-safe:slide-in-from-top-1">
+        <div className="space-y-3 rounded-lg border border-dashed border-panel-border bg-panel-inset p-4 motion-safe:animate-in motion-safe:fade-in-0 motion-safe:slide-in-from-top-1">
           <div className="grid gap-3 sm:grid-cols-2">
             <ConfigField
               id="install-cmd"
@@ -1555,7 +1555,7 @@ function ResourcesStep({
         </p>
       </div>
 
-      <section className="rounded-lg border border-border bg-card">
+      <section className="rounded-2xl bg-panel">
         <div className="border-b border-border px-4 py-3">
           <h3 className="text-sm font-semibold">Résumé avant création</h3>
           <p className="mt-1 text-xs text-muted-foreground">
@@ -1586,7 +1586,7 @@ function ResourcesStep({
       </section>
 
       <section className="grid gap-3 lg:grid-cols-2">
-        <div className="rounded-lg border border-border bg-card p-4">
+        <div className="rounded-2xl bg-panel p-4">
           <h3 className="text-sm font-semibold">Variables</h3>
           <p className="mt-1 text-xs text-muted-foreground">
             {envCount} variable{envCount > 1 ? "s" : ""} manuelle
@@ -1623,7 +1623,7 @@ function ResourcesStep({
           </div>
         </div>
 
-        <div className="rounded-lg border border-border bg-card p-4">
+        <div className="rounded-2xl bg-panel p-4">
           <h3 className="text-sm font-semibold">Ressources sélectionnées</h3>
           <div className="mt-3 grid gap-2 text-sm">
             <ReviewLine label="Plan" value={value.plan} />
@@ -2464,7 +2464,7 @@ function EnvStep({
         <button
           type="button"
           onClick={addVar}
-          className="flex min-h-28 w-full items-center justify-center rounded-lg border border-dashed border-border bg-muted/20 px-4 text-sm text-muted-foreground transition-colors hover:bg-muted/40"
+          className="flex min-h-28 w-full items-center justify-center rounded-lg border border-dashed border-panel-border bg-panel-inset px-4 text-sm text-muted-foreground transition-colors hover:bg-muted/40"
         >
           Ajouter une variable
         </button>
@@ -2524,7 +2524,7 @@ function EnvStep({
               <div
                 key={item.id}
                 className={cn(
-                  "grid gap-2 rounded-lg border border-border bg-card p-3 sm:grid-cols-[minmax(0,1fr)_minmax(0,1.4fr)_8rem_2.25rem]",
+                  "grid gap-2 rounded-2xl bg-panel p-3 sm:grid-cols-[minmax(0,1fr)_minmax(0,1.4fr)_8rem_2.25rem]",
                   databaseOverridden && "opacity-60"
                 )}
               >

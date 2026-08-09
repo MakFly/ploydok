@@ -36,7 +36,7 @@ export function QuotaUsageCard(): React.JSX.Element {
   return (
     <section
       aria-label="Quotas usage"
-      className="rounded-xl border border-border bg-card p-5"
+      className="rounded-xl rounded-2xl bg-panel p-5"
     >
       <header className="mb-4 flex items-center justify-between gap-3">
         <div>

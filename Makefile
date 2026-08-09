@@ -1,4 +1,4 @@
-.PHONY: help install dev dev-agent agent-restart agent-logs db-migrate db-reset db-seed infra-up infra-down infra-stop infra-logs build start test lint typecheck clean secrets-init dod
+.PHONY: help install dev stop dev-agent agent-restart agent-logs db-migrate db-reset db-seed infra-up infra-down infra-stop infra-logs build start test lint typecheck clean secrets-init dod
 
 # Ports locaux :
 #   API 3335 — Web 5173 — Caddy 8180/8543/2020 — Agent unix /tmp/ploydok/agent.sock
@@ -19,6 +19,7 @@ help:
 	@printf "  $(C_TARGET)%-14s$(C_RESET) $(C_DESC)%s$(C_RESET)\n" "install" "Setup complet : bun install + secrets + infra + migrations"
 	@printf "\n$(C_CAT)▶ Dev$(C_RESET)\n"
 	@printf "  $(C_TARGET)%-14s$(C_RESET) $(C_DESC)%s$(C_RESET)\n" "dev"       "Lance web + api via turbo (http://localhost:5173 + :3335)"
+	@printf "  $(C_TARGET)%-14s$(C_RESET) $(C_DESC)%s$(C_RESET)\n" "stop"      "Arrête les containers Compose sans les supprimer"
 	@printf "  $(C_TARGET)%-14s$(C_RESET) $(C_DESC)%s$(C_RESET)\n" "dev-agent" "[debug] Lance l'agent Rust en natif (insecure, /tmp/ploydok/agent.sock)"
 	@printf "  %-14s $(C_DIM)%s$(C_RESET)\n" "" "⚠ stop le container 'agent' d'abord — collision sur le socket"
 	@printf "\n$(C_CAT)▶ Agent$(C_RESET)\n"
@@ -27,7 +28,7 @@ help:
 	@printf "\n$(C_CAT)▶ Database$(C_RESET)\n"
 	@printf "  $(C_TARGET)%-14s$(C_RESET) $(C_DESC)%s$(C_RESET)\n" "db-migrate" "Applique les migrations Postgres"
 	@printf "  $(C_TARGET)%-14s$(C_RESET) $(C_DESC)%s$(C_RESET)\n" "db-reset"   "Wipe runtime app/db containers + Postgres + Redis + apply migrations"
-	@printf "  $(C_TARGET)%-14s$(C_RESET) $(C_DESC)%s$(C_RESET)\n" "db-seed"    "Seed dev (user dev@ploydok.local + backup code DEVD-EVDE-VDEV)"
+	@printf "  $(C_TARGET)%-14s$(C_RESET) $(C_DESC)%s$(C_RESET)\n" "db-seed"    "Seed dev (login: dev@ploydok.local / pwd: DEVD-EVDE-VDEV)"
 	@printf "\n$(C_CAT)▶ Infra$(C_RESET)\n"
 	@printf "  $(C_TARGET)%-14s$(C_RESET) $(C_DESC)%s$(C_RESET)\n" "secrets-init" "Génère PLOYDOK_PG_PASSWORD + PLOYDOK_REDIS_PASSWORD dans .env.local"
 	@printf "  $(C_TARGET)%-14s$(C_RESET) $(C_DESC)%s$(C_RESET)\n" "infra-up"     "docker compose up (postgres + redis + caddy + buildkitd + registry + agent)"
@@ -57,6 +58,8 @@ install:
 
 dev:
 	bunx turbo dev
+
+stop: infra-stop
 
 dev-agent:
 	@echo "Starting ploydok-agent in native mode (insecure, /tmp/ploydok/agent.sock)..."

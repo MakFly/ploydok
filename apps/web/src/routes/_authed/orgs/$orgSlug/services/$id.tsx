@@ -189,7 +189,7 @@ function Row({
   children: React.ReactNode
 }): React.JSX.Element {
   return (
-    <div className="flex items-center justify-between gap-4 rounded-md border border-border bg-card px-4 py-3">
+    <div className="flex items-center justify-between gap-4 rounded-md rounded-2xl bg-panel px-4 py-3">
       <span className="text-xs font-medium text-muted-foreground">{label}</span>
       <span>{children}</span>
     </div>
@@ -281,7 +281,7 @@ function GeneratedEnvPanel({
             return (
               <div
                 key={key}
-                className="flex items-center gap-2 rounded-md border border-border bg-card px-3 py-2"
+                className="flex items-center gap-2 rounded-md rounded-2xl bg-panel px-3 py-2"
               >
                 <div className="min-w-0 flex-1">
                   <p className="truncate font-mono text-[11px] font-medium text-foreground">

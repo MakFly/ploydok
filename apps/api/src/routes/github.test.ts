@@ -12,6 +12,11 @@ const credentialUpserts: Array<{
   conflict: Record<string, unknown>;
 }> = [];
 const enqueuedSyncs: Array<Record<string, unknown>> = [];
+const installationAssignments: Array<{ installationId: string; userId: string }> = [];
+const localDisconnects: Array<{ installationId: string; userId: string }> = [];
+let userGitHubInstallationIds = ["42"];
+let cacheStatusRows: Array<Record<string, unknown>> = [];
+const cacheStatusFilters: unknown[][] = [];
 const deletedTables: Array<unknown> = [];
 let liveInstallations: Array<{ id: number; accountLogin?: string }> = [];
 const revokedInstallations: number[] = [];
@@ -130,6 +135,35 @@ mock.module("@ploydok/db/queries", () => ({
   deleteGitHubAppConfig: async () => {
     deleteConfigCalls += 1;
   },
+  assignGitHubInstallationToUser: async (
+    _db: unknown,
+    installationId: string,
+    userId: string,
+  ) => {
+    installationAssignments.push({ installationId, userId });
+  },
+  deleteGitHubInstallationUser: async () => undefined,
+  deleteGitHubInstallationUsers: async () => undefined,
+  deleteGitHubInstallationUserForUser: async (
+    _db: unknown,
+    installationId: string,
+    userId: string,
+  ) => {
+    localDisconnects.push({ installationId, userId });
+  },
+  listGitHubInstallationIdsForUser: async () => userGitHubInstallationIds,
+  userOwnsGitHubInstallation: async (
+    _db: unknown,
+    _userId: string,
+    installationId: string,
+  ) => userGitHubInstallationIds.includes(installationId),
+  listInstallations: async () => [],
+  listRepos: async () => ({ rows: [], total: 0 }),
+  getInstallationStaleness: async () => ({ mostStaleAt: null, count: 0 }),
+  getCacheStatus: async (...args: unknown[]) => {
+    cacheStatusFilters.push(args)
+    return cacheStatusRows
+  },
 }));
 import { Hono } from "hono";
 import type { AuthUser } from "../auth/middleware";
@@ -178,6 +212,11 @@ beforeEach(() => {
   deleteConfigCalls = 0;
   credentialUpserts.length = 0;
   enqueuedSyncs.length = 0;
+  installationAssignments.length = 0;
+  localDisconnects.length = 0;
+  userGitHubInstallationIds = ["42"];
+  cacheStatusRows = [];
+  cacheStatusFilters.length = 0;
   deletedTables.length = 0;
   liveInstallations = [];
   revokedInstallations.length = 0;
@@ -320,6 +359,88 @@ describe("GET /github/repos/:owner/:repo/files-exist", () => {
       },
     });
     expect(probedPaths).toEqual(["composer.json", "symfony.lock", "Dockerfile"]);
+  });
+});
+
+describe("GitHub routes are user-scoped", () => {
+  it("never reads an env file through an installation not linked to the user", async () => {
+    mockGitHubAppConfig = { app_id: "123" };
+    userGitHubInstallationIds = ["42"];
+    liveInstallations = [
+      { id: 42, accountLogin: "Allowed" },
+      { id: 99, accountLogin: "MakFly" },
+    ];
+    const attemptedIds: string[] = [];
+    using _spy = spyOn(githubModule.ghProvider, "readFile").mockImplementation(
+      async (installationId) => {
+        attemptedIds.push(installationId);
+        return "SAFE=value";
+      },
+    );
+
+    const res = await buildApp(FAKE_USER).request(
+      "/github/repos/MakFly/private/env-file?path=.env&ref=main",
+    );
+
+    expect(res.status).toBe(200);
+    expect(attemptedIds).toEqual(["42"]);
+  });
+
+  it("lists and reports cache state only for linked installations", async () => {
+    mockGitHubAppConfig = { slug: "ploydok-local" };
+    userGitHubInstallationIds = ["42"];
+    liveInstallations = [
+      { id: 42, accountLogin: "Allowed" },
+      { id: 99, accountLogin: "Foreign" },
+    ];
+    cacheStatusRows = [
+      {
+        id: "github:42",
+        externalId: "42",
+        accountLogin: "Allowed",
+        avatarUrl: null,
+        htmlUrl: null,
+        lastSyncedAt: new Date(),
+        repoCount: 0,
+      },
+    ];
+    using _spy = spyOn(githubModule.ghProvider, "listRepos").mockResolvedValue({
+      repos: [],
+      hasMore: false,
+    });
+
+    const app = buildApp(FAKE_USER);
+    const installationsRes = await app.request("/github/installations");
+    const cacheRes = await app.request("/github/installations/cache-status");
+
+    expect((await installationsRes.json()) as Record<string, unknown>).toMatchObject({
+      installations: [expect.objectContaining({ id: 42 })],
+    });
+    expect((await cacheRes.json()) as Record<string, unknown>).toMatchObject({
+      installations: [expect.objectContaining({ externalId: "42" })],
+    });
+    expect(cacheStatusFilters[0]?.[2]).toEqual(["github:42"]);
+  });
+
+  it("syncs only linked installations and rejects a foreign id", async () => {
+    userGitHubInstallationIds = ["42", "77"];
+    const app = buildApp(FAKE_USER);
+
+    const syncRes = await app.request("/github/installations/sync", {
+      method: "POST",
+      body: "{}",
+    });
+    const foreignRes = await app.request("/github/installations/sync", {
+      method: "POST",
+      body: JSON.stringify({ installationId: "99" }),
+    });
+
+    expect(syncRes.status).toBe(202);
+    expect(enqueuedSyncs).toEqual([
+      expect.objectContaining({ installationId: "42", requestedBy: FAKE_USER.id }),
+      expect.objectContaining({ installationId: "77", requestedBy: FAKE_USER.id }),
+    ]);
+    expect(foreignRes.status).toBe(404);
   });
 });
 
@@ -504,6 +625,21 @@ describe("DELETE /github/installations/:id", () => {
     expect(revokedInstallations).toEqual([42]);
     expect(deletedTables).toHaveLength(2);
   });
+
+  it("disconnects a non-admin locally without revoking the global App installation", async () => {
+    fakeInstanceAdmin = false;
+    const app = buildApp(FAKE_USER);
+    const res = await app.request("/github/installations/42", {
+      method: "DELETE",
+    });
+
+    expect(res.status).toBe(200);
+    expect(await res.json()).toEqual({ ok: true, disconnected: 42 });
+    expect(localDisconnects).toEqual([
+      { installationId: "42", userId: FAKE_USER.id },
+    ]);
+    expect(revokedInstallations).toHaveLength(0);
+  });
 });
 
 describe("GET /github/app/setup", () => {
@@ -538,6 +674,9 @@ describe("GET /github/app/setup", () => {
       last_sync_source: "api",
       last_sync_claimed_at: null,
     });
+    expect(installationAssignments).toEqual([
+      { installationId: "42", userId: FAKE_USER.id },
+    ]);
     expect(enqueuedSyncs).toHaveLength(1);
     expect(enqueuedSyncs[0]).toMatchObject({
       provider: "github",

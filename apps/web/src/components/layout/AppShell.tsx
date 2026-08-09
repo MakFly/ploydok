@@ -67,6 +67,13 @@ import {
   SelectValue,
 } from "@workspace/ui/components/select"
 import { Skeleton } from "@workspace/ui/components/skeleton"
+import {
+  DropdownMenu,
+  DropdownMenuContent,
+  DropdownMenuItem,
+  DropdownMenuSeparator,
+  DropdownMenuTrigger,
+} from "@workspace/ui/components/dropdown-menu"
 import { resolveDisplayedAppState } from "../../lib/app-runtime"
 import { useApp } from "../../lib/apps"
 import { useLogout, useMe } from "../../lib/auth"
@@ -291,7 +298,7 @@ const APP_DETAIL_RE = /^\/(?:orgs\/[^/]+\/)?apps\/[^/]+(\/|$)/
 function resolveWrapperClass(pathname: string): string {
   if (APP_LOGS_RE.test(pathname)) return "overflow-hidden"
   if (APP_DETAIL_RE.test(pathname)) return "overflow-y-auto"
-  return "gap-4 overflow-y-auto p-4 md:p-8"
+  return "gap-4 overflow-y-auto"
 }
 
 function isNavActive(pathname: string, target: string): boolean {
@@ -592,8 +599,8 @@ export function AppShell({
   }
 
   const wrapperStyle: React.CSSProperties = {
-    ["--sidebar-width" as string]: "16rem",
-    ["--sidebar-width-icon" as string]: "3rem",
+    ["--sidebar-width" as string]: "260px",
+    ["--sidebar-width-icon" as string]: "72px",
     ["--sidebar-inset-radius" as string]: "calc(var(--radius) * 4)",
     ["--sidebar-animation-duration" as string]: "300ms",
     ["--sidebar-animation-ease" as string]: "cubic-bezier(0.32, 0.72, 0, 1)",
@@ -604,7 +611,7 @@ export function AppShell({
       <div
         data-sidebar-state={state}
         style={wrapperStyle}
-        className="group/shell flex h-svh w-full overflow-hidden bg-sidebar/50 text-sidebar-foreground"
+        className="group/shell flex h-dvh w-full overflow-hidden bg-background text-foreground"
       >
         {/* Mobile backdrop */}
         {mobileNavOpen ? (
@@ -612,7 +619,7 @@ export function AppShell({
             type="button"
             aria-label="Close navigation"
             onClick={() => setMobileNavOpen(false)}
-            className="fixed inset-0 z-40 bg-black/40 backdrop-blur-sm md:hidden"
+            className="fixed inset-0 z-40 cursor-pointer bg-black/40 backdrop-blur-sm md:hidden"
           />
         ) : null}
 
@@ -638,9 +645,9 @@ export function AppShell({
           {/* Container: fixed positioned. Drawer on mobile, persistent on md+. */}
           <div
             className={cx(
-              "fixed inset-y-0 left-0 z-50 flex h-svh p-2 md:z-10",
+              "fixed inset-y-0 left-0 z-50 flex h-dvh p-2 md:z-10",
               "w-[min(18rem,85vw)] md:w-[var(--sidebar-width)]",
-              "max-md:border-r max-md:border-sidebar-border max-md:bg-sidebar max-md:shadow-2xl",
+              "max-md:border-r max-md:border-border max-md:bg-sidebar max-md:shadow-2xl",
               "transition-transform duration-(--sidebar-animation-duration) ease-(--sidebar-animation-ease)",
               "md:transition-[width]",
               mobileNavOpen
@@ -649,7 +656,7 @@ export function AppShell({
               "group-data-[sidebar-state=collapsed]/shell:md:w-[calc(var(--sidebar-width-icon)+1rem)]"
             )}
           >
-            <div className="flex size-full flex-col">
+            <div className="flex size-full flex-col rounded-3xl border border-border bg-sidebar p-4">
               {/* Header */}
               <div className="flex h-14 flex-row items-center p-2">
                 {expanded ? (
@@ -657,10 +664,10 @@ export function AppShell({
                     <Link
                       to={brandTarget as never}
                       preload={false}
-                      className="flex h-10 min-w-0 flex-1 items-center gap-2 overflow-hidden rounded-md px-[11px] py-2 text-sm outline-none hover:bg-sidebar-accent"
+                      className="flex h-10 min-w-0 flex-1 cursor-pointer items-center gap-2 overflow-hidden rounded-[10px] px-2 py-2 text-sm font-medium text-neutral-950 outline-none hover:bg-neutral-200 dark:text-neutral-50"
                       aria-label="Ploydok"
                     >
-                      <span className="flex size-4 shrink-0 items-center justify-center rounded-[4px] bg-primary text-[9px] font-bold text-primary-foreground">
+                      <span className="flex size-8 shrink-0 items-center justify-center rounded-lg bg-[#90c5ff] text-sm font-bold text-[#1c398e]">
                         P
                       </span>
                       <span className="font-medium">Ploydok</span>
@@ -668,7 +675,7 @@ export function AppShell({
                     <button
                       type="button"
                       onClick={() => setMobileNavOpen(false)}
-                      className="flex size-9 shrink-0 items-center justify-center rounded-md text-muted-foreground outline-none hover:bg-sidebar-accent md:hidden"
+                      className="flex size-9 shrink-0 cursor-pointer items-center justify-center rounded-md text-muted-foreground outline-none hover:bg-sidebar-accent md:hidden"
                       aria-label="Close navigation"
                     >
                       <RiCloseLine className="size-5" />
@@ -676,7 +683,7 @@ export function AppShell({
                     <button
                       type="button"
                       onClick={toggleSidebar}
-                      className="hidden size-9 shrink-0 items-center justify-center rounded-md text-muted-foreground outline-none hover:bg-sidebar-accent md:flex"
+                      className="hidden size-9 shrink-0 cursor-pointer items-center justify-center rounded-md text-muted-foreground outline-none hover:bg-sidebar-accent md:flex"
                       aria-label="Collapse sidebar"
                       aria-expanded
                     >
@@ -687,7 +694,7 @@ export function AppShell({
                   <button
                     type="button"
                     onClick={toggleSidebar}
-                    className="group/brand relative flex size-8 shrink-0 items-center justify-center rounded-md transition-colors outline-none hover:bg-sidebar-accent"
+                    className="group/brand relative flex size-8 shrink-0 cursor-pointer items-center justify-center rounded-md transition-colors outline-none hover:bg-sidebar-accent"
                     aria-label="Expand sidebar"
                     aria-expanded={false}
                   >
@@ -700,19 +707,19 @@ export function AppShell({
               </div>
 
               {/* Content */}
-              <div className="flex scrollbar-thin min-h-0 flex-1 flex-col overflow-x-hidden overflow-y-auto">
+              <div className="flex scrollbar-thin min-h-0 flex-1 flex-col gap-3 overflow-x-hidden overflow-y-auto">
                 {/* Team selector */}
-                <div className="p-2">
+                <div>
                   {expanded ? (
                     <div className="flex flex-col gap-1.5">
-                      <span className="px-1 text-[10px] font-medium tracking-wide text-muted-foreground uppercase">
+                      <span className="px-2 text-xs font-medium text-neutral-500">
                         Workspace
                       </span>
                       {workspaceLoading ? (
                         <div
                           aria-hidden
                           aria-busy="true"
-                          className="flex h-12 w-full items-center gap-3 rounded-md border border-input bg-background px-3"
+                          className="flex h-10 w-full items-center gap-3 rounded-[10px] bg-sidebar-accent px-3"
                         >
                           <Skeleton className="size-5 shrink-0" />
                           <Skeleton className="h-3 w-24" />
@@ -731,7 +738,7 @@ export function AppShell({
                             }
                             onValueChange={handleWorkspaceSelect}
                           >
-                            <SelectTrigger className="h-12 w-full pl-11 text-left">
+                            <SelectTrigger className="h-10 w-full cursor-pointer rounded-[10px] border-0 !bg-sidebar-accent pl-11 text-left !text-sidebar-accent-foreground focus-visible:ring-2 focus-visible:ring-ring/20">
                               <SelectValue placeholder="Select workspace" />
                             </SelectTrigger>
                             <SelectContent
@@ -743,13 +750,17 @@ export function AppShell({
                                   <SelectItem
                                     key={organization.id}
                                     value={organization.slug}
+                                    className="cursor-pointer"
                                   >
                                     {organization.name}
                                   </SelectItem>
                                 ))}
                               </SelectGroup>
                               <SelectGroup>
-                                <SelectItem value={CREATE_WORKSPACE_VALUE}>
+                                <SelectItem
+                                  value={CREATE_WORKSPACE_VALUE}
+                                  className="cursor-pointer"
+                                >
                                   <span className="flex items-center gap-2">
                                     <RiAddLine className="size-4 shrink-0" />
                                     <span>Create workspace</span>
@@ -774,7 +785,7 @@ export function AppShell({
                       type="button"
                       onClick={handleCollapsedWorkspaceClick}
                       className={cx(
-                        "flex h-8 w-full items-center justify-center overflow-hidden rounded-md p-0 text-sm outline-none hover:bg-sidebar-accent"
+                        "flex h-8 w-full cursor-pointer items-center justify-center overflow-hidden rounded-md p-0 text-sm outline-none hover:bg-sidebar-accent"
                       )}
                       aria-label="Open workspace switcher"
                       title={currentOrganization?.name ?? "My Organization"}
@@ -785,11 +796,11 @@ export function AppShell({
                 </div>
 
                 {navGroups.map((group) => (
-                  <div key={group.title} className="p-2">
-                    <div className="flex h-8 shrink-0 items-center overflow-hidden px-2 text-xs font-medium text-muted-foreground group-data-[sidebar-state=collapsed]/shell:opacity-0">
+                  <div key={group.title} className="flex flex-col gap-1">
+                    <div className="flex h-7 shrink-0 items-center overflow-hidden px-2 text-xs font-medium text-neutral-500 group-data-[sidebar-state=collapsed]/shell:hidden">
                       {group.title}
                     </div>
-                    <ul className="flex w-full min-w-0 flex-col">
+                    <ul className="flex w-full min-w-0 flex-col gap-1">
                       {group.items.map((item) => {
                         const Icon = item.icon
                         if (item.comingSoon || !item.to) {
@@ -799,17 +810,17 @@ export function AppShell({
                                 title={item.tooltip ?? "Bientôt disponible"}
                                 aria-disabled="true"
                                 className={cx(
-                                  "flex h-10 w-full cursor-not-allowed items-center gap-2 overflow-hidden rounded-md px-[11px] py-2 text-sm text-sidebar-foreground/50 outline-none",
-                                  "group-data-[sidebar-state=collapsed]/shell:size-8 group-data-[sidebar-state=collapsed]/shell:justify-center group-data-[sidebar-state=collapsed]/shell:p-0"
+                                  "flex w-full cursor-not-allowed items-center gap-2 overflow-hidden rounded-[10px] p-2 text-sm text-neutral-400 outline-none",
+                                  "group-data-[sidebar-state=collapsed]/shell:justify-center"
                                 )}
                               >
-                                <Icon className="size-4 shrink-0" />
+                                <Icon className="size-5 shrink-0" />
                                 <span className="truncate group-data-[sidebar-state=collapsed]/shell:hidden">
                                   {item.label}
                                 </span>
                                 <span
                                   aria-hidden="true"
-                                  className="ml-auto rounded-full border border-sidebar-border/60 bg-sidebar-accent/30 px-1.5 py-0.5 text-[10px] font-medium tracking-wide text-sidebar-foreground/60 uppercase group-data-[sidebar-state=collapsed]/shell:hidden"
+                                  className="ml-auto rounded-sm bg-neutral-200 px-1 py-px text-xs font-semibold text-neutral-500 group-data-[sidebar-state=collapsed]/shell:hidden"
                                 >
                                   Soon
                                 </span>
@@ -825,14 +836,19 @@ export function AppShell({
                               preload={false}
                               title={item.label}
                               className={cx(
-                                "flex h-10 w-full items-center gap-2 overflow-hidden rounded-md px-[11px] py-2 text-sm transition-colors outline-none",
-                                "group-data-[sidebar-state=collapsed]/shell:size-8 group-data-[sidebar-state=collapsed]/shell:justify-center group-data-[sidebar-state=collapsed]/shell:p-0",
+                                "flex w-full cursor-pointer items-center gap-2 overflow-hidden rounded-[10px] p-2 text-sm font-medium outline-none transition-colors focus-visible:ring-2 focus-visible:ring-[#3080ff] focus-visible:ring-offset-2",
+                                "group-data-[sidebar-state=collapsed]/shell:justify-center",
                                 active
-                                  ? "bg-sidebar-accent font-medium text-sidebar-accent-foreground"
-                                  : "text-sidebar-foreground hover:bg-sidebar-accent/60"
+                                  ? "bg-[image:var(--gradient-primary)] text-white shadow-[0_0_0_1px_#3080ff,inset_0_1px_0_0_#ffffff40]"
+                                  : "text-neutral-500 hover:bg-neutral-200 dark:hover:bg-neutral-800"
                               )}
                             >
-                              <Icon className="size-4 shrink-0" />
+                              <Icon
+                                className={cx(
+                                  "size-5 shrink-0",
+                                  active ? "text-white" : "text-neutral-500"
+                                )}
+                              />
                               <span className="truncate group-data-[sidebar-state=collapsed]/shell:hidden">
                                 {item.label}
                               </span>
@@ -846,8 +862,8 @@ export function AppShell({
               </div>
 
               {/* Footer */}
-              <div className="flex flex-col p-2">
-                <ul className="flex w-full min-w-0 flex-col group-data-[sidebar-state=collapsed]/shell:hidden">
+              <div className="mt-3 flex flex-col gap-1">
+                <ul className="flex w-full min-w-0 flex-col gap-1 group-data-[sidebar-state=collapsed]/shell:hidden">
                   {accountNavItems.map((item) => {
                     const Icon = item.icon
                     if (!item.to) return null
@@ -864,9 +880,9 @@ export function AppShell({
                               ? `New in v${version} — click to mark as seen`
                               : item.label
                           }
-                          className="flex h-7 w-full items-center gap-2 overflow-hidden rounded-md px-[11px] text-xs font-medium text-muted-foreground transition-colors outline-none hover:bg-sidebar-accent/60"
+                          className="flex w-full cursor-pointer items-center gap-2 overflow-hidden rounded-[10px] p-2 text-sm font-medium text-neutral-500 transition-colors outline-none hover:bg-neutral-200 dark:hover:bg-neutral-800"
                         >
-                          <Icon className="size-3.5 shrink-0" />
+                          <Icon className="size-5 shrink-0 text-neutral-500" />
                           <span className="truncate">{item.label}</span>
                           {showReleaseDot ? (
                             <span
@@ -887,76 +903,99 @@ export function AppShell({
                 </ul>
 
                 {/* User */}
-                <ul className="relative mt-2 flex w-full min-w-0 flex-col">
+                <ul className="relative mt-1 flex w-full min-w-0 flex-col gap-1">
                   <li className="relative">
-                    <button
-                      type="button"
-                      onClick={() => setProfileOpen((open) => !open)}
-                      aria-expanded={profileOpen}
-                      title={displayName}
-                      className={cx(
-                        "flex h-12 w-full items-center gap-2 overflow-hidden rounded-md px-[11px] py-2 text-sm outline-none hover:bg-sidebar-accent/60",
-                        "group-data-[sidebar-state=collapsed]/shell:size-8 group-data-[sidebar-state=collapsed]/shell:justify-center group-data-[sidebar-state=collapsed]/shell:p-0"
-                      )}
+                    <DropdownMenu
+                      open={profileOpen}
+                      onOpenChange={setProfileOpen}
                     >
-                      <span className="flex size-7 shrink-0 items-center justify-center rounded-full bg-primary text-[10px] font-semibold text-primary-foreground group-data-[sidebar-state=collapsed]/shell:size-6">
-                        {initials}
-                      </span>
-                      <span className="grid flex-1 text-left leading-tight group-data-[sidebar-state=collapsed]/shell:hidden">
-                        <span className="truncate text-xs font-medium text-foreground">
-                          {displayName}
-                        </span>
-                        <span className="truncate text-[10px] font-normal text-muted-foreground">
-                          {email}
-                        </span>
-                      </span>
-                      <RiArrowUpDownLine className="size-3.5 text-muted-foreground group-data-[sidebar-state=collapsed]/shell:hidden" />
-                    </button>
-                  </li>
-                  {profileOpen ? (
-                    <div className="absolute bottom-full left-0 z-50 mb-1 w-full min-w-48 overflow-hidden rounded-md border border-border bg-popover p-1 shadow-md">
-                      <Link
-                        to="/settings/security"
-                        preload={false}
-                        className="flex items-center gap-2 rounded-md px-2 py-1.5 text-xs hover:bg-muted"
-                      >
-                        <RiShieldCheckLine className="size-3.5" />
-                        Security
-                      </Link>
-                      <button
-                        type="button"
-                        onClick={toggleTheme}
-                        className="flex w-full items-center justify-between gap-2 rounded-md px-2 py-1.5 text-left text-xs hover:bg-muted"
-                        aria-label={
-                          resolvedTheme === "dark"
-                            ? "Switch to light theme"
-                            : "Switch to dark theme"
-                        }
-                      >
-                        <span className="flex items-center gap-2">
-                          {resolvedTheme === "dark" ? (
-                            <RiSunLine className="size-3.5" />
-                          ) : (
-                            <RiMoonLine className="size-3.5" />
+                      <DropdownMenuTrigger asChild>
+                        <button
+                          type="button"
+                          title={displayName}
+                          className={cx(
+                            "flex w-full cursor-pointer items-center gap-2 overflow-hidden rounded-xl bg-sidebar-accent p-2 text-sm outline-none transition-colors hover:bg-sidebar-accent/80",
+                            "group-data-[sidebar-state=collapsed]/shell:justify-center"
                           )}
-                          {resolvedTheme === "dark"
-                            ? "Light theme"
-                            : "Dark theme"}
-                        </span>
-                        <span className="font-mono text-[10px] text-muted-foreground">
-                          {themeMode}
-                        </span>
-                      </button>
-                      <button
-                        type="button"
-                        onClick={() => void handleLogout()}
-                        className="flex w-full items-center gap-2 rounded-md px-2 py-1.5 text-left text-xs text-destructive hover:bg-destructive/10"
+                        >
+                          <span className="flex size-8 shrink-0 items-center justify-center rounded-full bg-[image:var(--gradient-primary)] text-xs font-semibold text-white shadow-[0_0_0_1px_#3080ff,inset_0_1px_0_0_#ffffff40]">
+                            {initials}
+                          </span>
+                          <span className="grid flex-1 text-left leading-tight group-data-[sidebar-state=collapsed]/shell:hidden">
+                            <span className="truncate text-xs font-medium text-foreground">
+                              {displayName}
+                            </span>
+                            <span className="truncate text-[10px] font-normal text-muted-foreground">
+                              {email}
+                            </span>
+                          </span>
+                          <RiArrowUpDownLine className="size-3.5 text-muted-foreground group-data-[sidebar-state=collapsed]/shell:hidden" />
+                        </button>
+                      </DropdownMenuTrigger>
+                      <DropdownMenuContent
+                        side="right"
+                        align="end"
+                        sideOffset={8}
+                        className="w-[265px] max-w-[calc(100vw-2rem)] origin-bottom-left rounded-2xl border border-border bg-popover p-2.5 text-popover-foreground shadow-lg ring-1 ring-foreground/10"
                       >
-                        <RiLogoutBoxRLine className="size-3.5" />
-                        Sign out
-                      </button>
-                    </div>
-                  ) : null}
+                        <div className="flex w-full items-center gap-2 px-2 pt-1 pb-1">
+                          <span className="flex size-8 shrink-0 items-center justify-center rounded-full bg-[image:var(--gradient-primary)] text-xs font-semibold text-white shadow-[0_0_0_1px_#3080ff,inset_0_1px_0_0_#ffffff40]">
+                            {initials}
+                          </span>
+                          <span className="flex min-w-0 flex-col items-start justify-center">
+                            <span className="truncate text-sm font-medium text-foreground">
+                              {displayName}
+                            </span>
+                            <span className="truncate text-xs text-muted-foreground">
+                              {email}
+                            </span>
+                          </span>
+                        </div>
+
+                        <DropdownMenuSeparator className="-mx-2.5 my-2.5 h-px bg-border" />
+
+                        <DropdownMenuItem
+                          asChild
+                          className="cursor-pointer rounded-xl p-2 text-sm text-foreground"
+                        >
+                          <Link
+                            to="/settings/security"
+                            preload={false}
+                            className="flex items-center gap-2.5"
+                          >
+                            <RiShieldCheckLine className="size-5 shrink-0 text-muted-foreground" />
+                            Security
+                          </Link>
+                        </DropdownMenuItem>
+                        <DropdownMenuItem
+                          onSelect={() => toggleTheme()}
+                          className="flex cursor-pointer items-center justify-between gap-2.5 rounded-xl p-2 text-sm text-foreground"
+                        >
+                          <span className="flex items-center gap-2.5">
+                            {resolvedTheme === "dark" ? (
+                              <RiSunLine className="size-5 shrink-0 text-muted-foreground" />
+                            ) : (
+                              <RiMoonLine className="size-5 shrink-0 text-muted-foreground" />
+                            )}
+                            {resolvedTheme === "dark"
+                              ? "Light theme"
+                              : "Dark theme"}
+                          </span>
+                          <span className="font-mono text-[10px] text-muted-foreground">
+                            {themeMode}
+                          </span>
+                        </DropdownMenuItem>
+                        <DropdownMenuItem
+                          variant="destructive"
+                          onSelect={() => void handleLogout()}
+                          className="cursor-pointer rounded-xl p-2 text-sm"
+                        >
+                          <RiLogoutBoxRLine className="size-5 shrink-0" />
+                          Sign out
+                        </DropdownMenuItem>
+                      </DropdownMenuContent>
+                    </DropdownMenu>
+                  </li>
                 </ul>
               </div>
             </div>
@@ -967,10 +1006,7 @@ export function AppShell({
         <main
           data-slot="sidebar-inset"
           className={cx(
-            "relative flex w-full flex-1 flex-col bg-background text-foreground",
-            "transition-[border-top-left-radius] duration-(--sidebar-animation-duration) ease-(--sidebar-animation-ease)",
-            "md:rounded-tl-[var(--sidebar-inset-radius)] md:shadow-[0_0_2.5px_1px_var(--border)]",
-            "md:peer-data-[state=collapsed]:rounded-tl-none"
+            "relative flex min-w-0 w-full flex-1 flex-col bg-white text-foreground dark:bg-neutral-950"
           )}
         >
           {banner}
@@ -997,7 +1033,7 @@ export function AppShell({
           </div>
           <div
             className={cx(
-              "flex min-h-0 flex-1 flex-col",
+              "flex min-h-0 min-w-0 flex-1 flex-col",
               // App-detail routes own their own chrome (AppBar + padded main) and
               // the logs route needs the terminal flush to the edges, so we strip
               // padding/gap on `/apps/<id>/*` and only apply scroll. Logs also
@@ -1029,19 +1065,17 @@ export function ShellPage({
   children,
 }: ShellPageProps): React.JSX.Element {
   return (
-    <div className="flex w-full flex-col gap-6">
+    <div className="flex min-w-0 w-full flex-1 flex-col gap-4 p-4 lg:gap-6 lg:p-6">
       <div className="flex flex-col gap-4 md:flex-row md:items-end md:justify-between">
         <div className="space-y-1">
           {eyebrow ? (
-            <p className="font-mono text-[10px] font-light tracking-wide text-muted-foreground uppercase">
-              {eyebrow}
-            </p>
+            <p className="text-xs font-medium text-neutral-500">{eyebrow}</p>
           ) : null}
-          <h1 className="text-xl font-bold tracking-tight sm:text-2xl">
+          <h1 className="text-xl font-semibold tracking-tight sm:text-2xl">
             {title}
           </h1>
           {description ? (
-            <p className="max-w-3xl text-sm leading-6 text-muted-foreground">
+            <p className="max-w-3xl text-sm leading-6 text-neutral-500">
               {description}
             </p>
           ) : null}
@@ -1066,7 +1100,10 @@ export function ShellPanel({
 }: ShellPanelProps): React.JSX.Element {
   return (
     <section
-      className={cx("rounded-lg border border-border bg-card p-4", className)}
+      className={cx(
+        "min-w-0 rounded-2xl bg-panel p-4",
+        className
+      )}
     >
       {title || description || action ? (
         <div className="mb-4 flex flex-col gap-3 md:flex-row md:items-start md:justify-between">

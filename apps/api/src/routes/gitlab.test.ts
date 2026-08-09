@@ -4,6 +4,7 @@ import { Hono } from "hono"
 import type { Context, Next } from "hono"
 
 let mockGitLabConfig: Record<string, unknown> | null = null
+let fakeInstanceAdmin = true
 const deliveryInserts: Array<{
   row: Record<string, unknown>
   rawBodyBuffer?: Buffer
@@ -17,6 +18,13 @@ const fakeTable = new Proxy(
 )
 
 const fakeDb = {
+  select: mock(() => ({
+    from: () => ({
+      where: () => ({
+        limit: async () => [{ is_instance_admin: fakeInstanceAdmin }],
+      }),
+    }),
+  })),
   insert: mock(() => ({
     values: mock(() => ({
       onConflictDoUpdate: mock(async () => undefined),
@@ -94,15 +102,72 @@ mock.module("../logger", () => ({
 
 const { gitlabRouter } = await import("./gitlab")
 
-function buildApp(): Hono {
+const FAKE_USER = {
+  id: "user-test-1",
+  email: "test@example.com",
+  display_name: "Test User",
+  session_id: "session-test-1",
+}
+
+function buildApp(user?: typeof FAKE_USER): Hono {
   const app = new Hono()
+  app.use("*", async (c, next) => {
+    if (user) {
+      // eslint-disable-next-line @typescript-eslint/no-explicit-any
+      ;(c as any).set("user", user)
+    }
+    return next()
+  })
   app.route("/gitlab", gitlabRouter)
   return app
 }
 
 beforeEach(() => {
   mockGitLabConfig = null
+  fakeInstanceAdmin = true
   deliveryInserts.length = 0
+})
+
+describe("GitLab configuration mutations", () => {
+  it("allows an instance admin to save the global configuration", async () => {
+    const app = buildApp(FAKE_USER)
+    const res = await app.request("/gitlab/config", {
+      method: "POST",
+      headers: { "content-type": "application/json" },
+      body: JSON.stringify({
+        client_id: "client",
+        client_secret: "secret",
+      }),
+    })
+
+    expect(res.status).toBe(200)
+    expect(await res.json()).toEqual({ ok: true })
+  })
+
+  it("rejects a non-admin POST /gitlab/config", async () => {
+    fakeInstanceAdmin = false
+    const app = buildApp(FAKE_USER)
+    const res = await app.request("/gitlab/config", {
+      method: "POST",
+      headers: { "content-type": "application/json" },
+      body: JSON.stringify({
+        client_id: "client",
+        client_secret: "secret",
+      }),
+    })
+
+    expect(res.status).toBe(403)
+    expect(await res.json()).toEqual({ error: "admin_required" })
+  })
+
+  it("rejects a non-admin DELETE /gitlab/config", async () => {
+    fakeInstanceAdmin = false
+    const app = buildApp(FAKE_USER)
+    const res = await app.request("/gitlab/config", { method: "DELETE" })
+
+    expect(res.status).toBe(403)
+    expect(await res.json()).toEqual({ error: "admin_required" })
+  })
 })
 
 describe("POST /gitlab/webhook", () => {

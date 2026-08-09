@@ -434,7 +434,7 @@ function CardFrame({
   children: React.ReactNode
 }): React.JSX.Element {
   return (
-    <section className="rounded-lg border border-border bg-card p-4">
+    <section className="rounded-2xl bg-panel p-4">
       {title ? (
         <header className="mb-3 flex items-start gap-3">
           {Icon ? (

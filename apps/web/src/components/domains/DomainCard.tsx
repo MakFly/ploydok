@@ -103,7 +103,7 @@ export function DomainCard({
   }
 
   return (
-    <div className="flex flex-col gap-2 rounded-lg border border-border bg-card px-4 py-3">
+    <div className="flex flex-col gap-2 rounded-2xl bg-panel px-4 py-3">
       <div className="flex flex-col gap-3 sm:flex-row sm:items-start sm:justify-between">
         <div className="flex min-w-0 flex-1 items-center gap-2">
           <span className="truncate font-mono text-sm font-medium">{domain.hostname}</span>

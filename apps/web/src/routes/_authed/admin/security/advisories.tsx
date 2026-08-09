@@ -81,7 +81,7 @@ export function AdvisoryTable({
 
   if (rows.length === 0) {
     return (
-      <div className="flex min-h-48 items-center justify-center rounded-md border border-dashed border-border text-sm text-muted-foreground">
+      <div className="flex min-h-48 items-center justify-center rounded-md border border-dashed border-panel-border bg-panel-inset text-sm text-muted-foreground">
         <div className="flex items-center gap-2">
           <RiShieldCheckLine className="size-4" />
           No active advisories.

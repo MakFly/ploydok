@@ -27,6 +27,7 @@ import { childLogger } from "../logger"
 import { env } from "../env"
 import { shouldUseSecureCookies } from "../auth/jwt"
 import type { AuthUser } from "../auth/middleware"
+import { requireInstanceAdmin } from "../auth/instance-admin"
 
 const log = childLogger("gitlab.routes")
 
@@ -35,6 +36,7 @@ export const gitlabRouter = new Hono<GitLabRouterEnv>()
 
 // Per-router DB singleton (same pattern as routes/github.ts).
 const db = createDb(env.DATABASE_URL)
+const gitlabConfigAdmin = requireInstanceAdmin(db)
 
 function readFileProbeQuery(
   url: string
@@ -141,7 +143,7 @@ gitlabRouter.get("/config", async (c) => {
   })
 })
 
-gitlabRouter.post("/config", async (c) => {
+gitlabRouter.post("/config", gitlabConfigAdmin, async (c) => {
   const body = (await c.req.json().catch(() => null)) as Record<
     string,
     unknown
@@ -187,7 +189,7 @@ gitlabRouter.post("/config", async (c) => {
   return c.json({ ok: true })
 })
 
-gitlabRouter.delete("/config", async (c) => {
+gitlabRouter.delete("/config", gitlabConfigAdmin, async (c) => {
   await deleteGitLabConfig(db)
   return c.json({ ok: true })
 })

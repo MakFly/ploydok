@@ -83,7 +83,7 @@ export function RegistryUsageWidget({ appId }: Props): React.JSX.Element {
   }
 
   return (
-    <div className="flex h-full flex-col gap-3 rounded-lg border border-border bg-card p-4">
+    <div className="flex h-full flex-col gap-3 rounded-2xl bg-panel p-4">
       <h3 className="text-sm font-medium text-foreground">Registry storage</h3>
 
       {isLoading && (

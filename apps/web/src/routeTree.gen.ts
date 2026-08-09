@@ -9,6 +9,7 @@
 // Additionally, you should also exclude this file from your linter and/or formatter to prevent it from being checked or modified.
 
 import { Route as rootRouteImport } from './routes/__root'
+import { Route as OnboardingRouteImport } from './routes/onboarding'
 import { Route as PublicRouteImport } from './routes/_public'
 import { Route as AuthedRouteImport } from './routes/_authed'
 import { Route as PublicIndexRouteImport } from './routes/_public/index'
@@ -71,6 +72,11 @@ import { Route as AuthedOrgsOrgSlugAppsIdDomainsRouteImport } from './routes/_au
 import { Route as AuthedOrgsOrgSlugAppsIdDeploymentsRouteImport } from './routes/_authed/orgs/$orgSlug/apps/$id/deployments'
 import { Route as AuthedOrgsOrgSlugAppsIdAdvancedRouteImport } from './routes/_authed/orgs/$orgSlug/apps/$id/advanced'
 
+const OnboardingRoute = OnboardingRouteImport.update({
+  id: '/onboarding',
+  path: '/onboarding',
+  getParentRoute: () => rootRouteImport,
+} as any)
 const PublicRoute = PublicRouteImport.update({
   id: '/_public',
   getParentRoute: () => rootRouteImport,
@@ -417,6 +423,7 @@ const AuthedOrgsOrgSlugAppsIdAdvancedRoute =
 
 export interface FileRoutesByFullPath {
   '/': typeof PublicIndexRoute
+  '/onboarding': typeof OnboardingRoute
   '/changelog': typeof AuthedChangelogRoute
   '/dashboard': typeof AuthedDashboardRoute
   '/guide': typeof AuthedGuideRoute
@@ -478,6 +485,7 @@ export interface FileRoutesByFullPath {
 }
 export interface FileRoutesByTo {
   '/': typeof PublicIndexRoute
+  '/onboarding': typeof OnboardingRoute
   '/changelog': typeof AuthedChangelogRoute
   '/dashboard': typeof AuthedDashboardRoute
   '/guide': typeof AuthedGuideRoute
@@ -537,6 +545,7 @@ export interface FileRoutesById {
   __root__: typeof rootRouteImport
   '/_authed': typeof AuthedRouteWithChildren
   '/_public': typeof PublicRouteWithChildren
+  '/onboarding': typeof OnboardingRoute
   '/_authed/changelog': typeof AuthedChangelogRoute
   '/_authed/dashboard': typeof AuthedDashboardRoute
   '/_authed/guide': typeof AuthedGuideRoute
@@ -601,6 +610,7 @@ export interface FileRouteTypes {
   fileRoutesByFullPath: FileRoutesByFullPath
   fullPaths:
     | '/'
+    | '/onboarding'
     | '/changelog'
     | '/dashboard'
     | '/guide'
@@ -662,6 +672,7 @@ export interface FileRouteTypes {
   fileRoutesByTo: FileRoutesByTo
   to:
     | '/'
+    | '/onboarding'
     | '/changelog'
     | '/dashboard'
     | '/guide'
@@ -720,6 +731,7 @@ export interface FileRouteTypes {
     | '__root__'
     | '/_authed'
     | '/_public'
+    | '/onboarding'
     | '/_authed/changelog'
     | '/_authed/dashboard'
     | '/_authed/guide'
@@ -784,10 +796,18 @@ export interface FileRouteTypes {
 export interface RootRouteChildren {
   AuthedRoute: typeof AuthedRouteWithChildren
   PublicRoute: typeof PublicRouteWithChildren
+  OnboardingRoute: typeof OnboardingRoute
 }
 
 declare module '@tanstack/react-router' {
   interface FileRoutesByPath {
+    '/onboarding': {
+      id: '/onboarding'
+      path: '/onboarding'
+      fullPath: '/onboarding'
+      preLoaderRoute: typeof OnboardingRouteImport
+      parentRoute: typeof rootRouteImport
+    }
     '/_public': {
       id: '/_public'
       path: ''
@@ -1405,6 +1425,7 @@ const PublicRouteWithChildren =
 const rootRouteChildren: RootRouteChildren = {
   AuthedRoute: AuthedRouteWithChildren,
   PublicRoute: PublicRouteWithChildren,
+  OnboardingRoute: OnboardingRoute,
 }
 export const routeTree = rootRouteImport
   ._addFileChildren(rootRouteChildren)

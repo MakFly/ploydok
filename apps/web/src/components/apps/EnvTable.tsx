@@ -389,7 +389,7 @@ export function EnvTable({ serverVars, isSaving, onSave, lockReason }: EnvTableP
       )}
 
       {/* Table */}
-      <div className="overflow-hidden rounded-xl border border-border bg-card/30">
+      <div className="overflow-hidden rounded-xl rounded-2xl bg-panel/30">
         {rows.length === 0 ? (
           <EmptyDropArea onPickFile={openFilePicker} onAddManually={addRow} />
         ) : (

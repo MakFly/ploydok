@@ -604,7 +604,7 @@ function LivePill({
 function EmptyChart({ height }: { height: number }): React.JSX.Element {
   return (
     <div
-      className="flex flex-col items-center justify-center gap-1.5 rounded-md border border-dashed border-border/70 bg-muted/20 text-muted-foreground"
+      className="flex flex-col items-center justify-center gap-1.5 rounded-md border border-dashed border-panel-border bg-panel-inset text-muted-foreground"
       style={{ height }}
     >
       <RiPulseLine className="size-5 opacity-50" />

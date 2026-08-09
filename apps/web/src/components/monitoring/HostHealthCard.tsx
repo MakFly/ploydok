@@ -38,7 +38,7 @@ export function HostHealthCard(): React.JSX.Element {
 
   if (isLoading) {
     return (
-      <div className="rounded-xl border border-border bg-card p-4">
+      <div className="rounded-xl rounded-2xl bg-panel p-4">
         <div className="h-4 w-32 animate-pulse rounded bg-muted" />
         <div className="mt-3 grid grid-cols-2 gap-3 sm:grid-cols-4">
           {Array.from({ length: 4 }).map((_, i) => (
@@ -86,7 +86,7 @@ function HostHealthBody({ data }: { data: HostStats }): React.JSX.Element {
   return (
     <section
       aria-label="Host server health"
-      className="rounded-xl border border-border bg-card"
+      className="rounded-xl rounded-2xl bg-panel"
     >
       <header className="flex items-center justify-between border-b border-border px-4 py-3">
         <div className="space-y-0.5">

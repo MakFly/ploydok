@@ -262,7 +262,7 @@ function PasskeyRow({
   }
 
   return (
-    <li className="group relative rounded-lg border border-border bg-card transition-colors hover:bg-muted/30">
+    <li className="group relative rounded-2xl bg-panel transition-colors hover:bg-muted/30">
       <div className="flex flex-col gap-3 p-4 md:flex-row md:items-center md:gap-4">
         <div className="flex size-10 shrink-0 items-center justify-center rounded-md bg-muted">
           <Icon className="size-4 text-muted-foreground" />
@@ -356,7 +356,7 @@ function CardFrame({
   children: React.ReactNode
 }): React.JSX.Element {
   return (
-    <section className="rounded-lg border border-border bg-card p-4">
+    <section className="rounded-2xl bg-panel p-4">
       {title ? (
         <header className="mb-3 flex items-start gap-3">
           {Icon ? (
@@ -381,7 +381,7 @@ function CardFrame({
 
 function LoadingRow(): React.JSX.Element {
   return (
-    <div className="rounded-lg border border-dashed border-border bg-transparent p-4">
+    <div className="rounded-lg border border-dashed border-panel-border bg-panel-inset p-4">
       <p className="flex items-center gap-2 text-xs text-muted-foreground">
         <RiLoader4Line className="size-3.5 animate-spin" />
         Loading passkeys…
@@ -400,7 +400,7 @@ function EmptyState({
   hint: string
 }): React.JSX.Element {
   return (
-    <div className="flex flex-col items-center justify-center gap-2 rounded-lg border border-dashed border-border bg-muted/20 px-4 py-10 text-center">
+    <div className="flex flex-col items-center justify-center gap-2 rounded-lg border border-dashed border-panel-border bg-panel-inset px-4 py-10 text-center">
       <div className="flex size-10 items-center justify-center rounded-full bg-muted">
         <Icon className="size-5 text-muted-foreground" />
       </div>

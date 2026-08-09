@@ -21,8 +21,12 @@ import {
 import { CachedReposPanel } from "./CachedReposPanel"
 import { SyncProgressDialog } from "./SyncProgressDialog"
 import { useSyncWithProgress } from "./useSyncWithProgress"
+import { useMe } from "../../../lib/auth"
+import { useGitProviderStatus } from "../../../lib/git-providers"
 
 export function GitLabPanel(): React.JSX.Element {
+  const { data: me } = useMe()
+  const providerStatus = useGitProviderStatus()
   const { data: config, isLoading } = useGitLabConfig()
   const save = useSaveGitLabConfig()
   const del = useDeleteGitLabConfig()
@@ -32,19 +36,25 @@ export function GitLabPanel(): React.JSX.Element {
     typeof window !== "undefined" &&
     new URLSearchParams(window.location.search).get("connected") === "1"
 
-  const configured = Boolean(config?.configured)
+  const configured = Boolean(
+    providerStatus.data?.gitlab.configured ?? config?.configured
+  )
+  const connected = Boolean(providerStatus.data?.gitlab.connected)
+  const isAdmin = me?.is_instance_admin === true
 
   return (
     <div className="space-y-6">
       {justConnected ? (
         <div className="flex items-center gap-2 rounded-lg border border-emerald-500/30 bg-emerald-500/10 p-3 text-xs text-emerald-700 dark:text-emerald-300">
           <RiCheckboxCircleFill className="size-4" />
-          <span>Connexion GitLab réussie. Tu peux maintenant lister tes projets.</span>
+          <span>
+            Connexion GitLab réussie. Tu peux maintenant lister tes projets.
+          </span>
         </div>
       ) : null}
 
       {isLoading ? (
-        <div className="rounded-xl border border-border bg-card p-5 text-xs text-muted-foreground">
+        <div className="rounded-2xl rounded-xl bg-panel p-5 text-xs text-muted-foreground">
           Chargement…
         </div>
       ) : configured ? (
@@ -54,19 +64,26 @@ export function GitLabPanel(): React.JSX.Element {
           onDisconnect={() => disconnect.mutate()}
           resetPending={del.isPending}
           disconnectPending={disconnect.isPending}
+          connected={connected}
+          isAdmin={isAdmin}
         />
-      ) : (
+      ) : isAdmin ? (
         <NotConfiguredForm
           onSave={async (values) => {
             await save.mutateAsync(values)
           }}
           pending={save.isPending}
         />
+      ) : (
+        <section className="rounded-2xl bg-panel p-5 text-sm text-muted-foreground">
+          An instance administrator must configure the GitLab OAuth app before
+          you can connect your account.
+        </section>
       )}
 
-      <SetupHelp />
+      {isAdmin ? <SetupHelp /> : null}
 
-      {configured ? <GitLabCacheSection /> : null}
+      {connected ? <GitLabCacheSection /> : null}
     </div>
   )
 }
@@ -106,8 +123,8 @@ function GitLabCacheSection(): React.JSX.Element {
         onSyncAll={() => startSync()}
         emptyState={
           <p className="text-sm text-muted-foreground">
-            No GitLab projects cached yet. Click <strong>Sync now</strong> to import your
-            projects.
+            No GitLab projects cached yet. Click <strong>Sync now</strong> to
+            import your projects.
           </p>
         }
       />
@@ -144,7 +161,7 @@ function NotConfiguredForm({
 
   return (
     <form
-      className="rounded-xl border border-border bg-card p-5 space-y-4"
+      className="space-y-4 rounded-2xl rounded-xl bg-panel p-5"
       onSubmit={(e) => {
         e.preventDefault()
         void onSave({
@@ -217,25 +234,31 @@ function ConfiguredState({
   onDisconnect,
   resetPending,
   disconnectPending,
+  connected,
+  isAdmin,
 }: {
   config: { instance_url?: string; client_id?: string }
   onReset: () => void
   onDisconnect: () => void
   resetPending: boolean
   disconnectPending: boolean
+  connected: boolean
+  isAdmin: boolean
 }): React.JSX.Element {
   return (
-    <section className="rounded-xl border border-border bg-card p-5 space-y-4">
+    <section className="space-y-4 rounded-2xl rounded-xl bg-panel p-5">
       <header className="flex items-center gap-3">
         <div className="flex size-10 items-center justify-center rounded-md border border-border bg-background">
           <RiGitlabFill className="size-5 text-[#fc6d26]" />
         </div>
-        <div className="flex-1 min-w-0">
+        <div className="min-w-0 flex-1">
           <div className="flex items-center gap-2">
-            <h2 className="font-heading text-base font-medium">GitLab configuré</h2>
+            <h2 className="font-heading text-base font-medium">
+              GitLab configuré
+            </h2>
             <span className="inline-flex items-center gap-1 font-mono text-[10px] tracking-wide text-emerald-600 uppercase dark:text-emerald-400">
               <RiCheckboxCircleFill className="size-3" />
-              Active
+              {connected ? "Connected" : "Configured"}
             </span>
           </div>
           <p className="truncate font-mono text-[10px] tracking-wide text-muted-foreground">
@@ -249,7 +272,9 @@ function ConfiguredState({
           <dt className="font-mono text-[10px] tracking-wide text-muted-foreground uppercase">
             Client ID
           </dt>
-          <dd className="mt-0.5 font-mono text-xs">{config.client_id ?? "—"}</dd>
+          <dd className="mt-0.5 font-mono text-xs">
+            {config.client_id ?? "—"}
+          </dd>
         </div>
         <div>
           <dt className="font-mono text-[10px] tracking-wide text-muted-foreground uppercase">
@@ -268,18 +293,28 @@ function ConfiguredState({
             Connecter mon compte
           </a>
         </Button>
-        <Button variant="outline" onClick={onDisconnect} disabled={disconnectPending}>
-          <RiLoopRightLine className={cn("size-3.5", disconnectPending && "animate-spin")} />
-          {disconnectPending ? "Déconnexion…" : "Révoquer mes tokens"}
-        </Button>
-        <Button
-          variant="ghost"
-          className="text-destructive hover:text-destructive"
-          onClick={onReset}
-          disabled={resetPending}
-        >
-          {resetPending ? "Suppression…" : "Supprimer la configuration"}
-        </Button>
+        {connected ? (
+          <Button
+            variant="outline"
+            onClick={onDisconnect}
+            disabled={disconnectPending}
+          >
+            <RiLoopRightLine
+              className={cn("size-3.5", disconnectPending && "animate-spin")}
+            />
+            {disconnectPending ? "Déconnexion…" : "Révoquer mes tokens"}
+          </Button>
+        ) : null}
+        {isAdmin ? (
+          <Button
+            variant="ghost"
+            className="text-destructive hover:text-destructive"
+            onClick={onReset}
+            disabled={resetPending}
+          >
+            {resetPending ? "Suppression…" : "Supprimer la configuration"}
+          </Button>
+        ) : null}
       </div>
     </section>
   )
@@ -292,11 +327,11 @@ function SetupHelp(): React.JSX.Element {
       : "http://localhost:3335/gitlab/callback"
 
   return (
-    <details className="rounded-xl border border-border bg-card p-5 text-xs">
+    <details className="rounded-2xl rounded-xl bg-panel p-5 text-xs">
       <summary className="cursor-pointer font-medium">
         Comment créer l'OAuth app côté GitLab ?
       </summary>
-      <div className="mt-3 space-y-3 text-muted-foreground leading-relaxed">
+      <div className="mt-3 space-y-3 leading-relaxed text-muted-foreground">
         <ol className="list-decimal space-y-1 pl-5">
           <li>
             Ouvre{" "}
@@ -309,7 +344,11 @@ function SetupHelp(): React.JSX.Element {
               GitLab → Préférences → Applications
               <RiExternalLinkLine className="size-3" />
             </a>{" "}
-            (ou <code className="font-mono">{"{"}instance{"}"}/-/user_settings/applications</code>).
+            (ou{" "}
+            <code className="font-mono">
+              {"{"}instance{"}"}/-/user_settings/applications
+            </code>
+            ).
           </li>
           <li>Crée une Application.</li>
           <li>
@@ -321,8 +360,8 @@ function SetupHelp(): React.JSX.Element {
             <code className="font-mono">read_repository</code>.
           </li>
           <li>
-            Copie l'<em>Application ID</em> et le <em>Secret</em>, colle-les dans
-            le formulaire ci-dessus.
+            Copie l'<em>Application ID</em> et le <em>Secret</em>, colle-les
+            dans le formulaire ci-dessus.
           </li>
           <li>
             Génère un <em>webhook secret</em> aléatoire (par ex.{" "}
@@ -363,7 +402,9 @@ function FieldInput({
         required={required}
         className="rounded-md border border-border bg-background px-3 py-1.5 text-sm outline-none focus:border-primary"
       />
-      {hint ? <span className="text-[11px] text-muted-foreground">{hint}</span> : null}
+      {hint ? (
+        <span className="text-[11px] text-muted-foreground">{hint}</span>
+      ) : null}
     </label>
   )
 }

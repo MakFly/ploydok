@@ -57,7 +57,7 @@ export function DatabaseCard({
   return (
     <Link
       to={detailPath as never}
-      className="group rounded-lg border border-border bg-card p-4 transition-colors hover:border-foreground/20 hover:bg-accent/30"
+      className="group rounded-2xl bg-panel p-4 transition-colors hover:border-foreground/20 hover:bg-accent/30"
     >
       <div className="flex items-start justify-between gap-3">
         <div className="min-w-0">

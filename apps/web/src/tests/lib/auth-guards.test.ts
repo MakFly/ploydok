@@ -1,7 +1,11 @@
 // SPDX-License-Identifier: AGPL-3.0-only
 import { describe, expect, it } from "bun:test"
 import { ApiError, SessionExpiredError } from "../../lib/api"
-import { redirectIfAuthenticated, requireMe } from "../../lib/auth-guards"
+import {
+  redirectIfAuthenticated,
+  requireMe,
+  resolvePostAuthPath,
+} from "../../lib/auth-guards"
 import { organizationDashboardPath } from "../../lib/organizations"
 import type { Me } from "@ploydok/shared"
 
@@ -24,6 +28,18 @@ const fakeMe: Me = {
   require_totp_for_secret_reveal: true,
   needs_second_factor: false,
   is_instance_admin: false,
+}
+
+const providersReady = {
+  ready: true,
+  github: { configured: true, connected: true },
+  gitlab: { configured: false, connected: false },
+}
+
+const providersMissing = {
+  ready: false,
+  github: { configured: true, connected: false },
+  gitlab: { configured: false, connected: false },
 }
 
 describe("auth route guards", () => {
@@ -62,10 +78,33 @@ describe("auth route guards", () => {
 
   it("redirectIfAuthenticated redirects authenticated users to the default workspace", async () => {
     await expect(
-      redirectIfAuthenticated(async () => fakeMe)
+      redirectIfAuthenticated(
+        async () => fakeMe,
+        async () => providersReady
+      )
     ).rejects.toMatchObject({
       options: { href: organizationDashboardPath("test-user") },
     })
+  })
+
+  it("redirectIfAuthenticated sends authenticated users without a provider to onboarding", async () => {
+    await expect(
+      redirectIfAuthenticated(
+        async () => fakeMe,
+        async () => providersMissing
+      )
+    ).rejects.toMatchObject({
+      options: { href: "/onboarding" },
+    })
+  })
+
+  it("resolvePostAuthPath blocks an explicit redirect until onboarding is complete", () => {
+    expect(resolvePostAuthPath(fakeMe, providersMissing, "/settings")).toBe(
+      "/onboarding"
+    )
+    expect(resolvePostAuthPath(fakeMe, providersReady, "/settings")).toBe(
+      "/settings"
+    )
   })
 
   it("redirectIfAuthenticated allows public access on 401", async () => {

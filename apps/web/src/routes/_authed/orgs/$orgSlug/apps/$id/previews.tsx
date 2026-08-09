@@ -83,7 +83,7 @@ function PreviewsPage() {
       )}
 
       {!isLoading && previews.length === 0 && (
-        <div className="rounded-lg border border-dashed border-border bg-muted/20 px-6 py-10">
+        <div className="rounded-lg border border-dashed border-panel-border bg-panel-inset px-6 py-10">
           <div className="mx-auto max-w-xl space-y-4 text-center">
             <div className="mx-auto flex h-10 w-10 items-center justify-center rounded-full bg-muted">
               <svg

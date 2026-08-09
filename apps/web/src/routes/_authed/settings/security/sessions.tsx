@@ -44,7 +44,7 @@ function SessionsPage(): React.JSX.Element {
 
   if (error) {
     return (
-      <section className="rounded-lg border border-border bg-card p-4">
+      <section className="rounded-2xl bg-panel p-4">
         <p role="alert" className="flex items-center gap-1.5 text-sm text-destructive">
           <RiErrorWarningLine className="size-4" />
           Failed to load sessions: {error.message}
@@ -149,7 +149,7 @@ function SessionsPage(): React.JSX.Element {
         </div>
 
         {isLoading ? (
-          <div className="rounded-lg border border-border border-dashed p-4">
+          <div className="rounded-lg border border-panel-border border-dashed bg-panel-inset p-4">
             <p className="flex items-center gap-2 text-xs text-muted-foreground">
               <RiLoader4Line className="size-3.5 animate-spin" />
               Loading sessions…
@@ -162,7 +162,7 @@ function SessionsPage(): React.JSX.Element {
             ))}
           </ul>
         ) : (
-          <div className="flex flex-col items-center justify-center gap-2 rounded-lg border border-border border-dashed bg-muted/20 px-4 py-10 text-center">
+          <div className="flex flex-col items-center justify-center gap-2 rounded-lg border border-panel-border border-dashed bg-panel-inset px-4 py-10 text-center">
             <div className="flex size-10 items-center justify-center rounded-full bg-muted">
               <RiComputerLine className="size-5 text-muted-foreground" />
             </div>

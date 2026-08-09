@@ -114,7 +114,7 @@ export function ApiErrorState({
     return (
       <div
         role="alert"
-        className="mx-auto flex max-w-md flex-col items-center gap-4 rounded-lg border border-border bg-card p-8 text-center"
+        className="mx-auto flex max-w-md flex-col items-center gap-4 rounded-2xl bg-panel p-8 text-center"
       >
         <div className="flex size-12 items-center justify-center rounded-full bg-destructive/10">
           <AlertCircleIcon className="size-6 text-destructive" />
@@ -144,7 +144,7 @@ export function ApiErrorState({
   return (
     <div
       role="alert"
-      className="mx-auto flex max-w-md flex-col items-center gap-4 rounded-lg border border-border bg-card p-8 text-center"
+      className="mx-auto flex max-w-md flex-col items-center gap-4 rounded-2xl bg-panel p-8 text-center"
     >
       {/* Icon */}
       <div className="flex size-12 items-center justify-center rounded-full bg-destructive/10">

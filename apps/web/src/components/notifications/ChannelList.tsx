@@ -210,7 +210,7 @@ export function ChannelList({
           ))}
         </div>
       ) : (
-        <div className="flex flex-col items-center justify-center rounded-lg border border-dashed border-border/60 bg-muted/20 py-12 px-6 text-center">
+        <div className="flex flex-col items-center justify-center rounded-lg border border-dashed border-panel-border bg-panel-inset py-12 px-6 text-center">
           <RiBellLine className="size-8 text-muted-foreground/50 mb-3" />
           <p className="text-sm font-medium text-muted-foreground">
             Aucun channel configuré

@@ -224,7 +224,7 @@ function HostUsageCard({
   return (
     <section
       aria-label="Host disk usage"
-      className="rounded-xl border border-border bg-card p-4"
+      className="rounded-xl rounded-2xl bg-panel p-4"
     >
       <div className="flex items-center gap-2 text-sm font-medium text-foreground">
         <RiHardDriveLine className="size-4 text-muted-foreground" />
@@ -266,7 +266,7 @@ function CategoryCard({
   category: DiskUsageResponse["categories"][number]
 }): React.JSX.Element {
   return (
-    <div className="flex flex-col gap-2 rounded-xl border border-border bg-card p-4">
+    <div className="flex flex-col gap-2 rounded-xl rounded-2xl bg-panel p-4">
       <p className="text-sm font-medium text-foreground">
         {CATEGORY_LABELS[category.kind]}
       </p>

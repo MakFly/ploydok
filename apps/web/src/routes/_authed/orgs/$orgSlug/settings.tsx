@@ -10,12 +10,12 @@ function SettingsLayout(): React.JSX.Element {
   const { orgSlug } = Route.useParams()
 
   const tabClass =
-    "rounded-md px-3 py-1.5 text-sm font-medium text-muted-foreground hover:bg-muted hover:text-foreground data-[status=active]:bg-muted data-[status=active]:text-foreground"
+    "rounded-[10px] px-3 py-1.5 text-sm font-medium text-neutral-500 transition-colors hover:text-neutral-800 data-[status=active]:bg-white data-[status=active]:text-neutral-950 data-[status=active]:shadow-[var(--shadow-xs)] dark:data-[status=active]:bg-neutral-950 dark:data-[status=active]:text-neutral-50"
 
   return (
-    <div className="flex size-full flex-col gap-4 overflow-y-auto p-4 md:p-8">
+    <div className="mx-auto flex w-full max-w-[1200px] flex-1 flex-col gap-4 p-4 lg:gap-6 lg:p-6">
       <nav
-        className="flex flex-wrap gap-1 rounded-lg border border-border bg-card p-1"
+        className="flex flex-wrap gap-1 rounded-2xl bg-panel p-1"
         aria-label="Workspace settings"
       >
         <Link

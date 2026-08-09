@@ -34,7 +34,7 @@ const ACCENT_CLASSES: Record<NonNullable<StatCardProps["accent"]>, string> = {
 
 function StatCard({ label, value, sub, accent = "default", isLoading = false }: StatCardProps): React.JSX.Element {
   return (
-    <div className="rounded-lg border border-border bg-card p-5 space-y-1">
+    <div className="rounded-2xl bg-panel p-5 space-y-1">
       <p className="text-xs text-muted-foreground font-medium uppercase tracking-wide">{label}</p>
       {isLoading ? (
         <div className="h-8 w-12 rounded bg-muted animate-pulse" />

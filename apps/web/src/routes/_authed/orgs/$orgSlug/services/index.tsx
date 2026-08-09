@@ -72,7 +72,7 @@ function ServiceCard({
   return (
     <Link
       to={detailPath as never}
-      className="group rounded-lg border border-border bg-card p-4 transition-colors hover:border-foreground/20 hover:bg-accent/30"
+      className="group rounded-2xl bg-panel p-4 transition-colors hover:border-foreground/20 hover:bg-accent/30"
     >
       <div className="flex items-start justify-between gap-3">
         <div className="min-w-0">
@@ -107,7 +107,7 @@ function ServiceCard({
 function EmptyState({ orgSlug }: { orgSlug: string }): React.JSX.Element {
   const marketplacePath = organizationPath(orgSlug, "marketplace")
   return (
-    <div className="flex flex-col items-center justify-center gap-3 rounded-lg border border-dashed border-border bg-muted/30 px-6 py-12 text-center">
+    <div className="flex flex-col items-center justify-center gap-3 rounded-lg border border-dashed border-panel-border bg-panel-inset px-6 py-12 text-center">
       <RiShapesLine className="size-6 text-muted-foreground" />
       <div>
         <p className="text-sm font-semibold text-foreground">
@@ -134,7 +134,7 @@ function ServicesGridSkeleton(): React.JSX.Element {
       {Array.from({ length: 4 }).map((_, idx) => (
         <div
           key={idx}
-          className="animate-pulse rounded-lg border border-border bg-card p-4"
+          className="animate-pulse rounded-2xl bg-panel p-4"
         >
           <div className="flex items-start justify-between gap-3">
             <div className="flex-1 space-y-2">

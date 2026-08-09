@@ -31,5 +31,12 @@
     "apps/api",
     "apps/web",
     "packages/*"
-  ]
+  ],
+  "dependencies": {
+    "@internationalized/date": "^3.12.1",
+    "@remixicon/react": "^4.9.0",
+    "motion": "^12.42.2",
+    "react-aria-components": "^1.17.0",
+    "tailwind-merge": "^3.6.0"
+  }
 }

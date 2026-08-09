@@ -438,7 +438,7 @@ export function DeploymentsTable({
 
   if (builds.length === 0) {
     return (
-      <div className="flex flex-col items-center justify-center rounded-lg border border-dashed border-border bg-muted/20 py-16 text-center">
+      <div className="flex flex-col items-center justify-center rounded-lg border border-dashed border-panel-border bg-panel-inset py-16 text-center">
         <p className="mb-1 text-sm font-medium">No deployments yet</p>
         <p className="text-sm text-muted-foreground">
           Trigger a deploy to start your first deployment.

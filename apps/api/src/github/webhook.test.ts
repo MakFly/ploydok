@@ -58,6 +58,7 @@ function makeDeps(): {
   enqueue: ReturnType<typeof mock>;
   upsertInstallation: ReturnType<typeof mock>;
   deleteInstallation: ReturnType<typeof mock>;
+  deleteGitHubInstallationAndUsers: ReturnType<typeof mock>;
   upsertRepos: ReturnType<typeof mock>;
   deleteRepos: ReturnType<typeof mock>;
   deps: WebhookDeps;
@@ -65,15 +66,30 @@ function makeDeps(): {
   const enqueue = mock(async () => {});
   const upsertInstallation = mock(async () => {});
   const deleteInstallation = mock(async () => {});
+  const deleteGitHubInstallationAndUsers = mock(async () => {});
   const upsertRepos = mock(async () => {});
   const deleteRepos = mock(async () => {});
 
   const deps = {
     enqueue,
-    queries: { upsertInstallation, deleteInstallation, upsertRepos, deleteRepos },
+    queries: {
+      upsertInstallation,
+      deleteInstallation,
+      deleteGitHubInstallationAndUsers,
+      upsertRepos,
+      deleteRepos,
+    },
   } as unknown as WebhookDeps;
 
-  return { enqueue, upsertInstallation, deleteInstallation, upsertRepos, deleteRepos, deps };
+  return {
+    enqueue,
+    upsertInstallation,
+    deleteInstallation,
+    deleteGitHubInstallationAndUsers,
+    upsertRepos,
+    deleteRepos,
+    deps,
+  };
 }
 
 // Helper to extract call args from bun mock (calls typed as [] but populated at runtime).
@@ -109,12 +125,12 @@ describe("handleWebhook — installation.created", () => {
 });
 
 describe("handleWebhook — installation.deleted", () => {
-  it("deletes installation by composite id", async () => {
-    const { enqueue, deleteInstallation, deps } = makeDeps();
+  it("atomically deletes installation and every user association", async () => {
+    const { enqueue, deleteGitHubInstallationAndUsers, deps } = makeDeps();
     const payload = { action: "deleted", installation: baseInstallation };
     await handleWebhook(db, "installation", payload, "del-2", undefined, deps);
-    expect(deleteInstallation).toHaveBeenCalledTimes(1);
-    expect(callArgs(deleteInstallation, 0)[1]).toBe("github:42");
+    expect(deleteGitHubInstallationAndUsers).toHaveBeenCalledTimes(1);
+    expect(callArgs(deleteGitHubInstallationAndUsers, 0)[1]).toBe("github:42");
     expect(enqueue).not.toHaveBeenCalled();
   });
 });

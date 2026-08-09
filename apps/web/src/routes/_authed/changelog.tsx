@@ -26,7 +26,7 @@ function ChangelogPage(): React.JSX.Element {
       eyebrow="Release notes"
     >
       <div className="space-y-6">
-        <section className="rounded-lg border border-border bg-card p-6 shadow-sm">
+        <section className="rounded-2xl bg-panel p-6 shadow-sm">
           <div className="flex flex-col gap-4 lg:flex-row lg:items-start lg:justify-between">
             <div className="max-w-3xl space-y-3">
               <p className="text-xs font-semibold uppercase tracking-[0.24em] text-primary">
@@ -70,7 +70,7 @@ function ChangelogCollapse(props: {
 }): React.JSX.Element {
   return (
     <details
-      className="group rounded-lg border border-border bg-card shadow-sm"
+      className="group rounded-2xl bg-panel shadow-sm"
       open={props.defaultOpen}
     >
       <summary className="flex cursor-pointer list-none flex-col gap-4 p-5 outline-none transition-colors hover:bg-muted/30 md:flex-row md:items-start md:justify-between [&::-webkit-details-marker]:hidden">

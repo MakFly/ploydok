@@ -116,7 +116,7 @@ function AuditPage(): React.JSX.Element {
 
 function AuditEmpty(): React.JSX.Element {
   return (
-    <div className="rounded-md border border-dashed border-border bg-muted/30 px-6 py-12 text-center">
+    <div className="rounded-md border border-dashed border-panel-border bg-panel-inset px-6 py-12 text-center">
       <p className="text-sm font-semibold text-foreground">Aucun événement</p>
       <p className="mt-2 text-sm leading-6 text-muted-foreground">
         Les actions effectuées sur l'organisation apparaîtront ici.
@@ -130,7 +130,7 @@ function AuditEventRow({ event }: { event: AuditEvent }): React.JSX.Element {
   const actionColor = getActionColor(event.action)
 
   return (
-    <div className="flex items-center justify-between gap-4 rounded-md border border-border bg-card px-4 py-3">
+    <div className="flex items-center justify-between gap-4 rounded-md rounded-2xl bg-panel px-4 py-3">
       <div className="flex min-w-0 items-center gap-3">
         <span
           className={`shrink-0 rounded-full px-2.5 py-1 text-xs font-medium ${actionColor}`}
@@ -161,7 +161,7 @@ function AuditTimelineSkeleton(): React.JSX.Element {
       {Array.from({ length: 6 }).map((_, index) => (
         <div
           key={index}
-          className="flex items-center justify-between gap-4 rounded-md border border-border bg-card px-4 py-3"
+          className="flex items-center justify-between gap-4 rounded-md rounded-2xl bg-panel px-4 py-3"
         >
           <div className="flex min-w-0 flex-1 items-center gap-3">
             <div className="h-5 w-20 animate-pulse rounded-full bg-muted" />

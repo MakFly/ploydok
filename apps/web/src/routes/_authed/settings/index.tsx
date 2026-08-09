@@ -48,7 +48,7 @@ function SettingsOverviewPage(): React.JSX.Element {
 
         <section
           aria-label="Account"
-          className="rounded-xl border border-border bg-card p-5"
+          className="rounded-xl rounded-2xl bg-panel p-5"
         >
           <div className="flex items-center gap-4">
             <div className="flex size-11 items-center justify-center rounded-full bg-primary text-primary-foreground">
@@ -114,7 +114,7 @@ function SectionLink({ section }: { section: SectionCard }): React.JSX.Element {
   return (
     <Link
       to={section.to}
-      className="group flex items-start gap-3 rounded-xl border border-border bg-card p-4 transition-colors hover:border-primary/40"
+      className="group flex items-start gap-3 rounded-xl rounded-2xl bg-panel p-4 transition-colors hover:border-primary/40"
     >
       <div className="flex size-10 shrink-0 items-center justify-center rounded-md border border-border bg-background">
         <Icon className="size-4 text-muted-foreground group-hover:text-foreground" />

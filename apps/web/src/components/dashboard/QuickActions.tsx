@@ -14,7 +14,7 @@ interface QuickActionsProps {
 
 export function QuickActions({ isGitHubConnected, onCreateApp }: QuickActionsProps): React.JSX.Element {
   return (
-    <div className="rounded-lg border border-border bg-card p-5">
+    <div className="rounded-2xl bg-panel p-5">
       <p className="text-xs text-muted-foreground font-medium uppercase tracking-wide mb-3">
         Quick actions
       </p>

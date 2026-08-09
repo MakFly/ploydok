@@ -3,17 +3,23 @@ import { Hono } from "hono"
 import { nanoid } from "nanoid"
 import { createHash, createHmac, randomBytes } from "node:crypto"
 import { z } from "zod"
-import { and, eq, notInArray, or } from "drizzle-orm"
+import { and, eq, or } from "drizzle-orm"
 import { ENV_FILE_PROBE_KEYS, MANIFEST_FILE_PROBE_KEYS } from "@ploydok/shared"
 import { createDb } from "@ploydok/db"
 import {
   deleteGitHubAppConfig,
+  deleteGitHubInstallationUser,
+  deleteGitHubInstallationUserForUser,
+  deleteGitHubInstallationUsers,
+  assignGitHubInstallationToUser,
   getCacheStatus,
   getGitHubAppConfig,
   getInstallationStaleness,
   listInstallations,
+  listGitHubInstallationIdsForUser,
   listRepos,
   saveGitHubAppConfig,
+  userOwnsGitHubInstallation,
 } from "@ploydok/db/queries"
 import type { ProviderRepoRow } from "@ploydok/db/queries"
 import { provider_credentials, provider_installations } from "@ploydok/db"
@@ -32,7 +38,7 @@ import { githubWebhookRateLimit } from "../webhooks/rate-limiters"
 import { enqueueProviderReposSync } from "../worker/handlers/sync-provider-repos"
 import { env } from "../env"
 import { shouldUseSecureCookies } from "../auth/jwt"
-import { requireInstanceAdmin } from "../auth/instance-admin"
+import { isInstanceAdmin, requireInstanceAdmin } from "../auth/instance-admin"
 
 // ---------------------------------------------------------------------------
 // Singleton cache + provider (per-process)
@@ -161,32 +167,7 @@ async function deleteGitHubInstallationLocalState(
         )
       )
     )
-}
-
-async function pruneStaleGitHubInstallationLocalState(
-  installations: Awaited<ReturnType<typeof listAppInstallations>>
-): Promise<void> {
-  const liveDbIds = installations.map((installation) =>
-    getGitHubInstallationDbId(String(installation.id))
-  )
-
-  const credentialsWhere =
-    liveDbIds.length === 0
-      ? eq(provider_credentials.provider, "github")
-      : and(
-          eq(provider_credentials.provider, "github"),
-          notInArray(provider_credentials.id, liveDbIds)
-        )
-  const installationsWhere =
-    liveDbIds.length === 0
-      ? eq(provider_installations.provider, "github")
-      : and(
-          eq(provider_installations.provider, "github"),
-          notInArray(provider_installations.id, liveDbIds)
-        )
-
-  await db.delete(provider_credentials).where(credentialsWhere)
-  await db.delete(provider_installations).where(installationsWhere)
+  await deleteGitHubInstallationUser(db, externalId)
 }
 
 function normalizePem(value: string): string {
@@ -307,6 +288,31 @@ function getApiOrigin(): string {
   return new URL(env.GITHUB_APP_CALLBACK_URL).origin
 }
 
+function getUserId(c: { get: (key: "user") => GithubRouterEnv["Variables"]["user"] }): string | null {
+  return c.get("user")?.id ?? null
+}
+
+async function getUserGitHubInstallationIds(userId: string): Promise<string[]> {
+  return listGitHubInstallationIdsForUser(db, userId)
+}
+
+async function listUserGitHubInstallations(userId: string) {
+  const allowedIds = new Set(await getUserGitHubInstallationIds(userId))
+  if (allowedIds.size === 0) return []
+  const installations = await listAppInstallations().catch(() => [])
+  return installations.filter((installation) => allowedIds.has(String(installation.id)))
+}
+
+function preferredInstallations(
+  installations: Awaited<ReturnType<typeof listAppInstallations>>,
+  owner: string
+) {
+  const match = installations.find(
+    (installation) => installation.accountLogin.toLowerCase() === owner.toLowerCase()
+  )
+  return match ? [match] : installations
+}
+
 // ---------------------------------------------------------------------------
 // DB → wire format helpers
 // ---------------------------------------------------------------------------
@@ -329,6 +335,8 @@ function dbRowToWire(row: ProviderRepoRow) {
 // ---------------------------------------------------------------------------
 
 githubRouter.get("/repos", async (c) => {
+  const userId = getUserId(c)
+  if (!userId) return c.json({ error: "unauthenticated" }, 401)
   const page = Math.max(1, Number(c.req.query("page") ?? 1))
   const perPage = Math.min(
     100,
@@ -342,20 +350,34 @@ githubRouter.get("/repos", async (c) => {
   }
 
   const installUrl = `${getApiOrigin()}/github/installations/start`
+  const installationIds = await getUserGitHubInstallationIds(userId)
+  const installationDbIds = installationIds.map(getGitHubInstallationDbId)
+  if (installationIds.length === 0) {
+    return c.json({
+      repos: [],
+      page,
+      perPage,
+      hasMore: false,
+      needsInstall: true,
+      installUrl,
+    })
+  }
 
-  const dbInstallations = await listInstallations(db, "github")
+  const dbInstallations = await listInstallations(db, "github", installationDbIds)
 
   if (dbInstallations.length === 0) {
     // Fire a background sync so the cache is populated for the next request.
-    void enqueueProviderReposSync({ provider: "github" }).catch((err) =>
-      log.warn({ err }, "enqueue on empty installations failed")
-    )
+    void Promise.all(
+      installationIds.map((installationId) =>
+        enqueueProviderReposSync({ provider: "github", installationId, requestedBy: userId })
+      )
+    ).catch((err) => log.warn({ err }, "enqueue on empty installations failed"))
 
     // Try a live fetch with a 3s timeout so first-time users don't see an empty list.
     let liveInstallations: Awaited<ReturnType<typeof listAppInstallations>> = []
     try {
       liveInstallations = await Promise.race([
-        listAppInstallations(),
+        listUserGitHubInstallations(userId),
         new Promise<never>((_, reject) =>
           setTimeout(() => reject(new Error("timeout")), 3000)
         ),
@@ -377,14 +399,16 @@ githubRouter.get("/repos", async (c) => {
   }
 
   // Stale-while-revalidate: if the most stale installation was synced >10 min ago, enqueue.
-  const staleness = await getInstallationStaleness(db, "github")
+  const staleness = await getInstallationStaleness(db, "github", installationDbIds)
   if (
     staleness.mostStaleAt &&
     Date.now() - staleness.mostStaleAt.getTime() > 10 * 60_000
   ) {
-    void enqueueProviderReposSync({ provider: "github" }).catch((err) =>
-      log.warn({ err }, "stale-while-revalidate enqueue failed")
-    )
+    void Promise.all(
+      installationIds.map((installationId) =>
+        enqueueProviderReposSync({ provider: "github", installationId, requestedBy: userId })
+      )
+    ).catch((err) => log.warn({ err }, "stale-while-revalidate enqueue failed"))
   }
 
   // Fast path: exact "owner/repo" match → try DB first, then live API fallback.
@@ -392,6 +416,7 @@ githubRouter.get("/repos", async (c) => {
     const dbExact = await listRepos(db, {
       provider: "github",
       search, // narrowed to string by the if-guard above
+      installationIds: installationDbIds,
       limit: 1,
       offset: 0,
     })
@@ -411,7 +436,7 @@ githubRouter.get("/repos", async (c) => {
     }
 
     // DB miss — try live API per installation.
-    const liveInstallations = await listAppInstallations().catch(() => [])
+    const liveInstallations = await listUserGitHubInstallations(userId)
     for (const inst of liveInstallations) {
       try {
         const repo = await ghProvider.getRepo(String(inst.id), search)
@@ -433,6 +458,7 @@ githubRouter.get("/repos", async (c) => {
   const { rows, total } = await listRepos(db, {
     provider: "github",
     ...(search !== undefined ? { search } : {}),
+    installationIds: installationDbIds,
     limit: perPage,
     offset,
   })
@@ -453,6 +479,7 @@ githubRouter.get("/repos", async (c) => {
 
 githubRouter.post("/installations/sync", async (c) => {
   const user = c.get("user") ?? null
+  if (!user) return c.json({ error: "unauthenticated" }, 401)
   let body: { installationId?: string } = {}
   try {
     const raw = await c.req.json().catch(() => ({}))
@@ -469,28 +496,35 @@ githubRouter.post("/installations/sync", async (c) => {
   if (installationId === null) {
     return c.json({ error: "invalid_installation_id" }, 400)
   }
+  const allowedIds = await getUserGitHubInstallationIds(user.id)
+  if (installationId && !allowedIds.includes(installationId)) {
+    return c.json({ error: "github_installation_not_found" }, 404)
+  }
+  const targetIds = installationId ? [installationId] : allowedIds
+  if (targetIds.length === 0) {
+    return c.json({ error: "GIT_PROVIDER_NOT_CONNECTED" }, 412)
+  }
   const syncId = nanoid()
 
-  if (installationId) {
+  for (const targetId of targetIds) {
     await markGitHubInstallationSyncPending({
-      installationId,
-      actorUserId: user?.id ?? null,
+      installationId: targetId,
+      actorUserId: user.id,
       source: "api",
+    })
+    await enqueueProviderReposSync({
+      provider: "github",
+      installationId: targetId,
+      requestedBy: user.id,
+      syncId,
     })
   }
 
-  await enqueueProviderReposSync({
-    provider: "github",
-    ...(installationId !== undefined ? { installationId } : {}),
-    ...(user ? { requestedBy: user.id } : {}),
-    syncId,
-  })
-
   log.info(
-    { installationId, syncId, requestedBy: user?.id },
+    { installationIds: targetIds, syncId, requestedBy: user.id },
     "manual github sync enqueued"
   )
-  return c.json({ enqueued: true, syncId }, 202)
+  return c.json({ enqueued: true, syncId, installationIds: targetIds }, 202)
 })
 
 // ---------------------------------------------------------------------------
@@ -501,7 +535,14 @@ githubRouter.post("/installations/sync", async (c) => {
 const STALE_THRESHOLD_MS = 10 * 60 * 1000
 
 githubRouter.get("/installations/cache-status", async (c) => {
-  const rows = await getCacheStatus(db, "github")
+  const userId = getUserId(c)
+  if (!userId) return c.json({ error: "unauthenticated" }, 401)
+  const installationIds = await getUserGitHubInstallationIds(userId)
+  const rows = await getCacheStatus(
+    db,
+    "github",
+    installationIds.map(getGitHubInstallationDbId)
+  )
   const now = Date.now()
   return c.json({
     installations: rows.map((r) => ({
@@ -525,6 +566,8 @@ githubRouter.get("/installations/cache-status", async (c) => {
 // ---------------------------------------------------------------------------
 
 githubRouter.get("/repos/:owner/:repo/branches", async (c) => {
+  const userId = getUserId(c)
+  if (!userId) return c.json({ error: "unauthenticated" }, 401)
   const owner = c.req.param("owner")
   const repo = c.req.param("repo")
   const fullName = `${owner}/${repo}`
@@ -534,16 +577,13 @@ githubRouter.get("/repos/:owner/:repo/branches", async (c) => {
     return c.json({ error: "github_app_not_configured" }, 503)
   }
 
-  const installations = await listAppInstallations().catch(() => [])
+  const installations = await listUserGitHubInstallations(userId)
   if (installations.length === 0) {
     return c.json({ branches: [] })
   }
 
   // Prefer the installation whose account matches the repo owner.
-  const match = installations.find(
-    (i) => i.accountLogin.toLowerCase() === owner.toLowerCase()
-  )
-  const candidates = match ? [match] : installations
+  const candidates = preferredInstallations(installations, owner)
 
   for (const inst of candidates) {
     try {
@@ -567,6 +607,8 @@ githubRouter.get("/repos/:owner/:repo/branches", async (c) => {
 // ---------------------------------------------------------------------------
 
 githubRouter.get("/repos/:owner/:repo/file-exists", async (c) => {
+  const userId = getUserId(c)
+  if (!userId) return c.json({ error: "unauthenticated" }, 401)
   const owner = c.req.param("owner")
   const repo = c.req.param("repo")
   const fullName = `${owner}/${repo}`
@@ -582,15 +624,12 @@ githubRouter.get("/repos/:owner/:repo/file-exists", async (c) => {
     return c.json({ error: "github_app_not_configured" }, 503)
   }
 
-  const installations = await listAppInstallations().catch(() => [])
+  const installations = await listUserGitHubInstallations(userId)
   if (installations.length === 0) {
     return c.json({ exists: false })
   }
 
-  const match = installations.find(
-    (i) => i.accountLogin.toLowerCase() === owner.toLowerCase()
-  )
-  const candidates = match ? [match] : installations
+  const candidates = preferredInstallations(installations, owner)
 
   for (const inst of candidates) {
     try {
@@ -618,6 +657,8 @@ githubRouter.get("/repos/:owner/:repo/file-exists", async (c) => {
 // ---------------------------------------------------------------------------
 
 githubRouter.get("/repos/:owner/:repo/files-exist", async (c) => {
+  const userId = getUserId(c)
+  if (!userId) return c.json({ error: "unauthenticated" }, 401)
   const owner = c.req.param("owner")
   const repo = c.req.param("repo")
   const fullName = `${owner}/${repo}`
@@ -632,15 +673,12 @@ githubRouter.get("/repos/:owner/:repo/files-exist", async (c) => {
     return c.json({ error: "github_app_not_configured" }, 503)
   }
 
-  const installations = await listAppInstallations().catch(() => [])
+  const installations = await listUserGitHubInstallations(userId)
   if (installations.length === 0) {
     return c.json({ files: emptyFileProbeResult(query.paths) })
   }
 
-  const match = installations.find(
-    (i) => i.accountLogin.toLowerCase() === owner.toLowerCase()
-  )
-  const candidates = match ? [match] : installations
+  const candidates = preferredInstallations(installations, owner)
 
   for (const inst of candidates) {
     try {
@@ -668,6 +706,8 @@ githubRouter.get("/repos/:owner/:repo/files-exist", async (c) => {
 })
 
 githubRouter.get("/repos/:owner/:repo/env-file", async (c) => {
+  const userId = getUserId(c)
+  if (!userId) return c.json({ error: "unauthenticated" }, 401)
   const owner = c.req.param("owner")
   const repo = c.req.param("repo")
   const fullName = `${owner}/${repo}`
@@ -683,11 +723,8 @@ githubRouter.get("/repos/:owner/:repo/env-file", async (c) => {
     return c.json({ error: "github_app_not_configured" }, 503)
   }
 
-  const installations = await listAppInstallations().catch(() => [])
-  const match = installations.find(
-    (i) => i.accountLogin.toLowerCase() === owner.toLowerCase()
-  )
-  const candidates = match ? [match] : installations
+  const installations = await listUserGitHubInstallations(userId)
+  const candidates = preferredInstallations(installations, owner)
 
   for (const inst of candidates) {
     try {
@@ -710,6 +747,8 @@ githubRouter.get("/repos/:owner/:repo/env-file", async (c) => {
 })
 
 githubRouter.get("/repos/:owner/:repo/manifest-file", async (c) => {
+  const userId = getUserId(c)
+  if (!userId) return c.json({ error: "unauthenticated" }, 401)
   const owner = c.req.param("owner")
   const repo = c.req.param("repo")
   const fullName = `${owner}/${repo}`
@@ -725,11 +764,8 @@ githubRouter.get("/repos/:owner/:repo/manifest-file", async (c) => {
     return c.json({ error: "github_app_not_configured" }, 503)
   }
 
-  const installations = await listAppInstallations().catch(() => [])
-  const match = installations.find(
-    (i) => i.accountLogin.toLowerCase() === owner.toLowerCase()
-  )
-  const candidates = match ? [match] : installations
+  const installations = await listUserGitHubInstallations(userId)
+  const candidates = preferredInstallations(installations, owner)
 
   for (const inst of candidates) {
     try {
@@ -757,14 +793,15 @@ githubRouter.get("/repos/:owner/:repo/manifest-file", async (c) => {
 // ---------------------------------------------------------------------------
 
 githubRouter.get("/installations", async (c) => {
+  const userId = getUserId(c)
+  if (!userId) return c.json({ error: "unauthenticated" }, 401)
   const config = await getGitHubAppConfig(db)
   if (!config) {
     return c.json({ error: "github_app_not_configured" }, 503)
   }
 
   try {
-    const installations = await listAppInstallations()
-    await pruneStaleGitHubInstallationLocalState(installations)
+    const installations = await listUserGitHubInstallations(userId)
     // Enrich each with a repository count (best-effort; skip on error).
     const enriched = await Promise.all(
       installations.map(async (inst) => {
@@ -830,6 +867,28 @@ githubRouter.delete("/installations/:id", async (c) => {
   if (!Number.isFinite(installationId) || installationId <= 0) {
     return c.json({ error: "invalid_installation_id" }, 400)
   }
+  const user = c.get("user")
+  if (!user) return c.json({ error: "unauthenticated" }, 401)
+  const externalInstallationId = String(installationId)
+  const admin = await isInstanceAdmin(db, user.id)
+
+  if (!admin) {
+    if (
+      !(await userOwnsGitHubInstallation(
+        db,
+        user.id,
+        externalInstallationId
+      ))
+    ) {
+      return c.json({ error: "github_installation_not_found" }, 404)
+    }
+    await deleteGitHubInstallationUserForUser(
+      db,
+      externalInstallationId,
+      user.id
+    )
+    return c.json({ ok: true, disconnected: installationId })
+  }
 
   const config = await getGitHubAppConfig(db)
   if (!config) {
@@ -838,7 +897,7 @@ githubRouter.delete("/installations/:id", async (c) => {
 
   try {
     await revokeAppInstallation(installationId)
-    await deleteGitHubInstallationLocalState(String(installationId))
+    await deleteGitHubInstallationLocalState(externalInstallationId)
     return c.json({ ok: true, revoked: installationId })
   } catch (err) {
     log.error({ err, installationId }, "revokeAppInstallation failed")
@@ -888,6 +947,13 @@ githubRouter.get("/app/setup", async (c) => {
           actorUserId: requestedBy,
           source: "api",
         })
+        if (requestedBy) {
+          await assignGitHubInstallationToUser(
+            db,
+            normalizedInstallationId,
+            requestedBy
+          )
+        }
         await enqueueProviderReposSync({
           provider: "github",
           installationId: normalizedInstallationId,
@@ -1140,6 +1206,7 @@ githubRouter.delete("/app/config", async (c) => {
 
   const config = await getGitHubAppConfig(db)
   if (!config) {
+    await deleteGitHubInstallationUsers(db)
     return c.json({ ok: true, uninstalled: 0 })
   }
 
@@ -1182,6 +1249,7 @@ githubRouter.delete("/app/config", async (c) => {
   await db
     .delete(provider_installations)
     .where(eq(provider_installations.provider, "github"))
+  await deleteGitHubInstallationUsers(db)
   await deleteGitHubAppConfig(db)
   return c.json({ ok: true, uninstalled: installations.length })
 })

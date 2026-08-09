@@ -194,7 +194,7 @@ export function ResourceCard({
   return (
     <div
       className={cn(
-        "group/card relative flex flex-col gap-3 overflow-hidden rounded-lg border border-border bg-card p-4",
+        "group/card relative flex flex-col gap-3 overflow-hidden rounded-2xl bg-panel p-4",
         "transition-colors hover:border-border/80"
       )}
     >

@@ -55,7 +55,7 @@ function buildStatusToAppStatus(
 
 function CardSkeleton(): React.JSX.Element {
   return (
-    <div className="rounded-lg border border-border bg-card p-4 space-y-3 animate-pulse">
+    <div className="rounded-2xl bg-panel p-4 space-y-3 animate-pulse">
       <div className="h-3 w-28 rounded bg-muted" />
       <div className="h-5 w-40 rounded bg-muted" />
       <div className="h-3 w-24 rounded bg-muted" />
@@ -74,7 +74,7 @@ interface NoBuildsProps {
 function NoBuilds({ appId }: NoBuildsProps): React.JSX.Element {
   const deploy = useDeployApp(appId)
   return (
-    <div className="rounded-lg border border-border bg-card p-4 space-y-3">
+    <div className="rounded-2xl bg-panel p-4 space-y-3">
       <p className="text-xs font-medium text-muted-foreground uppercase tracking-wide">
         Last deployment
       </p>
@@ -113,7 +113,7 @@ export function LastDeploymentCard({
   const duration = formatDuration(build.startedAt, build.finishedAt)
 
   return (
-    <div className="rounded-lg border border-border bg-card p-4 space-y-3">
+    <div className="rounded-2xl bg-panel p-4 space-y-3">
       {/* Header */}
       <p className="text-xs font-medium text-muted-foreground uppercase tracking-wide">
         Last deployment

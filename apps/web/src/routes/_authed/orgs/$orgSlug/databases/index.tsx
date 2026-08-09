@@ -113,7 +113,7 @@ function EmptyState({
   disabled: boolean
 }): React.JSX.Element {
   return (
-    <div className="rounded-lg border border-dashed border-border bg-muted/30 px-6 py-12 text-center">
+    <div className="rounded-2xl border border-dashed border-panel-border bg-panel-inset px-6 py-12 text-center">
       <p className="text-sm font-semibold text-foreground">No databases yet</p>
       <p className="mt-2 text-sm leading-6 text-muted-foreground">
         Provisionne ta première base et elle apparaîtra ici.
@@ -133,7 +133,7 @@ function DatabasesGridSkeleton(): React.JSX.Element {
       {Array.from({ length: 6 }).map((_, index) => (
         <div
           key={index}
-          className="animate-pulse rounded-lg border border-border bg-card p-4"
+          className="animate-pulse rounded-2xl bg-panel p-4"
         >
           <div className="h-4 w-32 rounded bg-muted" />
           <div className="mt-2 h-3 w-44 rounded bg-muted" />
@@ -160,7 +160,7 @@ function MiniStep({
   return (
     <Link
       {...linkProps}
-      className="flex items-center justify-between rounded-md border border-border bg-card px-4 py-3 transition-colors hover:bg-accent/40"
+      className="flex items-center justify-between rounded-md rounded-2xl bg-panel px-4 py-3 transition-colors hover:bg-accent/40"
     >
       <span>
         <span className="block text-sm font-medium text-foreground">{label}</span>
@@ -187,7 +187,7 @@ function MiniButton({
       type="button"
       onClick={onClick}
       disabled={disabled}
-      className="flex w-full items-center justify-between rounded-md border border-border bg-card px-4 py-3 text-left transition-colors hover:bg-accent/40 disabled:opacity-50 disabled:cursor-not-allowed"
+      className="flex w-full items-center justify-between rounded-md rounded-2xl bg-panel px-4 py-3 text-left transition-colors hover:bg-accent/40 disabled:opacity-50 disabled:cursor-not-allowed"
     >
       <span>
         <span className="block text-sm font-medium text-foreground">{label}</span>
@@ -200,7 +200,7 @@ function MiniButton({
 
 function SnapshotRow({ label, value }: { label: string; value: string }): React.JSX.Element {
   return (
-    <div className="rounded-md border border-border bg-card px-4 py-3">
+    <div className="rounded-md rounded-2xl bg-panel px-4 py-3">
       <p className="text-[11px] font-medium uppercase tracking-wider text-muted-foreground">
         {label}
       </p>

@@ -36,7 +36,7 @@ export function AppearancePanel(): React.JSX.Element {
   return (
     <section
       aria-label="Appearance"
-      className="space-y-4 rounded-xl border border-border bg-card p-5"
+      className="space-y-4 rounded-xl rounded-2xl bg-panel p-5"
     >
       <div>
         <h3 className="text-sm font-medium">Appearance</h3>

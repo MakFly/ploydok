@@ -174,7 +174,7 @@ function OrgMonitoringPage(): React.JSX.Element {
           onClick={() => void refetch()}
           disabled={isFetching}
           className={cn(
-            "inline-flex h-8 items-center gap-1.5 rounded-md border border-border bg-card px-2.5 text-xs font-medium transition-colors",
+            "inline-flex h-8 items-center gap-1.5 rounded-md rounded-2xl bg-panel px-2.5 text-xs font-medium transition-colors",
             "hover:bg-muted disabled:opacity-60"
           )}
         >
@@ -333,7 +333,7 @@ function OpsStrip({
   return (
     <section
       aria-label="Fleet overview"
-      className="relative overflow-hidden rounded-xl border border-border bg-card"
+      className="relative overflow-hidden rounded-xl rounded-2xl bg-panel"
     >
       <div
         aria-hidden
@@ -675,7 +675,7 @@ function SkeletonGrid(): React.JSX.Element {
       {Array.from({ length: 3 }).map((_, i) => (
         <div
           key={i}
-          className="animate-pulse rounded-lg border border-border bg-card p-4"
+          className="animate-pulse rounded-2xl bg-panel p-4"
         >
           <div className="mb-3 flex items-center gap-2">
             <div className="size-8 rounded-md bg-muted" />
@@ -698,7 +698,7 @@ function SkeletonGrid(): React.JSX.Element {
 
 function EmptyState(): React.JSX.Element {
   return (
-    <div className="flex flex-col items-center justify-center gap-3 rounded-xl border border-dashed border-border bg-muted/20 px-6 py-16 text-center">
+    <div className="flex flex-col items-center justify-center gap-3 rounded-xl border border-dashed border-panel-border bg-panel-inset px-6 py-16 text-center">
       <div className="flex size-12 items-center justify-center rounded-full bg-muted">
         <RiRadarLine className="size-5 text-muted-foreground" />
       </div>
@@ -715,7 +715,7 @@ function EmptyState(): React.JSX.Element {
 
 function NoResults({ onReset }: { onReset: () => void }): React.JSX.Element {
   return (
-    <div className="flex flex-col items-center justify-center gap-3 rounded-xl border border-dashed border-border bg-muted/20 px-6 py-12 text-center">
+    <div className="flex flex-col items-center justify-center gap-3 rounded-xl border border-dashed border-panel-border bg-panel-inset px-6 py-12 text-center">
       <div className="flex size-10 items-center justify-center rounded-full bg-muted">
         <RiSearchLine className="size-4 text-muted-foreground" />
       </div>

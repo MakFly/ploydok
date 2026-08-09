@@ -25,7 +25,7 @@ function GuidePage(): React.JSX.Element {
       eyebrow="Docs"
     >
       <div className="space-y-8">
-        <header className="rounded-2xl border border-border bg-card p-8 shadow-sm">
+        <header className="rounded-2xl rounded-2xl bg-panel p-8 shadow-sm">
           <div className="flex flex-col gap-6 lg:flex-row lg:items-start lg:justify-between">
             <div className="max-w-3xl space-y-3">
               <p className="text-xs font-semibold uppercase tracking-[0.24em] text-primary">Operational Guide</p>
@@ -210,7 +210,7 @@ function GuidePage(): React.JSX.Element {
           </div>
         </GuideSection>
 
-        <section id="expected" className="rounded-2xl border border-border bg-card p-6">
+        <section id="expected" className="rounded-2xl rounded-2xl bg-panel p-6">
           <h2 className="text-lg font-semibold">Expected URLs reference</h2>
           <p className="mt-1 text-sm text-muted-foreground">
             Keep these values aligned between the API environment, the manifest flow, and the GitHub App settings page.
@@ -256,7 +256,7 @@ function GuideSection({
   children: React.ReactNode;
 }): React.JSX.Element {
   return (
-    <section className="rounded-2xl border border-border bg-card p-6 shadow-sm">
+    <section className="rounded-2xl rounded-2xl bg-panel p-6 shadow-sm">
       <p className="text-xs font-semibold uppercase tracking-[0.22em] text-primary">{eyebrow}</p>
       <h2 className="mt-2 text-xl font-semibold">{title}</h2>
       <p className="mt-1 text-sm leading-6 text-muted-foreground">{description}</p>
@@ -284,7 +284,7 @@ function QuickCard({
     ? ({ to, ...(params ? { params } : {}) } as Parameters<typeof Link>[0])
     : null;
   return (
-    <div className="rounded-2xl border border-border bg-card p-5 shadow-sm">
+    <div className="rounded-2xl rounded-2xl bg-panel p-5 shadow-sm">
       <h2 className="text-base font-semibold">{title}</h2>
       <p className="mt-2 text-sm leading-6 text-muted-foreground">{body}</p>
       <div className="mt-4">
@@ -346,11 +346,11 @@ function WhatYouShouldSee({
   lines: Array<string>;
 }): React.JSX.Element {
   return (
-    <div className="rounded-2xl border border-dashed border-border bg-background p-5">
+    <div className="rounded-2xl border border-dashed border-panel-border bg-panel-inset p-5">
       <h3 className="text-sm font-semibold">{title}</h3>
       <div className="mt-4 grid gap-3 md:grid-cols-3">
         {lines.map((line, index) => (
-          <div key={line} className="rounded-xl border border-border bg-card p-4">
+          <div key={line} className="rounded-xl rounded-2xl bg-panel p-4">
             <p className="text-[11px] font-semibold uppercase tracking-[0.2em] text-muted-foreground">Screen {index + 1}</p>
             <p className="mt-2 text-sm leading-6 text-foreground">{line}</p>
           </div>

@@ -118,7 +118,7 @@ function AcceptInvitationPage(): React.JSX.Element {
           </div>
         </div>
 
-        <div className="rounded-[10px] border border-border bg-card p-5 shadow-[0_0_2.5px_1px_var(--border)]">
+        <div className="rounded-2xl bg-panel p-5 shadow-[var(--shadow-card)]">
           <div className="space-y-4">
             <div className="space-y-2">
               <p className="text-sm text-muted-foreground">

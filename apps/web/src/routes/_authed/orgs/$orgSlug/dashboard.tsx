@@ -154,7 +154,7 @@ function DashboardPage(): React.JSX.Element {
       }
       actions={
         <>
-          <Button variant="outline" size="sm" asChild>
+          <Button variant="outline" asChild>
             <Link
               to="/settings/git-providers/$slug"
               params={{ slug: "github" }}
@@ -163,7 +163,7 @@ function DashboardPage(): React.JSX.Element {
               GitHub setup
             </Link>
           </Button>
-          <Button size="sm" onClick={() => setModalOpen(true)}>
+          <Button onClick={() => setModalOpen(true)}>
             <RiAddLine className="size-4" />
             New application
           </Button>
@@ -348,7 +348,7 @@ function StatCard({
           : "text-muted-foreground"
 
   return (
-    <div className="rounded-lg border border-border bg-card px-4 py-3.5">
+    <div className="rounded-2xl bg-panel px-4 py-3.5">
       <div className={`flex items-center gap-1.5 ${accent}`}>
         {icon}
         <span className="text-xs font-medium tracking-wide uppercase">
@@ -386,7 +386,7 @@ function QuickLink({
   return (
     <Link
       to={to}
-      className="group flex items-center justify-between rounded-md border border-border bg-card px-4 py-3 transition-colors hover:bg-accent/40"
+      className="group flex items-center justify-between rounded-md rounded-2xl bg-panel px-4 py-3 transition-colors hover:bg-accent/40"
     >
       <span>
         <span className="block text-sm font-medium text-foreground">

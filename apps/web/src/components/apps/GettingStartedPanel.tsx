@@ -56,7 +56,7 @@ export function MiniStep({
   return (
     <Link
       {...linkProps}
-      className="flex items-center justify-between rounded-md border border-border bg-card px-4 py-3 transition-colors hover:bg-accent/40"
+      className="flex items-center justify-between rounded-md rounded-2xl bg-panel px-4 py-3 transition-colors hover:bg-accent/40"
     >
       <span>
         <span className="block text-sm font-medium text-foreground">
@@ -82,7 +82,7 @@ export function MiniButton({
     <button
       type="button"
       onClick={onClick}
-      className="flex w-full items-center justify-between rounded-md border border-border bg-card px-4 py-3 text-left transition-colors hover:bg-accent/40"
+      className="flex w-full items-center justify-between rounded-md rounded-2xl bg-panel px-4 py-3 text-left transition-colors hover:bg-accent/40"
     >
       <span>
         <span className="block text-sm font-medium text-foreground">

@@ -26,6 +26,7 @@ import { createCdnRouter } from "./routes/apps-cdn"
 import { createPreviewsRoute } from "./routes/apps-previews"
 import { githubRouter } from "./routes/github"
 import { gitlabRouter } from "./routes/gitlab"
+import { createGitProvidersRouter } from "./routes/git-providers"
 import { registryCredentialsRouter } from "./routes/registry-credentials"
 import { wsRouter } from "./routes/ws"
 import { wsExecRouter } from "./routes/apps-exec"
@@ -420,9 +421,16 @@ app.route("/github", githubRouter)
 // /gitlab/webhook and /gitlab/callback are public (see CSRF exemptions above).
 app.use("/gitlab/config", requireAuth(db))
 app.use("/gitlab/connect", requireAuth(db))
+// OAuth callback still needs the browser session to bind encrypted tokens to
+// the user who initiated the authorization flow.
+app.use("/gitlab/callback", requireAuth(db))
 app.use("/gitlab/repos", requireAuth(db))
 app.use("/gitlab/repos/*", requireAuth(db))
 app.route("/gitlab", gitlabRouter)
+
+// Per-user, non-secret Git provider onboarding state.
+app.use("/git-providers/status", requireAuth(db))
+app.route("/git-providers", createGitProvidersRouter(db))
 
 // Registry credentials — all endpoints require auth.
 app.use("/registry/credentials", requireAuth(db))

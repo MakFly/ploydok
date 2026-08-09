@@ -75,11 +75,11 @@ export function RecentBuilds({
       {isLoading ? (
         <RecentBuildsSkeleton />
       ) : builds.length === 0 ? (
-        <div className="rounded-lg border border-dashed border-border bg-muted/20 py-8 text-center">
+        <div className="rounded-lg border border-dashed border-panel-border bg-panel-inset py-8 text-center">
           <p className="text-sm text-muted-foreground">No builds yet</p>
         </div>
       ) : (
-        <div className="divide-y divide-border overflow-hidden rounded-lg border border-border bg-card">
+        <div className="divide-y divide-border overflow-hidden rounded-2xl bg-panel">
           {builds.slice(0, 5).map((build) => (
             <BuildItem key={build.buildId} build={build} />
           ))}
@@ -146,7 +146,7 @@ function BuildItem({ build }: { build: BuildRow }): React.JSX.Element {
 
 function RecentBuildsSkeleton(): React.JSX.Element {
   return (
-    <div className="animate-pulse divide-y divide-border overflow-hidden rounded-lg border border-border bg-card">
+    <div className="animate-pulse divide-y divide-border overflow-hidden rounded-2xl bg-panel">
       {[...Array<null>(4)].map((_, i) => (
         <div key={i} className="flex items-center gap-3 px-4 py-3">
           <div className="size-2 shrink-0 rounded-full bg-muted" />

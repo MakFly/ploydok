@@ -77,7 +77,7 @@ function MembersPage(): React.JSX.Element {
               ))}
             </div>
           ) : (
-            <div className="rounded-lg border border-dashed border-border bg-muted/30 px-6 py-12 text-center">
+            <div className="rounded-lg border border-dashed border-panel-border bg-panel-inset px-6 py-12 text-center">
               <p className="text-sm font-semibold text-foreground">
                 No members yet
               </p>
@@ -162,7 +162,7 @@ function PendingInvitationRow({
   }
 
   return (
-    <div className="flex items-center justify-between rounded-lg border border-border bg-card p-4">
+    <div className="flex items-center justify-between rounded-2xl bg-panel p-4">
       <div className="flex-1">
         <p className="text-sm font-medium text-foreground">
           {invitation.email}

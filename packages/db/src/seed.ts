@@ -7,9 +7,10 @@ import bcrypt from "bcryptjs"
 import { createDb } from "./client"
 import { users, projects, backup_codes, totp_secrets } from "./schema"
 
-// Dev-only fixed backup code used by scripts/run-dod.ts default login.
+// Dev-only fixed credentials used by local login and scripts/run-dod.ts.
 // Safe to commit: only works on local seed data. Never valid in prod.
-export const DEV_BACKUP_CODE = "DEVD-EVDE-VDEV"
+export const DEV_PASSWORD = "DEVD-EVDE-VDEV"
+export const DEV_BACKUP_CODE = DEV_PASSWORD
 
 // Seed picks DATABASE_URL from apps/api/.env.local when not already set, so
 // `make db-seed` hits the real dev Postgres (port 5434, generated password)
@@ -32,29 +33,75 @@ const DB_URL =
   Bun.env["DATABASE_URL"] ?? "postgres://ploydok:ploydok@127.0.0.1:5434/ploydok"
 const MIGRATIONS_DIR = join(import.meta.dir, "../migrations")
 
+const SEED_STEPS = [
+  "migrations",
+  "user",
+  "projects",
+  "backup code",
+  "TOTP",
+] as const
+const progressEnabled = Boolean(process.stdout.isTTY)
+let completedSteps = 0
+
+function renderProgress(label: string) {
+  const total = SEED_STEPS.length
+  const percent = Math.round((completedSteps / total) * 100)
+  const width = 24
+  const filled = Math.round((percent / 100) * width)
+  const bar = "█".repeat(filled) + "░".repeat(width - filled)
+  const output = `[seed] [${bar}] ${percent.toString().padStart(3)}% — ${label}`
+
+  if (progressEnabled) {
+    process.stdout.write(`\r\x1b[2K${output}`)
+  } else {
+    console.log(output)
+  }
+}
+
+function startStep(step: (typeof SEED_STEPS)[number]) {
+  renderProgress(`running ${step}`)
+}
+
+function completeStep(step: (typeof SEED_STEPS)[number]) {
+  completedSteps += 1
+  renderProgress(`${step} done`)
+}
+
+renderProgress("starting")
+
 // Run migrations first. `onnotice` muted: drift_catchup migrations re-issue
 // `ADD COLUMN IF NOT EXISTS` which Postgres echoes as NOTICE — pure noise.
+startStep("migrations")
 const migSql = postgres(DB_URL, { max: 1, onnotice: () => {} })
 await migrate(drizzle(migSql), { migrationsFolder: MIGRATIONS_DIR })
 await migSql.end()
+completeStep("migrations")
 
 const db = createDb(DB_URL)
 
 const now = new Date()
 
+startStep("user")
+const passwordHash = await bcrypt.hash(DEV_PASSWORD, 10)
 await db
   .insert(users)
   .values({
     id: "dev-user-0001",
     email: "dev@ploydok.local",
     display_name: "Dev",
+    password_hash: passwordHash,
     created_at: now,
     updated_at: now,
     recovery_token_hash: null,
     recovery_expires_at: null,
   })
-  .onConflictDoNothing()
+  .onConflictDoUpdate({
+    target: users.id,
+    set: { password_hash: passwordHash, updated_at: now },
+  })
+completeStep("user")
 
+startStep("projects")
 await db
   .insert(projects)
   .values({
@@ -78,10 +125,12 @@ await db
     created_at: now,
   })
   .onConflictDoNothing()
+completeStep("projects")
 
 const codeHash = await bcrypt.hash(DEV_BACKUP_CODE, 10)
 // Idempotent: `make db-seed` restores the backup code to its unconsumed state
 // so e2e suites can re-run without regenerating the user.
+startStep("backup code")
 await db
   .insert(backup_codes)
   .values({
@@ -95,10 +144,12 @@ await db
     target: backup_codes.id,
     set: { code_hash: codeHash, consumed_at: null },
   })
+completeStep("backup code")
 
 // Pre-verified TOTP row so `requireSecondFactor` passes AFTER the backup code
 // has been consumed by apiLogin(). Ciphertext is a placeholder — the verified_at
 // flag is what the guard actually checks (it never reads the secret in e2e).
+startStep("TOTP")
 await db
   .insert(totp_secrets)
   .values({
@@ -112,7 +163,10 @@ await db
     target: totp_secrets.user_id,
     set: { verified_at: now },
   })
+completeStep("TOTP")
+
+if (progressEnabled) process.stdout.write("\n")
 
 console.log(
-  `Seed complete: 1 user + 2 projects + 1 backup code + TOTP verified (dev@ploydok.local / ${DEV_BACKUP_CODE})`
+  `Seed complete: 1 user + 2 projects + 1 backup code + TOTP verified (login: dev@ploydok.local / pwd: ${DEV_PASSWORD})`
 )

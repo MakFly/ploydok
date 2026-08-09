@@ -9,13 +9,13 @@ export const THEME_COOKIE = "ploydok-theme"
 const COOKIE_MAX_AGE = 60 * 60 * 24 * 365 // 1 year
 
 function readCookie(): ThemeMode {
-  if (typeof document === "undefined") return "system"
+  if (typeof document === "undefined") return "light"
   const match = document.cookie.match(
     new RegExp("(?:^|; )" + THEME_COOKIE + "=([^;]+)")
   )
   const value = match ? decodeURIComponent(match[1]) : null
   if (value === "light" || value === "dark" || value === "system") return value
-  return "system"
+  return "light"
 }
 
 function writeCookie(mode: ThemeMode): void {
@@ -30,7 +30,7 @@ function writeCookie(mode: ThemeMode): void {
 }
 
 function systemPrefersDark(): boolean {
-  if (typeof window === "undefined") return true
+  if (typeof window === "undefined") return false
   return window.matchMedia("(prefers-color-scheme: dark)").matches
 }
 

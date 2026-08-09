@@ -30,7 +30,7 @@ export function SecretsTable({
 
   if (secrets.length === 0) {
     return (
-      <div className="flex flex-col items-center justify-center rounded-lg border border-dashed py-10 text-center">
+      <div className="flex flex-col items-center justify-center rounded-lg border border-dashed border-panel-border bg-panel-inset py-10 text-center">
         <p className="text-sm text-muted-foreground">
           No secrets for scope <Badge variant="outline">{scope}</Badge>
         </p>

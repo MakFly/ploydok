@@ -7,9 +7,15 @@ import { Button } from "@workspace/ui/components/button"
 import { Input } from "@workspace/ui/components/input"
 import { Label } from "@workspace/ui/components/label"
 import { Alert, AlertDescription } from "@workspace/ui/components/alert"
+import { cn } from "@workspace/ui/lib/utils"
 import { toast } from "sonner"
 import { apiFetch } from "../../lib/api"
 import { organizationDashboardPath } from "../../lib/organizations"
+import {
+  AuthShell,
+  authFieldClass,
+  authLabelClass,
+} from "../../components/layout/AuthShell"
 import type { Me } from "@ploydok/shared"
 
 interface SetupSearch {
@@ -186,7 +192,7 @@ function SetupPage(): React.JSX.Element {
 
   if (setupTokenRequired && !token && step === "form") {
     return (
-      <Shell title="Setup token required">
+      <AuthShell title="Setup token required">
         <Alert variant="destructive">
           <AlertDescription className="space-y-3">
             <p>
@@ -201,13 +207,13 @@ function SetupPage(): React.JSX.Element {
             </p>
           </AlertDescription>
         </Alert>
-      </Shell>
+      </AuthShell>
     )
   }
 
   if (step === "totp") {
     return (
-      <Shell
+      <AuthShell
         title="Enable two-factor authentication"
         subtitle="Scan the QR code with your authenticator app, then enter the 6-digit code. Optional — you can enable it later in Settings → Security."
       >
@@ -285,13 +291,13 @@ function SetupPage(): React.JSX.Element {
         >
           Skip for now — enable later in Settings
         </Button>
-      </Shell>
+      </AuthShell>
     )
   }
 
   if (step === "codes") {
     return (
-      <Shell
+      <AuthShell
         title="Save your backup codes"
         subtitle="One-shot recovery codes — they will not be shown again."
       >
@@ -335,21 +341,24 @@ function SetupPage(): React.JSX.Element {
         >
           Continue to dashboard
         </Button>
-      </Shell>
+      </AuthShell>
     )
   }
 
   return (
-    <Shell
+    <AuthShell
       title="Configure your Ploydok instance"
       subtitle="Create the first admin account. This screen disappears for good once done."
+      eyebrow="First boot"
     >
       <form
         onSubmit={(e) => void handleSubmit(e)}
         className="flex flex-col gap-4"
       >
-        <div className="space-y-1">
-          <Label htmlFor="email">Email</Label>
+        <div className="flex flex-col gap-1.5">
+          <Label htmlFor="email" className={authLabelClass}>
+            Email
+          </Label>
           <Input
             id="email"
             type="email"
@@ -358,10 +367,13 @@ function SetupPage(): React.JSX.Element {
             required
             autoComplete="email"
             placeholder="you@example.com"
+            className={authFieldClass}
           />
         </div>
-        <div className="space-y-1">
-          <Label htmlFor="display_name">Display name</Label>
+        <div className="flex flex-col gap-1.5">
+          <Label htmlFor="display_name" className={authLabelClass}>
+            Display name
+          </Label>
           <Input
             id="display_name"
             value={displayName}
@@ -369,10 +381,13 @@ function SetupPage(): React.JSX.Element {
             required
             autoComplete="name"
             placeholder="Kevin"
+            className={authFieldClass}
           />
         </div>
-        <div className="space-y-1">
-          <Label htmlFor="password">Password</Label>
+        <div className="flex flex-col gap-1.5">
+          <Label htmlFor="password" className={authLabelClass}>
+            Password
+          </Label>
           <div className="relative">
             <Input
               id="password"
@@ -384,7 +399,7 @@ function SetupPage(): React.JSX.Element {
               minLength={12}
               maxLength={72}
               placeholder="At least 12 characters"
-              className="pr-10"
+              className={cn(authFieldClass, "pr-10")}
             />
             <button
               type="button"
@@ -401,8 +416,10 @@ function SetupPage(): React.JSX.Element {
             </button>
           </div>
         </div>
-        <div className="space-y-1">
-          <Label htmlFor="password_confirm">Confirm password</Label>
+        <div className="flex flex-col gap-1.5">
+          <Label htmlFor="password_confirm" className={authLabelClass}>
+            Confirm password
+          </Label>
           <div className="relative">
             <Input
               id="password_confirm"
@@ -414,7 +431,7 @@ function SetupPage(): React.JSX.Element {
               minLength={12}
               maxLength={72}
               placeholder="Repeat password"
-              className="pr-10"
+              className={cn(authFieldClass, "pr-10")}
             />
             <button
               type="button"
@@ -438,11 +455,15 @@ function SetupPage(): React.JSX.Element {
             <AlertDescription>{error}</AlertDescription>
           </Alert>
         )}
-        <Button type="submit" disabled={loading} className="w-full">
+        <Button
+          type="submit"
+          disabled={loading}
+          className="h-11 w-full rounded-[10px]"
+        >
           {loading ? "Creating admin…" : "Create admin account"}
         </Button>
       </form>
-    </Shell>
+    </AuthShell>
   )
 }
 
@@ -477,35 +498,4 @@ async function copyBackupCodes(codes: Array<string>): Promise<void> {
   } catch {
     toast.error("Clipboard unavailable — use the download instead")
   }
-}
-
-interface ShellProps {
-  title: string
-  subtitle?: string
-  children: React.ReactNode
-}
-
-function Shell({ title, subtitle, children }: ShellProps): React.JSX.Element {
-  return (
-    <div className="flex min-h-svh items-center justify-center bg-background p-4 text-foreground">
-      <div className="w-full max-w-sm space-y-8">
-        <div className="flex flex-col items-center gap-3 text-center">
-          <div className="flex size-10 items-center justify-center rounded-[10px] bg-primary text-base font-bold text-primary-foreground">
-            P
-          </div>
-          <div className="space-y-1">
-            <h1 className="text-2xl leading-tight font-semibold tracking-tight">
-              {title}
-            </h1>
-            {subtitle && (
-              <p className="text-sm text-muted-foreground">{subtitle}</p>
-            )}
-          </div>
-        </div>
-        <div className="space-y-4 rounded-[10px] border border-border bg-card p-5 shadow-[0_0_2.5px_1px_var(--border)]">
-          {children}
-        </div>
-      </div>
-    </div>
-  )
 }

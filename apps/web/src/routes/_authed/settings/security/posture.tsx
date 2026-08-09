@@ -122,7 +122,7 @@ function SecurityPosturePage(): React.JSX.Element {
   return (
     <section
       aria-label="Security posture"
-      className="relative overflow-hidden rounded-xl border border-border bg-card"
+      className="relative overflow-hidden rounded-xl rounded-2xl bg-panel"
     >
       <div
         aria-hidden

@@ -49,6 +49,11 @@ import {
   updateApp,
   type AppRow,
 } from "@ploydok/db/queries"
+import {
+  getGitLabTokens,
+  hasGitHubInstallationForUser,
+  userOwnsGitHubInstallation,
+} from "@ploydok/db/queries"
 import { listDeliveriesByApp, getDeliveryById } from "@ploydok/db/queries"
 import { decompressLog } from "../services/build-log-archive"
 import {
@@ -842,6 +847,49 @@ export function createAppsRouter(db: Db): Hono {
           },
         },
         400
+      )
+    }
+
+    const [hasGitHubConnection, gitLabTokens] = await Promise.all([
+      hasGitHubInstallationForUser(db, user.id),
+      getGitLabTokens(db, user.id),
+    ])
+    if (!hasGitHubConnection && !gitLabTokens) {
+      return c.json(
+        {
+          error: {
+            code: "GIT_PROVIDER_NOT_CONNECTED",
+            message: "Connect GitHub or GitLab before creating an app",
+          },
+        },
+        412
+      )
+    }
+    if (body.gitProvider === "github") {
+      if (
+        !body.installationId ||
+        !(await userOwnsGitHubInstallation(db, user.id, body.installationId))
+      ) {
+        return c.json(
+          {
+            error: {
+              code: "GITHUB_INSTALLATION_NOT_ACCESSIBLE",
+              message: "The selected GitHub installation is not accessible to this user",
+            },
+          },
+          412
+        )
+      }
+    }
+    if (body.gitProvider === "gitlab" && !gitLabTokens) {
+      return c.json(
+        {
+          error: {
+            code: "GIT_PROVIDER_NOT_CONNECTED",
+            message: "Connect GitLab before creating a GitLab app",
+          },
+        },
+        412
       )
     }
 

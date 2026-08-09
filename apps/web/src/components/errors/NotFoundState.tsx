@@ -54,7 +54,7 @@ export function NotFoundState(): React.JSX.Element {
   return (
     <div
       role="alert"
-      className="rounded-lg border border-border bg-card p-8 flex flex-col items-center gap-4 text-center max-w-md mx-auto"
+      className="rounded-2xl bg-panel p-8 flex flex-col items-center gap-4 text-center max-w-md mx-auto"
     >
       {/* Icon */}
       <div className="flex size-12 items-center justify-center rounded-full bg-muted">

@@ -94,7 +94,7 @@ function AppDomainsTab(): React.JSX.Element {
           {[1, 2, 3].map((i) => (
             <div
               key={i}
-              className="flex flex-col gap-2 rounded-lg border border-border bg-card px-4 py-3"
+              className="flex flex-col gap-2 rounded-2xl bg-panel px-4 py-3"
             >
               <div className="flex items-center justify-between gap-2">
                 <div className="flex min-w-0 flex-1 items-center gap-2">
@@ -130,7 +130,7 @@ function AppDomainsTab(): React.JSX.Element {
           ))}
         </div>
       ) : (
-        <div className="flex flex-col items-center justify-center rounded-lg border border-dashed border-border py-12 text-center">
+        <div className="flex flex-col items-center justify-center rounded-lg border border-dashed border-panel-border bg-panel-inset py-12 text-center">
           <p className="text-sm font-medium text-muted-foreground">
             No custom domains yet
           </p>

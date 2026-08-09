@@ -70,7 +70,7 @@ export function AppBar({ app }: { app: AppDetail }): React.JSX.Element {
   const shellDisabled = displayedApp.status !== "running"
 
   return (
-    <div className="flex w-full shrink-0 flex-col gap-3 px-4 py-3 md:px-8">
+    <div className="mx-auto flex w-full max-w-[1200px] shrink-0 flex-col gap-3 px-4 py-3 lg:px-6">
       <div className="flex flex-wrap items-center justify-end gap-1.5">
         <AppHeaderActions app={displayedApp} />
         {shellDisabled ? (

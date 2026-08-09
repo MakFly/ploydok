@@ -106,7 +106,7 @@ function CreateCredentialForm({
   return (
     <form
       onSubmit={handleSubmit}
-      className="space-y-3 rounded-xl border border-border bg-card p-5"
+      className="space-y-3 rounded-xl rounded-2xl bg-panel p-5"
     >
       <div className="flex items-start justify-between gap-3">
         <div>
@@ -222,7 +222,7 @@ function CredentialList({
   credentials: Array<RegistryCredential>
 }): React.JSX.Element {
   return (
-    <ul className="divide-y divide-border rounded-xl border border-border bg-card">
+    <ul className="divide-y divide-border rounded-xl rounded-2xl bg-panel">
       {credentials.map((c) => (
         <CredentialRow key={c.id} credential={c} />
       ))}
@@ -277,7 +277,7 @@ function CredentialRow({
 
 function EmptyState({ onCreate }: { onCreate: () => void }): React.JSX.Element {
   return (
-    <div className="flex flex-col items-center justify-center gap-3 rounded-xl border border-dashed border-border bg-muted/20 px-6 py-12 text-center">
+    <div className="flex flex-col items-center justify-center gap-3 rounded-xl border border-dashed border-panel-border bg-panel-inset px-6 py-12 text-center">
       <div className="flex size-12 items-center justify-center rounded-full bg-muted">
         <RiShip2Line className="size-5 text-muted-foreground" />
       </div>
@@ -298,7 +298,7 @@ function EmptyState({ onCreate }: { onCreate: () => void }): React.JSX.Element {
 
 function CredentialListSkeleton(): React.JSX.Element {
   return (
-    <div className="divide-y divide-border rounded-xl border border-border bg-card">
+    <div className="divide-y divide-border rounded-xl rounded-2xl bg-panel">
       {Array.from({ length: 2 }).map((_, i) => (
         <div key={i} className="flex items-center gap-3 px-4 py-3">
           <div className="size-9 rounded-md bg-muted" />

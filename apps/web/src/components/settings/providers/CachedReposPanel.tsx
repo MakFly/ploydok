@@ -110,7 +110,7 @@ export function CachedReposPanel(props: CachedReposPanelProps): React.JSX.Elemen
         )}
       </div>
 
-      <div className="rounded-lg border border-border bg-card">
+      <div className="rounded-2xl bg-panel">
         {isLoading ? (
           <div className="p-6 text-sm text-muted-foreground">Loading cache status…</div>
         ) : isError ? (

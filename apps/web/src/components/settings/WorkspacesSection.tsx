@@ -28,7 +28,7 @@ export function WorkspacesSection(): React.JSX.Element {
   return (
     <section
       aria-label="Workspaces"
-      className="rounded-xl border border-border bg-card p-5"
+      className="rounded-xl rounded-2xl bg-panel p-5"
     >
       <header className="mb-4 flex items-start justify-between gap-4">
         <div>

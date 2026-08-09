@@ -4,6 +4,7 @@ import { z } from "zod";
 import type { Db } from "@ploydok/db";
 import {
   deleteInstallation as deleteInstallationDefault,
+  deleteGitHubInstallationAndUsers as deleteGitHubInstallationAndUsersDefault,
   deleteRepos as deleteReposDefault,
   upsertInstallation as upsertInstallationDefault,
   upsertRepos as upsertReposDefault,
@@ -56,6 +57,7 @@ export interface WebhookDeps {
   queries?: {
     upsertInstallation?: typeof upsertInstallationDefault;
     deleteInstallation?: typeof deleteInstallationDefault;
+    deleteGitHubInstallationAndUsers?: typeof deleteGitHubInstallationAndUsersDefault;
     upsertRepos?: typeof upsertReposDefault;
     deleteRepos?: typeof deleteReposDefault;
   };
@@ -197,7 +199,7 @@ async function handleInstallationEvent(
     }
 
     case "deleted": {
-      await queries.deleteInstallation(db, installationId);
+      await queries.deleteGitHubInstallationAndUsers(db, installationId);
       break;
     }
 
@@ -395,6 +397,9 @@ export async function handleWebhook(
   const queries: Required<NonNullable<WebhookDeps["queries"]>> = {
     upsertInstallation: deps?.queries?.upsertInstallation ?? upsertInstallationDefault,
     deleteInstallation: deps?.queries?.deleteInstallation ?? deleteInstallationDefault,
+    deleteGitHubInstallationAndUsers:
+      deps?.queries?.deleteGitHubInstallationAndUsers ??
+      deleteGitHubInstallationAndUsersDefault,
     upsertRepos: deps?.queries?.upsertRepos ?? upsertReposDefault,
     deleteRepos: deps?.queries?.deleteRepos ?? deleteReposDefault,
   };

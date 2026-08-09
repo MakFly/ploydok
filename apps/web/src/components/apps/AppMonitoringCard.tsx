@@ -32,7 +32,7 @@ function pushToHistory(history: Array<number>, value: number): Array<number> {
 function MonitoringSkeleton(): React.JSX.Element {
   return (
     <div
-      className="flex animate-pulse flex-col gap-3 rounded-lg border border-border bg-card p-4"
+      className="flex animate-pulse flex-col gap-3 rounded-2xl bg-panel p-4"
       aria-busy="true"
       aria-label="Loading monitoring"
     >
@@ -69,7 +69,7 @@ function MonitoringSkeleton(): React.JSX.Element {
 
 function NotRunning(): React.JSX.Element {
   return (
-    <div className="flex flex-col gap-2 rounded-lg border border-border bg-card p-5">
+    <div className="flex flex-col gap-2 rounded-2xl bg-panel p-5">
       <h3 className="text-sm font-medium text-foreground">Resource monitoring</h3>
       <div className="flex items-center gap-2 py-4">
         <span className="inline-block size-2 rounded-full bg-muted-foreground/40" />
@@ -177,7 +177,7 @@ export function AppMonitoringCard({
   if (!snapshot) {
     if (isRestarting) {
       return (
-        <div className="flex flex-col gap-2 rounded-lg border border-border bg-card p-5">
+        <div className="flex flex-col gap-2 rounded-2xl bg-panel p-5">
           <h3 className="text-sm font-medium text-foreground">
             Resource monitoring
           </h3>

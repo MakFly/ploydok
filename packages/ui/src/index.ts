@@ -84,6 +84,27 @@ export {
   CardTitle,
   CardContent,
 } from "@workspace/ui/components/card"
+export {
+  Card as BoardUICard,
+  CardLabel,
+  BigNumber,
+  Delta,
+  SegTabs,
+  Menu,
+  PagerButton,
+  BoardUICheckbox,
+} from "@workspace/ui/components/boardui"
+export {
+  Avatar,
+  AvatarImage,
+  AvatarFallback,
+} from "@workspace/ui/components/avatar"
+export {
+  Tooltip,
+  TooltipContent,
+  TooltipProvider,
+  TooltipTrigger,
+} from "@workspace/ui/components/tooltip"
 export { Input } from "@workspace/ui/components/input"
 export { Label } from "@workspace/ui/components/label"
 export {

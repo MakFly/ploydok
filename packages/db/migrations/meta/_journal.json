@@ -407,6 +407,20 @@
       "when": 1783987800000,
       "tag": "0058_rbac_owner_membership_backfill",
       "breakpoints": true
+    },
+    {
+      "idx": 59,
+      "version": "7",
+      "when": 1786226400000,
+      "tag": "0059_github_installation_users",
+      "breakpoints": true
+    },
+    {
+      "idx": 60,
+      "version": "7",
+      "when": 1786226500000,
+      "tag": "0060_github_installation_users_many_to_many",
+      "breakpoints": true
     }
   ]
 }

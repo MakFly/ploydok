@@ -12,6 +12,8 @@ import {
   builds,
   secrets,
   app_delete_jobs,
+  github_installation_users,
+  gitlab_tokens,
 } from "@ploydok/db"
 import type { Db } from "@ploydok/db"
 import { makeTestDb as makePgTestDb, TEST_PG_URL } from "../test/db-helpers"
@@ -40,6 +42,7 @@ async function makeTestDb() {
 }
 
 type TestDb = Db
+let nextGitHubInstallationId = 1_000_000
 
 describe("deriveCurrentBuildMetadata", () => {
   it("uses the latest successful build commit as the current deployed commit", () => {
@@ -421,13 +424,21 @@ describe.skipIf(skip)("POST /apps", () => {
   let db: TestDb
   let userId: string
   let projectId: string
+  let githubInstallationId: string
 
   beforeEach(async () => {
     db = await makeTestDb()
     const user = await createTestUser(db)
     userId = user.id
+    githubInstallationId = String(++nextGitHubInstallationId)
     const project = await createTestProject(db, userId)
     projectId = project.id
+    await db.insert(github_installation_users).values({
+      installation_id: githubInstallationId,
+      user_id: userId,
+      created_at: new Date(),
+      updated_at: new Date(),
+    })
   })
 
   it("creates an app with valid body → 201 + app in response", async () => {
@@ -439,6 +450,7 @@ describe.skipIf(skip)("POST /apps", () => {
         name: "My App",
         projectId,
         gitProvider: "github",
+        installationId: githubInstallationId,
         repoFullName: "owner/my-repo",
         branch: "main",
       }),
@@ -465,12 +477,130 @@ describe.skipIf(skip)("POST /apps", () => {
     expect(body.app.id).toBeString()
   })
 
+  it("refuses a GitHub app when the user has not connected GitHub", async () => {
+    await db
+      .delete(github_installation_users)
+      .where(eq(github_installation_users.user_id, userId))
+    const app = buildTestApp(db, fakeUser(userId, `u@t.com`))
+
+    const res = await app.request("/apps", {
+      method: "POST",
+      headers: { "content-type": "application/json" },
+      body: JSON.stringify({
+        name: "Blocked GitHub App",
+        projectId,
+        gitProvider: "github",
+        installationId: githubInstallationId,
+        repoFullName: "owner/repo",
+        branch: "main",
+      }),
+    })
+
+    expect(res.status).toBe(412)
+    expect(await res.json()).toMatchObject({
+      error: { code: "GIT_PROVIDER_NOT_CONNECTED" },
+    })
+
+    const imageRes = await app.request("/apps", {
+      method: "POST",
+      headers: { "content-type": "application/json" },
+      body: JSON.stringify({
+        name: "Blocked Image App",
+        projectId,
+        gitProvider: "image",
+        imageRef: "nginx:stable",
+      }),
+    })
+    expect(imageRes.status).toBe(412)
+    expect(await imageRes.json()).toMatchObject({
+      error: { code: "GIT_PROVIDER_NOT_CONNECTED" },
+    })
+  })
+
+  it("refuses a GitHub installation owned by another user", async () => {
+    const app = buildTestApp(db, fakeUser(userId, `u@t.com`))
+
+    const res = await app.request("/apps", {
+      method: "POST",
+      headers: { "content-type": "application/json" },
+      body: JSON.stringify({
+        name: "Blocked GitHub Installation",
+        projectId,
+        gitProvider: "github",
+        installationId: "654321",
+        repoFullName: "owner/repo",
+        branch: "main",
+      }),
+    })
+
+    expect(res.status).toBe(412)
+    expect(await res.json()).toMatchObject({
+      error: { code: "GITHUB_INSTALLATION_NOT_ACCESSIBLE" },
+    })
+  })
+
+  it("accepts GitLab and image sources after their respective gate", async () => {
+    const app = buildTestApp(db, fakeUser(userId, `u@t.com`))
+    const blockedGitLab = await app.request("/apps", {
+      method: "POST",
+      headers: { "content-type": "application/json" },
+      body: JSON.stringify({
+        name: "Blocked GitLab App",
+        projectId,
+        gitProvider: "gitlab",
+        gitlabProjectId: 1,
+        repoFullName: "group/repo",
+        branch: "main",
+      }),
+    })
+    await db.insert(gitlab_tokens).values({
+      user_id: userId,
+      access_token_enc: Buffer.from("token"),
+      access_token_nonce: Buffer.from("nonce"),
+      refresh_token_enc: null,
+      refresh_token_nonce: null,
+      expires_at: null,
+      created_at: new Date(),
+      updated_at: new Date(),
+    })
+    const gitlabRes = await app.request("/apps", {
+      method: "POST",
+      headers: { "content-type": "application/json" },
+      body: JSON.stringify({
+        name: "Connected GitLab App",
+        projectId,
+        gitProvider: "gitlab",
+        gitlabProjectId: 1,
+        repoFullName: "group/repo",
+        branch: "main",
+      }),
+    })
+    const imageRes = await app.request("/apps", {
+      method: "POST",
+      headers: { "content-type": "application/json" },
+      body: JSON.stringify({
+        name: "Image App",
+        projectId,
+        gitProvider: "image",
+        imageRef: "nginx:stable",
+      }),
+    })
+
+    expect(blockedGitLab.status).toBe(412)
+    expect(await blockedGitLab.json()).toMatchObject({
+      error: { code: "GIT_PROVIDER_NOT_CONNECTED" },
+    })
+    expect(gitlabRes.status).toBe(201)
+    expect(imageRes.status).toBe(201)
+  })
+
   it("replays POST /apps by idempotency key without creating duplicates", async () => {
     const app = buildTestApp(db, fakeUser(userId, `u@t.com`))
     const payload = {
       name: "Replay App",
       projectId,
       gitProvider: "github",
+      installationId: githubInstallationId,
       repoFullName: "owner/replay",
       branch: "main",
       idempotencyKey: "create-test-key:app",
@@ -509,6 +639,7 @@ describe.skipIf(skip)("POST /apps", () => {
         name: "Policy App",
         projectId,
         gitProvider: "github",
+        installationId: githubInstallationId,
         repoFullName: "owner/repo",
         branch: "main",
         restartPolicy: "no",
@@ -529,6 +660,7 @@ describe.skipIf(skip)("POST /apps", () => {
         name: "Framework App",
         projectId,
         gitProvider: "github",
+        installationId: githubInstallationId,
         repoFullName: "owner/repo",
         branch: "main",
         runtimePort: 4321,
@@ -559,6 +691,7 @@ describe.skipIf(skip)("POST /apps", () => {
         name: "Traversal App",
         projectId,
         gitProvider: "github",
+        installationId: githubInstallationId,
         repoFullName: "owner/repo",
         branch: "main",
         rootDir: "../..",
@@ -582,6 +715,7 @@ describe.skipIf(skip)("POST /apps", () => {
         name: "Seeded Laravel",
         projectId,
         gitProvider: "github",
+        installationId: githubInstallationId,
         repoFullName: "owner/laravel-repo",
         branch: "main",
         buildMethod: "nixpacks",
@@ -634,6 +768,7 @@ describe.skipIf(skip)("POST /apps", () => {
         name: "  Hello World!! 123  ",
         projectId,
         gitProvider: "github",
+        installationId: githubInstallationId,
         repoFullName: "owner/repo",
         branch: "main",
       }),
@@ -654,6 +789,7 @@ describe.skipIf(skip)("POST /apps", () => {
         name: "My App",
         projectId,
         gitProvider: "github",
+        installationId: githubInstallationId,
         repoFullName: "o/r",
         branch: "main",
       }),
@@ -667,6 +803,7 @@ describe.skipIf(skip)("POST /apps", () => {
         name: "My App",
         projectId,
         gitProvider: "github",
+        installationId: githubInstallationId,
         repoFullName: "o/r",
         branch: "main",
       }),
@@ -689,6 +826,7 @@ describe.skipIf(skip)("POST /apps", () => {
         name: "Bad App",
         projectId: otherProject.id,
         gitProvider: "github",
+        installationId: githubInstallationId,
         repoFullName: "o/r",
         branch: "main",
       }),
@@ -708,6 +846,7 @@ describe.skipIf(skip)("POST /apps", () => {
         name: "App",
         projectId,
         gitProvider: "github",
+        installationId: githubInstallationId,
         repoFullName: "o/r",
         // missing branch
       }),
@@ -724,6 +863,7 @@ describe.skipIf(skip)("POST /apps", () => {
         name: "Custom Domain App",
         projectId,
         gitProvider: "github",
+        installationId: githubInstallationId,
         repoFullName: "o/r",
         branch: "main",
         domain: "myapp.example.com",
@@ -1546,13 +1686,21 @@ describe.skipIf(skip)("POST /apps — auto-inject suggestedEnvVars", () => {
   let db: TestDb
   let userId: string
   let projectId: string
+  let githubInstallationId: string
 
   beforeEach(async () => {
     db = await makeTestDb()
     const user = await createTestUser(db)
     userId = user.id
+    githubInstallationId = String(++nextGitHubInstallationId)
     const project = await createTestProject(db, userId)
     projectId = project.id
+    await db.insert(github_installation_users).values({
+      installation_id: githubInstallationId,
+      user_id: userId,
+      created_at: new Date(),
+      updated_at: new Date(),
+    })
   })
 
   it("Symfony repo: injects PHP root/fallback and composer allow-superuser", async () => {
@@ -1576,7 +1724,7 @@ describe.skipIf(skip)("POST /apps — auto-inject suggestedEnvVars", () => {
         gitProvider: "github",
         repoFullName: "owner/symfony-repo",
         branch: "main",
-        installationId: "123456",
+        installationId: githubInstallationId,
         buildMethod: "nixpacks",
       }),
     })
@@ -1639,7 +1787,7 @@ describe.skipIf(skip)("POST /apps — auto-inject suggestedEnvVars", () => {
         gitProvider: "github",
         repoFullName: "owner/symfony-compose-repo",
         branch: "main",
-        installationId: "123456",
+        installationId: githubInstallationId,
         buildMethod: "nixpacks",
       }),
     })
@@ -1683,7 +1831,7 @@ describe.skipIf(skip)("POST /apps — auto-inject suggestedEnvVars", () => {
         gitProvider: "github",
         repoFullName: "owner/laravel-repo",
         branch: "main",
-        installationId: "123456",
+        installationId: githubInstallationId,
         buildMethod: "nixpacks",
       }),
     })
@@ -1707,7 +1855,7 @@ describe.skipIf(skip)("POST /apps — auto-inject suggestedEnvVars", () => {
     expect(byKey.get("APP_KEY")).toMatch(/^base64:[A-Za-z0-9+/]+=*$/)
   })
 
-  it("no installationId: auto-inject skipped, 201 still returned", async () => {
+  it("rejects GitHub creation without an accessible installation", async () => {
     const fileExistsSpy = spyOn(githubModule.ghProvider, "fileExists")
 
     const app = buildTestApp(db, fakeUser(userId, `u@t.com`))
@@ -1720,12 +1868,14 @@ describe.skipIf(skip)("POST /apps — auto-inject suggestedEnvVars", () => {
         gitProvider: "github",
         repoFullName: "owner/repo",
         branch: "main",
-        // installationId deliberately omitted
         buildMethod: "nixpacks",
       }),
     })
 
-    expect(res.status).toBe(201)
+    expect(res.status).toBe(412)
+    expect(await res.json()).toMatchObject({
+      error: { code: "GITHUB_INSTALLATION_NOT_ACCESSIBLE" },
+    })
     expect(fileExistsSpy).not.toHaveBeenCalled()
     fileExistsSpy.mockRestore()
   })
@@ -1743,7 +1893,7 @@ describe.skipIf(skip)("POST /apps — auto-inject suggestedEnvVars", () => {
         gitProvider: "github",
         repoFullName: "owner/repo",
         branch: "main",
-        installationId: "123456",
+        installationId: githubInstallationId,
         buildMethod: "dockerfile",
       }),
     })
@@ -1771,7 +1921,7 @@ describe.skipIf(skip)("POST /apps — auto-inject suggestedEnvVars", () => {
         gitProvider: "github",
         repoFullName: "owner/repo",
         branch: "main",
-        installationId: "123456",
+        installationId: githubInstallationId,
         buildMethod: "nixpacks",
       }),
     })

@@ -6,7 +6,13 @@ import { toast } from "sonner"
 import { apiFetch } from "../../lib/api"
 import { apiBaseUrl } from "../../lib/api/base"
 import { PasskeyButton } from "../../components/auth/PasskeyButton"
-import { organizationDashboardPath } from "../../lib/organizations"
+import { getGitProviderStatus } from "../../lib/git-providers"
+import { resolvePostAuthPath } from "../../lib/auth-guards"
+import {
+  AuthShell,
+  authFieldClass,
+  authLabelClass,
+} from "../../components/layout/AuthShell"
 import type { Me } from "@ploydok/shared"
 
 export const Route = createFileRoute("/_public/login")({
@@ -34,64 +40,78 @@ function LoginPage(): React.JSX.Element {
     "password"
   )
   const [email, setEmail] = React.useState("")
+  const [postLoginError, setPostLoginError] = React.useState<string | null>(
+    null
+  )
 
   const handleAuthSuccess = async (): Promise<void> => {
-    const me = await apiFetch<Me>("/me")
-    const target =
-      normalizeLoginRedirect(redirect) ??
-      (me.default_organization
-        ? organizationDashboardPath(me.default_organization.slug)
-        : "/dashboard")
-    await router.navigate({ href: target })
+    setPostLoginError(null)
+    try {
+      const [me, providers] = await Promise.all([
+        apiFetch<Me>("/me"),
+        getGitProviderStatus(),
+      ])
+      const target = resolvePostAuthPath(
+        me,
+        providers,
+        normalizeLoginRedirect(redirect)
+      )
+      await router.navigate({ href: target })
+    } catch {
+      setPostLoginError(
+        "You're signed in, but Ploydok couldn't verify your Git provider status."
+      )
+    }
   }
 
   return (
-    <div className="flex min-h-svh items-center justify-center bg-background p-4 text-foreground">
-      <div className="w-full max-w-sm space-y-8">
-        <div className="flex flex-col items-center gap-3 text-center">
-          <div className="flex size-10 items-center justify-center rounded-[10px] bg-primary text-base font-bold text-primary-foreground">
-            P
-          </div>
-          <div className="space-y-1">
-            <h1 className="text-2xl leading-tight font-semibold tracking-tight">
-              Welcome back
-            </h1>
-            <p className="text-sm text-muted-foreground">
-              Sign in to your Ploydok workspace.
-            </p>
-          </div>
+    <AuthShell
+      title="Welcome back"
+      subtitle="Sign in to deploy and operate your services."
+      eyebrow="Ploydok control plane"
+      showcase
+    >
+      {mode === "password" ? (
+        <PasswordModePanel
+          onSuccess={() => void handleAuthSuccess()}
+          onSwitchPasskey={() => setMode("passkey")}
+          onSwitchBackup={() => setMode("backup")}
+        />
+      ) : mode === "passkey" ? (
+        <PasskeyModePanel
+          email={email}
+          onEmailChange={setEmail}
+          onSuccess={() => void handleAuthSuccess()}
+          onSwitchPassword={() => setMode("password")}
+          onSwitchBackup={() => setMode("backup")}
+        />
+      ) : (
+        <BackupCodePanel
+          onSuccess={handleAuthSuccess}
+          onBack={() => setMode("password")}
+        />
+      )}
+      {postLoginError ? (
+        <div
+          className="mt-5 rounded-[10px] border border-destructive/20 bg-destructive/10 px-3 py-3 text-sm text-destructive"
+          role="alert"
+        >
+          <p>{postLoginError}</p>
+          <Button
+            type="button"
+            variant="outline"
+            size="sm"
+            className="mt-3 bg-background text-foreground"
+            onClick={() => void handleAuthSuccess()}
+          >
+            Retry verification
+          </Button>
         </div>
-
-        <div className="rounded-[10px] border border-border bg-card p-5 shadow-[0_0_2.5px_1px_var(--border)]">
-          {mode === "password" ? (
-            <PasswordModePanel
-              onSuccess={() => void handleAuthSuccess()}
-              onSwitchPasskey={() => setMode("passkey")}
-              onSwitchBackup={() => setMode("backup")}
-            />
-          ) : mode === "passkey" ? (
-            <PasskeyModePanel
-              email={email}
-              onEmailChange={setEmail}
-              onSuccess={() => void handleAuthSuccess()}
-              onSwitchPassword={() => setMode("password")}
-              onSwitchBackup={() => setMode("backup")}
-            />
-          ) : (
-            <BackupCodePanel
-              onSuccess={handleAuthSuccess}
-              onBack={() => setMode("password")}
-            />
-          )}
-        </div>
-
-        <div className="flex flex-col items-center gap-2 text-center text-xs text-muted-foreground">
-          <p className="font-mono text-[10px] tracking-wide uppercase">
-            AGPL-3.0 · self-hosted
-          </p>
-        </div>
-      </div>
-    </div>
+      ) : null}
+      <p className="mt-7 text-center text-xs leading-5 text-muted-foreground">
+        Your credentials stay on your self-hosted instance.
+      </p>
+    </AuthShell>
   )
 }
 
@@ -151,13 +171,17 @@ function PasswordModePanel({
       />
       {error && (
         <p
-          className="rounded-md bg-destructive/10 px-3 py-2 text-sm text-destructive"
+          className="rounded-[10px] bg-[#ffccd3] px-3 py-2 text-sm text-[#a50036]"
           role="alert"
         >
           {error}
         </p>
       )}
-      <Button type="submit" disabled={loading} size="lg" className="w-full">
+      <Button
+        type="submit"
+        disabled={loading}
+        className="h-11 w-full rounded-[10px]"
+      >
         {loading ? "Signing in…" : "Sign in"}
       </Button>
       <AuthSwitches
@@ -270,14 +294,18 @@ function BackupCodePanel({
       />
       {error && (
         <p
-          className="rounded-md bg-destructive/10 px-3 py-2 text-sm text-destructive"
+          className="rounded-[10px] bg-[#ffccd3] px-3 py-2 text-sm text-[#a50036]"
           role="alert"
         >
           {error}
         </p>
       )}
       <div className="space-y-2">
-        <Button type="submit" disabled={loading} size="lg" className="w-full">
+        <Button
+          type="submit"
+          disabled={loading}
+          className="h-11 w-full rounded-[10px]"
+        >
           {loading ? "Signing in…" : "Sign in"}
         </Button>
         <Button
@@ -312,7 +340,7 @@ function AuthSwitches({
           <span className="w-full border-t" />
         </div>
         <div className="relative flex justify-center">
-          <span className="bg-card px-2 font-mono text-[10px] tracking-wide text-muted-foreground uppercase">
+          <span className="bg-panel-inset px-2 text-[10px] tracking-wide text-neutral-400 uppercase">
             or
           </span>
         </div>
@@ -363,8 +391,8 @@ function Field({
   mono = false,
 }: FieldProps): React.JSX.Element {
   return (
-    <div className="space-y-1.5">
-      <label htmlFor={id} className="text-xs font-medium text-muted-foreground">
+    <div className="flex flex-col gap-1.5">
+      <label htmlFor={id} className={authLabelClass}>
         {label}
       </label>
       <input
@@ -376,8 +404,7 @@ function Field({
         autoComplete={autoComplete}
         placeholder={placeholder}
         className={
-          "flex h-9 w-full rounded-md border border-input bg-background px-3 text-sm transition-colors outline-none placeholder:text-muted-foreground/60 focus-visible:border-ring focus-visible:ring-3 focus-visible:ring-ring/40" +
-          (mono ? " font-mono tracking-wider uppercase" : "")
+          authFieldClass + (mono ? " font-mono tracking-wider uppercase" : "")
         }
       />
     </div>

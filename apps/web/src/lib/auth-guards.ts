@@ -2,6 +2,8 @@
 import { redirect } from "@tanstack/react-router"
 import { ApiError, SessionExpiredError, apiFetch } from "./api"
 import { organizationDashboardPath } from "./organizations"
+import { getGitProviderStatus } from "./git-providers"
+import type { GitProviderStatus } from "./git-providers"
 import type { Me } from "@ploydok/shared"
 
 interface InstanceState {
@@ -62,14 +64,25 @@ function resolveDefaultOrganizationPath(me: Me): string {
     : "/dashboard"
 }
 
+export function resolvePostAuthPath(
+  me: Me,
+  providers: Pick<GitProviderStatus, "ready">,
+  requestedPath?: string | null
+): string {
+  if (!providers.ready) return "/onboarding"
+  return requestedPath ?? resolveDefaultOrganizationPath(me)
+}
+
 // Use in beforeLoad of a public route that should bounce authenticated users
 // (e.g. /login, /register, /). If /me succeeds, redirects to /dashboard.
 export async function redirectIfAuthenticated(
-  fetchMe: () => Promise<Me> = () => apiFetch<Me>("/me")
+  fetchMe: () => Promise<Me> = () => apiFetch<Me>("/me"),
+  fetchProviders: () => Promise<GitProviderStatus> = getGitProviderStatus
 ): Promise<void> {
   try {
     const me = await fetchMe()
-    throw redirect({ href: resolveDefaultOrganizationPath(me) })
+    const providers = await fetchProviders()
+    throw redirect({ href: resolvePostAuthPath(me, providers) })
   } catch (err) {
     if (isRedirect(err)) throw err
     if (!isUnauthenticated(err)) throw err

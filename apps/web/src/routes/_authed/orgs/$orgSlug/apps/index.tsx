@@ -185,7 +185,7 @@ function AppCard({
   }
 
   return (
-    <article className="group overflow-hidden rounded-lg border border-border bg-card transition-colors hover:border-foreground/20">
+    <article className="group overflow-hidden rounded-2xl bg-panel transition-colors hover:border-foreground/20">
       <Link
         to={settingsPath as never}
         className="block p-4 hover:bg-accent/30 focus-visible:ring-2 focus-visible:ring-ring focus-visible:outline-none"
@@ -219,7 +219,7 @@ function EmptyState({
   onCreateApp: () => void
 }): React.JSX.Element {
   return (
-    <div className="rounded-lg border border-dashed border-border bg-muted/30 px-6 py-12 text-center">
+    <div className="rounded-lg border border-dashed border-panel-border bg-panel-inset px-6 py-12 text-center">
       <p className="text-sm font-semibold text-foreground">
         No applications yet
       </p>
@@ -254,7 +254,7 @@ function AppsGridSkeleton(): React.JSX.Element {
       {Array.from({ length: 6 }).map((_, index) => (
         <div
           key={index}
-          className="animate-pulse rounded-lg border border-border bg-card p-4"
+          className="animate-pulse rounded-2xl bg-panel p-4"
         >
           <div className="h-4 w-32 rounded bg-muted" />
           <div className="mt-2 h-3 w-44 rounded bg-muted" />

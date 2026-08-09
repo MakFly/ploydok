@@ -31,12 +31,14 @@ export async function listRepos(
   db: Db,
   opts: {
     provider: "github" | "gitlab"
+    installationIds?: string[]
     search?: string
     limit: number
     offset: number
   },
 ): Promise<{ rows: ProviderRepoRow[]; total: number }> {
-  const { provider, search, limit, offset } = opts
+  const { provider, search, limit, offset, installationIds } = opts
+  if (installationIds?.length === 0) return { rows: [], total: 0 }
 
   const providerFilter = eq(provider_repos.provider, provider)
   const searchFilter = search
@@ -46,7 +48,10 @@ export async function listRepos(
       )
     : undefined
 
-  const where = searchFilter ? and(providerFilter, searchFilter) : providerFilter
+  const installationFilter = installationIds
+    ? inArray(provider_repos.installation_id, installationIds)
+    : undefined
+  const where = and(providerFilter, searchFilter, installationFilter)
 
   const [rows, [totalRow]] = await Promise.all([
     db
@@ -106,24 +111,42 @@ export async function deleteInstallation(db: Db, id: string): Promise<void> {
 export async function listInstallations(
   db: Db,
   provider: "github" | "gitlab",
+  installationIds?: string[],
 ): Promise<ProviderInstallationRow[]> {
+  if (installationIds?.length === 0) return []
   return db
     .select()
     .from(provider_installations)
-    .where(eq(provider_installations.provider, provider))
+    .where(
+      and(
+        eq(provider_installations.provider, provider),
+        installationIds
+          ? inArray(provider_installations.id, installationIds)
+          : undefined,
+      ),
+    )
 }
 
 export async function getInstallationStaleness(
   db: Db,
   provider: "github" | "gitlab",
+  installationIds?: string[],
 ): Promise<{ mostStaleAt: Date | null; count: number }> {
+  if (installationIds?.length === 0) return { mostStaleAt: null, count: 0 }
   const [row] = await db
     .select({
       mostStaleAt: min(provider_installations.last_synced_at),
       count: count(),
     })
     .from(provider_installations)
-    .where(eq(provider_installations.provider, provider))
+    .where(
+      and(
+        eq(provider_installations.provider, provider),
+        installationIds
+          ? inArray(provider_installations.id, installationIds)
+          : undefined,
+      ),
+    )
 
   return {
     mostStaleAt: row?.mostStaleAt ?? null,
@@ -144,14 +167,21 @@ export interface CacheStatusRow {
 export async function getCacheStatus(
   db: Db,
   provider: "github" | "gitlab",
-  installationIdFilter?: string,
+  installationIdFilter?: string | string[],
 ): Promise<CacheStatusRow[]> {
-  const where = installationIdFilter
+  if (Array.isArray(installationIdFilter) && installationIdFilter.length === 0)
+    return []
+  const where = typeof installationIdFilter === "string"
     ? and(
         eq(provider_installations.provider, provider),
         eq(provider_installations.id, installationIdFilter),
       )
-    : eq(provider_installations.provider, provider)
+    : and(
+        eq(provider_installations.provider, provider),
+        Array.isArray(installationIdFilter)
+          ? inArray(provider_installations.id, installationIdFilter)
+          : undefined,
+      )
 
   const rows = await db
     .select({

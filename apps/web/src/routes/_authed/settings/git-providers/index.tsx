@@ -10,7 +10,7 @@ import {
 } from "@remixicon/react"
 import { cn } from "@workspace/ui/lib/utils"
 import { ShellPage } from "../../../../components/layout/AppShell"
-import { useGitHubAppConfig } from "../../../../lib/github"
+import { useGitProviderStatus } from "../../../../lib/git-providers"
 
 export const Route = createFileRoute("/_authed/settings/git-providers/")({
   component: GitProvidersHub,
@@ -19,7 +19,7 @@ export const Route = createFileRoute("/_authed/settings/git-providers/")({
 interface ProviderCardProps {
   slug: "github" | "gitlab"
   name: string
-  status: "configured" | "not_configured" | "loading" | "coming_soon"
+  status: "configured" | "not_configured" | "loading"
   description: string
   icon: React.ComponentType<{ className?: string }>
   accent: string
@@ -27,7 +27,7 @@ interface ProviderCardProps {
 }
 
 function GitProvidersHub(): React.JSX.Element {
-  const github = useGitHubAppConfig()
+  const providerStatus = useGitProviderStatus()
 
   const providers: ReadonlyArray<ProviderCardProps> = [
     {
@@ -37,12 +37,15 @@ function GitProvidersHub(): React.JSX.Element {
         "GitHub App — auto-deploy sur push, webhooks HMAC, accès par installation.",
       icon: RiGithubFill,
       accent: "text-foreground",
-      status: github.isLoading
+      status: providerStatus.isLoading
         ? "loading"
-        : github.data?.configured
+        : providerStatus.data?.github.connected
           ? "configured"
           : "not_configured",
-      ...(github.data?.slug ? { note: `App: ${github.data.slug}` } : {}),
+      ...(providerStatus.data?.github.configured &&
+      !providerStatus.data.github.connected
+        ? { note: "Instance App ready to connect" }
+        : {}),
     },
     {
       slug: "gitlab",
@@ -51,7 +54,11 @@ function GitProvidersHub(): React.JSX.Element {
         "OAuth2 per-user — gitlab.com ou instance self-hosted ; webhook X-Gitlab-Token.",
       icon: RiGitlabFill,
       accent: "text-[#fc6d26]",
-      status: "coming_soon",
+      status: providerStatus.isLoading
+        ? "loading"
+        : providerStatus.data?.gitlab.connected
+          ? "configured"
+          : "not_configured",
     },
   ]
 
@@ -80,7 +87,6 @@ function ProviderCard({
   accent,
   note,
 }: ProviderCardProps): React.JSX.Element {
-  const disabled = status === "coming_soon"
   const inner = (
     <>
       <div className="flex items-start gap-3">
@@ -98,31 +104,17 @@ function ProviderCard({
             </p>
           ) : null}
         </div>
-        {!disabled && (
-          <RiArrowRightSLine className="size-4 shrink-0 text-muted-foreground opacity-0 transition-opacity group-hover:opacity-100" />
-        )}
+        <RiArrowRightSLine className="size-4 shrink-0 text-muted-foreground opacity-0 transition-opacity group-hover:opacity-100" />
       </div>
       <p className="text-xs text-muted-foreground">{description}</p>
     </>
   )
 
-  if (disabled) {
-    return (
-      <div
-        aria-disabled
-        title="Coming soon"
-        className="flex cursor-not-allowed flex-col gap-4 rounded-xl border border-border bg-card p-5 opacity-60"
-      >
-        {inner}
-      </div>
-    )
-  }
-
   return (
     <Link
       to="/settings/git-providers/$slug"
       params={{ slug }}
-      className="group flex flex-col gap-4 rounded-xl border border-border bg-card p-5 transition-colors hover:border-primary/40"
+      className="group flex flex-col gap-4 rounded-2xl rounded-xl bg-panel p-5 transition-colors hover:border-primary/40"
     >
       {inner}
     </Link>
@@ -132,15 +124,8 @@ function ProviderCard({
 function StatusBadge({
   status,
 }: {
-  status: "configured" | "not_configured" | "loading" | "coming_soon"
+  status: "configured" | "not_configured" | "loading"
 }): React.JSX.Element {
-  if (status === "coming_soon") {
-    return (
-      <span className="inline-flex items-center gap-1 rounded-full border border-border bg-background px-1.5 py-0.5 font-mono text-[10px] tracking-wide text-muted-foreground uppercase">
-        Coming soon
-      </span>
-    )
-  }
   if (status === "loading") {
     return (
       <span className="font-mono text-[10px] tracking-wide text-muted-foreground uppercase">

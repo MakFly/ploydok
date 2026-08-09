@@ -9,7 +9,8 @@ import {
 } from "@remixicon/react"
 import { ShellPage } from "../../../../components/layout/AppShell"
 import { GitHubPanel } from "../../../../components/settings/providers/GitHubPanel"
-import { useGitHubAppConfig } from "../../../../lib/github"
+import { GitLabPanel } from "../../../../components/settings/providers/GitLabPanel"
+import { useGitProviderStatus } from "../../../../lib/git-providers"
 
 type ProviderSlug = "github" | "gitlab"
 
@@ -60,7 +61,7 @@ function ProviderDashboard(): React.JSX.Element {
       <div className="space-y-6">
         <section
           aria-label="Provider header"
-          className="flex items-center gap-3 rounded-xl border border-border bg-card p-4"
+          className="flex items-center gap-3 rounded-2xl rounded-xl bg-panel p-4"
         >
           <div className="flex size-11 items-center justify-center rounded-md border border-border bg-background">
             <Icon className={`size-5 ${provider.accent}`} />
@@ -75,27 +76,9 @@ function ProviderDashboard(): React.JSX.Element {
         </section>
 
         {slug === "github" ? <GitHubPanel /> : null}
-        {slug === "gitlab" ? <ComingSoonPanel /> : null}
+        {slug === "gitlab" ? <GitLabPanel /> : null}
       </div>
     </ShellPage>
-  )
-}
-
-function ComingSoonPanel(): React.JSX.Element {
-  return (
-    <section
-      aria-label="Coming soon"
-      className="flex flex-col items-center justify-center gap-2 rounded-xl border border-dashed border-border bg-card/40 p-10 text-center"
-    >
-      <span className="inline-flex items-center gap-1 rounded-full border border-border bg-background px-2 py-0.5 font-mono text-[10px] tracking-wide text-muted-foreground uppercase">
-        Coming soon
-      </span>
-      <p className="text-sm font-medium">L'intégration GitLab arrive bientôt</p>
-      <p className="max-w-md text-xs text-muted-foreground">
-        En attendant, utilise GitHub ou un déploiement par image OCI. Tu peux
-        suivre l'avancement sur la roadmap.
-      </p>
-    </section>
   )
 }
 
@@ -104,32 +87,25 @@ function ProviderStatusBadge({
 }: {
   slug: ProviderSlug
 }): React.JSX.Element {
-  const github = useGitHubAppConfig()
+  const providers = useGitProviderStatus()
+  const status = providers.data?.[slug]
 
-  if (slug === "gitlab") {
-    return (
-      <span className="inline-flex items-center gap-1 rounded-full border border-border bg-background px-1.5 py-0.5 font-mono text-[10px] tracking-wide text-muted-foreground uppercase">
-        Coming soon
-      </span>
-    )
-  }
-
-  if (github.isLoading) {
+  if (providers.isLoading) {
     return (
       <span className="font-mono text-[10px] tracking-wide text-muted-foreground uppercase">
         …
       </span>
     )
   }
-  return github.data?.configured ? (
+  return status?.connected ? (
     <span className="inline-flex items-center gap-1 font-mono text-[10px] tracking-wide text-emerald-600 uppercase dark:text-emerald-400">
       <RiCheckboxCircleFill className="size-3" />
-      Configured
+      Connected
     </span>
   ) : (
     <span className="inline-flex items-center gap-1 font-mono text-[10px] tracking-wide text-muted-foreground uppercase">
       <RiCircleLine className="size-3" />
-      Not set
+      {status?.configured ? "Ready to connect" : "Not set"}
     </span>
   )
 }

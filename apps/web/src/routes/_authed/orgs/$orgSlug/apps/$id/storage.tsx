@@ -153,7 +153,7 @@ function AppStoragePage(): React.JSX.Element {
       {isLoading ? (
         <StorageSkeleton />
       ) : volumes.length === 0 ? (
-        <div className="rounded-lg border border-dashed py-10 text-center">
+        <div className="rounded-lg border border-dashed border-panel-border bg-panel-inset py-10 text-center">
           <p className="text-sm text-muted-foreground">
             No persistent volumes yet.
           </p>

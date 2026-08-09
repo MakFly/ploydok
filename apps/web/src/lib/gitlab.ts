@@ -9,6 +9,7 @@ import { toast } from "sonner"
 import { apiFetch } from "./api"
 import type { ApiError } from "./api"
 import type { GitBranch, GitRepo } from "@ploydok/shared"
+import { apiBaseUrl } from "./api/base"
 
 // ---------------------------------------------------------------------------
 // Types
@@ -81,7 +82,7 @@ export function useDeleteGitLabConfig() {
  * XHR — the browser must follow the 302.
  */
 export function gitlabConnectUrl(): string {
-  return "/gitlab/connect"
+  return `${apiBaseUrl().replace(/\/$/, "")}/gitlab/connect`
 }
 
 export function useDisconnectGitLab() {

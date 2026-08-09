@@ -74,7 +74,19 @@ export const Route = createRootRoute({
       { name: "viewport", content: "width=device-width, initial-scale=1" },
       { title: "Ploydok" },
     ],
-    links: [{ rel: "stylesheet", href: appCss }],
+    links: [
+      { rel: "stylesheet", href: appCss },
+      { rel: "preconnect", href: "https://fonts.googleapis.com" },
+      {
+        rel: "preconnect",
+        href: "https://fonts.gstatic.com",
+        crossOrigin: "anonymous",
+      },
+      {
+        rel: "stylesheet",
+        href: "https://fonts.googleapis.com/css2?family=Inter:wght@100..900&family=JetBrains+Mono:wght@100..800&display=swap",
+      },
+    ],
   }),
   shellComponent: RootDocument,
   errorComponent: RootErrorComponent,
@@ -238,17 +250,17 @@ function RootDocument({
   children: React.ReactNode
 }): React.JSX.Element {
   return (
-    <html lang="en" className="dark" suppressHydrationWarning>
+    <html lang="en" className="h-full antialiased" suppressHydrationWarning>
       <head>
         <HeadContent />
-        {/* Resolve theme from cookie (light|dark|system) before paint to avoid flash */}
+        {/* Default light; cookie overrides (light|dark|system) */}
         <script
           dangerouslySetInnerHTML={{
-            __html: `(function(){var m=document.cookie.match(/(?:^|; )ploydok-theme=([^;]+)/);var v=m?decodeURIComponent(m[1]):'system';var dark=v==='dark'||(v!=='light'&&window.matchMedia('(prefers-color-scheme: dark)').matches);document.documentElement.classList.toggle('dark',dark);document.documentElement.style.colorScheme=dark?'dark':'light';})();`,
+            __html: `(function(){var m=document.cookie.match(/(?:^|; )ploydok-theme=([^;]+)/);var v=m?decodeURIComponent(m[1]):'light';var dark=v==='dark'||(v==='system'&&window.matchMedia('(prefers-color-scheme: dark)').matches);document.documentElement.classList.toggle('dark',dark);document.documentElement.style.colorScheme=dark?'dark':'light';})();`,
           }}
         />
       </head>
-      <body>
+      <body className="min-h-dvh bg-background font-sans text-foreground antialiased">
         <QueryClientProvider client={queryClient}>
           <BrandingInjector />
           <AuthSyncProvider>

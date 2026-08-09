@@ -142,7 +142,7 @@ export function ActivityFeed({
   const { isLoading } = useAppActivityHistory(appId, limit)
 
   return (
-    <div className="rounded-lg border border-border bg-card p-4 space-y-2">
+    <div className="rounded-2xl bg-panel p-4 space-y-2">
       <h3 className="text-sm font-medium text-foreground">Activity</h3>
 
       {events.length === 0 ? (

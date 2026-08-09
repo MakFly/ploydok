@@ -179,7 +179,7 @@ function TemplateCard({
     <button
       type="button"
       onClick={onOpen}
-      className="group flex h-full flex-col gap-3 rounded-lg border border-border bg-card p-4 text-left transition-colors outline-none hover:border-primary/50 hover:bg-accent/40 focus-visible:ring-2 focus-visible:ring-ring"
+      className="group flex h-full flex-col gap-3 rounded-2xl bg-panel p-4 text-left transition-colors outline-none hover:border-primary/50 hover:bg-accent/40 focus-visible:ring-2 focus-visible:ring-ring"
     >
       <div className="flex items-center gap-3">
         <div className="flex size-10 shrink-0 items-center justify-center overflow-hidden rounded-md bg-muted">
@@ -229,7 +229,7 @@ function CatalogSkeleton(): React.JSX.Element {
       {Array.from({ length: 8 }).map((_, idx) => (
         <div
           key={idx}
-          className="flex h-32 flex-col gap-3 rounded-lg border border-border bg-card p-4"
+          className="flex h-32 flex-col gap-3 rounded-2xl bg-panel p-4"
         >
           <div className="flex items-center gap-3">
             <span className="size-10 shrink-0 animate-pulse rounded-md bg-muted" />
@@ -248,7 +248,7 @@ function CatalogSkeleton(): React.JSX.Element {
 
 function EmptyState({ query }: { query: string }): React.JSX.Element {
   return (
-    <div className="flex flex-col items-center justify-center gap-2 rounded-lg border border-dashed border-border bg-card px-6 py-12 text-center">
+    <div className="flex flex-col items-center justify-center gap-2 rounded-lg border border-dashed border-panel-border bg-panel-inset px-6 py-12 text-center">
       <RiShapesLine className="size-6 text-muted-foreground" />
       <p className="text-sm font-medium">Aucun template trouvé</p>
       <p className="text-xs text-muted-foreground">
