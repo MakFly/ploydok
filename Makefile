@@ -1,4 +1,4 @@
-.PHONY: help install dev stop dev-agent agent-restart agent-logs db-migrate db-reset db-seed infra-up infra-down infra-stop infra-logs build start test lint typecheck clean secrets-init dod
+.PHONY: help install dev stop dev-agent agent-restart agent-logs db-ensure-auth db-migrate db-reset db-seed infra-up infra-down infra-stop infra-logs build start test lint typecheck clean secrets-init dod
 
 # Ports locaux :
 #   API 3335 — Web 5173 — Caddy 8180/8543/2020 — Agent unix /tmp/ploydok/agent.sock
@@ -16,7 +16,8 @@ endif
 help:
 	@printf "$(C_TITLE)Usage: make <target>$(C_RESET)\n\n"
 	@printf "$(C_CAT)▶ Setup$(C_RESET)\n"
-	@printf "  $(C_TARGET)%-14s$(C_RESET) $(C_DESC)%s$(C_RESET)\n" "install" "Setup complet : bun install + secrets + infra + migrations"
+	@printf "  $(C_TARGET)%-14s$(C_RESET) $(C_DESC)%s$(C_RESET)\n" "install" "Setup complet + démarrage : deps + secrets + infra + migrations + dev"
+	@printf "  %-14s $(C_DIM)%s$(C_RESET)\n" "" "reste au premier plan à la fin (enchaîne sur 'make dev') — Ctrl-C pour sortir"
 	@printf "\n$(C_CAT)▶ Dev$(C_RESET)\n"
 	@printf "  $(C_TARGET)%-14s$(C_RESET) $(C_DESC)%s$(C_RESET)\n" "dev"       "Lance web + api via turbo (http://localhost:5173 + :3335)"
 	@printf "  $(C_TARGET)%-14s$(C_RESET) $(C_DESC)%s$(C_RESET)\n" "stop"      "Arrête les containers Compose sans les supprimer"
@@ -26,6 +27,7 @@ help:
 	@printf "  $(C_TARGET)%-14s$(C_RESET) $(C_DESC)%s$(C_RESET)\n" "agent-restart" "Redémarre le container 'ploydok-agent' (utile après modif Rust)"
 	@printf "  $(C_TARGET)%-14s$(C_RESET) $(C_DESC)%s$(C_RESET)\n" "agent-logs"    "Tail logs du container 'ploydok-agent'"
 	@printf "\n$(C_CAT)▶ Database$(C_RESET)\n"
+	@printf "  $(C_TARGET)%-14s$(C_RESET) $(C_DESC)%s$(C_RESET)\n" "db-ensure-auth" "Vérifie l'auth Postgres et réaligne le rôle si le volume a dérivé"
 	@printf "  $(C_TARGET)%-14s$(C_RESET) $(C_DESC)%s$(C_RESET)\n" "db-migrate" "Applique les migrations Postgres"
 	@printf "  $(C_TARGET)%-14s$(C_RESET) $(C_DESC)%s$(C_RESET)\n" "db-reset"   "Wipe runtime app/db containers + Postgres + Redis + apply migrations"
 	@printf "  $(C_TARGET)%-14s$(C_RESET) $(C_DESC)%s$(C_RESET)\n" "db-seed"    "Seed dev (login: dev@ploydok.local / pwd: DEVD-EVDE-VDEV)"
@@ -44,17 +46,12 @@ install:
 	bun install
 	@echo "[install] bringing up local infra (postgres + redis + caddy + buildkitd + registry + agent)..."
 	$(MAKE) infra-up
-	@echo "[install] waiting for postgres to accept connections..."
-	@for i in $$(seq 1 30); do \
-	  if docker compose --env-file apps/api/.env.local -f infra/docker-compose.yml exec -T postgres pg_isready -U ploydok >/dev/null 2>&1; then \
-	    echo "[install] postgres ready"; break; \
-	  fi; \
-	  if [ "$$i" = "30" ]; then echo "[install] postgres not ready after 30s — aborting" >&2; exit 1; fi; \
-	  sleep 1; \
-	done
+	@echo "[install] waiting for postgres and checking credentials..."
+	$(MAKE) db-ensure-auth
 	@echo "[install] applying database migrations..."
 	$(MAKE) db-migrate
-	@echo "[install] done — next: 'make dev' (web:5173 + api:3335)"
+	@echo "[install] setup done — starting dev servers (web:5173 + api:3335), Ctrl-C to stop"
+	$(MAKE) dev
 
 dev:
 	bunx turbo dev
@@ -73,6 +70,11 @@ agent-restart:
 
 agent-logs:
 	docker compose --env-file apps/api/.env.local -f infra/docker-compose.yml logs -f agent
+
+# Le volume postgres fige le mot de passe du rôle à l'initdb : une rotation de
+# PLOYDOK_PG_PASSWORD casse l'auth tant que le rôle n'est pas réaligné.
+db-ensure-auth:
+	bun run scripts/db-ensure-auth.ts
 
 db-migrate:
 	set -a; . apps/api/.env.local; set +a; bun run --cwd packages/db migrate
@@ -98,29 +100,29 @@ db-reset:
 secrets-init:
 	@ENV_FILE=apps/api/.env.local; \
 	touch "$$ENV_FILE"; \
-	if ! grep -q 'PLOYDOK_PG_PASSWORD' "$$ENV_FILE" 2>/dev/null; then \
+	if ! grep -q '^PLOYDOK_PG_PASSWORD=' "$$ENV_FILE" 2>/dev/null; then \
 	  PG_PASS=$$(openssl rand -hex 32); \
 	  echo "PLOYDOK_PG_PASSWORD=$$PG_PASS" >> "$$ENV_FILE"; \
 	  echo "[secrets-init] PLOYDOK_PG_PASSWORD generated"; \
 	else \
 	  echo "[secrets-init] PLOYDOK_PG_PASSWORD already present — skipped"; \
 	fi; \
-	if ! grep -q 'PLOYDOK_REDIS_PASSWORD' "$$ENV_FILE" 2>/dev/null; then \
+	if ! grep -q '^PLOYDOK_REDIS_PASSWORD=' "$$ENV_FILE" 2>/dev/null; then \
 	  REDIS_PASS=$$(openssl rand -hex 32); \
 	  echo "PLOYDOK_REDIS_PASSWORD=$$REDIS_PASS" >> "$$ENV_FILE"; \
 	  echo "[secrets-init] PLOYDOK_REDIS_PASSWORD generated"; \
 	else \
 	  echo "[secrets-init] PLOYDOK_REDIS_PASSWORD already present — skipped"; \
 	fi; \
-	if ! grep -q 'DATABASE_URL' "$$ENV_FILE" 2>/dev/null; then \
-	  PG_PASS=$$(grep 'PLOYDOK_PG_PASSWORD' "$$ENV_FILE" | cut -d= -f2); \
+	if ! grep -q '^DATABASE_URL=' "$$ENV_FILE" 2>/dev/null; then \
+	  PG_PASS=$$(grep '^PLOYDOK_PG_PASSWORD=' "$$ENV_FILE" | head -n1 | cut -d= -f2-); \
 	  echo "DATABASE_URL=postgres://ploydok:$$PG_PASS@127.0.0.1:5434/ploydok" >> "$$ENV_FILE"; \
 	  echo "[secrets-init] DATABASE_URL generated"; \
 	else \
 	  echo "[secrets-init] DATABASE_URL already present — skipped"; \
 	fi; \
-	if ! grep -q 'REDIS_URL' "$$ENV_FILE" 2>/dev/null; then \
-	  REDIS_PASS=$$(grep 'PLOYDOK_REDIS_PASSWORD' "$$ENV_FILE" | cut -d= -f2); \
+	if ! grep -q '^REDIS_URL=' "$$ENV_FILE" 2>/dev/null; then \
+	  REDIS_PASS=$$(grep '^PLOYDOK_REDIS_PASSWORD=' "$$ENV_FILE" | head -n1 | cut -d= -f2-); \
 	  echo "REDIS_URL=redis://:$$REDIS_PASS@127.0.0.1:6381/0" >> "$$ENV_FILE"; \
 	  echo "[secrets-init] REDIS_URL generated"; \
 	else \

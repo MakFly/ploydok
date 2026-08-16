@@ -7,8 +7,15 @@ DB de dev : **Postgres** dans le container `ploydok-postgres` (image `postgres`)
 ```bash
 make secrets-init    # génère PLOYDOK_PG_PASSWORD + DATABASE_URL dans .env.local
 make infra-up        # docker compose : postgres + redis + caddy + buildkitd + registry
+make db-ensure-auth  # attend Postgres + réaligne le rôle si le volume a dérivé
 make db-migrate      # applique les migrations sur Postgres
 ```
+
+## Dérive du mot de passe Postgres
+
+`POSTGRES_PASSWORD` n'est appliqué qu'au **premier `initdb`**, sur un `PGDATA` vide. Si le volume `ploydok_postgres-data` survit à une rotation de `PLOYDOK_PG_PASSWORD`, le hash SCRAM de `pg_authid` reste sur l'ancienne valeur et toute connexion TCP échoue en `28P01`, alors que `pg_isready` et `docker exec psql` répondent OK (loopback en `trust` dans `pg_hba.conf`).
+
+`make db-ensure-auth` (`scripts/db-ensure-auth.ts`) sonde la vraie URL, et sur `28P01` réaligne le rôle par `ALTER ROLE` via le socket local du service compose. Les données sont préservées. Ne **jamais** régler ce symptôme en supprimant le volume : c'est la DB de dev complète qui part.
 
 ## Workflow modif schema
 

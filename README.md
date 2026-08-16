@@ -228,25 +228,36 @@ Requirements:
 - Docker
 - Rust stable for the agent and host CLI
 
-Install everything in one step (dependencies + secrets + local infra + migrations):
+Install and start everything in one step (dependencies + secrets + local infra +
+credential check + migrations + dev servers):
 
 ```bash
 make install
 ```
 
+`make install` ends by running the dev servers in the foreground, so it stays
+attached until you press Ctrl-C. Use it on a fresh clone or after pulling
+changes that touch infra or migrations.
+
 Or run the steps individually:
 
 ```bash
-bun install      # workspace dependencies
-make infra-up    # postgres + redis + caddy + buildkitd + registry + agent
-make db-migrate  # apply database migrations
+bun install          # workspace dependencies
+make infra-up        # postgres + redis + caddy + buildkitd + registry + agent
+make db-ensure-auth  # wait for postgres, realign the role if the volume drifted
+make db-migrate      # apply database migrations
 ```
 
-Run the development servers:
+Run the development servers on an already-installed checkout:
 
 ```bash
 make dev
 ```
+
+A postgres volume keeps the role password chosen at its first `initdb`, so
+rotating `PLOYDOK_PG_PASSWORD` in `apps/api/.env.local` breaks authentication
+until the role is realigned. `make db-ensure-auth` detects that mismatch and
+repairs it in place, without touching your data.
 
 Local ports:
 

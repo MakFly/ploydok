@@ -15,6 +15,13 @@ import {
 } from "../../components/layout/AuthShell"
 import type { Me } from "@ploydok/shared"
 
+// Compte seedé par `make db-seed` (packages/db/src/seed.ts). Dupliqué ici
+// plutôt qu'importé : `@ploydok/db` est server-only et ne doit pas entrer dans
+// le graphe client. `import.meta.env.DEV` vaut statiquement false en build prod,
+// donc Vite supprime la branche et ces littéraux avec.
+const DEV_SEED_EMAIL = "dev@ploydok.local"
+const DEV_SEED_PASSWORD = "DEVD-EVDE-VDEV"
+
 export const Route = createFileRoute("/_public/login")({
   validateSearch: (search: Record<string, unknown>): { redirect?: string } =>
     typeof search.redirect === "string" ? { redirect: search.redirect } : {},
@@ -151,6 +158,24 @@ function PasswordModePanel({
 
   return (
     <form onSubmit={(e) => void handleSubmit(e)} className="space-y-4">
+      {import.meta.env.DEV ? (
+        <div className="flex justify-end">
+          <Button
+            type="button"
+            variant="ghost"
+            size="icon-xs"
+            className="rounded-full border border-border text-muted-foreground"
+            title={`Dev seulement — remplit ${DEV_SEED_EMAIL}`}
+            aria-label={`Remplir le formulaire avec le compte de dev ${DEV_SEED_EMAIL}`}
+            onClick={() => {
+              setEmail(DEV_SEED_EMAIL)
+              setPassword(DEV_SEED_PASSWORD)
+            }}
+          >
+            ?
+          </Button>
+        </div>
+      ) : null}
       <Field
         id="email"
         label="Email"

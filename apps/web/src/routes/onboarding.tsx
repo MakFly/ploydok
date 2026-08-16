@@ -1,16 +1,28 @@
 // SPDX-License-Identifier: AGPL-3.0-only
 import * as React from "react"
-import { Link, createFileRoute, redirect } from "@tanstack/react-router"
+import {
+  Link,
+  createFileRoute,
+  redirect,
+  useRouter,
+} from "@tanstack/react-router"
 import {
   RiArrowRightLine,
-  RiCheckboxCircleFill,
+  RiCheckLine,
   RiGithubFill,
   RiGitlabFill,
   RiLock2Line,
 } from "@remixicon/react"
 import { Button } from "@workspace/ui/components/button"
 import { cn } from "@workspace/ui/lib/utils"
+import {
+  ChoiceCard,
+  OnboardingStepShell,
+  StepFooter,
+  StepHeading,
+} from "../components/onboarding/OnboardingStepShell"
 import { requireMe } from "../lib/auth-guards"
+import { useLogout } from "../lib/auth"
 import { getGitProviderStatus } from "../lib/git-providers"
 import { organizationDashboardPath } from "../lib/organizations"
 import { apiBaseUrl } from "../lib/api/base"
@@ -43,91 +55,82 @@ function resolveApiHref(value?: string | null): string | null {
 
 function ProviderOnboardingPage(): React.JSX.Element {
   const { me, providers } = Route.useRouteContext()
+  const router = useRouter()
+  const logout = useLogout()
+
+  const nothingConfigured =
+    !providers.github.configured && !providers.gitlab.configured
+  const connected = providers.github.connected || providers.gitlab.connected
 
   return (
-    <main className="min-h-dvh bg-[oklch(0.925_0.006_255)] p-4 text-foreground sm:p-8">
-      <div className="mx-auto flex min-h-[calc(100dvh-2rem)] max-w-[1180px] flex-col overflow-hidden rounded-[24px] border border-black/5 bg-background shadow-[0_24px_80px_rgba(20,30,55,0.10)] sm:min-h-[calc(100dvh-4rem)] lg:grid lg:grid-cols-[0.82fr_1.18fr]">
-        <section className="flex flex-col bg-[oklch(0.235_0.055_258)] p-7 text-[oklch(0.97_0.006_250)] sm:p-10 lg:p-12">
-          <div className="flex items-center gap-2.5">
-            <img
-              src="/ploydok-mark.png"
-              alt=""
-              className="size-8 object-contain"
+    <OnboardingStepShell
+      activeStep="provider"
+      onLogout={() => {
+        void logout.mutateAsync().finally(() => {
+          void router.navigate({ to: "/login" })
+        })
+      }}
+    >
+      <div className="flex flex-col gap-8 pt-2 sm:pt-6">
+        <StepHeading
+          title={`Welcome, ${me.display_name}.`}
+          description="Ploydok needs access to one Git provider before it can import a repository or create a Git-backed application. You can connect the other one later."
+        />
+
+        <fieldset>
+          <legend className="text-sm font-medium">Choose a Git provider</legend>
+          <p className="mt-1 text-sm text-muted-foreground">
+            Connect either provider to unlock the dashboard and project
+            creation.
+          </p>
+          <div className="mt-3 flex flex-col gap-2">
+            <ProviderChoice
+              name="GitHub"
+              description="Install the Ploydok GitHub App on an account or organization."
+              icon={RiGithubFill}
+              configured={providers.github.configured}
+              connected={providers.github.connected}
+              href={resolveApiHref(providers.github.install_url)}
+              settingsHref="/settings/git-providers/github"
+              isAdmin={me.is_instance_admin}
             />
-            <span className="text-sm font-semibold">Ploydok</span>
+            <ProviderChoice
+              name="GitLab"
+              description="Authorize your GitLab account through the instance OAuth app."
+              icon={RiGitlabFill}
+              iconClassName="text-[#fc6d26]"
+              configured={providers.gitlab.configured}
+              connected={providers.gitlab.connected}
+              href={resolveApiHref(providers.gitlab.connect_url)}
+              settingsHref="/settings/git-providers/gitlab"
+              isAdmin={me.is_instance_admin}
+            />
           </div>
-          <div className="my-auto py-16">
-            <p className="font-mono text-xs tracking-[0.16em] text-[oklch(0.76_0.12_235)] uppercase">
-              One step before deploy
-            </p>
-            <h1 className="mt-5 text-4xl leading-[1.02] font-semibold tracking-[-0.04em] sm:text-5xl">
-              Connect your
-              <br />
-              source of truth.
-            </h1>
-            <p className="mt-6 max-w-md text-sm leading-7 text-white/62">
-              Ploydok needs access to one Git provider before it can import a
-              repository or create a Git-backed application.
-            </p>
-          </div>
-          <div className="flex items-center gap-2 text-xs text-white/42">
-            <RiLock2Line className="size-4" />
-            Provider credentials are encrypted on this instance.
-          </div>
-        </section>
-
-        <section className="flex flex-col justify-center px-6 py-12 sm:px-12 lg:px-16 lg:py-16">
-          <div className="mx-auto w-full max-w-[520px]">
-            <p className="text-xs font-semibold tracking-[0.12em] text-primary uppercase">
-              Welcome, {me.display_name}
-            </p>
-            <h2 className="mt-3 text-3xl font-semibold tracking-[-0.03em]">
-              Choose a Git provider
-            </h2>
-            <p className="mt-3 text-sm leading-6 text-muted-foreground">
-              Connect either provider to unlock the dashboard and project
-              creation.
-            </p>
-
-            <div className="mt-9 space-y-3">
-              <ProviderChoice
-                name="GitHub"
-                description="Install the Ploydok GitHub App on an account or organization."
-                icon={RiGithubFill}
-                configured={providers.github.configured}
-                connected={providers.github.connected}
-                href={resolveApiHref(providers.github.install_url)}
-                settingsHref="/settings/git-providers/github"
-                isAdmin={me.is_instance_admin}
-              />
-              <ProviderChoice
-                name="GitLab"
-                description="Authorize your GitLab account through the instance OAuth app."
-                icon={RiGitlabFill}
-                iconClassName="text-[#fc6d26]"
-                configured={providers.gitlab.configured}
-                connected={providers.gitlab.connected}
-                href={resolveApiHref(providers.gitlab.connect_url)}
-                settingsHref="/settings/git-providers/gitlab"
-                isAdmin={me.is_instance_admin}
-              />
-            </div>
-
-            {!providers.github.configured &&
-            !providers.gitlab.configured &&
-            !me.is_instance_admin ? (
-              <p
-                className="mt-6 rounded-[10px] bg-muted px-4 py-3 text-xs leading-5 text-muted-foreground"
-                role="status"
-              >
-                An instance administrator must configure GitHub or GitLab before
-                you can connect your account.
-              </p>
-            ) : null}
-          </div>
-        </section>
+        </fieldset>
       </div>
-    </main>
+
+      <StepFooter
+        hint={
+          connected
+            ? "Looks good. Finish the provider setup to continue."
+            : "Pick one provider to continue. The other stays available in settings."
+        }
+      >
+        {nothingConfigured && !me.is_instance_admin ? (
+          <p
+            className="rounded-lg bg-muted px-4 py-3 text-xs leading-5 text-muted-foreground"
+            role="status"
+          >
+            An instance administrator must configure GitHub or GitLab before you
+            can connect your account.
+          </p>
+        ) : null}
+        <p className="flex items-center gap-2 text-xs text-muted-foreground">
+          <RiLock2Line aria-hidden className="size-3.5" />
+          Provider credentials are encrypted on this instance.
+        </p>
+      </StepFooter>
+    </OnboardingStepShell>
   )
 }
 
@@ -153,45 +156,50 @@ function ProviderChoice({
   isAdmin: boolean
 }): React.JSX.Element {
   return (
-    <article className="rounded-[16px] border border-border bg-background p-4 shadow-[var(--shadow-xs)] transition-[border-color,box-shadow] duration-200 hover:border-foreground/20 hover:shadow-[var(--shadow-card)] sm:p-5">
-      <div className="flex items-start gap-4">
-        <span className="flex size-11 shrink-0 items-center justify-center rounded-[12px] bg-muted">
-          <Icon className={cn("size-5", iconClassName)} />
-        </span>
-        <div className="min-w-0 flex-1">
-          <div className="flex items-center justify-between gap-3">
-            <h3 className="font-semibold">{name}</h3>
-            {connected ? (
-              <span className="inline-flex items-center gap-1 text-xs font-medium text-emerald-600">
-                <RiCheckboxCircleFill className="size-4" /> Connected
+    <ChoiceCard selected={connected} className="items-start gap-3 px-3 py-3">
+      <Icon
+        aria-hidden
+        className={cn(
+          "mt-0.5 size-4 shrink-0 text-muted-foreground",
+          connected && "text-foreground",
+          iconClassName
+        )}
+      />
+      <div className="min-w-0 flex-1">
+        <span className="text-sm font-medium">{name}</span>
+        <p className="mt-0.5 text-xs leading-5 text-muted-foreground">
+          {description}
+        </p>
+        {!connected ? (
+          <div className="mt-3">
+            {configured && href ? (
+              <Button asChild size="sm" className="gap-2">
+                <a href={href}>
+                  Connect {name}
+                  <RiArrowRightLine className="size-4" />
+                </a>
+              </Button>
+            ) : isAdmin ? (
+              <Button asChild size="sm" variant="outline">
+                <Link to={settingsHref}>Configure {name}</Link>
+              </Button>
+            ) : (
+              <span className="text-xs text-muted-foreground">
+                Waiting for instance setup
               </span>
-            ) : null}
+            )}
           </div>
-          <p className="mt-1 text-xs leading-5 text-muted-foreground">
-            {description}
-          </p>
-          {!connected ? (
-            <div className="mt-4">
-              {configured && href ? (
-                <Button asChild size="sm" className="gap-2">
-                  <a href={href}>
-                    Connect {name}
-                    <RiArrowRightLine className="size-4" />
-                  </a>
-                </Button>
-              ) : isAdmin ? (
-                <Button asChild size="sm" variant="outline">
-                  <Link to={settingsHref}>Configure {name}</Link>
-                </Button>
-              ) : (
-                <span className="text-xs text-muted-foreground">
-                  Waiting for instance setup
-                </span>
-              )}
-            </div>
-          ) : null}
-        </div>
+        ) : null}
       </div>
-    </article>
+      <span
+        aria-hidden
+        data-slot="selection-check"
+        className="mt-0.5 ml-auto grid size-3.5 shrink-0 place-items-center"
+      >
+        <RiCheckLine
+          className={cn("size-3.5", connected ? "opacity-100" : "opacity-0")}
+        />
+      </span>
+    </ChoiceCard>
   )
 }
