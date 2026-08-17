@@ -1,7 +1,16 @@
 // SPDX-License-Identifier: AGPL-3.0-only
 import { and, asc, eq, isNotNull } from "drizzle-orm"
 import { nanoid } from "nanoid"
-import { projects, memberships } from "@ploydok/db"
+import {
+  apps,
+  databases,
+  eventWebhooks,
+  memberships,
+  projects,
+  scheduled_jobs,
+  services,
+  sso_configs,
+} from "@ploydok/db"
 import type { Db } from "@ploydok/db"
 
 /**
@@ -269,6 +278,142 @@ export async function createOrganizationForUser(
 
   if (!inserted) throw new Error("failed to insert organization")
   return toSummary(inserted)
+}
+
+export type SlugFrozenReason = "not_pristine" | "not_requested"
+
+export type RenameOrganizationResult =
+  | {
+      ok: true
+      organization: OrganizationSummary
+      slug_changed: boolean
+      previous_slug: string
+      slug_frozen_reason: SlugFrozenReason | null
+    }
+  | { ok: false; reason: "not_found" | "slug_conflict" }
+
+/**
+ * A workspace may only change its slug while nothing external pins it.
+ *
+ * The blocking set is deliberately narrow: `sso_configs.redirect_uri` embeds
+ * the slug and is registered inside the customer's IdP, outbound webhook
+ * payloads carry `org_slug`, and anything deployed means links are in the wild.
+ * Env vars, secrets and branding create no external coupling, so they must not
+ * block a rename.
+ */
+async function isWorkspacePristine(
+  db: Pick<Db, "select">,
+  orgId: string
+): Promise<boolean> {
+  const [appRows, dbRows, serviceRows, ssoRows, hookRows, jobRows, memberRows] =
+    await Promise.all([
+      db
+        .select({ id: apps.id })
+        .from(apps)
+        .where(eq(apps.project_id, orgId))
+        .limit(1),
+      db
+        .select({ id: databases.id })
+        .from(databases)
+        .where(eq(databases.project_id, orgId))
+        .limit(1),
+      db
+        .select({ id: services.id })
+        .from(services)
+        .where(eq(services.project_id, orgId))
+        .limit(1),
+      db
+        .select({ id: sso_configs.id })
+        .from(sso_configs)
+        .where(eq(sso_configs.org_id, orgId))
+        .limit(1),
+      db
+        .select({ id: eventWebhooks.id })
+        .from(eventWebhooks)
+        .where(eq(eventWebhooks.org_id, orgId))
+        .limit(1),
+      db
+        .select({ id: scheduled_jobs.id })
+        .from(scheduled_jobs)
+        .where(eq(scheduled_jobs.org_id, orgId))
+        .limit(1),
+      db
+        .select({ id: memberships.id })
+        .from(memberships)
+        .where(eq(memberships.org_id, orgId))
+        .limit(2),
+    ])
+
+  if (appRows[0] || dbRows[0] || serviceRows[0]) return false
+  if (ssoRows[0] || hookRows[0] || jobRows[0]) return false
+  // A second member means someone else may already hold a link to this slug.
+  return memberRows.length <= 1
+}
+
+/**
+ * Rename a workspace, regenerating the slug only while the workspace is
+ * pristine. Authorization is handled upstream by requireRole(["owner"]).
+ */
+export async function renameOrganizationForUser(
+  db: Db,
+  slug: string,
+  name: string,
+  reslug: boolean
+): Promise<RenameOrganizationResult> {
+  const rows = await db
+    .select()
+    .from(projects)
+    .where(eq(projects.slug, slug))
+    .limit(1)
+  const project = rows[0]
+  if (!project) return { ok: false, reason: "not_found" }
+
+  const normalizedName = name.trim()
+
+  let frozenReason: SlugFrozenReason | null = null
+  if (!reslug) {
+    frozenReason = "not_requested"
+  } else if (!(await isWorkspacePristine(db, project.id))) {
+    frozenReason = "not_pristine"
+  }
+
+  if (frozenReason !== null) {
+    const [updated] = await db
+      .update(projects)
+      .set({ name: normalizedName })
+      .where(eq(projects.id, project.id))
+      .returning()
+    if (!updated) return { ok: false, reason: "not_found" }
+    return {
+      ok: true,
+      organization: toSummary(updated),
+      slug_changed: false,
+      previous_slug: project.slug,
+      slug_frozen_reason: frozenReason,
+    }
+  }
+
+  for (let attempt = 0; attempt < 2; attempt++) {
+    const nextSlug = await uniqueOrganizationSlug(db, normalizedName)
+    try {
+      const [updated] = await db
+        .update(projects)
+        .set({ name: normalizedName, slug: nextSlug })
+        .where(eq(projects.id, project.id))
+        .returning()
+      if (!updated) return { ok: false, reason: "not_found" }
+      return {
+        ok: true,
+        organization: toSummary(updated),
+        slug_changed: updated.slug !== project.slug,
+        previous_slug: project.slug,
+        slug_frozen_reason: null,
+      }
+    } catch (err) {
+      if (!isUniqueViolation(err)) throw err
+    }
+  }
+  return { ok: false, reason: "slug_conflict" }
 }
 
 export async function getOrganizationBySlugForUser(

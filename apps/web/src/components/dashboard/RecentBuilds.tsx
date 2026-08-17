@@ -1,5 +1,6 @@
 // SPDX-License-Identifier: AGPL-3.0-only
 import * as React from "react"
+import { Skeleton } from "@workspace/ui/components/skeleton"
 import { Link } from "@tanstack/react-router"
 import {
   organizationPath,
@@ -146,15 +147,19 @@ function BuildItem({ build }: { build: BuildRow }): React.JSX.Element {
 
 function RecentBuildsSkeleton(): React.JSX.Element {
   return (
-    <div className="animate-pulse divide-y divide-border overflow-hidden rounded-2xl bg-panel">
+    <div
+      className="divide-y divide-border overflow-hidden rounded-2xl bg-panel"
+      aria-busy="true"
+      aria-label="Loading recent builds"
+    >
       {[...Array<null>(4)].map((_, i) => (
         <div key={i} className="flex items-center gap-3 px-4 py-3">
-          <div className="size-2 shrink-0 rounded-full bg-muted" />
+          <Skeleton className="size-2 shrink-0 rounded-full" />
           <div className="flex-1 space-y-1.5">
-            <div className="h-3 w-32 rounded bg-muted" />
-            <div className="h-2.5 w-16 rounded bg-muted" />
+            <Skeleton className="h-3 w-32" />
+            <Skeleton className="h-2.5 w-16" />
           </div>
-          <div className="h-3 w-14 rounded bg-muted" />
+          <Skeleton className="h-3 w-14" />
         </div>
       ))}
     </div>

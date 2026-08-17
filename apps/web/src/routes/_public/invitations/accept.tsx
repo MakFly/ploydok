@@ -64,8 +64,8 @@ function AcceptInvitationPage(): React.JSX.Element {
     return (
       <div className="flex min-h-svh items-center justify-center bg-background p-4 text-foreground">
         <div className="w-full max-w-sm">
-          <div className="h-8 w-48 animate-pulse rounded bg-muted" />
-          <div className="mt-4 h-32 w-full animate-pulse rounded bg-muted" />
+          <div className="h-8 w-48 rounded skeleton-surface" />
+          <div className="mt-4 h-32 w-full rounded skeleton-surface" />
         </div>
       </div>
     )
@@ -170,7 +170,7 @@ function AcceptInvitationPage(): React.JSX.Element {
             ) : (
               <Button
                 onClick={handleAccept}
-                disabled={acceptMutation.isPending}
+                loading={acceptMutation.isPending}
                 size="lg"
                 className="w-full"
               >

@@ -10,6 +10,7 @@ import type {
   OrganizationResponse,
   OrganizationSummary,
   OrganizationsResponse,
+  UpdateOrganizationResponse,
 } from "@ploydok/shared"
 
 export function organizationDashboardPath(orgSlug: string): string {
@@ -57,7 +58,43 @@ export function useCreateOrganization() {
     },
     onSuccess: async () => {
       toast.success("Workspace created")
-      await qc.invalidateQueries({ queryKey: ["organizations"] })
+      await Promise.all([
+        qc.invalidateQueries({ queryKey: ["organizations"] }),
+        // `me.default_organization` is cached for 60s and feeds the sidebar.
+        qc.invalidateQueries({ queryKey: ["me"] }),
+      ])
+    },
+    onError: (error) => {
+      toast.error(error.message)
+    },
+  })
+}
+
+export interface RenameOrganizationVariables {
+  slug: string
+  name: string
+  /** Regenerate the URL too. The server refuses on a non-pristine workspace. */
+  reslug?: boolean
+}
+
+export function useRenameOrganization() {
+  const qc = useQueryClient()
+
+  return useMutation<
+    UpdateOrganizationResponse,
+    ApiError,
+    RenameOrganizationVariables
+  >({
+    mutationFn: ({ slug, name, reslug }) =>
+      apiFetch<UpdateOrganizationResponse>(`/organizations/${slug}`, {
+        method: "PATCH",
+        body: { name, reslug: reslug ?? false },
+      }),
+    onSuccess: async () => {
+      await Promise.all([
+        qc.invalidateQueries({ queryKey: ["organizations"] }),
+        qc.invalidateQueries({ queryKey: ["me"] }),
+      ])
     },
     onError: (error) => {
       toast.error(error.message)

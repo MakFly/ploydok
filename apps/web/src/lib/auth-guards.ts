@@ -58,6 +58,28 @@ export async function requireMe(
   }
 }
 
+/**
+ * Guard for the _authed layout: authenticated *and* past onboarding.
+ *
+ * There is no exempt path. The onboarding wizard is self-contained — it
+ * registers the instance-level GitHub App or GitLab OAuth app and connects the
+ * account without ever leaving /onboarding — so nothing under _authed needs to
+ * stay reachable beforehand. /settings/git-providers used to be exempt back
+ * when the wizard could only hand off to it; keeping that hole would leak the
+ * whole app shell to a user who has not onboarded.
+ */
+export async function requireOnboardedSession(
+  fetchMe: () => Promise<Me> = () => apiFetch<Me>("/me"),
+  fetchProviders: () => Promise<GitProviderStatus> = getGitProviderStatus
+): Promise<Me> {
+  const me = await requireMe(fetchMe)
+  const providers = await fetchProviders()
+  if (!providers.ready) {
+    throw redirect({ to: "/onboarding" })
+  }
+  return me
+}
+
 function resolveDefaultOrganizationPath(me: Me): string {
   return me.default_organization
     ? organizationDashboardPath(me.default_organization.slug)

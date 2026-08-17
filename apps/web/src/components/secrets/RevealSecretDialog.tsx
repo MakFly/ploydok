@@ -160,7 +160,8 @@ export function RevealSecretDialog({
               </Button>
               <Button
                 type="submit"
-                disabled={isPending || (requiresTotp && totpCode.length !== 6)}
+                loading={isPending}
+                disabled={requiresTotp && totpCode.length !== 6}
               >
                 {isPending
                   ? requiresTotp

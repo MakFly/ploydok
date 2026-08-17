@@ -92,7 +92,7 @@ export function BasicAuthForm({ appId }: BasicAuthFormProps): React.JSX.Element 
             <Button
               size="sm"
               onClick={handleSave}
-              disabled={update.isPending || !user}
+              loading={update.isPending} disabled={!user}
             >
               Save
             </Button>
@@ -101,7 +101,7 @@ export function BasicAuthForm({ appId }: BasicAuthFormProps): React.JSX.Element 
                 size="sm"
                 variant="outline"
                 onClick={handleReveal}
-                disabled={reveal.isPending}
+                loading={reveal.isPending}
               >
                 Reveal current
               </Button>

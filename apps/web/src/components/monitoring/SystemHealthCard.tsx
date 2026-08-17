@@ -46,10 +46,10 @@ export function SystemHealthCard(): React.JSX.Element {
   if (isLoading) {
     return (
       <div className="rounded-xl rounded-2xl bg-panel p-4">
-        <div className="h-4 w-24 animate-pulse rounded bg-muted" />
+        <div className="h-4 w-24 rounded skeleton-surface" />
         <div className="mt-3 grid grid-cols-3 gap-3">
           {Array.from({ length: 3 }).map((_, i) => (
-            <div key={i} className="h-12 animate-pulse rounded bg-muted/60" />
+            <div key={i} className="h-12 rounded skeleton-surface" />
           ))}
         </div>
       </div>

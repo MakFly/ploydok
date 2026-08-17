@@ -12,6 +12,7 @@ import {
   RiInformationLine,
 } from "@remixicon/react"
 import { Button } from "@workspace/ui/components/button"
+import { Skeleton } from "@workspace/ui/components/skeleton"
 import { Input } from "@workspace/ui/components/input"
 import { Switch } from "@workspace/ui/components/switch"
 import {
@@ -698,7 +699,7 @@ export function CreateAppModal({
                   <Button
                     size="sm"
                     onClick={() => void handleSubmit()}
-                    disabled={isSubmitting || !canGoNext()}
+                    loading={isSubmitting} disabled={!canGoNext()}
                   >
                     {isSubmitting ? "Création…" : "Créer l'application"}
                   </Button>
@@ -1098,7 +1099,7 @@ function GitSection({
             Branche
           </label>
           {branchesLoading ? (
-            <div className="h-9 w-full animate-pulse rounded-md bg-muted" />
+            <div className="h-9 w-full rounded-md skeleton-surface" />
           ) : (
             <Select value={branch} onValueChange={onBranchChange}>
               <SelectTrigger id="branch-select">
@@ -2017,7 +2018,7 @@ function DatabaseStep({
             Database existante
           </label>
           {isLoading ? (
-            <div className="text-sm text-muted-foreground">Chargement…</div>
+            <Skeleton className="h-9 w-full rounded-md" />
           ) : runningDatabases.length === 0 ? (
             <div className="rounded-md border border-border bg-muted/30 px-3 py-2 text-sm text-muted-foreground">
               Aucune database running dans ce projet.

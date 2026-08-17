@@ -457,7 +457,7 @@ function SetupPage(): React.JSX.Element {
         )}
         <Button
           type="submit"
-          disabled={loading}
+          loading={loading}
           className="h-11 w-full rounded-[10px]"
         >
           {loading ? "Creating admin…" : "Create admin account"}

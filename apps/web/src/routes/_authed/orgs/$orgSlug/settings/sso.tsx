@@ -275,7 +275,7 @@ function SSOSettingsPage() {
             </div>
 
             <div className="flex gap-2">
-              <Button type="submit" disabled={loading}>
+              <Button type="submit" loading={loading}>
                 {loading ? "Saving..." : config ? "Update" : "Create"}
               </Button>
               <Button
@@ -293,7 +293,7 @@ function SSOSettingsPage() {
                   type="button"
                   variant="destructive"
                   onClick={handleDelete}
-                  disabled={loading}
+                  loading={loading}
                 >
                   Delete
                 </Button>

@@ -6,7 +6,6 @@ import {
   RiComputerLine,
   RiErrorWarningLine,
   RiGlobalLine,
-  RiLoader4Line,
   RiMapPinLine,
   RiRadarLine,
   RiShieldCheckLine,
@@ -26,6 +25,7 @@ import {
   AlertDialogTrigger,
 } from "@workspace/ui/components/alert-dialog"
 import { Button } from "@workspace/ui/components/button"
+import { Skeleton } from "@workspace/ui/components/skeleton"
 import { cn } from "@workspace/ui/lib/utils"
 import {
   useRevokeOthers,
@@ -45,7 +45,10 @@ function SessionsPage(): React.JSX.Element {
   if (error) {
     return (
       <section className="rounded-2xl bg-panel p-4">
-        <p role="alert" className="flex items-center gap-1.5 text-sm text-destructive">
+        <p
+          role="alert"
+          className="flex items-center gap-1.5 text-sm text-destructive"
+        >
           <RiErrorWarningLine className="size-4" />
           Failed to load sessions: {error.message}
         </p>
@@ -95,8 +98,14 @@ function SessionsPage(): React.JSX.Element {
           </div>
           {others.length > 0 ? (
             <AlertDialog>
+              {/* The confirm button unmounts with the dialog, so the trigger
+                  is what carries the pending state. */}
               <AlertDialogTrigger asChild>
-                <Button variant="destructive" size="sm">
+                <Button
+                  variant="destructive"
+                  size="sm"
+                  loading={revokeOthers.isPending}
+                >
                   <RiCloseCircleLine />
                   Sign out {others.length} other
                   {others.length === 1 ? "" : "s"}
@@ -111,9 +120,9 @@ function SessionsPage(): React.JSX.Element {
                     Sign out all other devices?
                   </AlertDialogTitle>
                   <AlertDialogDescription>
-                    Every device except this one will be signed out
-                    immediately. They will have to re-authenticate with a
-                    passkey to regain access.
+                    Every device except this one will be signed out immediately.
+                    They will have to re-authenticate with a passkey to regain
+                    access.
                   </AlertDialogDescription>
                 </AlertDialogHeader>
                 <AlertDialogFooter>
@@ -122,9 +131,7 @@ function SessionsPage(): React.JSX.Element {
                     variant="destructive"
                     onClick={() => revokeOthers.mutate()}
                   >
-                    {revokeOthers.isPending
-                      ? "Signing out…"
-                      : "Sign them out"}
+                    {revokeOthers.isPending ? "Signing out…" : "Sign them out"}
                   </AlertDialogAction>
                 </AlertDialogFooter>
               </AlertDialogContent>
@@ -149,11 +156,13 @@ function SessionsPage(): React.JSX.Element {
         </div>
 
         {isLoading ? (
-          <div className="rounded-lg border border-panel-border border-dashed bg-panel-inset p-4">
-            <p className="flex items-center gap-2 text-xs text-muted-foreground">
-              <RiLoader4Line className="size-3.5 animate-spin" />
-              Loading sessions…
-            </p>
+          <div
+            className="space-y-2 rounded-lg border border-dashed border-panel-border bg-panel-inset p-4"
+            aria-busy="true"
+            aria-label="Loading sessions"
+          >
+            <Skeleton className="h-10 w-full rounded-md" />
+            <Skeleton className="h-10 w-full rounded-md" />
           </div>
         ) : sorted.length > 0 ? (
           <ul className="space-y-2">
@@ -162,7 +171,7 @@ function SessionsPage(): React.JSX.Element {
             ))}
           </ul>
         ) : (
-          <div className="flex flex-col items-center justify-center gap-2 rounded-lg border border-panel-border border-dashed bg-panel-inset px-4 py-10 text-center">
+          <div className="flex flex-col items-center justify-center gap-2 rounded-lg border border-dashed border-panel-border bg-panel-inset px-4 py-10 text-center">
             <div className="flex size-10 items-center justify-center rounded-full bg-muted">
               <RiComputerLine className="size-5 text-muted-foreground" />
             </div>
@@ -174,8 +183,8 @@ function SessionsPage(): React.JSX.Element {
       {current ? (
         <p className="text-xs text-muted-foreground">
           To end your current session, use{" "}
-          <span className="font-medium text-foreground">Sign out</span> from
-          the sidebar user menu.
+          <span className="font-medium text-foreground">Sign out</span> from the
+          sidebar user menu.
         </p>
       ) : null}
     </div>
@@ -214,11 +223,7 @@ function parseUA(ua: string): ParsedUA {
   return { os, browser, icon }
 }
 
-function SessionRow({
-  session,
-}: {
-  session: SessionInfo
-}): React.JSX.Element {
+function SessionRow({ session }: { session: SessionInfo }): React.JSX.Element {
   const revoke = useRevokeSession()
   const { os, browser, icon: Icon } = parseUA(session.user_agent)
   const pending = revoke.isPending && revoke.variables === session.id
@@ -248,8 +253,7 @@ function SessionRow({
         <div className="min-w-0 flex-1 space-y-1">
           <div className="flex flex-wrap items-center gap-2">
             <p className="truncate text-sm font-medium">
-              {browser}{" "}
-              <span className="text-muted-foreground">on {os}</span>
+              {browser} <span className="text-muted-foreground">on {os}</span>
             </p>
             {session.is_current ? (
               <span className="relative inline-flex items-center gap-1 rounded-full bg-emerald-500/15 px-1.5 py-0.5 text-[10px] font-medium text-emerald-700 dark:text-emerald-300">
@@ -301,7 +305,7 @@ function SessionRow({
                 <Button
                   variant="ghost"
                   size="sm"
-                  disabled={pending}
+                  loading={pending}
                   className="text-muted-foreground hover:text-destructive"
                   aria-label={`Revoke session on ${browser} / ${os}`}
                 >

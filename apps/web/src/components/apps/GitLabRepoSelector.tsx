@@ -28,8 +28,14 @@ export function GitLabRepoSelector({
   const debouncedSearch = useDebounce(search, 200)
 
   const { data: config } = useGitLabConfig()
-  const { data, isLoading, isFetchingNextPage, hasNextPage, fetchNextPage, error } =
-    useGitLabRepos({ search: debouncedSearch || undefined })
+  const {
+    data,
+    isLoading,
+    isFetchingNextPage,
+    hasNextPage,
+    fetchNextPage,
+    error,
+  } = useGitLabRepos({ search: debouncedSearch || undefined })
 
   if (!config?.configured) {
     return (
@@ -59,7 +65,7 @@ export function GitLabRepoSelector({
         placeholder="Rechercher un projet GitLab..."
         value={search}
         onChange={(e) => setSearch(e.target.value)}
-        className="w-full rounded-md border border-input bg-background px-3 py-2 text-sm focus:outline-none focus:ring-2 focus:ring-ring"
+        className="w-full rounded-md border border-input bg-background px-3 py-2 text-sm focus:ring-2 focus:ring-ring focus:outline-none"
         aria-label="Search GitLab projects"
       />
 
@@ -77,7 +83,7 @@ export function GitLabRepoSelector({
         </p>
       ) : (
         <ul
-          className="max-h-72 divide-y divide-border overflow-y-auto rounded-md border border-border"
+          className="scrollbar-thin max-h-[clamp(14rem,88dvh_-_36rem,40rem)] divide-y divide-border overflow-y-auto rounded-md border border-border"
           role="listbox"
           aria-label="GitLab projects"
         >
@@ -118,7 +124,11 @@ interface RepoItemProps {
   onSelect: (repo: GitRepo) => void
 }
 
-function RepoItem({ repo, isSelected, onSelect }: RepoItemProps): React.JSX.Element {
+function RepoItem({
+  repo,
+  isSelected,
+  onSelect,
+}: RepoItemProps): React.JSX.Element {
   const parts = repo.fullName.split("/")
   const repoName = parts.at(-1) ?? repo.fullName
   const namespace = parts.slice(0, -1).join("/")
@@ -133,13 +143,15 @@ function RepoItem({ repo, isSelected, onSelect }: RepoItemProps): React.JSX.Elem
       ].join(" ")}
       onClick={() => onSelect(repo)}
     >
-      <div className="flex size-8 shrink-0 items-center justify-center rounded-md bg-muted font-mono text-[10px] uppercase text-muted-foreground">
+      <div className="flex size-8 shrink-0 items-center justify-center rounded-md bg-muted font-mono text-[10px] text-muted-foreground uppercase">
         {repoName.slice(0, 2)}
       </div>
       <div className="min-w-0 flex-1">
         <div className="flex items-center gap-2">
           <span className="truncate font-medium">{repoName}</span>
-          <span className="shrink-0 text-xs text-muted-foreground">{namespace}</span>
+          <span className="shrink-0 text-xs text-muted-foreground">
+            {namespace}
+          </span>
           {repo.private ? (
             <span className="ml-auto shrink-0 rounded-full bg-muted px-1.5 py-0.5 text-[10px] font-medium tracking-wide text-muted-foreground uppercase">
               private
@@ -152,20 +164,22 @@ function RepoItem({ repo, isSelected, onSelect }: RepoItemProps): React.JSX.Elem
           </p>
         ) : null}
       </div>
-      {isSelected ? <CheckIcon className="mt-0.5 size-4 shrink-0 text-primary" /> : null}
+      {isSelected ? (
+        <CheckIcon className="mt-0.5 size-4 shrink-0 text-primary" />
+      ) : null}
     </li>
   )
 }
 
 function RepoListSkeleton(): React.JSX.Element {
   return (
-    <ul className="animate-pulse divide-y divide-border rounded-md border border-border">
+    <ul className="divide-y divide-border rounded-md border border-border">
       {[...Array<null>(4)].map((_, i) => (
         <li key={i} className="flex items-center gap-3 px-3 py-3">
-          <div className="size-8 rounded-md bg-muted" />
+          <div className="size-8 skeleton-surface rounded-md" />
           <div className="flex-1 space-y-1.5">
-            <div className="h-3.5 w-40 rounded bg-muted" />
-            <div className="h-3 w-64 rounded bg-muted" />
+            <div className="h-3.5 w-40 skeleton-surface rounded" />
+            <div className="h-3 w-64 skeleton-surface rounded" />
           </div>
         </li>
       ))}

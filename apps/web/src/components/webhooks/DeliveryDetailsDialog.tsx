@@ -192,7 +192,7 @@ function ReplayTotpDialog({
           <Button
             size="sm"
             onClick={() => void handleReplay()}
-            disabled={pending || totpCode.length !== 6}
+            loading={pending} disabled={totpCode.length !== 6}
           >
             {pending ? "Replaying…" : "Redeliver"}
           </Button>

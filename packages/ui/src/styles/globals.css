@@ -18,6 +18,8 @@
   --color-panel: var(--panel);
   --color-panel-inset: var(--panel-inset);
   --color-panel-border: var(--panel-border);
+  --color-skeleton: var(--skeleton);
+  --color-skeleton-highlight: var(--skeleton-highlight);
 
   --font-sans: var(--font-inter), ui-sans-serif, system-ui, sans-serif,
     "Apple Color Emoji", "Segoe UI Emoji";
@@ -110,6 +112,8 @@
   --panel: #f7f7f7;
   --panel-inset: #ffffff;
   --panel-border: #d4d4d4;
+  --skeleton: #e2e2e2;
+  --skeleton-highlight: #f0f0f0;
   --card: #ffffff;
   --card-foreground: #0a0a0a;
   --popover: #ffffff;
@@ -157,6 +161,8 @@
   --panel: #171717;
   --panel-inset: #262626;
   --panel-border: #404040;
+  --skeleton: #303030;
+  --skeleton-highlight: #3b3b3b;
   --card: #171717;
   --card-foreground: #fafafa;
   --popover: #171717;
@@ -208,6 +214,35 @@
   }
   body {
     @apply bg-background font-sans text-foreground antialiased;
+  }
+}
+
+@keyframes skeleton-shimmer {
+  0%,
+  100% {
+    background-position: 100% 0;
+  }
+
+  50% {
+    background-position: 0 0;
+  }
+}
+
+@utility skeleton-surface {
+  background-color: var(--skeleton);
+  background-image: linear-gradient(
+    90deg,
+    var(--skeleton) 0%,
+    var(--skeleton-highlight) 50%,
+    var(--skeleton) 100%
+  );
+  background-size: 200% 100%;
+  animation: skeleton-shimmer 1.8s ease-in-out infinite;
+}
+
+@media (prefers-reduced-motion: reduce) {
+  .skeleton-surface {
+    animation: none;
   }
 }
 

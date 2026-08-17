@@ -167,7 +167,7 @@ function CreateCredentialForm({
         >
           Cancel
         </Button>
-        <Button type="submit" size="sm" disabled={create.isPending}>
+        <Button type="submit" size="sm" loading={create.isPending}>
           {create.isPending ? "Saving…" : "Save credential"}
         </Button>
       </div>
@@ -257,20 +257,22 @@ function CredentialRow({
           {credential.username}@{credential.registryHost}
         </p>
       </div>
-      <button
+      <Button
         type="button"
+        variant="outline"
+        size="xs"
         onClick={handleDelete}
-        disabled={del.isPending}
+        loading={del.isPending}
         className={cn(
-          "inline-flex h-8 items-center gap-1.5 rounded-md border px-2.5 text-xs font-medium transition-colors",
+          "h-8 gap-1.5 px-2.5",
           confirming
             ? "border-destructive/40 bg-destructive/10 text-destructive hover:bg-destructive/15"
-            : "border-border bg-background text-muted-foreground hover:text-foreground"
+            : "text-muted-foreground hover:text-foreground"
         )}
       >
         <RiDeleteBinLine className="size-3.5" />
         {confirming ? "Confirm" : "Delete"}
-      </button>
+      </Button>
     </li>
   )
 }
@@ -301,12 +303,12 @@ function CredentialListSkeleton(): React.JSX.Element {
     <div className="divide-y divide-border rounded-xl rounded-2xl bg-panel">
       {Array.from({ length: 2 }).map((_, i) => (
         <div key={i} className="flex items-center gap-3 px-4 py-3">
-          <div className="size-9 rounded-md bg-muted" />
+          <div className="size-9 rounded-md skeleton-surface" />
           <div className="flex-1 space-y-1.5">
-            <div className="h-3 w-32 rounded bg-muted" />
-            <div className="h-2.5 w-48 rounded bg-muted/60" />
+            <div className="h-3 w-32 rounded skeleton-surface" />
+            <div className="h-2.5 w-48 rounded skeleton-surface" />
           </div>
-          <div className="h-7 w-16 rounded-md bg-muted" />
+          <div className="h-7 w-16 rounded-md skeleton-surface" />
         </div>
       ))}
     </div>

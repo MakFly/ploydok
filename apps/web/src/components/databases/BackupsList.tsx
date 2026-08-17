@@ -2,6 +2,7 @@
 import * as React from "react"
 import { Badge } from "@workspace/ui/components/badge"
 import { Button } from "@workspace/ui/components/button"
+import { Skeleton } from "@workspace/ui/components/skeleton"
 import { useDeleteBackup, useTargetBackups } from "../../lib/backups"
 import { RestoreDialog } from "./RestoreDialog"
 import type { Backup, BackupTarget } from "../../lib/backups"
@@ -49,7 +50,12 @@ export function BackupsList({
   const restoreEnabled = target.kind === "database"
 
   if (isLoading) {
-    return <p className="text-sm text-muted-foreground">Loading backups…</p>
+    return (
+      <div className="space-y-2" aria-busy="true" aria-label="Loading backups">
+        <Skeleton className="h-10 w-full rounded-md" />
+        <Skeleton className="h-10 w-full rounded-md" />
+      </div>
+    )
   }
 
   if (!backups || backups.length === 0) {
@@ -139,7 +145,7 @@ export function BackupsList({
                     size="sm"
                     className="text-destructive hover:text-destructive"
                     onClick={() => deleteBackup.mutate(backup.id)}
-                    disabled={deleteBackup.isPending}
+                    loading={deleteBackup.isPending}
                   >
                     Delete
                   </Button>

@@ -9,6 +9,7 @@ import {
   DialogTitle,
 } from "@workspace/ui/components/dialog"
 import { Button } from "@workspace/ui/components/button"
+import { Skeleton } from "@workspace/ui/components/skeleton"
 import { Input } from "@workspace/ui/components/input"
 import { Label } from "@workspace/ui/components/label"
 import {
@@ -92,9 +93,7 @@ export function LinkDatabaseDialog({
           <div className="flex flex-col gap-2">
             <Label htmlFor="db-select">Database</Label>
             {isLoading ? (
-              <div className="text-sm text-muted-foreground">
-                Loading databases...
-              </div>
+              <Skeleton className="h-9 w-full rounded-md" />
             ) : runningDbs.length === 0 ? (
               <div className="text-sm text-muted-foreground">
                 No running databases in this project.
@@ -148,7 +147,8 @@ export function LinkDatabaseDialog({
             </Button>
             <Button
               type="submit"
-              disabled={isPending || !selectedDbId || runningDbs.length === 0}
+              loading={isPending}
+              disabled={!selectedDbId || runningDbs.length === 0}
             >
               {isPending ? "Linking..." : "Link"}
             </Button>

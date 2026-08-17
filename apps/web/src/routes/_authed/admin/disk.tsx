@@ -133,28 +133,22 @@ function AdminDiskPage(): React.JSX.Element {
             type="button"
             variant="outline"
             className="w-full gap-2 sm:w-auto"
-            disabled={activeJob !== null || pruneImagesMutation.isPending}
+            loading={pruneImagesMutation.isPending}
+            disabled={activeJob !== null}
             onClick={() => pruneImagesMutation.mutate()}
           >
-            {pruneImagesMutation.isPending ? (
-              <RiLoader4Line className="size-4 animate-spin" />
-            ) : (
-              <RiDeleteBin6Line className="size-4" />
-            )}
+            <RiDeleteBin6Line className="size-4" />
             Reclaim dangling images
           </Button>
           <Button
             type="button"
             variant="outline"
             className="w-full gap-2 sm:w-auto"
-            disabled={activeJob !== null || pruneBuildCacheMutation.isPending}
+            loading={pruneBuildCacheMutation.isPending}
+            disabled={activeJob !== null}
             onClick={() => pruneBuildCacheMutation.mutate()}
           >
-            {pruneBuildCacheMutation.isPending ? (
-              <RiLoader4Line className="size-4 animate-spin" />
-            ) : (
-              <RiEraserLine className="size-4" />
-            )}
+            <RiEraserLine className="size-4" />
             Prune build cache
           </Button>
         </div>
@@ -178,12 +172,12 @@ function AdminDiskPage(): React.JSX.Element {
 
       {isLoading ? (
         <div className="space-y-3">
-          <div className="h-24 animate-pulse rounded-xl border border-border bg-muted/40" />
+          <div className="h-24 rounded-xl border border-border skeleton-surface" />
           <div className="grid grid-cols-1 gap-3 sm:grid-cols-2 xl:grid-cols-4">
             {Array.from({ length: 4 }).map((_, i) => (
               <div
                 key={i}
-                className="h-28 animate-pulse rounded-xl border border-border bg-muted/40"
+                className="h-28 rounded-xl border border-border skeleton-surface"
               />
             ))}
           </div>
@@ -224,7 +218,7 @@ function HostUsageCard({
   return (
     <section
       aria-label="Host disk usage"
-      className="rounded-xl rounded-2xl bg-panel p-4"
+      className="rounded-2xl rounded-xl bg-panel p-4"
     >
       <div className="flex items-center gap-2 text-sm font-medium text-foreground">
         <RiHardDriveLine className="size-4 text-muted-foreground" />
@@ -266,7 +260,7 @@ function CategoryCard({
   category: DiskUsageResponse["categories"][number]
 }): React.JSX.Element {
   return (
-    <div className="flex flex-col gap-2 rounded-xl rounded-2xl bg-panel p-4">
+    <div className="flex flex-col gap-2 rounded-2xl rounded-xl bg-panel p-4">
       <p className="text-sm font-medium text-foreground">
         {CATEGORY_LABELS[category.kind]}
       </p>

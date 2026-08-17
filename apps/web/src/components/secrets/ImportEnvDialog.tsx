@@ -138,7 +138,7 @@ export function ImportEnvDialog({
             >
               Cancel
             </Button>
-            <Button type="submit" disabled={isPending || !file}>
+            <Button type="submit" loading={isPending} disabled={!file}>
               {isPending ? "Importing…" : "Import"}
             </Button>
           </DialogFooter>

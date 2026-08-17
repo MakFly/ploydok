@@ -165,7 +165,7 @@ function GeneralSettingsPage(): React.JSX.Element {
               Cancel
             </AlertDialogCancel>
             <AlertDialogAction
-              disabled={!canDelete || deleteOrg.isPending}
+              loading={deleteOrg.isPending} disabled={!canDelete}
               onClick={(e) => {
                 e.preventDefault()
                 void handleDelete()

@@ -148,7 +148,7 @@ export function DomainCard({
                 size="sm"
                 variant="ghost"
                 className="h-7 w-7 px-0 text-destructive hover:text-destructive"
-                disabled={isDeleting || actionLocked}
+                loading={isDeleting} disabled={actionLocked}
                 title={lockReason ?? `Remove ${domain.hostname}`}
               >
                 <RiDeleteBinLine className="size-4" aria-hidden="true" />

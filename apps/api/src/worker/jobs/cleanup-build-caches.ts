@@ -16,8 +16,8 @@ export const BUILD_CACHE_DIR_NAMES = [
 const ONE_DAY_MS = 24 * 60 * 60 * 1000
 const DEFAULT_MAX_AGE_MS = 14 * ONE_DAY_MS
 const DEFAULT_HOUR_UTC = 2
-const DEFAULT_BUILDKIT_KEEP_DURATION = "168h"
-const DEFAULT_BUILDKIT_KEEP_STORAGE = "10g"
+const DEFAULT_DOCKER_CACHE_KEEP_DURATION = "168h"
+const DEFAULT_DOCKER_CACHE_KEEP_STORAGE = "10g"
 
 let _timer: ReturnType<typeof setTimeout> | null = null
 let _interval: ReturnType<typeof setInterval> | null = null
@@ -35,7 +35,7 @@ export interface CleanupBuildCachesResult {
   removedBytes: number
 }
 
-export interface BuildkitPruneResult {
+export interface DockerBuildCachePruneResult {
   ok: boolean
   exitCode?: number
   output?: string
@@ -121,32 +121,26 @@ export async function cleanupBuildCaches(
   return result
 }
 
-export async function pruneBuildkitCache(opts?: {
-  buildkitAddr?: string
+export async function pruneDockerBuildCache(opts?: {
   keepDuration?: string
   keepStorage?: string
-}): Promise<BuildkitPruneResult> {
-  const buildkitAddr = opts?.buildkitAddr ?? env.PLOYDOK_BUILDKIT_ADDR
-  const keepDuration = opts?.keepDuration ?? DEFAULT_BUILDKIT_KEEP_DURATION
-  const keepStorage = opts?.keepStorage ?? DEFAULT_BUILDKIT_KEEP_STORAGE
+}): Promise<DockerBuildCachePruneResult> {
+  const keepDuration = opts?.keepDuration ?? DEFAULT_DOCKER_CACHE_KEEP_DURATION
+  const keepStorage = opts?.keepStorage ?? DEFAULT_DOCKER_CACHE_KEEP_STORAGE
 
   try {
     const proc = Bun.spawn(
       [
-        "buildctl",
-        "--addr",
-        buildkitAddr,
+        "docker",
+        "builder",
         "prune",
-        "--keep-duration",
-        keepDuration,
-        "--keep-storage",
+        "--filter",
+        `until=${keepDuration}`,
+        "--reserved-space",
         keepStorage,
         "--force",
       ],
-      {
-        stdout: "pipe",
-        stderr: "pipe",
-      }
+      { stdout: "pipe", stderr: "pipe" }
     )
     const stdout = await new Response(proc.stdout).text()
     const stderr = await new Response(proc.stderr).text()
@@ -155,20 +149,25 @@ export async function pruneBuildkitCache(opts?: {
 
     if (exitCode === 0) {
       log.info(
-        { buildkitAddr, keepDuration, keepStorage, output },
-        "buildkit cache pruned"
+        { keepDuration, keepStorage, output },
+        "docker build cache pruned"
       )
       return { ok: true, exitCode, output }
     }
 
     log.warn(
-      { buildkitAddr, keepDuration, keepStorage, exitCode, output },
-      "buildkit cache prune failed"
+      { keepDuration, keepStorage, exitCode, output },
+      "docker build cache prune failed"
     )
-    return { ok: false, exitCode, output }
+    return {
+      ok: false,
+      exitCode,
+      output,
+      error: output || `docker builder prune failed (exit ${exitCode})`,
+    }
   } catch (err) {
     const error = err instanceof Error ? err.message : String(err)
-    log.warn({ buildkitAddr, error }, "buildctl prune unavailable")
+    log.warn({ error }, "docker builder prune unavailable")
     return { ok: false, error }
   }
 }
@@ -207,8 +206,8 @@ export function startCleanupBuildCachesCron(opts?: {
       const cleanup = await cleanupBuildCaches(
         opts?.rootDir ? { rootDir: opts.rootDir } : {}
       )
-      const buildkit = await pruneBuildkitCache()
-      log.info({ cleanup, buildkit }, "build cache cleanup cron tick done")
+      const docker = await pruneDockerBuildCache()
+      log.info({ cleanup, docker }, "build cache cleanup cron tick done")
     } catch (err) {
       log.warn({ err }, "build cache cleanup cron tick failed")
     }

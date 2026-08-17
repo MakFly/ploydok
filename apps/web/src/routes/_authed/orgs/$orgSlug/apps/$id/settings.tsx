@@ -245,7 +245,7 @@ function AppMetadataCard({ app }: { app: AppDetail }): React.JSX.Element {
             </div>
           ) : null}
 
-          <Button onClick={handleSave} disabled={updateMutation.isPending}>
+          <Button onClick={handleSave} loading={updateMutation.isPending}>
             {updateMutation.isPending ? "Saving…" : "Save changes"}
           </Button>
         </>

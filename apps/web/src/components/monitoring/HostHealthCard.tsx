@@ -7,8 +7,8 @@ import {
   RiServerLine,
 } from "@remixicon/react"
 import { cn } from "@workspace/ui/lib/utils"
-import {  useHostStats } from "../../lib/host-stats"
-import type {HostStats} from "../../lib/host-stats";
+import { useHostStats } from "../../lib/host-stats"
+import type { HostStats } from "../../lib/host-stats"
 
 function formatBytes(b: number): string {
   if (b < 1024) return `${b} B`
@@ -27,9 +27,12 @@ function formatUptime(secs: number): string {
   return `${m}m`
 }
 
-function pctClass(pct: number, warnPct: number): string {
-  if (pct >= warnPct) return "text-destructive"
-  if (pct >= warnPct - 10) return "text-amber-600 dark:text-amber-400"
+const PCT_WARN = 70
+const PCT_CRIT = 90
+
+function pctClass(pct: number): string {
+  if (pct >= PCT_CRIT) return "text-destructive"
+  if (pct >= PCT_WARN) return "text-amber-600 dark:text-amber-400"
   return "text-emerald-600 dark:text-emerald-400"
 }
 
@@ -38,11 +41,11 @@ export function HostHealthCard(): React.JSX.Element {
 
   if (isLoading) {
     return (
-      <div className="rounded-xl rounded-2xl bg-panel p-4">
-        <div className="h-4 w-32 animate-pulse rounded bg-muted" />
+      <div className="rounded-2xl rounded-xl bg-panel p-4">
+        <div className="h-4 w-32 rounded skeleton-surface" />
         <div className="mt-3 grid grid-cols-2 gap-3 sm:grid-cols-4">
           {Array.from({ length: 4 }).map((_, i) => (
-            <div key={i} className="h-16 animate-pulse rounded bg-muted/60" />
+            <div key={i} className="h-16 rounded skeleton-surface" />
           ))}
         </div>
       </div>
@@ -86,7 +89,7 @@ function HostHealthBody({ data }: { data: HostStats }): React.JSX.Element {
   return (
     <section
       aria-label="Host server health"
-      className="rounded-xl rounded-2xl bg-panel"
+      className="rounded-2xl rounded-xl bg-panel"
     >
       <header className="flex items-center justify-between border-b border-border px-4 py-3">
         <div className="space-y-0.5">
@@ -125,14 +128,14 @@ function HostHealthBody({ data }: { data: HostStats }): React.JSX.Element {
           label="Memory"
           value={`${memPct.toFixed(0)}%`}
           sub={`${formatBytes(data.mem_used_bytes)} / ${formatBytes(data.mem_total_bytes)}`}
-          accent={pctClass(memPct, t.mem_warn_pct)}
+          accent={pctClass(memPct)}
         />
         <Cell
           icon={RiHardDriveLine}
           label="Disk /"
           value={`${diskPct.toFixed(0)}%`}
           sub={`${formatBytes(data.disk_used_bytes)} / ${formatBytes(data.disk_total_bytes)} · inodes ${inodesPct.toFixed(0)}%`}
-          accent={pctClass(diskPct, t.disk_warn_pct)}
+          accent={pctClass(diskPct)}
         />
         <Cell
           icon={RiPulseLine}

@@ -134,17 +134,17 @@ function ServicesGridSkeleton(): React.JSX.Element {
       {Array.from({ length: 4 }).map((_, idx) => (
         <div
           key={idx}
-          className="animate-pulse rounded-2xl bg-panel p-4"
+          className="rounded-2xl bg-panel p-4"
         >
           <div className="flex items-start justify-between gap-3">
             <div className="flex-1 space-y-2">
-              <div className="h-4 w-32 rounded bg-muted" />
-              <div className="h-3 w-24 rounded bg-muted" />
+              <div className="h-4 w-32 rounded skeleton-surface" />
+              <div className="h-3 w-24 rounded skeleton-surface" />
             </div>
-            <div className="h-5 w-16 rounded bg-muted" />
+            <div className="h-5 w-16 rounded skeleton-surface" />
           </div>
           <div className="mt-4 border-t border-border pt-4">
-            <div className="h-3 w-28 rounded bg-muted" />
+            <div className="h-3 w-28 rounded skeleton-surface" />
           </div>
         </div>
       ))}

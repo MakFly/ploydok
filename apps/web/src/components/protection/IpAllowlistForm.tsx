@@ -67,7 +67,7 @@ export function IpAllowlistForm({ appId }: IpAllowlistFormProps): React.JSX.Elem
       <Button
         size="sm"
         onClick={handleSave}
-        disabled={update.isPending || invalid.length > 0}
+        loading={update.isPending} disabled={invalid.length > 0}
         className="self-start"
       >
         Save

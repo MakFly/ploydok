@@ -2,6 +2,7 @@
 import * as React from "react"
 import { Link, createFileRoute } from "@tanstack/react-router"
 import { Button } from "@workspace/ui/components/button"
+import { Skeleton } from "@workspace/ui/components/skeleton"
 import {
   RiAddLine,
   RiArrowRightUpLine,
@@ -60,20 +61,10 @@ function AppsPage(): React.JSX.Element {
       title="Applications"
       description="Tes applications déployées — build, run et monitoring depuis un seul endroit."
       actions={
-        <>
-          <Button variant="outline" size="sm" asChild>
-            <Link
-              to="/settings/git-providers/$slug"
-              params={{ slug: "github" }}
-            >
-              GitHub setup
-            </Link>
-          </Button>
-          <Button size="sm" onClick={() => setModalOpen(true)}>
-            <RiAddLine className="size-4" />
-            New app
-          </Button>
-        </>
+        <Button size="sm" onClick={() => setModalOpen(true)}>
+          <RiAddLine className="size-4" />
+          New app
+        </Button>
       }
     >
       <ShellPanel
@@ -250,16 +241,31 @@ function EmptyState({
 
 function AppsGridSkeleton(): React.JSX.Element {
   return (
-    <div className="grid gap-4 md:grid-cols-2 xl:grid-cols-3">
+    <div
+      className="grid gap-4 md:grid-cols-2 xl:grid-cols-3"
+      aria-busy="true"
+      aria-label="Loading applications"
+    >
       {Array.from({ length: 6 }).map((_, index) => (
-        <div
-          key={index}
-          className="animate-pulse rounded-2xl bg-panel p-4"
-        >
-          <div className="h-4 w-32 rounded bg-muted" />
-          <div className="mt-2 h-3 w-44 rounded bg-muted" />
-          <div className="mt-6 h-3 w-20 rounded bg-muted" />
-          <div className="mt-2 h-3 w-28 rounded bg-muted" />
+        <div key={index} className="rounded-2xl bg-panel p-4">
+          <div className="flex items-start justify-between gap-3">
+            <div className="flex min-w-0 items-center gap-3">
+              <Skeleton className="size-10 rounded-xl" />
+              <div className="min-w-0 space-y-1.5">
+                <Skeleton className="h-4 w-32" />
+                <Skeleton className="h-3 w-44" />
+              </div>
+            </div>
+            <Skeleton className="h-5 w-16 rounded-full" />
+          </div>
+          <div className="mt-4 grid gap-2">
+            <Skeleton className="h-3 w-20" />
+            <Skeleton className="h-3 w-28" />
+          </div>
+          <div className="mt-4 flex items-center justify-between border-t border-border pt-4">
+            <Skeleton className="h-3 w-28" />
+            <Skeleton className="size-4 rounded" />
+          </div>
         </div>
       ))}
     </div>

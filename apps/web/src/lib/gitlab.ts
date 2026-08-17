@@ -7,9 +7,9 @@ import {
 } from "@tanstack/react-query"
 import { toast } from "sonner"
 import { apiFetch } from "./api"
+import { apiBaseUrl } from "./api/base"
 import type { ApiError } from "./api"
 import type { GitBranch, GitRepo } from "@ploydok/shared"
-import { apiBaseUrl } from "./api/base"
 
 // ---------------------------------------------------------------------------
 // Types
@@ -19,6 +19,8 @@ export interface GitLabConfig {
   configured: boolean
   instance_url?: string
   client_id?: string
+  /** Exact redirect_uri the API sends to GitLab. Always present. */
+  callback_url?: string
 }
 
 export interface SaveGitLabConfigPayload {
@@ -81,8 +83,10 @@ export function useDeleteGitLabConfig() {
  * cookie and redirect to {instance}/oauth/authorize. Cannot be done via
  * XHR — the browser must follow the 302.
  */
-export function gitlabConnectUrl(): string {
-  return `${apiBaseUrl().replace(/\/$/, "")}/gitlab/connect`
+export function gitlabConnectUrl(options?: { returnTo?: string }): string {
+  const base = `${apiBaseUrl().replace(/\/$/, "")}/gitlab/connect`
+  if (!options?.returnTo) return base
+  return `${base}?return_to=${encodeURIComponent(options.returnTo)}`
 }
 
 export function useDisconnectGitLab() {

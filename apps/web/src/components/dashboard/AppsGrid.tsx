@@ -1,6 +1,7 @@
 // SPDX-License-Identifier: AGPL-3.0-only
 import * as React from "react"
 import { Link } from "@tanstack/react-router"
+import { Skeleton } from "@workspace/ui/components/skeleton"
 import { AppStatusBadge } from "../apps/AppStatusBadge"
 import { AppIcon } from "../apps/AppIcon"
 import {
@@ -188,22 +189,19 @@ function AppsEmptyState({
 
 function AppsGridSkeleton(): React.JSX.Element {
   return (
-    <div className="space-y-3">
-      <div className="h-3.5 w-24 animate-pulse rounded bg-muted" />
-      <div className="grid animate-pulse gap-3 sm:grid-cols-2">
+    <div className="space-y-3" aria-busy="true" aria-label="Loading apps">
+      <Skeleton className="h-3.5 w-24" />
+      <div className="grid gap-3 sm:grid-cols-2">
         {[...Array<null>(4)].map((_, i) => (
-          <div
-            key={i}
-            className="space-y-2 rounded-2xl bg-panel p-4"
-          >
+          <div key={i} className="space-y-2 rounded-2xl bg-panel p-4">
             <div className="flex items-start justify-between">
               <div className="space-y-1.5">
-                <div className="h-4 w-24 rounded bg-muted" />
-                <div className="h-3 w-32 rounded bg-muted" />
+                <Skeleton className="h-4 w-24" />
+                <Skeleton className="h-3 w-32" />
               </div>
-              <div className="h-5 w-16 rounded-full bg-muted" />
+              <Skeleton className="h-5 w-16 rounded-full" />
             </div>
-            <div className="h-3 w-16 rounded bg-muted" />
+            <Skeleton className="h-3 w-16" />
           </div>
         ))}
       </div>

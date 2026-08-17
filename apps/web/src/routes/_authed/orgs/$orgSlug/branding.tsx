@@ -90,7 +90,7 @@ function BrandingPage(): React.JSX.Element {
               {Array.from({ length: 4 }).map((_, i) => (
                 <div
                   key={i}
-                  className="h-10 w-full animate-pulse rounded-lg bg-muted"
+                  className="h-10 w-full rounded-lg skeleton-surface"
                 />
               ))}
             </div>
@@ -196,14 +196,14 @@ function BrandingPage(): React.JSX.Element {
                 <div className="flex gap-3 pt-4">
                   <Button
                     onClick={handleSave}
-                    disabled={updateMutation.isPending}
+                    loading={updateMutation.isPending}
                   >
                     {updateMutation.isPending ? "Saving..." : "Save changes"}
                   </Button>
                   <Button
                     variant="outline"
                     onClick={handleReset}
-                    disabled={deleteMutation.isPending}
+                    loading={deleteMutation.isPending}
                   >
                     {deleteMutation.isPending
                       ? "Resetting..."

@@ -93,7 +93,7 @@ export function UploadCertDialog({ appId, domain, children }: UploadCertDialogPr
           </Button>
           <Button
             onClick={handleUpload}
-            disabled={upload.isPending || !cert.trim() || !key.trim()}
+            loading={upload.isPending} disabled={!cert.trim() || !key.trim()}
           >
             {upload.isPending ? "Uploading..." : "Validate & Upload"}
           </Button>

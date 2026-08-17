@@ -64,7 +64,7 @@ export function RateLimitForm({ appId }: RateLimitFormProps): React.JSX.Element 
           <Button
             size="sm"
             onClick={handleSave}
-            disabled={update.isPending}
+            loading={update.isPending}
             className="self-start"
           >
             Save

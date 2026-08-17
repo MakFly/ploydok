@@ -46,9 +46,9 @@ function ServiceDetailPage(): React.JSX.Element {
   if (isLoading) {
     return (
       <ShellPage title="Service" eyebrow={organization?.name ?? "Workspace"}>
-        <div className="animate-pulse space-y-4">
-          <div className="h-8 w-48 rounded bg-muted" />
-          <div className="h-40 rounded-lg bg-muted" />
+        <div className="space-y-4" aria-busy="true" aria-label="Loading service">
+          <div className="h-8 w-48 rounded skeleton-surface" />
+          <div className="h-40 rounded-lg skeleton-surface" />
         </div>
       </ShellPage>
     )
@@ -117,7 +117,7 @@ function StartButton({ id }: { id: string }): React.JSX.Element {
       size="sm"
       variant="outline"
       onClick={() => start.mutate(id)}
-      disabled={start.isPending}
+      loading={start.isPending}
     >
       <RiPlayLine className="size-4" />
       Start
@@ -133,7 +133,7 @@ function StopButton({ id }: { id: string }): React.JSX.Element {
       size="sm"
       variant="outline"
       onClick={() => stop.mutate(id)}
-      disabled={stop.isPending}
+      loading={stop.isPending}
     >
       <RiStopLine className="size-4" />
       Stop
@@ -206,7 +206,7 @@ function LogsPanel({ id }: { id: string }): React.JSX.Element {
       description="Dernières 200 lignes — rafraîchissement automatique toutes les 5 s."
     >
       {isLoading ? (
-        <div className="h-40 animate-pulse rounded-md bg-muted" />
+        <div className="h-40 rounded-md skeleton-surface" />
       ) : lines.length === 0 ? (
         <p className="text-xs text-muted-foreground">
           Aucune ligne de log disponible.
@@ -379,7 +379,7 @@ function DeleteDialog({
             type="button"
             variant="destructive"
             onClick={() => void handleDelete()}
-            disabled={confirm !== expected || deleteService.isPending}
+            loading={deleteService.isPending} disabled={confirm !== expected}
           >
             {deleteService.isPending ? "Suppression…" : "Supprimer"}
           </Button>

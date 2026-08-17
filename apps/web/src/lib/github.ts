@@ -7,6 +7,7 @@ import {
 } from "@tanstack/react-query"
 import { toast } from "sonner"
 import { apiFetch, criticalRetryDelay, shouldRetryCriticalQuery } from "./api"
+import { usePendingAction } from "./hooks/use-pending-action"
 import type { ApiError } from "./api"
 import type { GitBranch, GitRepo } from "@ploydok/shared"
 
@@ -157,16 +158,81 @@ export function useGitHubAppConfig(options: { enabled?: boolean } = {}) {
 // useCreateGitHubApp — POST /github/app/manifest, then auto-submit form to GitHub
 // ---------------------------------------------------------------------------
 
+export interface CreateGitHubAppVariables {
+  /** Where the GitHub round-trip should land once the App is created. */
+  returnTo?: string
+}
+
 export function useCreateGitHubApp() {
-  return useMutation<CreateGitHubAppResponse, ApiError, void>({
-    mutationFn: () =>
+  return useMutation<
+    CreateGitHubAppResponse,
+    ApiError,
+    CreateGitHubAppVariables | void
+  >({
+    mutationFn: (vars) =>
       apiFetch<CreateGitHubAppResponse>("/github/app/manifest", {
         method: "POST",
+        body: { return_to: vars?.returnTo ?? null },
+        headers: { "content-type": "application/json" },
       }),
     onError: (error) => {
       toast.error(error.message)
     },
   })
+}
+
+/**
+ * GitHub's App-manifest flow only accepts a real form POST, so we build one and
+ * submit it. Shared by the settings panel and the onboarding wizard.
+ */
+export function submitGitHubAppManifest(data: CreateGitHubAppResponse): void {
+  const form = document.createElement("form")
+  form.method = "POST"
+  form.action = data.post_url
+  form.style.display = "none"
+
+  const input = document.createElement("input")
+  input.type = "hidden"
+  input.name = "manifest"
+  input.value = JSON.stringify(data.manifest)
+  form.appendChild(input)
+
+  document.body.appendChild(form)
+  form.submit()
+}
+
+/** Minimum time the "Redirecting to GitHub..." state stays on screen. */
+const MANIFEST_REDIRECT_HOLD_MS = 500
+
+/**
+ * Create the App then hand over to GitHub. The manifest call usually answers in
+ * a few dozen ms, so without a floor the pending state flashes and the user
+ * lands on github.com with no idea what happened. The pending flag never falls
+ * back to false on success: it stays on until the browser leaves the page.
+ */
+export function useCreateGitHubAppFlow(returnTo: string) {
+  const createApp = useCreateGitHubApp()
+  const { run, pending } = usePendingAction(
+    () => createApp.mutateAsync({ returnTo }),
+    {
+      minVisibleMs: MANIFEST_REDIRECT_HOLD_MS,
+      keepPendingOnSuccess: true,
+    }
+  )
+
+  const start = async (): Promise<void> => {
+    try {
+      submitGitHubAppManifest(await run())
+    } catch {
+      // createApp.error carries the message.
+    }
+  }
+
+  return {
+    start,
+    isPending: pending,
+    error: createApp.error?.message ?? null,
+  }
 }
 
 export function useImportGitHubApp() {

@@ -2,6 +2,7 @@
 import * as React from "react"
 import { cva } from "class-variance-authority"
 import { Slot } from "radix-ui"
+import { RiLoader4Line } from "@remixicon/react"
 
 import { cn } from "@workspace/ui/lib/utils"
 import type { VariantProps } from "class-variance-authority"
@@ -12,7 +13,7 @@ const buttonVariants = cva(
     variants: {
       variant: {
         default:
-          "border-transparent text-white bg-[image:var(--gradient-primary)] hover:bg-[image:var(--gradient-primary-hover)] active:bg-[image:var(--gradient-primary-active)]",
+          "border-transparent bg-[image:var(--gradient-primary)] text-white hover:bg-[image:var(--gradient-primary-hover)] active:bg-[image:var(--gradient-primary-active)]",
         outline:
           "border-border bg-background text-foreground hover:border-input hover:bg-muted aria-expanded:bg-muted",
         secondary:
@@ -46,21 +47,48 @@ function Button({
   variant = "default",
   size = "default",
   asChild = false,
+  loading = false,
+  disabled,
+  children,
   ...props
 }: React.ComponentProps<"button"> &
   VariantProps<typeof buttonVariants> & {
     asChild?: boolean
+    loading?: boolean
   }) {
   const Comp = asChild ? Slot.Root : "button"
+  // Slot.Root forwards to a single child, so injecting a spinner would break it.
+  const showSpinner = loading && !asChild
 
   return (
     <Comp
       data-slot="button"
       data-variant={variant}
       data-size={size}
-      className={cn(buttonVariants({ variant, size, className }))}
+      data-loading={loading ? "" : undefined}
+      aria-busy={loading || undefined}
+      disabled={asChild ? disabled : (disabled ?? false) || loading}
+      className={cn(
+        buttonVariants({ variant, size, className }),
+        // The spinner replaces whatever icon the button carries, so call sites
+        // never have to hide theirs by hand.
+        showSpinner && "[&_svg:not([data-slot=button-spinner])]:hidden"
+      )}
       {...props}
-    />
+    >
+      {showSpinner ? (
+        <>
+          <RiLoader4Line
+            data-slot="button-spinner"
+            className="animate-spin"
+            aria-hidden="true"
+          />
+          {children}
+        </>
+      ) : (
+        children
+      )}
+    </Comp>
   )
 }
 

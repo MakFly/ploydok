@@ -3,6 +3,7 @@ import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query"
 import { toast } from "sonner"
 import { apiFetch } from "./api"
 import { DEFAULT_DATABASE_ENV_PREFIX } from "./database-env"
+import { getDatabaseListRefreshInterval } from "./database-list"
 import { notifyMutationError } from "./second-factor-toast"
 
 // ── Types ─────────────────────────────────────────────────────────────────────
@@ -56,6 +57,9 @@ export interface Database {
   password_rotated_at: string | null
   last_started_at: string | null
   created_at: string
+  backup_enabled?: boolean
+  latest_backup_status?: "running" | "succeeded" | "failed" | null
+  latest_backup_at?: string | null
   linked_apps?: Array<{
     app_id: string
     app_name: string | null
@@ -147,6 +151,8 @@ export function useDatabases(
       return apiFetch<Array<Database>>(url)
     },
     enabled,
+    refetchInterval: (query) =>
+      getDatabaseListRefreshInterval(query.state.data),
   })
 }
 

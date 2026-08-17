@@ -25,14 +25,19 @@ const MAX_PENDING_PROGRESS = 94
 
 export function getRestartProgress(elapsedMs: number): number {
   if (elapsedMs <= 0) return 8
-  const totalMs = RESTART_PROGRESS_STAGES[RESTART_PROGRESS_STAGES.length - 1]?.untilMs ?? 1
+  const totalMs =
+    RESTART_PROGRESS_STAGES[RESTART_PROGRESS_STAGES.length - 1]?.untilMs ?? 1
   const ratio = Math.min(elapsedMs / totalMs, 1)
-  return Math.min(MAX_PENDING_PROGRESS, Math.round(8 + ratio * (MAX_PENDING_PROGRESS - 8)))
+  return Math.min(
+    MAX_PENDING_PROGRESS,
+    Math.round(8 + ratio * (MAX_PENDING_PROGRESS - 8))
+  )
 }
 
 export function getRestartStageLabel(elapsedMs: number): string {
   return (
-    RESTART_PROGRESS_STAGES.find((stage) => elapsedMs <= stage.untilMs)?.label ??
+    RESTART_PROGRESS_STAGES.find((stage) => elapsedMs <= stage.untilMs)
+      ?.label ??
     RESTART_PROGRESS_STAGES[RESTART_PROGRESS_STAGES.length - 1]?.label ??
     "Restarting database"
   )
@@ -49,17 +54,22 @@ export function RestartDatabaseDialog({
   open,
   onOpenChange,
 }: RestartDatabaseDialogProps): React.JSX.Element {
-  const [phase, setPhase] = React.useState<"confirm" | "progress" | "done">("confirm")
+  const [phase, setPhase] = React.useState<"confirm" | "progress" | "done">(
+    "confirm"
+  )
   const [elapsedMs, setElapsedMs] = React.useState(0)
   const [actionError, setActionError] = React.useState<string | null>(null)
-  const progressTimerRef = React.useRef<ReturnType<typeof setInterval> | null>(null)
+  const progressTimerRef = React.useRef<ReturnType<typeof setInterval> | null>(
+    null
+  )
   const closeTimerRef = React.useRef<ReturnType<typeof setTimeout> | null>(null)
   const restartDatabase = useRestartDatabase()
   const resetMutationRef = React.useRef(restartDatabase.reset)
 
   const isPending = restartDatabase.isPending
   const progressValue = phase === "done" ? 100 : getRestartProgress(elapsedMs)
-  const stageLabel = phase === "done" ? "Database ready" : getRestartStageLabel(elapsedMs)
+  const stageLabel =
+    phase === "done" ? "Database ready" : getRestartStageLabel(elapsedMs)
 
   React.useEffect(() => {
     resetMutationRef.current = restartDatabase.reset
@@ -117,7 +127,10 @@ export function RestartDatabaseDialog({
       await restartDatabase.mutateAsync(database.id)
       clearTimers()
       setPhase("done")
-      setElapsedMs(RESTART_PROGRESS_STAGES[RESTART_PROGRESS_STAGES.length - 1]?.untilMs ?? 0)
+      setElapsedMs(
+        RESTART_PROGRESS_STAGES[RESTART_PROGRESS_STAGES.length - 1]?.untilMs ??
+          0
+      )
       closeTimerRef.current = setTimeout(() => {
         resetState()
         onOpenChange(false)
@@ -148,7 +161,9 @@ export function RestartDatabaseDialog({
         <div className="flex flex-col gap-4">
           {database ? (
             <div className="rounded-md border bg-muted/30 px-3 py-2 text-sm">
-              <span className="text-muted-foreground">{database.kind} {database.version}</span>
+              <span className="text-muted-foreground">
+                {database.kind} {database.version}
+              </span>
               <span className="mx-2 text-muted-foreground">·</span>
               <span>{database.plan}</span>
             </div>
@@ -168,8 +183,12 @@ export function RestartDatabaseDialog({
               </div>
               <div className="grid gap-2 text-xs text-muted-foreground">
                 {RESTART_PROGRESS_STAGES.map((stage, index) => {
-                  const previousUntilMs = index === 0 ? 0 : RESTART_PROGRESS_STAGES[index - 1]?.untilMs ?? 0
-                  const isComplete = phase === "done" || elapsedMs > stage.untilMs
+                  const previousUntilMs =
+                    index === 0
+                      ? 0
+                      : (RESTART_PROGRESS_STAGES[index - 1]?.untilMs ?? 0)
+                  const isComplete =
+                    phase === "done" || elapsedMs > stage.untilMs
                   const isCurrent = !isComplete && elapsedMs >= previousUntilMs
                   return (
                     <div key={stage.label} className="flex items-center gap-2">
@@ -191,7 +210,8 @@ export function RestartDatabaseDialog({
             </div>
           ) : (
             <p className="text-sm text-muted-foreground">
-              The runtime will stop, provision a fresh container, run health probes, then restore the database endpoint.
+              The runtime will stop, provision a fresh container, run health
+              probes, then restore the database endpoint.
             </p>
           )}
 
@@ -211,7 +231,11 @@ export function RestartDatabaseDialog({
             {phase === "done" ? "Closing…" : "Cancel"}
           </Button>
           {phase !== "progress" && phase !== "done" ? (
-            <Button onClick={() => void handleRestart()} disabled={!database || isPending}>
+            <Button
+              onClick={() => void handleRestart()}
+              loading={isPending}
+              disabled={!database}
+            >
               Restart database
             </Button>
           ) : null}

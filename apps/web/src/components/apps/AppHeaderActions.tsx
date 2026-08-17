@@ -13,7 +13,6 @@ import {
 } from "@workspace/ui/components/alert-dialog"
 import {
   RiHistoryLine,
-  RiLoader4Line,
   RiRefreshLine,
   RiRocketLine,
   RiStopCircleLine,
@@ -67,15 +66,11 @@ export function AppHeaderActions({
         size="sm"
         variant="default"
         onClick={() => deploy.mutate()}
-        disabled={deploy.isPending || inFlight}
+        loading={deploy.isPending} disabled={inFlight}
         title="Pull source from git, build, and deploy"
         className="gap-1.5"
       >
-        {deploy.isPending ? (
-          <RiLoader4Line className="size-4 animate-spin" aria-hidden="true" />
-        ) : (
-          <RiRocketLine className="size-4" aria-hidden="true" />
-        )}
+        <RiRocketLine className="size-4" aria-hidden="true" />
         {useDeployLabel ? "Deploy" : "Redeploy"}
       </Button>
 
@@ -175,16 +170,13 @@ function ConfirmButton({
       <Button
         size={size}
         variant={variant}
+        loading={loading}
         disabled={disabled}
         title={title}
         onClick={() => setOpen(true)}
         className="gap-1.5"
       >
-        {loading ? (
-          <RiLoader4Line className="size-4 animate-spin" aria-hidden="true" />
-        ) : (
-          icon
-        )}
+        {icon}
         {label}
       </Button>
       <AlertDialog open={open} onOpenChange={setOpen}>

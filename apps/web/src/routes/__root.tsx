@@ -12,6 +12,7 @@ import { Toaster } from "sonner"
 import appCss from "@workspace/ui/globals.css?url"
 import { ApiErrorState } from "../components/errors/ApiErrorState"
 import { NotFoundState } from "../components/errors/NotFoundState"
+import { NavigationProgress } from "../components/layout/NavigationProgress"
 import {
   clearBackendUnavailable,
   setBackendUnavailable,
@@ -265,6 +266,7 @@ function RootDocument({
           <BrandingInjector />
           <AuthSyncProvider>
             <BackendUnavailableGate>{children}</BackendUnavailableGate>
+            <NavigationProgress />
             <Toaster position="bottom-center" theme="system" />
           </AuthSyncProvider>
         </QueryClientProvider>

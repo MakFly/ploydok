@@ -90,6 +90,7 @@ await db
     email: "dev@ploydok.local",
     display_name: "Dev",
     password_hash: passwordHash,
+    is_instance_admin: true,
     created_at: now,
     updated_at: now,
     recovery_token_hash: null,
@@ -97,7 +98,11 @@ await db
   })
   .onConflictDoUpdate({
     target: users.id,
-    set: { password_hash: passwordHash, updated_at: now },
+    set: {
+      password_hash: passwordHash,
+      is_instance_admin: true,
+      updated_at: now,
+    },
   })
 completeStep("user")
 

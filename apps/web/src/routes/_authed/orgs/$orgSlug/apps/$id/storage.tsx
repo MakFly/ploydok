@@ -142,7 +142,7 @@ function AppStoragePage(): React.JSX.Element {
               />
             </div>
             <div className="flex items-end">
-              <Button type="submit" disabled={createVolume.isPending}>
+              <Button type="submit" loading={createVolume.isPending}>
                 {createVolume.isPending ? "Creating..." : "Create"}
               </Button>
             </div>
@@ -439,7 +439,7 @@ function VolumePanel({
               size="sm"
               className="gap-1.5"
               onClick={() => backupNow.mutate()}
-              disabled={backupNow.isPending}
+              loading={backupNow.isPending}
             >
               <RiArchiveLine className="size-3.5" aria-hidden="true" />
               {backupNow.isPending ? "Starting..." : "Backup now"}
@@ -449,7 +449,7 @@ function VolumePanel({
               size="sm"
               className="gap-1.5 text-destructive hover:text-destructive"
               onClick={() => deleteVolume.mutate(volume.id)}
-              disabled={deleteVolume.isPending}
+              loading={deleteVolume.isPending}
             >
               <RiDeleteBinLine className="size-3.5" aria-hidden="true" />
               Delete
@@ -511,7 +511,7 @@ function VolumePanel({
               />
             </div>
             <div className="flex items-end gap-2">
-              <Button type="submit" disabled={updateVolume.isPending}>
+              <Button type="submit" loading={updateVolume.isPending}>
                 {updateVolume.isPending ? "Saving..." : "Save"}
               </Button>
               <Button

@@ -1,5 +1,6 @@
 // SPDX-License-Identifier: AGPL-3.0-only
 import * as React from "react"
+import { Button } from "@workspace/ui/components/button"
 
 import { healthClass, memRatio } from "@ploydok/shared"
 import {
@@ -161,6 +162,7 @@ interface ResourceCardProps {
   cpuHistory: Array<number>
   memHistory: Array<number>
   onPing?: () => void
+  pinging?: boolean
 }
 
 export function ResourceCard({
@@ -168,6 +170,7 @@ export function ResourceCard({
   cpuHistory,
   memHistory,
   onPing,
+  pinging = false,
 }: ResourceCardProps) {
   const ratio = memRatio(snapshot)
   const ratioPercent = Math.round(ratio * 100)
@@ -220,18 +223,18 @@ export function ResourceCard({
         </div>
 
         {onPing ? (
-          <button
+          <Button
             type="button"
+            variant="outline"
+            size="icon-xs"
             onClick={onPing}
-            className={cn(
-              "flex size-7 shrink-0 items-center justify-center rounded-md border border-border bg-background text-muted-foreground transition-colors",
-              "hover:bg-muted hover:text-foreground"
-            )}
+            loading={pinging}
+            className="size-7 shrink-0 rounded-md text-muted-foreground hover:text-foreground"
             aria-label="Ping container"
             title="Ping /"
           >
             <RiWifiLine className="size-3.5" />
-          </button>
+          </Button>
         ) : null}
       </header>
 

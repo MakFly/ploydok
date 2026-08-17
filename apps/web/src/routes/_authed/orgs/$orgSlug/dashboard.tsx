@@ -153,21 +153,10 @@ function DashboardPage(): React.JSX.Element {
           : `${apps.length} application${apps.length === 1 ? "" : "s"} · ${runningApps} running${failedApps > 0 ? ` · ${failedApps} failed` : ""}`
       }
       actions={
-        <>
-          <Button variant="outline" asChild>
-            <Link
-              to="/settings/git-providers/$slug"
-              params={{ slug: "github" }}
-            >
-              <RiGithubFill className="size-4" />
-              GitHub setup
-            </Link>
-          </Button>
-          <Button onClick={() => setModalOpen(true)}>
-            <RiAddLine className="size-4" />
-            New application
-          </Button>
-        </>
+        <Button onClick={() => setModalOpen(true)}>
+          <RiAddLine className="size-4" />
+          New application
+        </Button>
       }
     >
       <div className="grid gap-3 md:grid-cols-2 xl:grid-cols-4">
@@ -210,18 +199,25 @@ function DashboardPage(): React.JSX.Element {
           loading={buildsLoading}
           tone={latestBuild?.status === "failed" ? "danger" : "default"}
         />
-        <StatCard
-          icon={<RiGithubFill className="size-4" />}
-          label="GitHub App"
-          value={appConfig?.configured ? "Connected" : "Not configured"}
-          hint={
-            appConfig?.configured
-              ? (appConfig.name ?? "Installed")
-              : "Install to deploy from repos"
-          }
-          loading={appConfigLoading}
-          tone={appConfig?.configured ? "success" : "warning"}
-        />
+        <Link
+          to="/settings/git-providers/$slug"
+          params={{ slug: "github" }}
+          aria-label="Open GitHub App settings"
+          className="group block rounded-2xl focus-visible:ring-2 focus-visible:ring-ring focus-visible:outline-none"
+        >
+          <StatCard
+            icon={<RiGithubFill className="size-4" />}
+            label="GitHub App"
+            value={appConfig?.configured ? "Connected" : "Not configured"}
+            hint={
+              appConfig?.configured
+                ? (appConfig.name ?? "Installed")
+                : "Install to deploy from repos"
+            }
+            loading={appConfigLoading}
+            tone={appConfig?.configured ? "success" : "warning"}
+          />
+        </Link>
       </div>
 
       {appsError ? (
@@ -348,7 +344,7 @@ function StatCard({
           : "text-muted-foreground"
 
   return (
-    <div className="rounded-2xl bg-panel px-4 py-3.5">
+    <div className="h-full rounded-2xl bg-panel px-4 py-3.5 transition-colors group-hover:bg-accent/40">
       <div className={`flex items-center gap-1.5 ${accent}`}>
         {icon}
         <span className="text-xs font-medium tracking-wide uppercase">
@@ -356,9 +352,9 @@ function StatCard({
         </span>
       </div>
       {loading ? (
-        <div className="mt-2 animate-pulse space-y-2" aria-hidden="true">
-          <div className="h-7 w-16 rounded bg-muted" />
-          <div className="h-3 w-28 rounded bg-muted" />
+        <div className="mt-2 space-y-2" aria-hidden="true">
+          <div className="h-7 w-16 rounded skeleton-surface" />
+          <div className="h-3 w-28 rounded skeleton-surface" />
         </div>
       ) : (
         <>
@@ -386,7 +382,7 @@ function QuickLink({
   return (
     <Link
       to={to}
-      className="group flex items-center justify-between rounded-md rounded-2xl bg-panel px-4 py-3 transition-colors hover:bg-accent/40"
+      className="group flex items-center justify-between rounded-2xl rounded-md bg-panel px-4 py-3 transition-colors hover:bg-accent/40"
     >
       <span>
         <span className="block text-sm font-medium text-foreground">
@@ -436,11 +432,11 @@ function ActivitySkeleton(): React.JSX.Element {
   return (
     <div className="space-y-3">
       {Array.from({ length: 4 }).map((_, i) => (
-        <div key={i} className="flex animate-pulse items-start gap-2.5">
-          <div className="mt-1 size-3 rounded-full bg-muted" />
+        <div key={i} className="flex items-start gap-2.5">
+          <div className="mt-1 size-3 rounded-full skeleton-surface" />
           <div className="flex-1 space-y-1.5">
-            <div className="h-3 w-24 rounded bg-muted" />
-            <div className="h-2.5 w-40 rounded bg-muted" />
+            <div className="h-3 w-24 rounded skeleton-surface" />
+            <div className="h-2.5 w-40 rounded skeleton-surface" />
           </div>
         </div>
       ))}

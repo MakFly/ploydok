@@ -27,11 +27,12 @@
 - React 19. Server components **non** utilisés (TanStack Start gère SSR via loaders/beforeLoad).
 - Préférer `useSuspenseQuery` + route loader à `useEffect` pour fetch initial.
 - Forms : Zod schemas de `packages/shared/` côté validation — ne jamais dupliquer les schemas entre front et back.
+- Toute action mutante (POST/PUT/PATCH/DELETE, submit, deploy, sync) passe par `<Button loading={mutation.isPending}>` : spinner + `disabled` + `aria-busy` gérés par le primitive. Règle complète dans `CLAUDE.md` § Button Loading State.
 
 ## Commentaires
 
 - Par défaut : **pas** de commentaire. Un bon nom + une signature typée suffisent.
-- Écrire un commentaire uniquement si le *pourquoi* n'est pas évident : contrainte cachée, workaround pour un bug tiers, invariant subtil.
+- Écrire un commentaire uniquement si le _pourquoi_ n'est pas évident : contrainte cachée, workaround pour un bug tiers, invariant subtil.
 - Pas de JSDoc décoratif (`/** The name of the user */ name: string`).
 - Pas de référence à une PR/tâche dans le code (`// added for #123`) — ça appartient au commit message.
 

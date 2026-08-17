@@ -5,9 +5,7 @@ import { AppShell } from "../components/layout/AppShell"
 import { SecondFactorBanner } from "../components/auth/SecondFactorBanner"
 import { EventsProvider } from "../lib/events-provider"
 import { useDeploymentToasts } from "../lib/deployment-toasts"
-import { requireMe } from "../lib/auth-guards"
-import { getGitProviderStatus } from "../lib/git-providers"
-import { redirect } from "@tanstack/react-router"
+import { requireOnboardedSession } from "../lib/auth-guards"
 import type { Me } from "@ploydok/shared"
 
 function AuthedLayout(): React.JSX.Element {
@@ -23,16 +21,8 @@ function AuthedLayout(): React.JSX.Element {
 // dedicated splat/stub routes — see _authed/dashboard.tsx, _authed/apps.$.tsx
 // and _authed/databases.$.tsx. This layout just runs the shared auth guard.
 export const Route = createFileRoute("/_authed")({
-  beforeLoad: async ({ location }): Promise<{ me: Me }> => {
-    const me = await requireMe()
-    const providers = await getGitProviderStatus()
-    const providerSettings = location.pathname.startsWith(
-      "/settings/git-providers"
-    )
-    if (!providers.ready && !providerSettings) {
-      throw redirect({ to: "/onboarding" })
-    }
-    return { me }
+  beforeLoad: async (): Promise<{ me: Me }> => {
+    return { me: await requireOnboardedSession() }
   },
   component: () => (
     <EventsProvider>

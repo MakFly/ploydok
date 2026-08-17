@@ -105,7 +105,7 @@ function ChannelRow({ channel, appId, onEdit }: ChannelRowProps) {
             variant="ghost"
             size="sm"
             onClick={() => void handleTest()}
-            disabled={testChannel.isPending}
+            loading={testChannel.isPending}
             title="Envoyer un message de test"
           >
             <RiFlashlightLine className="size-4" />
@@ -127,7 +127,7 @@ function ChannelRow({ channel, appId, onEdit }: ChannelRowProps) {
           variant="ghost"
           size="sm"
           onClick={() => void handleDelete()}
-          disabled={deleteChannel.isPending}
+          loading={deleteChannel.isPending}
           className="text-destructive hover:text-destructive"
           title="Supprimer"
         >

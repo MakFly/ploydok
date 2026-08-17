@@ -1,26 +1,37 @@
 // SPDX-License-Identifier: AGPL-3.0-only
-import { createHmac } from "node:crypto";
-import { beforeEach, describe, expect, it, mock, spyOn } from "bun:test";
-import * as realQueries from "@ploydok/db/queries";
-import { env } from "../env";
+import { createHmac } from "node:crypto"
+import {
+  afterEach,
+  beforeEach,
+  describe,
+  expect,
+  it,
+  mock,
+  spyOn,
+} from "bun:test"
+import * as realQueries from "@ploydok/db/queries"
+import { env } from "../env"
 
-let mockGitHubAppConfig: Record<string, unknown> | null = null;
-const importedConfigs: Array<Record<string, unknown>> = [];
-let deleteConfigCalls = 0;
+let mockGitHubAppConfig: Record<string, unknown> | null = null
+const importedConfigs: Array<Record<string, unknown>> = []
+let deleteConfigCalls = 0
 const credentialUpserts: Array<{
-  values: Record<string, unknown>;
-  conflict: Record<string, unknown>;
-}> = [];
-const enqueuedSyncs: Array<Record<string, unknown>> = [];
-const installationAssignments: Array<{ installationId: string; userId: string }> = [];
-const localDisconnects: Array<{ installationId: string; userId: string }> = [];
-let userGitHubInstallationIds = ["42"];
-let cacheStatusRows: Array<Record<string, unknown>> = [];
-const cacheStatusFilters: unknown[][] = [];
-const deletedTables: Array<unknown> = [];
-let liveInstallations: Array<{ id: number; accountLogin?: string }> = [];
-const revokedInstallations: number[] = [];
-let revokeFailure: Error | null = null;
+  values: Record<string, unknown>
+  conflict: Record<string, unknown>
+}> = []
+const enqueuedSyncs: Array<Record<string, unknown>> = []
+const installationAssignments: Array<{
+  installationId: string
+  userId: string
+}> = []
+const localDisconnects: Array<{ installationId: string; userId: string }> = []
+let userGitHubInstallationIds = ["42"]
+let cacheStatusRows: Array<Record<string, unknown>> = []
+const cacheStatusFilters: unknown[][] = []
+const deletedTables: Array<unknown> = []
+let liveInstallations: Array<{ id: number; accountLogin?: string }> = []
+const revokedInstallations: number[] = []
+let revokeFailure: Error | null = null
 let fakeInstanceAdmin = true
 let recentDelivery: { id: string; decision: string } | null = null
 const deliveryInserts: Array<{
@@ -31,16 +42,16 @@ const deliveryInserts: Array<{
 const fakeProviderCredentials = {
   id: Symbol("provider_credentials.id"),
   provider: Symbol("provider_credentials.provider"),
-};
+}
 const fakeProviderInstallations = {
   provider: Symbol("provider_installations.provider"),
-};
+}
 const fakeTable = new Proxy(
   {},
   {
     get: (_target, prop) => Symbol(String(prop)),
-  },
-);
+  }
+)
 const fakeRedis = {
   zremrangebyscore: mock(async () => 0),
   zcard: mock(async () => 0),
@@ -58,16 +69,16 @@ const fakeDb = {
   insert: mock(() => ({
     values: (values: Record<string, unknown>) => ({
       onConflictDoUpdate: async (conflict: Record<string, unknown>) => {
-        credentialUpserts.push({ values, conflict });
+        credentialUpserts.push({ values, conflict })
       },
     }),
   })),
   delete: mock((table: unknown) => ({
     where: async () => {
-      deletedTables.push(table);
+      deletedTables.push(table)
     },
   })),
-};
+}
 
 mock.module("@ploydok/db", () => ({
   apps: fakeTable,
@@ -82,21 +93,21 @@ mock.module("@ploydok/db", () => ({
     is_instance_admin: "is_instance_admin",
   },
   webhook_deliveries: fakeTable,
-}));
+}))
 mock.module("../github/installation-tokens", () => ({
   getInstallationToken: async () => "test-installation-token",
   evictInstallationToken: () => undefined,
   listAppInstallations: async () => liveInstallations,
   revokeAppInstallation: async (installationId: number) => {
-    if (revokeFailure) throw revokeFailure;
-    revokedInstallations.push(installationId);
+    if (revokeFailure) throw revokeFailure
+    revokedInstallations.push(installationId)
   },
-}));
+}))
 mock.module("../worker/handlers/sync-provider-repos", () => ({
   enqueueProviderReposSync: async (payload: Record<string, unknown>) => {
-    enqueuedSyncs.push(payload);
+    enqueuedSyncs.push(payload)
   },
-}));
+}))
 mock.module("../github/app-credentials", () => ({
   encryptField: async (value: string) => ({
     enc: Buffer.from(`enc:${value}`),
@@ -130,32 +141,32 @@ mock.module("@ploydok/db/queries", () => ({
   ...realQueries,
   getGitHubAppConfig: async () => mockGitHubAppConfig,
   saveGitHubAppConfig: async (_db: unknown, cfg: Record<string, unknown>) => {
-    importedConfigs.push(cfg);
+    importedConfigs.push(cfg)
   },
   deleteGitHubAppConfig: async () => {
-    deleteConfigCalls += 1;
+    deleteConfigCalls += 1
   },
   assignGitHubInstallationToUser: async (
     _db: unknown,
     installationId: string,
-    userId: string,
+    userId: string
   ) => {
-    installationAssignments.push({ installationId, userId });
+    installationAssignments.push({ installationId, userId })
   },
   deleteGitHubInstallationUser: async () => undefined,
   deleteGitHubInstallationUsers: async () => undefined,
   deleteGitHubInstallationUserForUser: async (
     _db: unknown,
     installationId: string,
-    userId: string,
+    userId: string
   ) => {
-    localDisconnects.push({ installationId, userId });
+    localDisconnects.push({ installationId, userId })
   },
   listGitHubInstallationIdsForUser: async () => userGitHubInstallationIds,
   userOwnsGitHubInstallation: async (
     _db: unknown,
     _userId: string,
-    installationId: string,
+    installationId: string
   ) => userGitHubInstallationIds.includes(installationId),
   listInstallations: async () => [],
   listRepos: async () => ({ rows: [], total: 0 }),
@@ -164,12 +175,12 @@ mock.module("@ploydok/db/queries", () => ({
     cacheStatusFilters.push(args)
     return cacheStatusRows
   },
-}));
-import { Hono } from "hono";
-import type { AuthUser } from "../auth/middleware";
+}))
+import { Hono } from "hono"
+import type { AuthUser } from "../auth/middleware"
 
-const githubModule = await import("./github");
-const { githubRouter } = githubModule;
+const githubModule = await import("./github")
+const { githubRouter } = githubModule
 
 // ---------------------------------------------------------------------------
 // Test app builder — injects a fake user into Hono context (simulates requireAuth)
@@ -180,51 +191,73 @@ const FAKE_USER: AuthUser = {
   email: "test@example.com",
   display_name: "Test User",
   session_id: "sess-1",
-};
+}
 
 function buildApp(user?: AuthUser): Hono {
-  const app = new Hono();
+  const app = new Hono()
   app.use("*", async (c, next) => {
     if (user) {
       // eslint-disable-next-line @typescript-eslint/no-explicit-any
-      (c as any).set("user", user);
+      ;(c as any).set("user", user)
     }
-    return next();
-  });
-  app.route("/github", githubRouter);
-  return app;
+    return next()
+  })
+  app.route("/github", githubRouter)
+  return app
 }
 
 function signState(state: string): string {
-  const mac = createHmac("sha256", env.SESSION_SECRET).update(state).digest("hex");
-  return `${state}.${mac}`;
+  const mac = createHmac("sha256", env.SESSION_SECRET)
+    .update(state)
+    .digest("hex")
+  return `${state}.${mac}`
 }
 
-function signInstallState(state: string, userId = FAKE_USER.id): string {
-  const payload = Buffer.from(JSON.stringify({ state, userId })).toString("base64url");
-  const mac = createHmac("sha256", env.SESSION_SECRET).update(payload).digest("hex");
-  return `${payload}.${mac}`;
+function signInstallState(
+  state: string,
+  userId = FAKE_USER.id,
+  returnTo?: string
+): string {
+  const payload = Buffer.from(
+    JSON.stringify(
+      returnTo === undefined ? { state, userId } : { state, userId, returnTo }
+    )
+  ).toString("base64url")
+  const mac = createHmac("sha256", env.SESSION_SECRET)
+    .update(payload)
+    .digest("hex")
+  return `${payload}.${mac}`
+}
+
+function signAppState(state: string, returnTo?: string): string {
+  const payload = Buffer.from(
+    JSON.stringify(returnTo === undefined ? { state } : { state, returnTo })
+  ).toString("base64url")
+  const mac = createHmac("sha256", env.SESSION_SECRET)
+    .update(payload)
+    .digest("hex")
+  return `${payload}.${mac}`
 }
 
 beforeEach(() => {
-  mockGitHubAppConfig = null;
-  importedConfigs.length = 0;
-  deleteConfigCalls = 0;
-  credentialUpserts.length = 0;
-  enqueuedSyncs.length = 0;
-  installationAssignments.length = 0;
-  localDisconnects.length = 0;
-  userGitHubInstallationIds = ["42"];
-  cacheStatusRows = [];
-  cacheStatusFilters.length = 0;
-  deletedTables.length = 0;
-  liveInstallations = [];
-  revokedInstallations.length = 0;
-  revokeFailure = null;
+  mockGitHubAppConfig = null
+  importedConfigs.length = 0
+  deleteConfigCalls = 0
+  credentialUpserts.length = 0
+  enqueuedSyncs.length = 0
+  installationAssignments.length = 0
+  localDisconnects.length = 0
+  userGitHubInstallationIds = ["42"]
+  cacheStatusRows = []
+  cacheStatusFilters.length = 0
+  deletedTables.length = 0
+  liveInstallations = []
+  revokedInstallations.length = 0
+  revokeFailure = null
   fakeInstanceAdmin = true
   recentDelivery = null
   deliveryInserts.length = 0
-});
+})
 
 // ---------------------------------------------------------------------------
 // Dropped OAuth endpoints → 410 Gone
@@ -232,37 +265,39 @@ beforeEach(() => {
 
 describe("GET /github/auth/connect (dropped)", () => {
   it("returns 410 Gone", async () => {
-    const app = buildApp(FAKE_USER);
-    const res = await app.request("/github/auth/connect");
-    expect(res.status).toBe(410);
-    const body = (await res.json()) as Record<string, unknown>;
-    expect(body["error"]).toBe("oauth_removed");
-  });
-});
+    const app = buildApp(FAKE_USER)
+    const res = await app.request("/github/auth/connect")
+    expect(res.status).toBe(410)
+    const body = (await res.json()) as Record<string, unknown>
+    expect(body["error"]).toBe("oauth_removed")
+  })
+})
 
 describe("GET /github/auth/callback (dropped)", () => {
   it("returns 410 Gone", async () => {
-    const app = buildApp();
-    const res = await app.request("/github/auth/callback");
-    expect(res.status).toBe(410);
-  });
-});
+    const app = buildApp()
+    const res = await app.request("/github/auth/callback")
+    expect(res.status).toBe(410)
+  })
+})
 
 describe("DELETE /github/auth/disconnect (dropped)", () => {
   it("returns 410 Gone", async () => {
-    const app = buildApp(FAKE_USER);
-    const res = await app.request("/github/auth/disconnect", { method: "DELETE" });
-    expect(res.status).toBe(410);
-  });
-});
+    const app = buildApp(FAKE_USER)
+    const res = await app.request("/github/auth/disconnect", {
+      method: "DELETE",
+    })
+    expect(res.status).toBe(410)
+  })
+})
 
 describe("GET /github/status (dropped)", () => {
   it("returns 410 Gone", async () => {
-    const app = buildApp(FAKE_USER);
-    const res = await app.request("/github/status");
-    expect(res.status).toBe(410);
-  });
-});
+    const app = buildApp(FAKE_USER)
+    const res = await app.request("/github/status")
+    expect(res.status).toBe(410)
+  })
+})
 
 // ---------------------------------------------------------------------------
 // POST /github/webhook — signature verification
@@ -271,29 +306,29 @@ describe("GET /github/status (dropped)", () => {
 describe("POST /github/webhook", () => {
   it("returns 503 when no GitHub App is configured (DB empty in test)", async () => {
     // In the test environment the DB has no github_app row → 503
-    const app = buildApp();
+    const app = buildApp()
     const res = await app.request("/github/webhook", {
       method: "POST",
       headers: { "Content-Type": "application/json" },
       body: "{}",
-    });
+    })
     // 503 because app not configured, or 401 if somehow configured with wrong sig
-    expect([401, 503]).toContain(res.status);
-  });
+    expect([401, 503]).toContain(res.status)
+  })
 
   it("returns 401 for missing signature when app is configured", async () => {
     // We can test the signature path without a real DB row by calling the
     // route with a valid content-type but no X-Hub-Signature-256 header.
     // If app is not configured → 503; if somehow configured → 401.
     // Both are acceptable "not 200" responses.
-    const app = buildApp();
+    const app = buildApp()
     const res = await app.request("/github/webhook", {
       method: "POST",
       headers: { "Content-Type": "application/json" },
       body: JSON.stringify({ ref: "refs/heads/main" }),
-    });
-    expect(res.status).not.toBe(200);
-  });
+    })
+    expect(res.status).not.toBe(200)
+  })
 
   it("does not insert a delivery for an invalid signature", async () => {
     mockGitHubAppConfig = {
@@ -316,7 +351,7 @@ describe("POST /github/webhook", () => {
     expect(await res.json()).toEqual({ error: "invalid signature" })
     expect(deliveryInserts).toHaveLength(0)
   })
-});
+})
 
 // ---------------------------------------------------------------------------
 // GET /github/app/config
@@ -324,75 +359,76 @@ describe("POST /github/webhook", () => {
 
 describe("GET /github/app/config", () => {
   it("returns { configured: false } when no app is stored", async () => {
-    mockGitHubAppConfig = null;
-    const app = buildApp(FAKE_USER);
-    const res = await app.request("/github/app/config");
-    expect(res.status).toBe(200);
-    const body = (await res.json()) as Record<string, unknown>;
-    expect(body["configured"]).toBe(false);
-  });
-});
+    mockGitHubAppConfig = null
+    const app = buildApp(FAKE_USER)
+    const res = await app.request("/github/app/config")
+    expect(res.status).toBe(200)
+    const body = (await res.json()) as Record<string, unknown>
+    expect(body["configured"]).toBe(false)
+  })
+})
 
 describe("GET /github/repos/:owner/:repo/files-exist", () => {
   it("checks all requested paths through one batch HTTP endpoint", async () => {
-    mockGitHubAppConfig = { app_id: "123" };
-    liveInstallations = [{ id: 42, accountLogin: "MakFly" }];
-    const probedPaths: string[] = [];
-    using _spy = spyOn(githubModule.ghProvider, "fileExists").mockImplementation(
-      async (_installationId, _fullName, filePath) => {
-        probedPaths.push(filePath);
-        return filePath === "composer.json" || filePath === "symfony.lock";
-      },
-    );
+    mockGitHubAppConfig = { app_id: "123" }
+    liveInstallations = [{ id: 42, accountLogin: "MakFly" }]
+    const probedPaths: string[] = []
+    using _spy = spyOn(
+      githubModule.ghProvider,
+      "fileExists"
+    ).mockImplementation(async (_installationId, _fullName, filePath) => {
+      probedPaths.push(filePath)
+      return filePath === "composer.json" || filePath === "symfony.lock"
+    })
 
-    const app = buildApp(FAKE_USER);
+    const app = buildApp(FAKE_USER)
     const res = await app.request(
-      "/github/repos/dev-toolings/fixture-symfony-api/files-exist?path=composer.json&path=symfony.lock&path=Dockerfile&ref=main",
-    );
+      "/github/repos/dev-toolings/fixture-symfony-api/files-exist?path=composer.json&path=symfony.lock&path=Dockerfile&ref=main"
+    )
 
-    expect(res.status).toBe(200);
+    expect(res.status).toBe(200)
     expect(await res.json()).toEqual({
       files: {
         "composer.json": true,
         "symfony.lock": true,
         Dockerfile: false,
       },
-    });
-    expect(probedPaths).toEqual(["composer.json", "symfony.lock", "Dockerfile"]);
-  });
-});
+    })
+    expect(probedPaths).toEqual(["composer.json", "symfony.lock", "Dockerfile"])
+  })
+})
 
 describe("GitHub routes are user-scoped", () => {
   it("never reads an env file through an installation not linked to the user", async () => {
-    mockGitHubAppConfig = { app_id: "123" };
-    userGitHubInstallationIds = ["42"];
+    mockGitHubAppConfig = { app_id: "123" }
+    userGitHubInstallationIds = ["42"]
     liveInstallations = [
       { id: 42, accountLogin: "Allowed" },
       { id: 99, accountLogin: "MakFly" },
-    ];
-    const attemptedIds: string[] = [];
+    ]
+    const attemptedIds: string[] = []
     using _spy = spyOn(githubModule.ghProvider, "readFile").mockImplementation(
       async (installationId) => {
-        attemptedIds.push(installationId);
-        return "SAFE=value";
-      },
-    );
+        attemptedIds.push(installationId)
+        return "SAFE=value"
+      }
+    )
 
     const res = await buildApp(FAKE_USER).request(
-      "/github/repos/MakFly/private/env-file?path=.env&ref=main",
-    );
+      "/github/repos/MakFly/private/env-file?path=.env&ref=main"
+    )
 
-    expect(res.status).toBe(200);
-    expect(attemptedIds).toEqual(["42"]);
-  });
+    expect(res.status).toBe(200)
+    expect(attemptedIds).toEqual(["42"])
+  })
 
   it("lists and reports cache state only for linked installations", async () => {
-    mockGitHubAppConfig = { slug: "ploydok-local" };
-    userGitHubInstallationIds = ["42"];
+    mockGitHubAppConfig = { slug: "ploydok-local" }
+    userGitHubInstallationIds = ["42"]
     liveInstallations = [
       { id: 42, accountLogin: "Allowed" },
       { id: 99, accountLogin: "Foreign" },
-    ];
+    ]
     cacheStatusRows = [
       {
         id: "github:42",
@@ -403,46 +439,54 @@ describe("GitHub routes are user-scoped", () => {
         lastSyncedAt: new Date(),
         repoCount: 0,
       },
-    ];
+    ]
     using _spy = spyOn(githubModule.ghProvider, "listRepos").mockResolvedValue({
       repos: [],
       hasMore: false,
-    });
+    })
 
-    const app = buildApp(FAKE_USER);
-    const installationsRes = await app.request("/github/installations");
-    const cacheRes = await app.request("/github/installations/cache-status");
+    const app = buildApp(FAKE_USER)
+    const installationsRes = await app.request("/github/installations")
+    const cacheRes = await app.request("/github/installations/cache-status")
 
-    expect((await installationsRes.json()) as Record<string, unknown>).toMatchObject({
+    expect(
+      (await installationsRes.json()) as Record<string, unknown>
+    ).toMatchObject({
       installations: [expect.objectContaining({ id: 42 })],
-    });
+    })
     expect((await cacheRes.json()) as Record<string, unknown>).toMatchObject({
       installations: [expect.objectContaining({ externalId: "42" })],
-    });
-    expect(cacheStatusFilters[0]?.[2]).toEqual(["github:42"]);
-  });
+    })
+    expect(cacheStatusFilters[0]?.[2]).toEqual(["github:42"])
+  })
 
   it("syncs only linked installations and rejects a foreign id", async () => {
-    userGitHubInstallationIds = ["42", "77"];
-    const app = buildApp(FAKE_USER);
+    userGitHubInstallationIds = ["42", "77"]
+    const app = buildApp(FAKE_USER)
 
     const syncRes = await app.request("/github/installations/sync", {
       method: "POST",
       body: "{}",
-    });
+    })
     const foreignRes = await app.request("/github/installations/sync", {
       method: "POST",
       body: JSON.stringify({ installationId: "99" }),
-    });
+    })
 
-    expect(syncRes.status).toBe(202);
+    expect(syncRes.status).toBe(202)
     expect(enqueuedSyncs).toEqual([
-      expect.objectContaining({ installationId: "42", requestedBy: FAKE_USER.id }),
-      expect.objectContaining({ installationId: "77", requestedBy: FAKE_USER.id }),
-    ]);
-    expect(foreignRes.status).toBe(404);
-  });
-});
+      expect.objectContaining({
+        installationId: "42",
+        requestedBy: FAKE_USER.id,
+      }),
+      expect.objectContaining({
+        installationId: "77",
+        requestedBy: FAKE_USER.id,
+      }),
+    ])
+    expect(foreignRes.status).toBe(404)
+  })
+})
 
 describe("POST /github/app/import", () => {
   it("rejects non-instance admins", async () => {
@@ -470,7 +514,7 @@ describe("POST /github/app/import", () => {
   })
 
   it("saves an existing GitHub App config and enqueues a sync", async () => {
-    const app = buildApp(FAKE_USER);
+    const app = buildApp(FAKE_USER)
     const res = await app.request("/github/app/import", {
       method: "POST",
       headers: { "Content-Type": "application/json" },
@@ -484,27 +528,27 @@ describe("POST /github/app/import", () => {
         slug: "ploydok-local",
         name: "Ploydok Local",
       }),
-    });
+    })
 
-    expect(res.status).toBe(200);
+    expect(res.status).toBe(200)
     expect(await res.json()).toMatchObject({
       configured: true,
       name: "Ploydok Local",
       slug: "ploydok-local",
       app_id: "12345",
-    });
-    expect(importedConfigs).toHaveLength(1);
+    })
+    expect(importedConfigs).toHaveLength(1)
     expect(importedConfigs[0]).toMatchObject({
       app_id: "12345",
       client_id: "Iv1.client",
       slug: "ploydok-local",
       name: "Ploydok Local",
-    });
-    expect(enqueuedSyncs[0]).toMatchObject({ provider: "github" });
-  });
+    })
+    expect(enqueuedSyncs[0]).toMatchObject({ provider: "github" })
+  })
 
   it("rejects invalid private keys", async () => {
-    const app = buildApp(FAKE_USER);
+    const app = buildApp(FAKE_USER)
     const res = await app.request("/github/app/import", {
       method: "POST",
       headers: { "Content-Type": "application/json" },
@@ -516,65 +560,65 @@ describe("POST /github/app/import", () => {
         slug: "ploydok-local",
         name: "Ploydok Local",
       }),
-    });
+    })
 
-    expect(res.status).toBe(400);
+    expect(res.status).toBe(400)
     expect((await res.json()) as Record<string, unknown>).toMatchObject({
       error: "invalid_private_key",
-    });
-    expect(importedConfigs).toHaveLength(0);
-  });
-});
+    })
+    expect(importedConfigs).toHaveLength(0)
+  })
+})
 
 describe("DELETE /github/app/config", () => {
   it("requires the destructive reset confirmation query", async () => {
-    mockGitHubAppConfig = { slug: "ploydok-local" };
-    const app = buildApp(FAKE_USER);
-    const res = await app.request("/github/app/config", { method: "DELETE" });
+    mockGitHubAppConfig = { slug: "ploydok-local" }
+    const app = buildApp(FAKE_USER)
+    const res = await app.request("/github/app/config", { method: "DELETE" })
 
-    expect(res.status).toBe(400);
+    expect(res.status).toBe(400)
     expect((await res.json()) as Record<string, unknown>).toMatchObject({
       error: "confirmation_required",
-    });
-    expect(deleteConfigCalls).toBe(0);
-    expect(revokedInstallations).toHaveLength(0);
-  });
+    })
+    expect(deleteConfigCalls).toBe(0)
+    expect(revokedInstallations).toHaveLength(0)
+  })
 
   it("revokes all GitHub installations before deleting local config", async () => {
-    mockGitHubAppConfig = { slug: "ploydok-local" };
-    liveInstallations = [{ id: 42 }, { id: 77 }];
-    const app = buildApp(FAKE_USER);
+    mockGitHubAppConfig = { slug: "ploydok-local" }
+    liveInstallations = [{ id: 42 }, { id: 77 }]
+    const app = buildApp(FAKE_USER)
     const res = await app.request(
       "/github/app/config?confirm=uninstall-github-installations",
-      { method: "DELETE" },
-    );
+      { method: "DELETE" }
+    )
 
-    expect(res.status).toBe(200);
-    expect(await res.json()).toMatchObject({ ok: true, uninstalled: 2 });
-    expect(revokedInstallations).toEqual([42, 77]);
-    expect(deleteConfigCalls).toBe(1);
-    expect(deletedTables).toHaveLength(2);
-  });
+    expect(res.status).toBe(200)
+    expect(await res.json()).toMatchObject({ ok: true, uninstalled: 2 })
+    expect(revokedInstallations).toEqual([42, 77])
+    expect(deleteConfigCalls).toBe(1)
+    expect(deletedTables).toHaveLength(2)
+  })
 
   it("keeps local config when a GitHub uninstall fails", async () => {
-    mockGitHubAppConfig = { slug: "ploydok-local" };
-    liveInstallations = [{ id: 42 }];
-    revokeFailure = new Error("github down");
-    const app = buildApp(FAKE_USER);
+    mockGitHubAppConfig = { slug: "ploydok-local" }
+    liveInstallations = [{ id: 42 }]
+    revokeFailure = new Error("github down")
+    const app = buildApp(FAKE_USER)
     const res = await app.request(
       "/github/app/config?confirm=uninstall-github-installations",
-      { method: "DELETE" },
-    );
+      { method: "DELETE" }
+    )
 
-    expect(res.status).toBe(502);
+    expect(res.status).toBe(502)
     expect((await res.json()) as Record<string, unknown>).toMatchObject({
       error: "github_api_error",
       failed_installation_id: 42,
-    });
-    expect(deleteConfigCalls).toBe(0);
-    expect(deletedTables).toHaveLength(0);
-  });
-});
+    })
+    expect(deleteConfigCalls).toBe(0)
+    expect(deletedTables).toHaveLength(0)
+  })
+})
 
 // ---------------------------------------------------------------------------
 // GET /github/repos
@@ -582,89 +626,91 @@ describe("DELETE /github/app/config", () => {
 
 describe("GET /github/repos", () => {
   it("returns 503 github_app_not_configured when no App is set up", async () => {
-    mockGitHubAppConfig = null;
-    const app = buildApp(FAKE_USER);
-    const res = await app.request("/github/repos");
-    expect(res.status).toBe(503);
-    const body = (await res.json()) as Record<string, unknown>;
-    expect(body["error"]).toBe("github_app_not_configured");
-  });
-});
+    mockGitHubAppConfig = null
+    const app = buildApp(FAKE_USER)
+    const res = await app.request("/github/repos")
+    expect(res.status).toBe(503)
+    const body = (await res.json()) as Record<string, unknown>
+    expect(body["error"]).toBe("github_app_not_configured")
+  })
+})
 
 describe("GET /github/installations/start", () => {
   it("returns 503 when no app is configured", async () => {
-    mockGitHubAppConfig = null;
-    const app = buildApp(FAKE_USER);
-    const res = await app.request("/github/installations/start");
-    expect(res.status).toBe(503);
-  });
+    mockGitHubAppConfig = null
+    const app = buildApp(FAKE_USER)
+    const res = await app.request("/github/installations/start")
+    expect(res.status).toBe(503)
+  })
 
   it("sets a state cookie and redirects to GitHub install URL", async () => {
     mockGitHubAppConfig = {
       slug: "ploydok-local",
-    };
-    const app = buildApp(FAKE_USER);
-    const res = await app.request("/github/installations/start");
-    expect(res.status).toBe(302);
-    const location = res.headers.get("location");
-    expect(location).toContain("https://github.com/apps/ploydok-local/installations/new?state=");
-    expect(res.headers.get("set-cookie")).toContain("gh_install_state=");
-  });
-});
+    }
+    const app = buildApp(FAKE_USER)
+    const res = await app.request("/github/installations/start")
+    expect(res.status).toBe(302)
+    const location = res.headers.get("location")
+    expect(location).toContain(
+      "https://github.com/apps/ploydok-local/installations/new?state="
+    )
+    expect(res.headers.get("set-cookie")).toContain("gh_install_state=")
+  })
+})
 
 describe("DELETE /github/installations/:id", () => {
   it("revokes the installation and deletes local cache state", async () => {
-    mockGitHubAppConfig = { slug: "ploydok-local" };
-    const app = buildApp(FAKE_USER);
+    mockGitHubAppConfig = { slug: "ploydok-local" }
+    const app = buildApp(FAKE_USER)
     const res = await app.request("/github/installations/42", {
       method: "DELETE",
-    });
+    })
 
-    expect(res.status).toBe(200);
-    expect(await res.json()).toMatchObject({ ok: true, revoked: 42 });
-    expect(revokedInstallations).toEqual([42]);
-    expect(deletedTables).toHaveLength(2);
-  });
+    expect(res.status).toBe(200)
+    expect(await res.json()).toMatchObject({ ok: true, revoked: 42 })
+    expect(revokedInstallations).toEqual([42])
+    expect(deletedTables).toHaveLength(2)
+  })
 
   it("disconnects a non-admin locally without revoking the global App installation", async () => {
-    fakeInstanceAdmin = false;
-    const app = buildApp(FAKE_USER);
+    fakeInstanceAdmin = false
+    const app = buildApp(FAKE_USER)
     const res = await app.request("/github/installations/42", {
       method: "DELETE",
-    });
+    })
 
-    expect(res.status).toBe(200);
-    expect(await res.json()).toEqual({ ok: true, disconnected: 42 });
+    expect(res.status).toBe(200)
+    expect(await res.json()).toEqual({ ok: true, disconnected: 42 })
     expect(localDisconnects).toEqual([
       { installationId: "42", userId: FAKE_USER.id },
-    ]);
-    expect(revokedInstallations).toHaveLength(0);
-  });
-});
+    ])
+    expect(revokedInstallations).toHaveLength(0)
+  })
+})
 
 describe("GET /github/app/setup", () => {
   it("upserts the installation credential, enqueues sync, and redirects with installed=1 when state is valid", async () => {
-    const app = buildApp();
-    const state = "abc123";
+    const app = buildApp()
+    const state = "abc123"
     const res = await app.request(
       `/github/app/setup?installation_id=42&setup_action=install&state=${state}`,
       {
         headers: {
           cookie: `gh_install_state=${encodeURIComponent(signInstallState(state))}`,
         },
-      },
-    );
-    expect(res.status).toBe(302);
-    const location = new URL(res.headers.get("location")!);
+      }
+    )
+    expect(res.status).toBe(302)
+    const location = new URL(res.headers.get("location")!)
     expect(`${location.origin}${location.pathname}`).toBe(
-      `${env.WEB_ORIGIN}/settings/git-providers/github`,
-    );
-    expect(location.searchParams.get("installation_id")).toBe("42");
-    expect(location.searchParams.get("setup_action")).toBe("install");
-    expect(location.searchParams.get("installed")).toBe("1");
-    const syncId = location.searchParams.get("sync_id");
-    expect(syncId).toBeTruthy();
-    expect(credentialUpserts).toHaveLength(1);
+      `${env.WEB_ORIGIN}/settings/git-providers/github`
+    )
+    expect(location.searchParams.get("installation_id")).toBe("42")
+    expect(location.searchParams.get("setup_action")).toBe("install")
+    expect(location.searchParams.get("installed")).toBe("1")
+    const syncId = location.searchParams.get("sync_id")
+    expect(syncId).toBeTruthy()
+    expect(credentialUpserts).toHaveLength(1)
     expect(credentialUpserts[0]?.values).toMatchObject({
       id: "github:42",
       provider: "github",
@@ -673,93 +719,171 @@ describe("GET /github/app/setup", () => {
       last_sync_actor_user_id: FAKE_USER.id,
       last_sync_source: "api",
       last_sync_claimed_at: null,
-    });
+    })
     expect(installationAssignments).toEqual([
       { installationId: "42", userId: FAKE_USER.id },
-    ]);
-    expect(enqueuedSyncs).toHaveLength(1);
+    ])
+    expect(enqueuedSyncs).toHaveLength(1)
     expect(enqueuedSyncs[0]).toMatchObject({
       provider: "github",
       installationId: "42",
       requestedBy: FAKE_USER.id,
       syncId,
-    });
-  });
+    })
+  })
 
   it("marks the return as invalid when state does not verify", async () => {
-    const app = buildApp();
+    const app = buildApp()
     const res = await app.request(
       "/github/app/setup?installation_id=42&setup_action=install&state=bad",
       {
         headers: {
           cookie: `gh_install_state=${encodeURIComponent(signInstallState("good"))}`,
         },
-      },
-    );
-    expect(res.status).toBe(302);
+      }
+    )
+    expect(res.status).toBe(302)
     expect(res.headers.get("location")).toBe(
-      `${env.WEB_ORIGIN}/settings/git-providers/github?installation_id=42&setup_action=install&install_error=state_mismatch`,
-    );
-    expect(credentialUpserts).toHaveLength(0);
-    expect(enqueuedSyncs).toHaveLength(0);
-  });
+      `${env.WEB_ORIGIN}/settings/git-providers/github?installation_id=42&setup_action=install&install_error=state_mismatch`
+    )
+    expect(credentialUpserts).toHaveLength(0)
+    expect(enqueuedSyncs).toHaveLength(0)
+  })
 
   it("keeps an in-flight installation using the legacy state cookie working", async () => {
-    const app = buildApp();
-    const state = "legacy-state";
+    const app = buildApp()
+    const state = "legacy-state"
     const res = await app.request(
       `/github/app/setup?installation_id=42&setup_action=install&state=${state}`,
       {
         headers: {
           cookie: `gh_install_state=${encodeURIComponent(signState(state))}`,
         },
-      },
-    );
+      }
+    )
 
-    expect(res.status).toBe(302);
-    const location = new URL(res.headers.get("location")!);
-    expect(location.searchParams.get("installed")).toBe("1");
-    expect(location.searchParams.get("sync_id")).toBeNull();
+    expect(res.status).toBe(302)
+    const location = new URL(res.headers.get("location")!)
+    expect(location.searchParams.get("installed")).toBe("1")
+    expect(location.searchParams.get("sync_id")).toBeNull()
     expect(enqueuedSyncs[0]).toMatchObject({
       provider: "github",
       installationId: "42",
-    });
-    expect(enqueuedSyncs[0]).not.toHaveProperty("requestedBy");
-  });
+    })
+    expect(enqueuedSyncs[0]).not.toHaveProperty("requestedBy")
+  })
+
+  it("returns to the onboarding wizard when the signed state asked for it", async () => {
+    const app = buildApp()
+    const state = "onboarding-state"
+    const res = await app.request(
+      `/github/app/setup?installation_id=42&setup_action=install&state=${state}`,
+      {
+        headers: {
+          cookie: `gh_install_state=${encodeURIComponent(
+            signInstallState(state, FAKE_USER.id, "/onboarding")
+          )}`,
+        },
+      }
+    )
+
+    expect(res.status).toBe(302)
+    const location = new URL(res.headers.get("location")!)
+    expect(`${location.origin}${location.pathname}`).toBe(
+      `${env.WEB_ORIGIN}/onboarding`
+    )
+    expect(location.searchParams.get("installed")).toBe("1")
+  })
+
+  it("ignores a return target that is not allow-listed even when correctly signed", async () => {
+    const app = buildApp()
+    const state = "hostile-state"
+    const res = await app.request(
+      `/github/app/setup?installation_id=42&setup_action=install&state=${state}`,
+      {
+        headers: {
+          cookie: `gh_install_state=${encodeURIComponent(
+            signInstallState(state, FAKE_USER.id, "https://evil.com/onboarding")
+          )}`,
+        },
+      }
+    )
+
+    expect(res.status).toBe(302)
+    const location = new URL(res.headers.get("location")!)
+    expect(`${location.origin}${location.pathname}`).toBe(
+      `${env.WEB_ORIGIN}/settings/git-providers/github`
+    )
+  })
+
+  it("ignores a return target passed only in the query string", async () => {
+    const app = buildApp()
+    const state = "query-state"
+    const res = await app.request(
+      `/github/app/setup?installation_id=42&setup_action=install&state=${state}&return_to=%2Fonboarding`,
+      {
+        headers: {
+          cookie: `gh_install_state=${encodeURIComponent(signInstallState(state))}`,
+        },
+      }
+    )
+
+    expect(res.status).toBe(302)
+    const location = new URL(res.headers.get("location")!)
+    expect(`${location.origin}${location.pathname}`).toBe(
+      `${env.WEB_ORIGIN}/settings/git-providers/github`
+    )
+  })
+
+  it("falls back to settings when the install started from github.com with no state", async () => {
+    const app = buildApp()
+    const res = await app.request(
+      "/github/app/setup?installation_id=42&setup_action=install"
+    )
+
+    expect(res.status).toBe(302)
+    const location = new URL(res.headers.get("location")!)
+    expect(`${location.origin}${location.pathname}`).toBe(
+      `${env.WEB_ORIGIN}/settings/git-providers/github`
+    )
+    expect(location.searchParams.get("install_error")).toBeNull()
+    expect(location.searchParams.get("installed")).toBeNull()
+    expect(enqueuedSyncs).toHaveLength(0)
+  })
 
   it("treats an update setup action as the same update-or-create sync path", async () => {
-    const app = buildApp();
-    const state = "update-state";
+    const app = buildApp()
+    const state = "update-state"
     const res = await app.request(
       `/github/app/setup?installation_id=77&setup_action=update&state=${state}`,
       {
         headers: {
           cookie: `gh_install_state=${encodeURIComponent(signInstallState(state))}`,
         },
-      },
-    );
+      }
+    )
 
-    expect(res.status).toBe(302);
-    const location = new URL(res.headers.get("location")!);
-    expect(location.searchParams.get("installation_id")).toBe("77");
-    expect(location.searchParams.get("setup_action")).toBe("update");
-    expect(location.searchParams.get("installed")).toBe("1");
-    const syncId = location.searchParams.get("sync_id");
-    expect(syncId).toBeTruthy();
+    expect(res.status).toBe(302)
+    const location = new URL(res.headers.get("location")!)
+    expect(location.searchParams.get("installation_id")).toBe("77")
+    expect(location.searchParams.get("setup_action")).toBe("update")
+    expect(location.searchParams.get("installed")).toBe("1")
+    const syncId = location.searchParams.get("sync_id")
+    expect(syncId).toBeTruthy()
     expect(credentialUpserts[0]?.values).toMatchObject({
       id: "github:77",
       last_sync_status: "pending",
       last_sync_actor_user_id: FAKE_USER.id,
       last_sync_source: "api",
-    });
+    })
     expect(enqueuedSyncs[0]).toMatchObject({
       provider: "github",
       installationId: "77",
       requestedBy: FAKE_USER.id,
       syncId,
-    });
-  });
-});
+    })
+  })
+})
 
 // ---------------------------------------------------------------------------
 // Webhook signature helper — integration smoke
@@ -767,10 +891,122 @@ describe("GET /github/app/setup", () => {
 
 describe("verifySignature helper (via webhook route)", () => {
   it("computes expected sha256 signature correctly", () => {
-    const secret = "my-webhook-secret";
-    const body = JSON.stringify({ ref: "refs/heads/main" });
+    const secret = "my-webhook-secret"
+    const body = JSON.stringify({ ref: "refs/heads/main" })
     const sig =
-      "sha256=" + createHmac("sha256", secret).update(body).digest("hex");
-    expect(sig).toMatch(/^sha256=[a-f0-9]{64}$/);
-  });
-});
+      "sha256=" + createHmac("sha256", secret).update(body).digest("hex")
+    expect(sig).toMatch(/^sha256=[a-f0-9]{64}$/)
+  })
+})
+
+describe("GET /github/app/callback", () => {
+  const realFetch = globalThis.fetch
+  const conversion = {
+    id: 4242,
+    client_id: "Iv1.abc",
+    slug: "ploydok-local",
+    name: "Ploydok (local)",
+    client_secret: "shh",
+    pem: "-----BEGIN RSA PRIVATE KEY-----\nkey\n-----END RSA PRIVATE KEY-----",
+    webhook_secret: "hook",
+  }
+
+  beforeEach(() => {
+    globalThis.fetch = (async () =>
+      new Response(JSON.stringify(conversion), {
+        status: 201,
+        headers: { "content-type": "application/json" },
+      })) as unknown as typeof fetch
+  })
+
+  afterEach(() => {
+    globalThis.fetch = realFetch
+  })
+
+  it("returns to the onboarding wizard when the signed state asked for it", async () => {
+    const app = buildApp()
+    const state = "cb-onboarding"
+    const res = await app.request(
+      `/github/app/callback?code=abc&state=${state}`,
+      {
+        headers: {
+          cookie: `gh_app_state=${encodeURIComponent(signAppState(state, "/onboarding"))}`,
+        },
+      }
+    )
+
+    expect(res.status).toBe(302)
+    expect(res.headers.get("location")).toBe(
+      `${env.WEB_ORIGIN}/onboarding?app=created`
+    )
+  })
+
+  it("returns to settings when the state carries no target", async () => {
+    const app = buildApp()
+    const state = "cb-default"
+    const res = await app.request(
+      `/github/app/callback?code=abc&state=${state}`,
+      {
+        headers: {
+          cookie: `gh_app_state=${encodeURIComponent(signAppState(state))}`,
+        },
+      }
+    )
+
+    expect(res.status).toBe(302)
+    expect(res.headers.get("location")).toBe(
+      `${env.WEB_ORIGIN}/settings/git-providers/github?app=created`
+    )
+  })
+
+  it("ignores a signed target that is not allow-listed", async () => {
+    const app = buildApp()
+    const state = "cb-hostile"
+    const res = await app.request(
+      `/github/app/callback?code=abc&state=${state}`,
+      {
+        headers: {
+          cookie: `gh_app_state=${encodeURIComponent(
+            signAppState(state, "//evil.com")
+          )}`,
+        },
+      }
+    )
+
+    expect(res.status).toBe(302)
+    expect(res.headers.get("location")).toBe(
+      `${env.WEB_ORIGIN}/settings/git-providers/github?app=created`
+    )
+  })
+
+  it("keeps accepting a legacy bare-state cookie", async () => {
+    const app = buildApp()
+    const state = "cb-legacy"
+    const res = await app.request(
+      `/github/app/callback?code=abc&state=${state}`,
+      {
+        headers: {
+          cookie: `gh_app_state=${encodeURIComponent(signState(state))}`,
+        },
+      }
+    )
+
+    expect(res.status).toBe(302)
+    expect(res.headers.get("location")).toBe(
+      `${env.WEB_ORIGIN}/settings/git-providers/github?app=created`
+    )
+  })
+
+  it("rejects a state that does not match the cookie", async () => {
+    const app = buildApp()
+    const res = await app.request("/github/app/callback?code=abc&state=bad", {
+      headers: {
+        cookie: `gh_app_state=${encodeURIComponent(signAppState("good", "/onboarding"))}`,
+      },
+    })
+
+    expect(res.status).toBe(400)
+    const data = (await res.json()) as { error: string }
+    expect(data.error).toBe("state_mismatch")
+  })
+})

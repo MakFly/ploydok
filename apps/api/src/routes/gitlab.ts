@@ -28,6 +28,12 @@ import { env } from "../env"
 import { shouldUseSecureCookies } from "../auth/jwt"
 import type { AuthUser } from "../auth/middleware"
 import { requireInstanceAdmin } from "../auth/instance-admin"
+import {
+  GITLAB_RETURN_FALLBACK,
+  buildReturnUrl,
+  sanitizeReturnTo,
+} from "./provider-return"
+import type { ProviderReturnPath } from "./provider-return"
 
 const log = childLogger("gitlab.routes")
 
@@ -53,7 +59,9 @@ function readFileProbeQuery(
 }
 
 function isAllowedEnvFilePath(path: string): boolean {
-  return ENV_FILE_PROBE_KEYS.includes(path as (typeof ENV_FILE_PROBE_KEYS)[number])
+  return ENV_FILE_PROBE_KEYS.includes(
+    path as (typeof ENV_FILE_PROBE_KEYS)[number]
+  )
 }
 
 function isAllowedManifestFilePath(path: string): boolean {
@@ -69,28 +77,61 @@ function isAllowedManifestFilePath(path: string): boolean {
 const OAUTH_STATE_COOKIE = "gl_oauth_state"
 const OAUTH_STATE_TTL_SECONDS = 10 * 60
 
-function signState(state: string): string {
-  const mac = createHmac("sha256", env.SESSION_SECRET)
-    .update(state)
-    .digest("hex")
-  return `${state}.${mac}`
-}
-
-function verifyState(cookieValue: string, state: string): boolean {
+/** Constant-time check that the cookie's prefix carries a valid MAC. */
+function verifySignedPrefix(cookieValue: string): string | null {
   const lastDot = cookieValue.lastIndexOf(".")
-  if (lastDot === -1) return false
-  const stored = cookieValue.slice(0, lastDot)
+  if (lastDot === -1) return null
+  const payload = cookieValue.slice(0, lastDot)
   const mac = cookieValue.slice(lastDot + 1)
-  if (stored !== state) return false
   const expected = createHmac("sha256", env.SESSION_SECRET)
-    .update(state)
+    .update(payload)
     .digest("hex")
   const a = Buffer.from(expected, "hex")
   const b = Buffer.from(mac, "hex")
-  if (a.length !== b.length) return false
+  if (a.length !== b.length) return null
   let diff = 0
   for (let i = 0; i < a.length; i++) diff |= a[i]! ^ b[i]!
-  return diff === 0
+  return diff === 0 ? payload : null
+}
+
+function signState(
+  state: string,
+  returnTo: ProviderReturnPath = GITLAB_RETURN_FALLBACK
+): string {
+  const payload = Buffer.from(JSON.stringify({ state, returnTo })).toString(
+    "base64url"
+  )
+  const mac = createHmac("sha256", env.SESSION_SECRET)
+    .update(payload)
+    .digest("hex")
+  return `${payload}.${mac}`
+}
+
+/**
+ * Accepts the JSON payload format and the legacy bare-state format still held
+ * by cookies minted before this shipped. A legacy state is 16 random hex bytes,
+ * never valid base64url JSON, so the branches cannot collide.
+ */
+function verifyState(
+  cookieValue: string,
+  state: string
+): { returnTo: ProviderReturnPath } | null {
+  const payload = verifySignedPrefix(cookieValue)
+  if (payload === null) return null
+  if (payload === state) return { returnTo: GITLAB_RETURN_FALLBACK }
+
+  try {
+    const parsed = JSON.parse(Buffer.from(payload, "base64url").toString()) as {
+      state?: unknown
+      returnTo?: unknown
+    }
+    if (parsed.state !== state) return null
+    return {
+      returnTo: sanitizeReturnTo(parsed.returnTo, GITLAB_RETURN_FALLBACK),
+    }
+  } catch {
+    return null
+  }
 }
 
 function buildCookie(
@@ -133,13 +174,20 @@ function parseCookie(header: string, name: string): string | null {
 
 gitlabRouter.get("/config", async (c) => {
   const cfg = await getGitLabConfig(db)
+  // callback_url is echoed even when unconfigured: the admin has to paste this
+  // exact value into GitLab before they can produce a client_id, and it must
+  // match the redirect_uri we send at /connect or GitLab rejects the exchange.
   if (!cfg) {
-    return c.json({ configured: false })
+    return c.json({
+      configured: false,
+      callback_url: env.GITLAB_OAUTH_CALLBACK_URL,
+    })
   }
   return c.json({
     configured: true,
     instance_url: cfg.instance_url,
     client_id: cfg.client_id,
+    callback_url: env.GITLAB_OAUTH_CALLBACK_URL,
   })
 })
 
@@ -205,6 +253,10 @@ gitlabRouter.get("/connect", async (c) => {
   const cfg = await getGitLabConfig(db)
   if (!cfg) return c.json({ error: "gitlab_not_configured" }, 503)
 
+  const returnTo = sanitizeReturnTo(
+    c.req.query("return_to"),
+    GITLAB_RETURN_FALLBACK
+  )
   const state = randomBytes(16).toString("hex")
   const authorizeUrl = new URL(`${cfg.instance_url}/oauth/authorize`)
   authorizeUrl.searchParams.set("client_id", cfg.client_id)
@@ -219,7 +271,7 @@ gitlabRouter.get("/connect", async (c) => {
     "Set-Cookie",
     buildCookie(
       OAUTH_STATE_COOKIE,
-      signState(state),
+      signState(state, returnTo),
       OAUTH_STATE_TTL_SECONDS,
       true
     )
@@ -240,9 +292,12 @@ gitlabRouter.get("/callback", async (c) => {
     c.req.header("cookie") ?? "",
     OAUTH_STATE_COOKIE
   )
-  if (!cookieVal || !verifyState(cookieVal, state)) {
+  const oauthState = cookieVal ? verifyState(cookieVal, state) : null
+  if (!oauthState) {
     return c.json({ error: "invalid_state" }, 400)
   }
+  // Read only from the MAC-verified payload, never from the query string.
+  const returnTo = sanitizeReturnTo(oauthState.returnTo, GITLAB_RETURN_FALLBACK)
   c.header("Set-Cookie", clearCookie(OAUTH_STATE_COOKIE))
 
   const user = c.get("user") ?? null
@@ -305,9 +360,9 @@ gitlabRouter.get("/callback", async (c) => {
     expires_at: expiresAt,
   })
 
-  // Redirect back to the SPA settings page.
+  // Back to whichever surface started the flow: onboarding wizard or settings.
   return c.redirect(
-    `${env.WEB_ORIGIN}/settings/git-providers/gitlab?connected=1`
+    buildReturnUrl(returnTo, new URLSearchParams({ connected: "1" }))
   )
 })
 
@@ -573,15 +628,18 @@ gitlabRouter.get("/repos/:fullName{.+}/files-exist", async (c) => {
 
   try {
     const entries = await Promise.all(
-      query.paths.map(async (filePath) => [
-        filePath,
-        await ctx.provider.fileExists(
-          ctx.accessToken,
-          fullName,
-          filePath,
-          query.ref
-        ),
-      ] as const)
+      query.paths.map(
+        async (filePath) =>
+          [
+            filePath,
+            await ctx.provider.fileExists(
+              ctx.accessToken,
+              fullName,
+              filePath,
+              query.ref
+            ),
+          ] as const
+      )
     )
     return c.json({ files: Object.fromEntries(entries) })
   } catch (err) {

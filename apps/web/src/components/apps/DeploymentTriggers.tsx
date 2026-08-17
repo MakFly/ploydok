@@ -332,7 +332,7 @@ function DeployHooksCard({
           <Button
             size="sm"
             onClick={() => void handleSave()}
-            disabled={update.isPending}
+            loading={update.isPending}
           >
             {update.isPending ? "Saving…" : "Save"}
           </Button>

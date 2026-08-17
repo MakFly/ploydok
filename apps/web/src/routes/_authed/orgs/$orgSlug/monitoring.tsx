@@ -1,5 +1,6 @@
 // SPDX-License-Identifier: AGPL-3.0-only
 import * as React from "react"
+import { Button } from "@workspace/ui/components/button"
 import { createFileRoute } from "@tanstack/react-router"
 import { useQueryClient } from "@tanstack/react-query"
 import {
@@ -169,20 +170,17 @@ function OrgMonitoringPage(): React.JSX.Element {
       description="Real-time health of application and database runtimes in this workspace."
       eyebrow="Workspace"
       actions={
-        <button
+        <Button
           type="button"
+          variant="ghost"
+          size="xs"
           onClick={() => void refetch()}
-          disabled={isFetching}
-          className={cn(
-            "inline-flex h-8 items-center gap-1.5 rounded-md rounded-2xl bg-panel px-2.5 text-xs font-medium transition-colors",
-            "hover:bg-muted disabled:opacity-60"
-          )}
+          loading={isFetching}
+          className="h-8 gap-1.5 rounded-2xl bg-panel px-2.5 hover:bg-muted"
         >
-          <RiRefreshLine
-            className={cn("size-3.5", isFetching && "animate-spin")}
-          />
+          <RiRefreshLine className="size-3.5" />
           Refresh
-        </button>
+        </Button>
       }
     >
       <div className="space-y-5">
@@ -267,6 +265,7 @@ function OrgMonitoringPage(): React.JSX.Element {
                           })
                       : undefined
                   }
+                  pinging={ping.isPending}
                 />
               )
             })}
@@ -675,20 +674,20 @@ function SkeletonGrid(): React.JSX.Element {
       {Array.from({ length: 3 }).map((_, i) => (
         <div
           key={i}
-          className="animate-pulse rounded-2xl bg-panel p-4"
+          className="rounded-2xl bg-panel p-4"
         >
           <div className="mb-3 flex items-center gap-2">
-            <div className="size-8 rounded-md bg-muted" />
+            <div className="size-8 rounded-md skeleton-surface" />
             <div className="flex-1 space-y-1.5">
-              <div className="h-3 w-32 rounded bg-muted" />
-              <div className="h-2.5 w-24 rounded bg-muted/60" />
+              <div className="h-3 w-32 rounded skeleton-surface" />
+              <div className="h-2.5 w-24 rounded skeleton-surface" />
             </div>
-            <div className="h-5 w-14 rounded-full bg-muted" />
+            <div className="h-5 w-14 rounded-full skeleton-surface" />
           </div>
-          <div className="mb-3 h-14 rounded-md bg-muted/60" />
+          <div className="mb-3 h-14 rounded-md skeleton-surface" />
           <div className="grid grid-cols-2 gap-2">
-            <div className="h-14 rounded-md bg-muted/60" />
-            <div className="h-14 rounded-md bg-muted/60" />
+            <div className="h-14 rounded-md skeleton-surface" />
+            <div className="h-14 rounded-md skeleton-surface" />
           </div>
         </div>
       ))}

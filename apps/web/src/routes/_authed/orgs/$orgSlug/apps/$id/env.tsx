@@ -460,7 +460,8 @@ function DeveloperEnvEditor({
               <Button
                 type="submit"
                 size="sm"
-                disabled={isPending || (mode === "merge" && !content.trim())}
+                loading={isPending}
+                disabled={mode === "merge" && !content.trim()}
               >
                 {getSubmitLabel()}
               </Button>
@@ -613,16 +614,16 @@ function DeveloperEnvEditor({
 
 function SecretsSkeleton(): React.JSX.Element {
   return (
-    <div className="animate-pulse overflow-hidden rounded-lg border border-border">
-      <div className="border-b border-border bg-muted/40 px-4 py-2.5" />
+    <div className="overflow-hidden rounded-lg border border-border">
+      <div className="skeleton-surface border-b border-border px-4 py-2.5" />
       <div className="divide-y divide-border">
         {Array.from({ length: 3 }).map((_, i) => (
           <div key={i} className="flex items-center gap-4 px-4 py-3">
-            <div className="h-4 w-40 rounded bg-muted" />
-            <div className="h-4 w-24 rounded bg-muted" />
+            <div className="h-4 w-40 rounded skeleton-surface" />
+            <div className="h-4 w-24 rounded skeleton-surface" />
             <div className="ml-auto flex gap-2">
-              <div className="size-7 rounded bg-muted" />
-              <div className="size-7 rounded bg-muted" />
+              <div className="size-7 rounded skeleton-surface" />
+              <div className="size-7 rounded skeleton-surface" />
             </div>
           </div>
         ))}

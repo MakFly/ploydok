@@ -421,6 +421,20 @@
       "when": 1786226500000,
       "tag": "0060_github_installation_users_many_to_many",
       "breakpoints": true
+    },
+    {
+      "idx": 61,
+      "version": "7",
+      "when": 1786919884000,
+      "tag": "0061_database_backups_latest_idx",
+      "breakpoints": true
+    },
+    {
+      "idx": 62,
+      "version": "7",
+      "when": 1786920955591,
+      "tag": "0062_database_cockpit_correlation_indexes",
+      "breakpoints": true
     }
   ]
 }

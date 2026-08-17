@@ -88,7 +88,7 @@ export function RotateNowDialog({ databaseId, onClose }: RotateNowDialogProps): 
             <Button
               variant="destructive"
               onClick={handleRotate}
-              disabled={isPending || totpCode.length !== 6}
+              loading={isPending} disabled={totpCode.length !== 6}
             >
               {isPending ? "Rotating…" : "Rotate password"}
             </Button>

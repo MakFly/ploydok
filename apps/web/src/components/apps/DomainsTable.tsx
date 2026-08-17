@@ -129,18 +129,12 @@ function AddDomainRow({ isAdding, onAdd, lockReason }: AddDomainRowProps): React
             type="submit"
             size="sm"
             variant="outline"
-            disabled={isAdding || !value.trim() || Boolean(lockReason)}
+            loading={isAdding}
+            disabled={!value.trim() || Boolean(lockReason)}
             className="shrink-0"
             title={lockReason}
           >
-            {isAdding ? (
-              <span className="flex items-center gap-1.5">
-                <span className="size-3.5 animate-spin rounded-full border-2 border-muted-foreground/30 border-t-foreground" />
-                Adding…
-              </span>
-            ) : (
-              "Add domain"
-            )}
+            {isAdding ? "Adding…" : "Add domain"}
           </Button>
         </form>
       </td>
@@ -208,15 +202,11 @@ export function DomainsTable({
                       size="sm"
                       variant="ghost"
                       className="h-7 px-2 text-xs"
-                      disabled={isRechecking}
+                      loading={isRechecking}
                       onClick={() => onRecheck(domain.id)}
                       title="Re-check TLS certificate"
                     >
-                      {isRechecking ? (
-                        <span className="size-3 animate-spin rounded-full border-2 border-muted-foreground/30 border-t-foreground" />
-                      ) : (
-                        <RecheckIcon className="size-3.5" />
-                      )}
+                      <RecheckIcon className="size-3.5" />
                       <span className="sr-only">Recheck</span>
                     </Button>
 
@@ -247,17 +237,17 @@ function DomainsSkeletonRows(): React.JSX.Element {
   return (
     <>
       {Array.from({ length: 3 }).map((_, i) => (
-        <tr key={i} className="border-b border-border last:border-0 animate-pulse">
+        <tr key={i} className="border-b border-border last:border-0">
           <td className="px-4 py-3">
-            <div className="h-4 w-3/4 rounded bg-muted" />
+            <div className="h-4 w-3/4 rounded skeleton-surface" />
           </td>
           <td className="px-4 py-3">
-            <div className="h-5 w-20 rounded-full bg-muted" />
+            <div className="h-5 w-20 rounded-full skeleton-surface" />
           </td>
           <td className="px-4 py-3">
             <div className="flex items-center justify-end gap-2">
-              <div className="size-7 rounded bg-muted" />
-              <div className="size-7 rounded bg-muted" />
+              <div className="size-7 rounded skeleton-surface" />
+              <div className="size-7 rounded skeleton-surface" />
             </div>
           </td>
         </tr>
@@ -292,7 +282,7 @@ function DeleteDomainButton({
           size="sm"
           variant="ghost"
           className="h-7 px-2 text-xs text-destructive hover:bg-destructive/10 hover:text-destructive"
-          disabled={isDeleting || Boolean(lockReason)}
+          loading={isDeleting} disabled={Boolean(lockReason)}
           title={lockReason ?? `Remove ${hostname}`}
         >
           <TrashIcon className="size-3.5" />

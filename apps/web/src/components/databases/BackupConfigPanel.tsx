@@ -1,6 +1,7 @@
 // SPDX-License-Identifier: AGPL-3.0-only
 import * as React from "react"
 import { Button } from "@workspace/ui/components/button"
+import { Skeleton } from "@workspace/ui/components/skeleton"
 import { Input } from "@workspace/ui/components/input"
 import { Label } from "@workspace/ui/components/label"
 import { Switch } from "@workspace/ui/components/switch"
@@ -77,9 +78,9 @@ export function BackupConfigPanel({
 
   if (isLoading) {
     return (
-      <p className="text-sm text-muted-foreground">
-        Loading backup configuration…
-      </p>
+      <div aria-busy="true" aria-label="Loading backup configuration">
+        <Skeleton className="h-40 w-full rounded-xl" />
+      </div>
     )
   }
 
@@ -211,7 +212,7 @@ export function BackupConfigPanel({
         </p>
       </div>
 
-      <Button type="submit" disabled={update.isPending}>
+      <Button type="submit" loading={update.isPending}>
         {update.isPending ? "Saving…" : "Save configuration"}
       </Button>
     </form>

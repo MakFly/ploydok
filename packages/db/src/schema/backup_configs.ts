@@ -1,5 +1,5 @@
 // SPDX-License-Identifier: AGPL-3.0-only
-import { pgTable, text, integer, boolean, timestamp } from 'drizzle-orm/pg-core'
+import { pgTable, text, integer, boolean, timestamp, index } from 'drizzle-orm/pg-core'
 import { databases } from './databases'
 import { secrets } from './secrets'
 
@@ -29,7 +29,9 @@ export const backup_configs = pgTable('backup_configs', {
   created_at: timestamp('created_at', { withTimezone: true, mode: 'date' })
     .notNull()
     .$defaultFn(() => new Date()),
-})
+}, (table) => [
+  index('backup_configs_database_id_idx').on(table.database_id),
+])
 
 export type BackupConfigRow = typeof backup_configs.$inferSelect
 export type BackupConfigInsert = typeof backup_configs.$inferInsert

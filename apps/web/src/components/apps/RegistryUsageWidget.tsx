@@ -87,9 +87,9 @@ export function RegistryUsageWidget({ appId }: Props): React.JSX.Element {
       <h3 className="text-sm font-medium text-foreground">Registry storage</h3>
 
       {isLoading && (
-        <div className="space-y-2 animate-pulse">
-          <div className="h-5 w-24 rounded bg-muted" />
-          <div className="h-2 w-full rounded bg-muted" />
+        <div className="space-y-2" aria-busy="true" aria-label="Loading registry storage">
+          <div className="h-5 w-24 rounded skeleton-surface" />
+          <div className="h-2 w-full rounded skeleton-surface" />
         </div>
       )}
 
@@ -141,7 +141,7 @@ export function RegistryUsageWidget({ appId }: Props): React.JSX.Element {
           size="sm"
           variant="outline"
           className="w-full"
-          disabled={prune.isPending || isLoading}
+          loading={prune.isPending || isLoading}
           onClick={() => setConfirmOpen(true)}
         >
           {prune.isPending ? "Pruning…" : "Prune now"}

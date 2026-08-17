@@ -57,7 +57,7 @@ export function InstallDialog({
           >
             Annuler
           </Button>
-          <Button type="button" onClick={onConfirm} disabled={isPending}>
+          <Button type="button" onClick={onConfirm} loading={isPending}>
             {isPending ? "Installation…" : "Installer"}
           </Button>
         </DialogFooter>

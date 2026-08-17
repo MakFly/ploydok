@@ -123,7 +123,7 @@ function Skeleton(): React.JSX.Element {
         <div
           key={i}
           className={cn(
-            "h-20 animate-pulse rounded-md border border-border bg-muted/40",
+            "h-20 rounded-md border border-border skeleton-surface",
           )}
         />
       ))}

@@ -481,10 +481,9 @@ export function CreateDatabaseDialog({
               </Button>
               <Button
                 type="submit"
+                loading={isPending}
                 disabled={
-                  !name ||
-                  isPending ||
-                  (mode === "external" && !connectionString.trim())
+                  !name || (mode === "external" && !connectionString.trim())
                 }
               >
                 {isPending

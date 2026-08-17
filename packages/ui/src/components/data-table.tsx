@@ -16,6 +16,8 @@ interface DataTableProps<TData> {
   pageSize?: number
   onRowClick?: (row: TData) => void
   className?: string
+  /** Set false when pagination is owned by the server. */
+  paginate?: boolean
 }
 
 function DataTable<TData>({
@@ -24,12 +26,13 @@ function DataTable<TData>({
   pageSize = 5,
   onRowClick,
   className,
+  paginate = true,
 }: DataTableProps<TData>) {
   const table = useReactTable({
     data: rows,
     columns,
     getCoreRowModel: getCoreRowModel(),
-    getPaginationRowModel: getPaginationRowModel(),
+    ...(paginate ? { getPaginationRowModel: getPaginationRowModel() } : {}),
     initialState: {
       pagination: {
         pageSize,
@@ -92,7 +95,7 @@ function DataTable<TData>({
           </tbody>
         </table>
       </div>
-      <DataTablePagination table={table} />
+      {paginate ? <DataTablePagination table={table} /> : null}
     </div>
   )
 }

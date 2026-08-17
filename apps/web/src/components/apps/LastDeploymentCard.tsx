@@ -55,10 +55,10 @@ function buildStatusToAppStatus(
 
 function CardSkeleton(): React.JSX.Element {
   return (
-    <div className="rounded-2xl bg-panel p-4 space-y-3 animate-pulse">
-      <div className="h-3 w-28 rounded bg-muted" />
-      <div className="h-5 w-40 rounded bg-muted" />
-      <div className="h-3 w-24 rounded bg-muted" />
+    <div className="space-y-3 rounded-2xl bg-panel p-4">
+      <div className="h-3 w-28 rounded skeleton-surface" />
+      <div className="h-5 w-40 rounded skeleton-surface" />
+      <div className="h-3 w-24 rounded skeleton-surface" />
     </div>
   )
 }
@@ -82,7 +82,7 @@ function NoBuilds({ appId }: NoBuildsProps): React.JSX.Element {
       <Button
         size="sm"
         onClick={() => deploy.mutate()}
-        disabled={deploy.isPending}
+        loading={deploy.isPending}
       >
         {deploy.isPending ? "Deploying…" : "Deploy now"}
       </Button>

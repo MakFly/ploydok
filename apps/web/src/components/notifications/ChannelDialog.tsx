@@ -381,7 +381,7 @@ export function ChannelDialog({
             >
               Annuler
             </Button>
-            <Button type="submit" disabled={isPending || comingSoon}>
+            <Button type="submit" loading={isPending} disabled={comingSoon}>
               {isPending ? "Enregistrement…" : isEditing ? "Mettre à jour" : "Créer"}
             </Button>
           </DialogFooter>

@@ -8,6 +8,7 @@ import {
 } from "@workspace/ui/components/card"
 import { Badge } from "@workspace/ui/components/badge"
 import { Button } from "@workspace/ui/components/button"
+import { Skeleton } from "@workspace/ui/components/skeleton"
 import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query"
 import { apiFetch } from "../../../../../../lib/api/client"
 import { ApiError } from "../../../../../../lib/api/errors"
@@ -77,7 +78,7 @@ function PreviewsPage() {
       {isLoading && (
         <Card>
           <CardContent className="pt-6">
-            <p className="text-sm text-gray-500">Loading...</p>
+            <Skeleton className="h-5 w-40" />
           </CardContent>
         </Card>
       )}
@@ -240,7 +241,7 @@ function PreviewCard({
             variant="destructive"
             size="sm"
             onClick={() => teardownPreview.mutate()}
-            disabled={teardownPreview.isPending}
+            loading={teardownPreview.isPending}
             className="w-full"
           >
             {teardownPreview.isPending ? "Tearing down..." : "Teardown"}

@@ -447,14 +447,14 @@ export function CdnSection({ appId }: { appId: string }): React.JSX.Element {
             <Button
               variant="outline"
               onClick={() => purgeCloudflare.mutate()}
-              disabled={purgeCloudflare.isPending}
+              loading={purgeCloudflare.isPending}
             >
               {purgeCloudflare.isPending ? "Purging..." : "Purge Cloudflare"}
             </Button>
           ) : null}
           <Button
             onClick={() => void handleSave()}
-            disabled={update.isPending || updateCloudflare.isPending}
+            loading={update.isPending || updateCloudflare.isPending}
           >
             {update.isPending || updateCloudflare.isPending
               ? "Saving..."

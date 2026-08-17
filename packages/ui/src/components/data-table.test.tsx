@@ -12,8 +12,11 @@ import * as React from "react"
 import { DataTable } from "./data-table"
 import type { ColumnDef } from "@tanstack/react-table"
 
-GlobalRegistrator.register()
-
+// Bun runs every file of the package in one process, so registration has to be
+// idempotent across test files.
+if (typeof globalThis.document === "undefined") {
+  GlobalRegistrator.register()
+}
 
 afterEach(() => {
   cleanup()

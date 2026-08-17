@@ -27,11 +27,13 @@ import {
 import {
   CommandDialog,
   CommandEmpty,
+  CommandFooter,
   CommandGroup,
   CommandInput,
   CommandItem,
+  CommandKbd,
   CommandList,
-  CommandSeparator,
+  CommandMeta,
 } from "@workspace/ui/components/command"
 import { useApps } from "../../lib/apps"
 import { useMe } from "../../lib/auth"
@@ -47,14 +49,35 @@ import {
 // Types
 // ---------------------------------------------------------------------------
 
+type NavSection = "Navigation" | "Integrations" | "Account" | "Instance"
+
 interface NavEntry {
   id: string
   label: string
+  section: NavSection
   icon: React.ComponentType<{ className?: string }>
   to: string
   orgPathSuffix?: string
   params?: Record<string, string>
   adminOnly?: boolean
+}
+
+const NAV_SECTIONS: Array<NavSection> = [
+  "Navigation",
+  "Integrations",
+  "Account",
+  "Instance",
+]
+
+// Status colour is the only place the palette leaves the neutral token set:
+// a deploy state is the one thing a user scans for rather than reads.
+const APP_STATUS_TONE: Record<string, string> = {
+  running: "bg-emerald-500",
+  serving: "bg-emerald-500",
+  building: "bg-amber-500",
+  restarting: "bg-amber-500",
+  pending: "bg-amber-500",
+  failed: "bg-red-500",
 }
 
 // ---------------------------------------------------------------------------
@@ -77,15 +100,9 @@ export function matchesQuery(item: FilterableItem, query: string): boolean {
 
 const NAV_ITEMS: Array<NavEntry> = [
   {
-    id: "nav-admin-disk",
-    label: "Admin — Disk",
-    icon: RiHardDriveLine,
-    to: "/admin/disk",
-    adminOnly: true,
-  },
-  {
     id: "nav-dashboard",
     label: "Dashboard",
+    section: "Navigation",
     icon: RiDashboardLine,
     to: "/dashboard",
     orgPathSuffix: "dashboard",
@@ -93,6 +110,7 @@ const NAV_ITEMS: Array<NavEntry> = [
   {
     id: "nav-apps",
     label: "Applications",
+    section: "Navigation",
     icon: RiApps2Line,
     to: "/apps",
     orgPathSuffix: "apps",
@@ -100,6 +118,7 @@ const NAV_ITEMS: Array<NavEntry> = [
   {
     id: "nav-databases",
     label: "Databases",
+    section: "Navigation",
     icon: RiDatabase2Line,
     to: "/databases",
     orgPathSuffix: "databases",
@@ -107,6 +126,7 @@ const NAV_ITEMS: Array<NavEntry> = [
   {
     id: "nav-services",
     label: "Services",
+    section: "Navigation",
     icon: RiCodeBoxLine,
     to: "/dashboard",
     orgPathSuffix: "services",
@@ -114,6 +134,7 @@ const NAV_ITEMS: Array<NavEntry> = [
   {
     id: "nav-deployments",
     label: "Deployments",
+    section: "Navigation",
     icon: RiRocketLine,
     to: "/dashboard",
     orgPathSuffix: "deployments",
@@ -121,6 +142,7 @@ const NAV_ITEMS: Array<NavEntry> = [
   {
     id: "nav-marketplace",
     label: "Marketplace",
+    section: "Navigation",
     icon: RiShapesLine,
     to: "/dashboard",
     orgPathSuffix: "marketplace",
@@ -128,6 +150,7 @@ const NAV_ITEMS: Array<NavEntry> = [
   {
     id: "nav-monitoring",
     label: "Monitoring",
+    section: "Navigation",
     icon: RiPulseLine,
     to: "/dashboard",
     orgPathSuffix: "monitoring",
@@ -135,6 +158,7 @@ const NAV_ITEMS: Array<NavEntry> = [
   {
     id: "nav-members",
     label: "Members",
+    section: "Navigation",
     icon: RiTeamLine,
     to: "/dashboard",
     orgPathSuffix: "members",
@@ -142,6 +166,7 @@ const NAV_ITEMS: Array<NavEntry> = [
   {
     id: "nav-audit",
     label: "Audit log",
+    section: "Navigation",
     icon: RiFileListLine,
     to: "/dashboard",
     orgPathSuffix: "audit",
@@ -149,6 +174,7 @@ const NAV_ITEMS: Array<NavEntry> = [
   {
     id: "nav-shared-env",
     label: "Shared env",
+    section: "Navigation",
     icon: RiKeyLine,
     to: "/dashboard",
     orgPathSuffix: "shared-env",
@@ -156,6 +182,7 @@ const NAV_ITEMS: Array<NavEntry> = [
   {
     id: "nav-scheduled-jobs",
     label: "Scheduled jobs",
+    section: "Navigation",
     icon: RiTimerLine,
     to: "/dashboard",
     orgPathSuffix: "scheduled-jobs",
@@ -163,6 +190,7 @@ const NAV_ITEMS: Array<NavEntry> = [
   {
     id: "nav-event-webhooks",
     label: "Event webhooks",
+    section: "Navigation",
     icon: RiSendPlane2Line,
     to: "/dashboard",
     orgPathSuffix: "event-webhooks",
@@ -170,39 +198,53 @@ const NAV_ITEMS: Array<NavEntry> = [
   {
     id: "nav-tags",
     label: "Tags",
+    section: "Navigation",
     icon: RiPriceTagLine,
     to: "/dashboard",
     orgPathSuffix: "tags",
   },
   {
     id: "nav-integrations-git-providers",
-    label: "Integrations — Git providers",
+    label: "Git providers",
+    section: "Integrations",
     icon: RiPlugLine,
     to: "/settings/git-providers",
   },
   {
     id: "nav-integrations-registry",
-    label: "Integrations — Registry",
+    label: "Registry",
+    section: "Integrations",
     icon: RiArchiveLine,
     to: "/settings/registry",
   },
   {
     id: "nav-integrations-notifications",
-    label: "Integrations — Notifications",
+    label: "Notifications",
+    section: "Integrations",
     icon: RiNotificationLine,
     to: "/settings/notifications",
   },
   {
     id: "nav-settings",
-    label: "Account — Settings",
+    label: "Settings",
+    section: "Account",
     icon: RiSettings3Line,
     to: "/settings",
   },
   {
     id: "nav-settings-security",
-    label: "Account — Security",
+    label: "Security",
+    section: "Account",
     icon: RiShieldCheckLine,
     to: "/settings/security",
+  },
+  {
+    id: "nav-admin-disk",
+    label: "Disk",
+    section: "Instance",
+    icon: RiHardDriveLine,
+    to: "/admin/disk",
+    adminOnly: true,
   },
 ]
 
@@ -246,23 +288,23 @@ function CurrentAppActions({
   }
 
   return (
-    <>
-      <CommandSeparator />
-      <CommandGroup heading="Current app">
-        <CommandItem onSelect={handleDeploy}>
-          <RiRocketLine className="size-4" />
-          Deploy current app
-        </CommandItem>
-        <CommandItem onSelect={handleStop}>
-          <RiStopCircleLine className="size-4" />
-          Stop current app
-        </CommandItem>
-        <CommandItem onSelect={handleLogs}>
-          <RiTerminalBoxLine className="size-4" />
-          View logs
-        </CommandItem>
-      </CommandGroup>
-    </>
+    <CommandGroup heading="Current app">
+      <CommandItem
+        value="app-action logs terminal output"
+        onSelect={handleLogs}
+      >
+        <RiTerminalBoxLine className="size-4" />
+        <span className="flex-1 truncate">View logs</span>
+      </CommandItem>
+      <CommandItem value="app-action deploy build ship" onSelect={handleDeploy}>
+        <RiRocketLine className="size-4" />
+        <span className="flex-1 truncate">Deploy</span>
+      </CommandItem>
+      <CommandItem value="app-action stop halt" onSelect={handleStop}>
+        <RiStopCircleLine className="size-4" />
+        <span className="flex-1 truncate">Stop</span>
+      </CommandItem>
+    </CommandGroup>
   )
 }
 
@@ -304,14 +346,22 @@ function CommandPaletteContent({
     [router, onClose]
   )
 
+  const visibleNav = NAV_ITEMS.filter(
+    (item) => !item.adminOnly || me?.is_instance_admin
+  )
+
   return (
     <>
+      {currentAppId ? (
+        <CurrentAppActions appId={currentAppId} onClose={onClose} />
+      ) : null}
+
       {apps && apps.length > 0 ? (
         <CommandGroup heading="Applications">
           {apps.map((app) => (
             <CommandItem
               key={app.id}
-              value={`app-${app.name}-${app.slug}`}
+              value={`app ${app.name} ${app.slug} ${app.status}`}
               disabled={app.status === "deleting"}
               onSelect={() => {
                 if (app.status === "deleting") return
@@ -327,42 +377,50 @@ function CommandPaletteContent({
               }}
             >
               <RiApps2Line className="size-4" />
-              <span>Go to {app.name}</span>
-              <span className="ml-auto font-mono text-[10px] text-muted-foreground">
-                {app.status}
-              </span>
+              <span className="flex-1 truncate">{app.name}</span>
+              <CommandMeta>{app.slug}</CommandMeta>
+              <span
+                aria-hidden="true"
+                className={`size-1.5 shrink-0 rounded-full ${
+                  APP_STATUS_TONE[app.status] ?? "bg-muted-foreground/40"
+                }`}
+              />
+              <span className="sr-only">{app.status}</span>
+              <CommandMeta className="w-16 shrink-0">{app.status}</CommandMeta>
             </CommandItem>
           ))}
         </CommandGroup>
       ) : null}
 
-      <CommandSeparator />
-
-      <CommandGroup heading="Navigation">
-        {NAV_ITEMS.filter(
-          (item) => !item.adminOnly || me?.is_instance_admin
-        ).map((item) => {
-          const Icon = item.icon
-          const target =
-            currentOrgSlug && item.orgPathSuffix
-              ? organizationPath(currentOrgSlug, item.orgPathSuffix)
-              : item.to
-          return (
-            <CommandItem
-              key={item.id}
-              value={`nav-${item.label}`}
-              onSelect={() => handleNavSelect(target, item.params)}
-            >
-              <Icon className="size-4" />
-              {item.label}
-            </CommandItem>
-          )
-        })}
-      </CommandGroup>
-
-      {currentAppId ? (
-        <CurrentAppActions appId={currentAppId} onClose={onClose} />
-      ) : null}
+      {NAV_SECTIONS.map((section) => {
+        const items = visibleNav.filter((item) => item.section === section)
+        if (items.length === 0) return null
+        return (
+          <CommandGroup key={section} heading={section}>
+            {items.map((item) => {
+              const Icon = item.icon
+              const target =
+                currentOrgSlug && item.orgPathSuffix
+                  ? organizationPath(currentOrgSlug, item.orgPathSuffix)
+                  : item.to
+              const hint = item.orgPathSuffix
+                ? `/${item.orgPathSuffix}`
+                : item.to
+              return (
+                <CommandItem
+                  key={item.id}
+                  value={`nav ${section} ${item.label} ${hint}`}
+                  onSelect={() => handleNavSelect(target, item.params)}
+                >
+                  <Icon className="size-4" />
+                  <span className="flex-1 truncate">{item.label}</span>
+                  <CommandMeta>{hint}</CommandMeta>
+                </CommandItem>
+              )
+            })}
+          </CommandGroup>
+        )
+      })}
     </>
   )
 }
@@ -383,23 +441,39 @@ export function CommandPalette({
   const close = React.useCallback(() => onOpenChange(false), [onOpenChange])
 
   return (
-    <CommandDialog open={open} onOpenChange={onOpenChange}>
+    <CommandDialog
+      open={open}
+      onOpenChange={onOpenChange}
+      className="sm:max-w-xl md:max-w-2xl"
+    >
       <CommandInput placeholder="Search apps, navigate, or run an action…" />
-      <CommandList className="max-h-[60vh] sm:max-h-[400px]">
+      <CommandList className="max-h-[55dvh] sm:max-h-[26rem]">
         <CommandEmpty>
-          <span className="text-sm text-muted-foreground">
-            No results found.
+          <span className="text-muted-foreground">
+            Nothing matches that. Try an app name, a page, or an action.
           </span>
         </CommandEmpty>
 
         {open ? <CommandPaletteContent onClose={close} /> : null}
       </CommandList>
 
-      <div className="flex items-center justify-end border-t px-3 py-2">
-        <span className="font-mono text-[10px] text-muted-foreground">
-          ↑↓ navigate · ↵ select · ESC close
+      <CommandFooter className="hidden sm:flex">
+        <span className="flex items-center gap-4">
+          <span className="flex items-center gap-1.5">
+            <CommandKbd>↑</CommandKbd>
+            <CommandKbd>↓</CommandKbd>
+            navigate
+          </span>
+          <span className="flex items-center gap-1.5">
+            <CommandKbd>↵</CommandKbd>
+            select
+          </span>
         </span>
-      </div>
+        <span className="flex items-center gap-1.5">
+          <CommandKbd>esc</CommandKbd>
+          close
+        </span>
+      </CommandFooter>
     </CommandDialog>
   )
 }

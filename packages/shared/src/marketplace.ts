@@ -1,6 +1,40 @@
 // SPDX-License-Identifier: AGPL-3.0-only
 import { z } from "zod"
 
+// ---------------------------------------------------------------------------
+// Marketplace catalog (proxied from the upstream template registry)
+// ---------------------------------------------------------------------------
+
+export const MarketplaceTemplate = z.object({
+  id: z.string(),
+  name: z.string(),
+  description: z.string(),
+  version: z.string(),
+  logoUrl: z.string().nullable(),
+  tags: z.array(z.string()),
+  links: z.object({
+    github: z.string().optional(),
+    website: z.string().optional(),
+    docs: z.string().optional(),
+  }),
+})
+export type MarketplaceTemplate = z.infer<typeof MarketplaceTemplate>
+
+export const MarketplaceCatalogPage = z.object({
+  templates: z.array(MarketplaceTemplate),
+  nextCursor: z.number().int().nonnegative().nullable(),
+  total: z.number().int().nonnegative(),
+  // true when the upstream registry is unreachable and we served a cached copy
+  stale: z.boolean(),
+})
+export type MarketplaceCatalogPage = z.infer<typeof MarketplaceCatalogPage>
+
+export const MarketplaceTemplateFiles = z.object({
+  templateToml: z.string(),
+  dockerCompose: z.string(),
+})
+export type MarketplaceTemplateFiles = z.infer<typeof MarketplaceTemplateFiles>
+
 export const ServiceStatus = z.enum([
   "created",
   "pending",

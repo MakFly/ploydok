@@ -41,9 +41,11 @@ import { createBackupsRouter } from "./routes/backups"
 import { createAppsDatabasesLinkRouter } from "./routes/apps-databases-link"
 import { appsProtectionRouter } from "./routes/apps-protection"
 import { createOrganizationsRouter } from "./routes/organizations"
+import { createOrganizationDeploymentsRouter } from "./routes/organization-deployments"
 import { createMembershipsRouter } from "./routes/memberships"
 import { createInvitationsRouter } from "./routes/invitations"
 import { createServicesRouter } from "./routes/services"
+import { createMarketplaceRouter } from "./routes/marketplace"
 import { auditRouter } from "./routes/audit"
 import { createBillingRouter } from "./routes/billing"
 import { createStripeWebhookRouter } from "./routes/webhooks-stripe"
@@ -482,6 +484,7 @@ app.route("/adminer", createAdminerRouter())
 // Organizations / workspaces — all endpoints require auth.
 app.use("/organizations/*", requireAuth(db))
 app.use("/organizations", requireAuth(db))
+app.route("/organizations", createOrganizationDeploymentsRouter(db))
 app.route("/organizations", createOrganizationsRouter(db))
 
 // Memberships — all endpoints require auth.
@@ -496,6 +499,10 @@ app.use("/invitations/accept", requireAuth(db))
 app.use("/services/*", requireAuth(db))
 app.use("/services", requireAuth(db))
 app.route("/services", createServicesRouter(db))
+
+// Marketplace catalog (proxied upstream registry) — all endpoints require auth.
+app.use("/marketplace/*", requireAuth(db))
+app.route("/marketplace", createMarketplaceRouter())
 
 // Backups — all endpoints require auth.
 app.use("/databases/*/backups*", requireAuth(db))

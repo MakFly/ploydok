@@ -4,6 +4,7 @@ import { startAuthentication } from "@simplewebauthn/browser"
 import { Button } from "@workspace/ui/components/button"
 import { apiFetch } from "../../lib/api"
 import { useLogin } from "../../lib/auth"
+import { usePendingAction } from "../../lib/hooks/use-pending-action"
 
 interface LoginOptionsResponse {
   options: Parameters<typeof startAuthentication>[0]["optionsJSON"]
@@ -12,7 +13,8 @@ interface LoginOptionsResponse {
 
 interface PasskeyButtonProps {
   email?: string
-  onSuccess?: () => void
+  /** Awaited inside the pending window, so it may navigate. */
+  onSuccess?: () => void | Promise<void>
   onError?: (err: Error) => void
 }
 
@@ -22,19 +24,10 @@ export function PasskeyButton({
   onError,
 }: PasskeyButtonProps): React.JSX.Element {
   const login = useLogin()
-  const [loading, setLoading] = React.useState(false)
   const [error, setError] = React.useState<string | null>(null)
 
-  const handleClick = async (): Promise<void> => {
-    const normalizedEmail = email.trim().toLowerCase()
-    if (!normalizedEmail) {
-      setError("Enter your email first")
-      return
-    }
-
-    setLoading(true)
-    setError(null)
-    try {
+  const { pending: loading, run } = usePendingAction(
+    async (normalizedEmail: string) => {
       // 1. Get challenge from server
       const { options, _challengeKey } = await apiFetch<LoginOptionsResponse>(
         `/auth/login/options?email=${encodeURIComponent(normalizedEmail)}`
@@ -46,13 +39,24 @@ export function PasskeyButton({
       // 3. Verify with server
       await login.mutateAsync({ credential, _challengeKey })
 
-      onSuccess?.()
+      await onSuccess?.()
+    }
+  )
+
+  const handleClick = async (): Promise<void> => {
+    const normalizedEmail = email.trim().toLowerCase()
+    if (!normalizedEmail) {
+      setError("Enter your email first")
+      return
+    }
+
+    setError(null)
+    try {
+      await run(normalizedEmail)
     } catch (err) {
       const msg = err instanceof Error ? err.message : "Authentication failed"
       setError(msg)
       onError?.(err instanceof Error ? err : new Error(msg))
-    } finally {
-      setLoading(false)
     }
   }
 
@@ -60,27 +64,12 @@ export function PasskeyButton({
     <div className="flex flex-col items-center gap-2">
       <Button
         onClick={() => void handleClick()}
-        disabled={loading}
+        loading={loading}
         className="w-full"
         size="lg"
       >
         {loading ? (
-          <span className="flex items-center gap-2">
-            <svg
-              className="animate-spin"
-              xmlns="http://www.w3.org/2000/svg"
-              width="16"
-              height="16"
-              viewBox="0 0 24 24"
-              fill="none"
-              stroke="currentColor"
-              strokeWidth="2"
-              aria-hidden="true"
-            >
-              <path d="M21 12a9 9 0 1 1-6.219-8.56" />
-            </svg>
-            Authenticating…
-          </span>
+          "Authenticating…"
         ) : (
           <span className="flex items-center gap-2">
             <svg

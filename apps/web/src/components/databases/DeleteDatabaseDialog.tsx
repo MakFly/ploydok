@@ -48,7 +48,7 @@ export function DeleteDatabaseDialog({
           onOpenChange(false)
           onDeleted?.()
         },
-      },
+      }
     )
   }
 
@@ -61,7 +61,8 @@ export function DeleteDatabaseDialog({
         <DialogHeader>
           <DialogTitle>Delete database</DialogTitle>
           <DialogDescription>
-            Type <span className="font-mono">{expectedConfirm}</span> to confirm.
+            Type <span className="font-mono">{expectedConfirm}</span> to
+            confirm.
           </DialogDescription>
         </DialogHeader>
 
@@ -79,10 +80,19 @@ export function DeleteDatabaseDialog({
         </div>
 
         <DialogFooter>
-          <Button variant="outline" onClick={() => onOpenChange(false)} disabled={isPending}>
+          <Button
+            variant="outline"
+            onClick={() => onOpenChange(false)}
+            disabled={isPending}
+          >
             Cancel
           </Button>
-          <Button variant="destructive" onClick={handleDelete} disabled={!canDelete}>
+          <Button
+            variant="destructive"
+            onClick={handleDelete}
+            loading={isPending}
+            disabled={!canDelete}
+          >
             {isPending ? "Deleting..." : "Delete database"}
           </Button>
         </DialogFooter>

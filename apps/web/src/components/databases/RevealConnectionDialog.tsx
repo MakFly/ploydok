@@ -103,7 +103,7 @@ export function RevealConnectionDialog({ databaseId, onClose }: RevealConnection
                 e.preventDefault()
                 handleConfirm()
               }}
-              disabled={isPending}
+              loading={isPending}
             >
               {isPending ? "Revealing…" : "Reveal"}
             </AlertDialogAction>

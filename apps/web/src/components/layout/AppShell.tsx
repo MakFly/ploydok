@@ -21,6 +21,7 @@ import {
   RiHistoryLine,
   RiKey2Line,
   RiKeyLine,
+  RiLoader4Line,
   RiLogoutBoxRLine,
   RiMenuLine,
   RiMoonLine,
@@ -81,6 +82,7 @@ import {
   CommandPaletteProvider,
   useCommandPaletteContext,
 } from "../../lib/hooks/command-palette-context"
+import { usePendingAction } from "../../lib/hooks/use-pending-action"
 import { useUnseenRelease } from "../../lib/hooks/use-unseen-release"
 import { useMonitoring } from "../../lib/monitoring"
 import {
@@ -144,6 +146,7 @@ interface ResolvedNavItem {
   to?: string
   comingSoon?: boolean
   tooltip?: string
+  loading?: boolean
 }
 
 const workspaceNav: Array<NavItem> = [
@@ -241,6 +244,26 @@ const accountNav: Array<NavItem> = [
   { label: "Changelog", icon: RiHistoryLine, href: "/changelog" },
   { label: "Settings", icon: RiSettings3Line, href: "/settings" },
 ]
+
+function SidebarProfileSkeleton(): React.JSX.Element {
+  return (
+    <div
+      aria-hidden="true"
+      aria-busy="true"
+      className={cx(
+        "flex w-full items-center gap-2 overflow-hidden rounded-xl bg-sidebar-accent p-2",
+        "group-data-[sidebar-state=collapsed]/shell:justify-center"
+      )}
+    >
+      <Skeleton className="size-8 shrink-0 rounded-full" />
+      <span className="grid flex-1 gap-1 text-left leading-tight group-data-[sidebar-state=collapsed]/shell:hidden">
+        <Skeleton className="h-3 w-20" />
+        <Skeleton className="h-2.5 w-28" />
+      </span>
+      <Skeleton className="size-3.5 group-data-[sidebar-state=collapsed]/shell:hidden" />
+    </div>
+  )
+}
 
 function resolveNavItem(
   item: NavItem,
@@ -429,7 +452,8 @@ function CreateWorkspaceDialog({
             </Button>
             <Button
               type="submit"
-              disabled={createOrganization.isPending || !trimmedName}
+              loading={createOrganization.isPending}
+              disabled={!trimmedName}
             >
               {createOrganization.isPending
                 ? "Creating..."
@@ -453,7 +477,7 @@ export function AppShell({
   const { data: organizations = [], isPending: orgsLoading } =
     useOrganizations()
   const currentOrganization = useCurrentOrganization()
-  const workspaceLoading = !currentOrganization && (meLoading || orgsLoading)
+  const workspaceLoading = orgsLoading
   const currentOrgSlug = useCurrentOrganizationSlug()
   const logout = useLogout()
   const router = useRouter()
@@ -532,10 +556,13 @@ export function AppShell({
     return rows
   }, [currentOrganization, organizations])
 
-  const handleLogout = async (): Promise<void> => {
-    await logout.mutateAsync()
-    void router.navigate({ to: "/login" })
-  }
+  const signOut = usePendingAction(
+    async () => {
+      await logout.mutateAsync()
+      await router.navigate({ to: "/login" })
+    },
+    { keepPendingOnSuccess: true }
+  )
 
   const expanded = sidebarOpen || mobileNavOpen
   const state = expanded ? "expanded" : "collapsed"
@@ -550,8 +577,18 @@ export function AppShell({
     {
       title: "Platform",
       items: platformNav
-        .filter((item) => !item.adminOnly || me?.is_instance_admin)
-        .map((item) => resolveNavItem(item, currentOrgSlug)),
+        .filter(
+          (item) =>
+            !item.adminOnly ||
+            me?.is_instance_admin ||
+            meLoading
+        )
+        .map((item) => {
+          const resolved = resolveNavItem(item, currentOrgSlug)
+          return item.adminOnly && meLoading
+            ? { ...resolved, loading: true }
+            : resolved
+        }),
     },
     {
       title: "Integrations",
@@ -803,6 +840,23 @@ export function AppShell({
                     <ul className="flex w-full min-w-0 flex-col gap-1">
                       {group.items.map((item) => {
                         const Icon = item.icon
+                        if (item.loading) {
+                          return (
+                            <li
+                              key={item.label}
+                              aria-hidden="true"
+                              className="relative"
+                            >
+                              <div
+                                aria-busy="true"
+                                className="flex h-9 w-full items-center gap-2 overflow-hidden rounded-[10px] p-2 group-data-[sidebar-state=collapsed]/shell:justify-center"
+                              >
+                                <Skeleton className="size-5 shrink-0" />
+                                <Skeleton className="h-3 w-10 group-data-[sidebar-state=collapsed]/shell:hidden" />
+                              </div>
+                            </li>
+                          )
+                        }
                         if (item.comingSoon || !item.to) {
                           return (
                             <li key={item.label} className="relative">
@@ -836,7 +890,7 @@ export function AppShell({
                               preload={false}
                               title={item.label}
                               className={cx(
-                                "flex w-full cursor-pointer items-center gap-2 overflow-hidden rounded-[10px] p-2 text-sm font-medium outline-none transition-colors focus-visible:ring-2 focus-visible:ring-[#3080ff] focus-visible:ring-offset-2",
+                                "flex w-full cursor-pointer items-center gap-2 overflow-hidden rounded-[10px] p-2 text-sm font-medium transition-colors outline-none focus-visible:ring-2 focus-visible:ring-[#3080ff] focus-visible:ring-offset-2",
                                 "group-data-[sidebar-state=collapsed]/shell:justify-center",
                                 active
                                   ? "bg-[image:var(--gradient-primary)] text-white shadow-[0_0_0_1px_#3080ff,inset_0_1px_0_0_#ffffff40]"
@@ -905,96 +959,111 @@ export function AppShell({
                 {/* User */}
                 <ul className="relative mt-1 flex w-full min-w-0 flex-col gap-1">
                   <li className="relative">
-                    <DropdownMenu
-                      open={profileOpen}
-                      onOpenChange={setProfileOpen}
-                    >
-                      <DropdownMenuTrigger asChild>
-                        <button
-                          type="button"
-                          title={displayName}
-                          className={cx(
-                            "flex w-full cursor-pointer items-center gap-2 overflow-hidden rounded-xl bg-sidebar-accent p-2 text-sm outline-none transition-colors hover:bg-sidebar-accent/80",
-                            "group-data-[sidebar-state=collapsed]/shell:justify-center"
-                          )}
-                        >
-                          <span className="flex size-8 shrink-0 items-center justify-center rounded-full bg-[image:var(--gradient-primary)] text-xs font-semibold text-white shadow-[0_0_0_1px_#3080ff,inset_0_1px_0_0_#ffffff40]">
-                            {initials}
-                          </span>
-                          <span className="grid flex-1 text-left leading-tight group-data-[sidebar-state=collapsed]/shell:hidden">
-                            <span className="truncate text-xs font-medium text-foreground">
-                              {displayName}
-                            </span>
-                            <span className="truncate text-[10px] font-normal text-muted-foreground">
-                              {email}
-                            </span>
-                          </span>
-                          <RiArrowUpDownLine className="size-3.5 text-muted-foreground group-data-[sidebar-state=collapsed]/shell:hidden" />
-                        </button>
-                      </DropdownMenuTrigger>
-                      <DropdownMenuContent
-                        side="right"
-                        align="end"
-                        sideOffset={8}
-                        className="w-[265px] max-w-[calc(100vw-2rem)] origin-bottom-left rounded-2xl border border-border bg-popover p-2.5 text-popover-foreground shadow-lg ring-1 ring-foreground/10"
+                    {meLoading ? (
+                      <SidebarProfileSkeleton />
+                    ) : (
+                      <DropdownMenu
+                        open={profileOpen}
+                        onOpenChange={setProfileOpen}
                       >
-                        <div className="flex w-full items-center gap-2 px-2 pt-1 pb-1">
-                          <span className="flex size-8 shrink-0 items-center justify-center rounded-full bg-[image:var(--gradient-primary)] text-xs font-semibold text-white shadow-[0_0_0_1px_#3080ff,inset_0_1px_0_0_#ffffff40]">
-                            {initials}
-                          </span>
-                          <span className="flex min-w-0 flex-col items-start justify-center">
-                            <span className="truncate text-sm font-medium text-foreground">
-                              {displayName}
-                            </span>
-                            <span className="truncate text-xs text-muted-foreground">
-                              {email}
-                            </span>
-                          </span>
-                        </div>
-
-                        <DropdownMenuSeparator className="-mx-2.5 my-2.5 h-px bg-border" />
-
-                        <DropdownMenuItem
-                          asChild
-                          className="cursor-pointer rounded-xl p-2 text-sm text-foreground"
-                        >
-                          <Link
-                            to="/settings/security"
-                            preload={false}
-                            className="flex items-center gap-2.5"
-                          >
-                            <RiShieldCheckLine className="size-5 shrink-0 text-muted-foreground" />
-                            Security
-                          </Link>
-                        </DropdownMenuItem>
-                        <DropdownMenuItem
-                          onSelect={() => toggleTheme()}
-                          className="flex cursor-pointer items-center justify-between gap-2.5 rounded-xl p-2 text-sm text-foreground"
-                        >
-                          <span className="flex items-center gap-2.5">
-                            {resolvedTheme === "dark" ? (
-                              <RiSunLine className="size-5 shrink-0 text-muted-foreground" />
-                            ) : (
-                              <RiMoonLine className="size-5 shrink-0 text-muted-foreground" />
+                        <DropdownMenuTrigger asChild>
+                          <button
+                            type="button"
+                            title={displayName}
+                            className={cx(
+                              "flex w-full cursor-pointer items-center gap-2 overflow-hidden rounded-xl bg-sidebar-accent p-2 text-sm transition-colors outline-none hover:bg-sidebar-accent/80",
+                              "group-data-[sidebar-state=collapsed]/shell:justify-center"
                             )}
-                            {resolvedTheme === "dark"
-                              ? "Light theme"
-                              : "Dark theme"}
-                          </span>
-                          <span className="font-mono text-[10px] text-muted-foreground">
-                            {themeMode}
-                          </span>
-                        </DropdownMenuItem>
-                        <DropdownMenuItem
-                          variant="destructive"
-                          onSelect={() => void handleLogout()}
-                          className="cursor-pointer rounded-xl p-2 text-sm"
+                          >
+                            <span className="flex size-8 shrink-0 items-center justify-center rounded-full bg-[image:var(--gradient-primary)] text-xs font-semibold text-white shadow-[0_0_0_1px_#3080ff,inset_0_1px_0_0_#ffffff40]">
+                              {initials}
+                            </span>
+                            <span className="grid flex-1 text-left leading-tight group-data-[sidebar-state=collapsed]/shell:hidden">
+                              <span className="truncate text-xs font-medium text-foreground">
+                                {displayName}
+                              </span>
+                              <span className="truncate text-[10px] font-normal text-muted-foreground">
+                                {email}
+                              </span>
+                            </span>
+                            <RiArrowUpDownLine className="size-3.5 text-muted-foreground group-data-[sidebar-state=collapsed]/shell:hidden" />
+                          </button>
+                        </DropdownMenuTrigger>
+                        <DropdownMenuContent
+                          side="right"
+                          align="end"
+                          sideOffset={8}
+                          className="w-[265px] max-w-[calc(100vw-2rem)] origin-bottom-left rounded-2xl border border-border bg-popover p-2.5 text-popover-foreground shadow-lg ring-1 ring-foreground/10"
                         >
-                          <RiLogoutBoxRLine className="size-5 shrink-0" />
-                          Sign out
-                        </DropdownMenuItem>
-                      </DropdownMenuContent>
-                    </DropdownMenu>
+                          <div className="flex w-full items-center gap-2 px-2 pt-1 pb-1">
+                            <span className="flex size-8 shrink-0 items-center justify-center rounded-full bg-[image:var(--gradient-primary)] text-xs font-semibold text-white shadow-[0_0_0_1px_#3080ff,inset_0_1px_0_0_#ffffff40]">
+                              {initials}
+                            </span>
+                            <span className="flex min-w-0 flex-col items-start justify-center">
+                              <span className="truncate text-sm font-medium text-foreground">
+                                {displayName}
+                              </span>
+                              <span className="truncate text-xs text-muted-foreground">
+                                {email}
+                              </span>
+                            </span>
+                          </div>
+
+                          <DropdownMenuSeparator className="-mx-2.5 my-2.5 h-px bg-border" />
+
+                          <DropdownMenuItem
+                            asChild
+                            className="cursor-pointer rounded-xl p-2 text-sm text-foreground"
+                          >
+                            <Link
+                              to="/settings/security"
+                              preload={false}
+                              className="flex items-center gap-2.5"
+                            >
+                              <RiShieldCheckLine className="size-5 shrink-0 text-muted-foreground" />
+                              Security
+                            </Link>
+                          </DropdownMenuItem>
+                          <DropdownMenuItem
+                            onSelect={() => toggleTheme()}
+                            className="flex cursor-pointer items-center justify-between gap-2.5 rounded-xl p-2 text-sm text-foreground"
+                          >
+                            <span className="flex items-center gap-2.5">
+                              {resolvedTheme === "dark" ? (
+                                <RiSunLine className="size-5 shrink-0 text-muted-foreground" />
+                              ) : (
+                                <RiMoonLine className="size-5 shrink-0 text-muted-foreground" />
+                              )}
+                              {resolvedTheme === "dark"
+                                ? "Light theme"
+                                : "Dark theme"}
+                            </span>
+                            <span className="font-mono text-[10px] text-muted-foreground">
+                              {themeMode}
+                            </span>
+                          </DropdownMenuItem>
+                          <DropdownMenuItem
+                            variant="destructive"
+                            disabled={signOut.pending}
+                            // Keep the menu open, otherwise it closes on select
+                            // and the sign-out round trip happens with nothing
+                            // on screen.
+                            onSelect={(event) => {
+                              event.preventDefault()
+                              void signOut.run()
+                            }}
+                            className="cursor-pointer rounded-xl p-2 text-sm"
+                          >
+                            {signOut.pending ? (
+                              <RiLoader4Line className="size-5 shrink-0 animate-spin" />
+                            ) : (
+                              <RiLogoutBoxRLine className="size-5 shrink-0" />
+                            )}
+                            {signOut.pending ? "Signing out…" : "Sign out"}
+                          </DropdownMenuItem>
+                        </DropdownMenuContent>
+                      </DropdownMenu>
+                    )}
                   </li>
                 </ul>
               </div>
@@ -1006,7 +1075,7 @@ export function AppShell({
         <main
           data-slot="sidebar-inset"
           className={cx(
-            "relative flex min-w-0 w-full flex-1 flex-col bg-white text-foreground dark:bg-neutral-950"
+            "relative flex w-full min-w-0 flex-1 flex-col bg-white text-foreground dark:bg-neutral-950"
           )}
         >
           {banner}
@@ -1065,7 +1134,7 @@ export function ShellPage({
   children,
 }: ShellPageProps): React.JSX.Element {
   return (
-    <div className="flex min-w-0 w-full flex-1 flex-col gap-4 p-4 lg:gap-6 lg:p-6">
+    <div className="flex w-full min-w-0 flex-1 flex-col gap-4 p-4 lg:gap-6 lg:p-6">
       <div className="flex flex-col gap-4 md:flex-row md:items-end md:justify-between">
         <div className="space-y-1">
           {eyebrow ? (
@@ -1099,12 +1168,7 @@ export function ShellPanel({
   children,
 }: ShellPanelProps): React.JSX.Element {
   return (
-    <section
-      className={cx(
-        "min-w-0 rounded-2xl bg-panel p-4",
-        className
-      )}
-    >
+    <section className={cx("min-w-0 rounded-2xl bg-panel p-4", className)}>
       {title || description || action ? (
         <div className="mb-4 flex flex-col gap-3 md:flex-row md:items-start md:justify-between">
           <div className="space-y-1">

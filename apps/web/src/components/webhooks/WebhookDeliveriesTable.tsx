@@ -200,9 +200,9 @@ export function WebhookDeliveriesTable({
 
   if (loading) {
     return (
-      <div className="animate-pulse space-y-2">
+      <div className="space-y-2" aria-busy="true" aria-label="Loading webhook deliveries">
         {[...Array<null>(5)].map((_, i) => (
-          <div key={i} className="h-10 rounded-md bg-muted" />
+          <div key={i} className="h-10 rounded-md skeleton-surface" />
         ))}
       </div>
     )

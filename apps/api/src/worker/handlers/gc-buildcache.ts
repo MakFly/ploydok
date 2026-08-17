@@ -1,8 +1,8 @@
 // SPDX-License-Identifier: AGPL-3.0-only
 /**
- * BuildKit cache GC handler — host disk usage & reclaim (Phase 1)
+ * Docker build cache GC handler — host disk usage & reclaim (Phase 1)
  *
- * Runs `buildctl prune` via the existing cleanup-build-caches job helper.
+ * Prunes the host Docker daemon cache shown by `docker system df`.
  */
 import { eq } from "drizzle-orm"
 import { system_jobs } from "@ploydok/db"
@@ -10,7 +10,7 @@ import type { Db } from "@ploydok/db"
 import { childLogger } from "../../logger"
 import { claimQueuedRow } from "../queue-claim"
 import { auditClaimed, auditUnauthorized } from "../queue-audit"
-import { pruneBuildkitCache } from "../jobs/cleanup-build-caches"
+import { pruneDockerBuildCache } from "../jobs/cleanup-build-caches"
 
 const log = childLogger("gc-buildcache")
 
@@ -58,10 +58,10 @@ export async function handleGcBuildcacheJob(
   })
 
   try {
-    const result = await pruneBuildkitCache()
+    const result = await pruneDockerBuildCache()
     if (!result.ok) {
       throw new Error(
-        result.error ?? `buildctl prune failed (exit ${result.exitCode})`
+        result.error ?? `docker builder prune failed (exit ${result.exitCode})`
       )
     }
     await db

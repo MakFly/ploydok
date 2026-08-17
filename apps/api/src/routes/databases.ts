@@ -2,12 +2,14 @@
 import { Hono } from "hono"
 import type { MiddlewareHandler } from "hono"
 import { z } from "zod"
-import { and, eq, isNotNull } from "drizzle-orm"
+import { and, desc, eq, isNotNull, sql } from "drizzle-orm"
 import { nanoid } from "nanoid"
 import {
   apps,
   databases,
   app_db_links,
+  backup_configs,
+  backups,
   projects,
   memberships,
 } from "@ploydok/db"
@@ -170,6 +172,30 @@ function listShape(row: DatabaseRow) {
     password_rotated_at: row.password_rotated_at,
     last_started_at: row.last_started_at,
     created_at: row.created_at,
+  }
+}
+
+type BackupSummary = {
+  backup_enabled: boolean | null
+  latest_backup_status: "running" | "succeeded" | "failed" | null
+  latest_backup_at: Date | null
+  linked_apps: LinkedApp[] | null
+}
+
+type LinkedApp = {
+  app_id: string
+  app_name: string | null
+  app_slug: string | null
+  env_prefix: string
+}
+
+function listShapeWithBackupSummary(row: DatabaseRow, summary: BackupSummary) {
+  return {
+    ...listShape(row),
+    backup_enabled: summary.backup_enabled ?? false,
+    latest_backup_status: summary.latest_backup_status,
+    latest_backup_at: summary.latest_backup_at?.toISOString() ?? null,
+    linked_apps: summary.linked_apps ?? [],
   }
 }
 
@@ -448,8 +474,66 @@ export function createDatabasesRouter(db: Db): Hono<any, any, any> {
     const user = getUser(c)
     const projectId = c.req.query("projectId") ?? c.req.query("organizationId")
 
+    // Every summary is joined into this list query. The lateral subqueries only
+    // inspect rows belonging to an accessible database, avoiding N+1 requests
+    // and a full backups-table DISTINCT ON scan on every UI poll.
+    const backupProtection = db
+      .select({
+        backup_enabled: sql<boolean>`bool_or(${backup_configs.enabled})`.as(
+          "backup_enabled"
+        ),
+      })
+      .from(backup_configs)
+      .where(eq(backup_configs.database_id, databases.id))
+      .as("backup_protection")
+
+    const latestBackup = db
+      .select({
+        status: backups.status,
+        started_at: backups.started_at,
+      })
+      .from(backups)
+      .where(eq(backups.database_id, databases.id))
+      .orderBy(desc(backups.started_at), desc(backups.id))
+      .limit(1)
+      .as("latest_backup")
+
+    const linkedApps = db
+      .select({
+        linked_apps: sql<LinkedApp[]>`
+          coalesce(
+            json_agg(
+              json_build_object(
+                'app_id', ${app_db_links.app_id},
+                'app_name', ${apps.name},
+                'app_slug', ${apps.slug},
+                'env_prefix', ${app_db_links.env_prefix}
+              )
+              order by ${app_db_links.app_id}, ${app_db_links.env_prefix}
+            ),
+            '[]'::json
+          )
+        `.as("linked_apps"),
+      })
+      .from(app_db_links)
+      .innerJoin(
+        apps,
+        and(
+          eq(app_db_links.app_id, apps.id),
+          eq(apps.project_id, databases.project_id)
+        )
+      )
+      .where(eq(app_db_links.database_id, databases.id))
+      .as("linked_apps")
+
     let query = db
-      .select({ db: databases })
+      .select({
+        db: databases,
+        backup_enabled: backupProtection.backup_enabled,
+        latest_backup_status: latestBackup.status,
+        latest_backup_at: latestBackup.started_at,
+        linked_apps: linkedApps.linked_apps,
+      })
       .from(databases)
       .innerJoin(projects, eq(databases.project_id, projects.id))
       .innerJoin(
@@ -460,6 +544,9 @@ export function createDatabasesRouter(db: Db): Hono<any, any, any> {
           isNotNull(memberships.accepted_at)
         )
       )
+      .leftJoinLateral(backupProtection, sql`true`)
+      .leftJoinLateral(latestBackup, sql`true`)
+      .leftJoinLateral(linkedApps, sql`true`)
 
     if (projectId) {
       query = query.where(eq(databases.project_id, projectId)) as typeof query
@@ -467,7 +554,16 @@ export function createDatabasesRouter(db: Db): Hono<any, any, any> {
 
     const rows = await query
 
-    return c.json(rows.map((row) => listShape(row.db)))
+    return c.json(
+      rows.map((row) =>
+        listShapeWithBackupSummary(row.db, {
+          backup_enabled: row.backup_enabled,
+          latest_backup_status: row.latest_backup_status,
+          latest_backup_at: row.latest_backup_at,
+          linked_apps: row.linked_apps,
+        })
+      )
+    )
   })
 
   // GET /databases/:id — detail without connection string plaintext

@@ -1,5 +1,5 @@
 // SPDX-License-Identifier: AGPL-3.0-only
-import { pgTable, text, bigint, boolean, timestamp } from 'drizzle-orm/pg-core'
+import { pgTable, text, bigint, boolean, timestamp, index } from 'drizzle-orm/pg-core'
 import { databases } from './databases'
 import { backup_configs } from './backup_configs'
 
@@ -22,7 +22,13 @@ export const backups = pgTable('backups', {
     .notNull()
     .$defaultFn(() => new Date()),
   finished_at: timestamp('finished_at', { withTimezone: true, mode: 'date' }),
-})
+}, (table) => [
+  index('backups_database_id_started_at_id_idx').on(
+    table.database_id,
+    table.started_at.desc(),
+    table.id.desc(),
+  ),
+])
 
 export type BackupRow = typeof backups.$inferSelect
 export type BackupInsert = typeof backups.$inferInsert

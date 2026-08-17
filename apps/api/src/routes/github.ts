@@ -38,6 +38,12 @@ import { githubWebhookRateLimit } from "../webhooks/rate-limiters"
 import { enqueueProviderReposSync } from "../worker/handlers/sync-provider-repos"
 import { env } from "../env"
 import { shouldUseSecureCookies } from "../auth/jwt"
+import {
+  GITHUB_RETURN_FALLBACK,
+  buildReturnUrl,
+  sanitizeReturnTo,
+} from "./provider-return"
+import type { ProviderReturnPath } from "./provider-return"
 import { isInstanceAdmin, requireInstanceAdmin } from "../auth/instance-admin"
 
 // ---------------------------------------------------------------------------
@@ -80,7 +86,9 @@ function emptyFileProbeResult(
 }
 
 function isAllowedEnvFilePath(path: string): boolean {
-  return ENV_FILE_PROBE_KEYS.includes(path as (typeof ENV_FILE_PROBE_KEYS)[number])
+  return ENV_FILE_PROBE_KEYS.includes(
+    path as (typeof ENV_FILE_PROBE_KEYS)[number]
+  )
 }
 
 function isAllowedManifestFilePath(path: string): boolean {
@@ -137,9 +145,13 @@ async function markGitHubInstallationSyncPending(opts: {
     })
 }
 
-function normalizeGitHubInstallationId(value: string | undefined): string | null {
+function normalizeGitHubInstallationId(
+  value: string | undefined
+): string | null {
   if (!value) return null
-  const raw = value.startsWith("github:") ? value.slice("github:".length) : value
+  const raw = value.startsWith("github:")
+    ? value.slice("github:".length)
+    : value
   if (!/^\d+$/.test(raw)) return null
   return raw
 }
@@ -185,41 +197,8 @@ const APP_STATE_COOKIE = "gh_app_state"
 const INSTALL_STATE_COOKIE = "gh_install_state"
 const APP_STATE_TTL_SECONDS = 10 * 60 // 10 minutes
 
-function signAppState(state: string): string {
-  const mac = createHmac("sha256", env.SESSION_SECRET)
-    .update(state)
-    .digest("hex")
-  return `${state}.${mac}`
-}
-
-function verifyAppState(cookieValue: string, state: string): boolean {
-  const lastDot = cookieValue.lastIndexOf(".")
-  if (lastDot === -1) return false
-  const storedState = cookieValue.slice(0, lastDot)
-  const mac = cookieValue.slice(lastDot + 1)
-  if (storedState !== state) return false
-  const expected = createHmac("sha256", env.SESSION_SECRET)
-    .update(state)
-    .digest("hex")
-  const expBuf = Buffer.from(expected, "hex")
-  const gotBuf = Buffer.from(mac, "hex")
-  if (expBuf.length !== gotBuf.length) return false
-  let diff = 0
-  for (let i = 0; i < expBuf.length; i++) diff |= expBuf[i]! ^ gotBuf[i]!
-  return diff === 0
-}
-
-function signInstallState(state: string, userId: string): string {
-  const payload = Buffer.from(JSON.stringify({ state, userId })).toString(
-    "base64url"
-  )
-  const mac = createHmac("sha256", env.SESSION_SECRET)
-    .update(payload)
-    .digest("hex")
-  return `${payload}.${mac}`
-}
-
-function verifyInstallState(cookieValue: string, state: string): string | null {
+/** Constant-time check that `payload` is the MAC-protected prefix of the cookie. */
+function verifySignedPrefix(cookieValue: string): string | null {
   const lastDot = cookieValue.lastIndexOf(".")
   if (lastDot === -1) return null
   const payload = cookieValue.slice(0, lastDot)
@@ -232,15 +211,82 @@ function verifyInstallState(cookieValue: string, state: string): string | null {
   if (expBuf.length !== gotBuf.length) return null
   let diff = 0
   for (let i = 0; i < expBuf.length; i++) diff |= expBuf[i]! ^ gotBuf[i]!
-  if (diff !== 0) return null
+  return diff === 0 ? payload : null
+}
+
+function signAppState(
+  state: string,
+  returnTo: ProviderReturnPath = GITHUB_RETURN_FALLBACK
+): string {
+  const payload = Buffer.from(JSON.stringify({ state, returnTo })).toString(
+    "base64url"
+  )
+  const mac = createHmac("sha256", env.SESSION_SECRET)
+    .update(payload)
+    .digest("hex")
+  return `${payload}.${mac}`
+}
+
+/**
+ * Accepts both the JSON payload format and the legacy bare-state format still
+ * held by cookies minted before this shipped. The MAC covers everything before
+ * the last dot in either case, so the two branches cannot be confused: a legacy
+ * state is a randomUUID, never valid base64url JSON.
+ */
+function verifyAppState(
+  cookieValue: string,
+  state: string
+): { returnTo: ProviderReturnPath | null } | null {
+  const payload = verifySignedPrefix(cookieValue)
+  if (payload === null) return null
+  if (payload === state) return { returnTo: null }
+
+  try {
+    const parsed = JSON.parse(Buffer.from(payload, "base64url").toString()) as {
+      state?: unknown
+      returnTo?: unknown
+    }
+    if (parsed.state !== state) return null
+    return {
+      returnTo: sanitizeReturnTo(parsed.returnTo, GITHUB_RETURN_FALLBACK),
+    }
+  } catch {
+    return null
+  }
+}
+
+function signInstallState(
+  state: string,
+  userId: string,
+  returnTo: ProviderReturnPath = GITHUB_RETURN_FALLBACK
+): string {
+  const payload = Buffer.from(
+    JSON.stringify({ state, userId, returnTo })
+  ).toString("base64url")
+  const mac = createHmac("sha256", env.SESSION_SECRET)
+    .update(payload)
+    .digest("hex")
+  return `${payload}.${mac}`
+}
+
+function verifyInstallState(
+  cookieValue: string,
+  state: string
+): { userId: string; returnTo: ProviderReturnPath } | null {
+  const payload = verifySignedPrefix(cookieValue)
+  if (payload === null) return null
 
   try {
     const parsed = JSON.parse(Buffer.from(payload, "base64url").toString()) as {
       state?: unknown
       userId?: unknown
+      returnTo?: unknown
     }
     if (parsed.state !== state || typeof parsed.userId !== "string") return null
-    return parsed.userId
+    return {
+      userId: parsed.userId,
+      returnTo: sanitizeReturnTo(parsed.returnTo, GITHUB_RETURN_FALLBACK),
+    }
   } catch {
     return null
   }
@@ -288,7 +334,9 @@ function getApiOrigin(): string {
   return new URL(env.GITHUB_APP_CALLBACK_URL).origin
 }
 
-function getUserId(c: { get: (key: "user") => GithubRouterEnv["Variables"]["user"] }): string | null {
+function getUserId(c: {
+  get: (key: "user") => GithubRouterEnv["Variables"]["user"]
+}): string | null {
   return c.get("user")?.id ?? null
 }
 
@@ -300,7 +348,9 @@ async function listUserGitHubInstallations(userId: string) {
   const allowedIds = new Set(await getUserGitHubInstallationIds(userId))
   if (allowedIds.size === 0) return []
   const installations = await listAppInstallations().catch(() => [])
-  return installations.filter((installation) => allowedIds.has(String(installation.id)))
+  return installations.filter((installation) =>
+    allowedIds.has(String(installation.id))
+  )
 }
 
 function preferredInstallations(
@@ -308,7 +358,8 @@ function preferredInstallations(
   owner: string
 ) {
   const match = installations.find(
-    (installation) => installation.accountLogin.toLowerCase() === owner.toLowerCase()
+    (installation) =>
+      installation.accountLogin.toLowerCase() === owner.toLowerCase()
   )
   return match ? [match] : installations
 }
@@ -363,13 +414,21 @@ githubRouter.get("/repos", async (c) => {
     })
   }
 
-  const dbInstallations = await listInstallations(db, "github", installationDbIds)
+  const dbInstallations = await listInstallations(
+    db,
+    "github",
+    installationDbIds
+  )
 
   if (dbInstallations.length === 0) {
     // Fire a background sync so the cache is populated for the next request.
     void Promise.all(
       installationIds.map((installationId) =>
-        enqueueProviderReposSync({ provider: "github", installationId, requestedBy: userId })
+        enqueueProviderReposSync({
+          provider: "github",
+          installationId,
+          requestedBy: userId,
+        })
       )
     ).catch((err) => log.warn({ err }, "enqueue on empty installations failed"))
 
@@ -399,14 +458,22 @@ githubRouter.get("/repos", async (c) => {
   }
 
   // Stale-while-revalidate: if the most stale installation was synced >10 min ago, enqueue.
-  const staleness = await getInstallationStaleness(db, "github", installationDbIds)
+  const staleness = await getInstallationStaleness(
+    db,
+    "github",
+    installationDbIds
+  )
   if (
     staleness.mostStaleAt &&
     Date.now() - staleness.mostStaleAt.getTime() > 10 * 60_000
   ) {
     void Promise.all(
       installationIds.map((installationId) =>
-        enqueueProviderReposSync({ provider: "github", installationId, requestedBy: userId })
+        enqueueProviderReposSync({
+          provider: "github",
+          installationId,
+          requestedBy: userId,
+        })
       )
     ).catch((err) => log.warn({ err }, "stale-while-revalidate enqueue failed"))
   }
@@ -683,15 +750,18 @@ githubRouter.get("/repos/:owner/:repo/files-exist", async (c) => {
   for (const inst of candidates) {
     try {
       const entries = await Promise.all(
-        query.paths.map(async (filePath) => [
-          filePath,
-          await ghProvider.fileExists(
-            String(inst.id),
-            fullName,
-            filePath,
-            query.ref
-          ),
-        ] as const)
+        query.paths.map(
+          async (filePath) =>
+            [
+              filePath,
+              await ghProvider.fileExists(
+                String(inst.id),
+                fullName,
+                filePath,
+                query.ref
+              ),
+            ] as const
+        )
       )
       return c.json({ files: Object.fromEntries(entries) })
     } catch (err) {
@@ -843,12 +913,16 @@ githubRouter.get("/installations/start", async (c) => {
     return c.json({ error: "github_app_not_configured" }, 503)
   }
 
+  const returnTo = sanitizeReturnTo(
+    c.req.query("return_to"),
+    GITHUB_RETURN_FALLBACK
+  )
   const state = crypto.randomUUID()
   c.header(
     "Set-Cookie",
     buildCookieStr(
       INSTALL_STATE_COOKIE,
-      signInstallState(state, user.id),
+      signInstallState(state, user.id, returnTo),
       APP_STATE_TTL_SECONDS,
       true
     )
@@ -874,11 +948,7 @@ githubRouter.delete("/installations/:id", async (c) => {
 
   if (!admin) {
     if (
-      !(await userOwnsGitHubInstallation(
-        db,
-        user.id,
-        externalInstallationId
-      ))
+      !(await userOwnsGitHubInstallation(db, user.id, externalInstallationId))
     ) {
       return c.json({ error: "github_installation_not_found" }, 404)
     }
@@ -924,19 +994,24 @@ githubRouter.get("/app/setup", async (c) => {
   if (setupAction) params.set("setup_action", setupAction)
   const cookieHeader = c.req.raw.headers.get("cookie") ?? ""
   const rawInstallStateCookie = parseCookie(cookieHeader, INSTALL_STATE_COOKIE)
-  const requestedBy =
+  const installState =
     state && rawInstallStateCookie
       ? verifyInstallState(rawInstallStateCookie, state)
       : null
-  const stateValid =
-    !!requestedBy ||
-    (!!state &&
-      !!rawInstallStateCookie &&
-      verifyAppState(rawInstallStateCookie, state))
+  const requestedBy = installState?.userId ?? null
+  const legacyState =
+    !installState && state && rawInstallStateCookie
+      ? verifyAppState(rawInstallStateCookie, state)
+      : null
+  const stateValid = !!installState || !!legacyState
+  // Only ever read from the MAC-verified payload, never from the query string.
+  const returnTo =
+    installState?.returnTo ?? legacyState?.returnTo ?? GITHUB_RETURN_FALLBACK
 
   c.header("Set-Cookie", clearCookieStr(INSTALL_STATE_COOKIE))
   if (stateValid) {
-    const normalizedInstallationId = normalizeGitHubInstallationId(installationId)
+    const normalizedInstallationId =
+      normalizeGitHubInstallationId(installationId)
     if (!normalizedInstallationId) {
       params.set("install_error", "missing_installation_id")
     } else {
@@ -973,9 +1048,8 @@ githubRouter.get("/app/setup", async (c) => {
   } else if (state || rawInstallStateCookie) {
     params.set("install_error", "state_mismatch")
   }
-  const qs = params.toString()
   return c.redirect(
-    `${env.WEB_ORIGIN}/settings/git-providers/github${qs ? `?${qs}` : ""}`,
+    buildReturnUrl(sanitizeReturnTo(returnTo, GITHUB_RETURN_FALLBACK), params),
     302
   )
 })
@@ -987,6 +1061,10 @@ githubRouter.get("/app/setup", async (c) => {
 // ---------------------------------------------------------------------------
 
 githubRouter.post("/app/manifest", async (c) => {
+  const body = (await c.req.json().catch(() => null)) as {
+    return_to?: unknown
+  } | null
+  const returnTo = sanitizeReturnTo(body?.return_to, GITHUB_RETURN_FALLBACK)
   const state = crypto.randomUUID()
 
   // Build self URL (scheme + host from request or env fallback)
@@ -1004,7 +1082,7 @@ githubRouter.post("/app/manifest", async (c) => {
     "Set-Cookie",
     buildCookieStr(
       APP_STATE_COOKIE,
-      signAppState(state),
+      signAppState(state, returnTo),
       APP_STATE_TTL_SECONDS,
       true
     )
@@ -1101,9 +1179,13 @@ githubRouter.get("/app/callback", async (c) => {
     return c.json({ error: "missing_app_state_cookie" }, 400)
   }
 
-  if (!verifyAppState(decodeURIComponent(rawStateCookie), state)) {
+  // parseCookie already decoded the value; decoding twice throws URIError on a
+  // stray percent sign.
+  const appState = verifyAppState(rawStateCookie, state)
+  if (!appState) {
     return c.json({ error: "state_mismatch" }, 400)
   }
+  const returnTo = sanitizeReturnTo(appState.returnTo, GITHUB_RETURN_FALLBACK)
 
   // Clear state cookie
   c.header("Set-Cookie", clearCookieStr(APP_STATE_COOKIE))
@@ -1161,11 +1243,14 @@ githubRouter.get("/app/callback", async (c) => {
 
   const syncId = nanoid()
   void enqueueProviderReposSync({ provider: "github", syncId }).catch((err) =>
-    log.warn({ err, syncId }, "github app config post-create sync enqueue failed")
+    log.warn(
+      { err, syncId },
+      "github app config post-create sync enqueue failed"
+    )
   )
 
   return c.redirect(
-    `${env.WEB_ORIGIN}/settings/git-providers/github?app=created`,
+    buildReturnUrl(returnTo, new URLSearchParams({ app: "created" })),
     302
   )
 })

@@ -1,6 +1,8 @@
 // SPDX-License-Identifier: AGPL-3.0-only
 import { describe, it, expect, mock } from "bun:test"
 import { Hono } from "hono"
+import { PgDialect } from "drizzle-orm/pg-core"
+import type { SQL } from "drizzle-orm"
 import { createDatabasesRouter } from "./databases"
 import type { Db } from "@ploydok/db"
 
@@ -320,25 +322,230 @@ describe("DELETE /databases/:id", () => {
 })
 
 describe("GET /databases", () => {
-  it("returns 200 with array", async () => {
-    const db: Record<string, unknown> = {
-      select: mock(() => {
-        const chain: Record<string, unknown> = {
-          from: () => chain,
-          innerJoin: () => chain,
-          where: () => Promise.resolve([]),
-          then: (onFulfilled: (v: unknown[]) => unknown) =>
-            Promise.resolve([]).then(onFulfilled),
-        }
-        return chain
-      }),
-      insert: mock(() => ({ values: mock(async () => {}) })),
-      update: mock(() => ({
-        set: mock(() => ({ where: mock(async () => {}) })),
-      })),
-      delete: mock(() => ({ where: mock(async () => {}) })),
+  const mockDatabaseRow = {
+    id: "db-test-id",
+    project_id: "proj-1",
+    kind: "postgres",
+    version: "16",
+    name: "mydb",
+    plan: "small",
+    management_mode: "managed",
+    status: "running",
+    health_status: "healthy",
+    host: "ploydok-db-db-test-id",
+    port: 5432,
+    exposure_mode: "internal",
+    public_enabled: false,
+    public_port: null,
+    public_host: null,
+    public_url: null,
+    rotation_schedule: "manual",
+    rotation_in_progress: false,
+    password_rotated_at: null,
+    last_started_at: null,
+    created_at: new Date("2026-01-01T00:00:00.000Z"),
+  }
+
+  function buildListDb(rows: unknown[]) {
+    const backupProtectionWhere = mock(() => backupProtectionQuery)
+    const latestBackupLimit = mock(() => latestBackupQuery)
+    const latestBackupOrderBy = mock(() => latestBackupQuery)
+    const backupProtectionQuery = {
+      from: () => backupProtectionQuery,
+      where: backupProtectionWhere,
+      as: () => ({}),
     }
-    const app = wrapRouter(db as unknown as Db)
+    const latestBackupQuery = {
+      from: () => latestBackupQuery,
+      where: () => latestBackupQuery,
+      orderBy: latestBackupOrderBy,
+      limit: latestBackupLimit,
+      as: () => ({}),
+    }
+    const linkedAppsJoin = mock(() => linkedAppsQuery)
+    const linkedAppsQuery = {
+      from: () => linkedAppsQuery,
+      innerJoin: linkedAppsJoin,
+      where: () => linkedAppsQuery,
+      as: () => ({}),
+    }
+    const listLeftJoinLateral = mock(() => listQuery)
+    const listQuery = {
+      from: () => listQuery,
+      innerJoin: () => listQuery,
+      leftJoin: () => listQuery,
+      leftJoinLateral: listLeftJoinLateral,
+      where: () => Promise.resolve(rows),
+      then: (onFulfilled: (value: unknown[]) => unknown) =>
+        Promise.resolve(rows).then(onFulfilled),
+    }
+    let selectCalls = 0
+
+    return Object.assign(
+      {
+        select: mock(() => {
+          selectCalls += 1
+          if (selectCalls === 1) return backupProtectionQuery
+          if (selectCalls === 2) return latestBackupQuery
+          if (selectCalls === 3) return linkedAppsQuery
+          return listQuery
+        }),
+        insert: mock(() => ({ values: mock(async () => {}) })),
+        update: mock(() => ({
+          set: mock(() => ({ where: mock(async () => {}) })),
+        })),
+        delete: mock(() => ({ where: mock(async () => {}) })),
+      } as unknown as Db,
+      {
+        latestBackupLimit,
+        latestBackupOrderBy,
+        backupProtectionWhere,
+        linkedAppsJoin,
+        listLeftJoinLateral,
+      }
+    )
+  }
+
+  it("returns disabled protection and no latest backup without configuration", async () => {
+    const db = buildListDb([
+      {
+        db: mockDatabaseRow,
+        backup_enabled: null,
+        latest_backup_status: null,
+        latest_backup_at: null,
+        linked_apps: null,
+      },
+    ])
+    const app = wrapRouter(db)
+    const res = await app.fetch(req("GET", "/"))
+
+    expect(res.status).toBe(200)
+    expect(await res.json()).toEqual([
+      expect.objectContaining({
+        backup_enabled: false,
+        latest_backup_status: null,
+        latest_backup_at: null,
+        linked_apps: [],
+      }),
+    ])
+  })
+
+  it("returns enabled protection and the latest backup summary", async () => {
+    const latestBackupAt = new Date("2026-03-02T03:04:05.000Z")
+    const db = buildListDb([
+      {
+        db: mockDatabaseRow,
+        backup_enabled: true,
+        latest_backup_status: "succeeded",
+        latest_backup_at: latestBackupAt,
+        linked_apps: null,
+      },
+    ])
+    const app = wrapRouter(db)
+    const res = await app.fetch(req("GET", "/"))
+
+    expect(res.status).toBe(200)
+    expect(await res.json()).toEqual([
+      expect.objectContaining({
+        backup_enabled: true,
+        latest_backup_status: "succeeded",
+        latest_backup_at: latestBackupAt.toISOString(),
+        linked_apps: [],
+      }),
+    ])
+  })
+
+  it("orders the latest-backup subquery by start time and id", async () => {
+    const db = buildListDb([])
+    const app = wrapRouter(db)
+    const res = await app.fetch(req("GET", "/"))
+
+    expect(res.status).toBe(200)
+    expect(db.latestBackupOrderBy).toHaveBeenCalledWith(
+      expect.anything(),
+      expect.anything()
+    )
+    expect(db.latestBackupLimit).toHaveBeenCalledWith(1)
+    expect(db.listLeftJoinLateral).toHaveBeenCalledTimes(3)
+    const protectionScope = (
+      db.backupProtectionWhere.mock.calls as unknown as Array<[SQL]>
+    )[0]?.[0]
+    if (!protectionScope) throw new Error("Missing backup-protection scope")
+    expect(new PgDialect().sqlToQuery(protectionScope).sql).toContain(
+      '"backup_configs"."database_id" = "databases"."id"'
+    )
+  })
+
+  it("returns linked apps with their names, slugs, and count", async () => {
+    const db = buildListDb([
+      {
+        db: mockDatabaseRow,
+        backup_enabled: false,
+        latest_backup_status: null,
+        latest_backup_at: null,
+        linked_apps: [
+          {
+            app_id: "app-api",
+            app_name: "API",
+            app_slug: "api",
+            env_prefix: "DATABASE",
+          },
+          {
+            app_id: "app-worker",
+            app_name: "Worker",
+            app_slug: "worker",
+            env_prefix: "REDIS",
+          },
+        ],
+      },
+    ])
+    const app = wrapRouter(db)
+    const res = await app.fetch(req("GET", "/?projectId=proj-1"))
+
+    expect(res.status).toBe(200)
+    const data = (await res.json()) as Array<{
+      linked_apps: Array<{
+        app_id: string
+        app_name: string | null
+        app_slug: string | null
+        env_prefix: string
+      }>
+    }>
+    expect(data[0]?.linked_apps).toEqual([
+      {
+        app_id: "app-api",
+        app_name: "API",
+        app_slug: "api",
+        env_prefix: "DATABASE",
+      },
+      {
+        app_id: "app-worker",
+        app_name: "Worker",
+        app_slug: "worker",
+        env_prefix: "REDIS",
+      },
+    ])
+    expect(data[0]?.linked_apps).toHaveLength(2)
+    expect(db.linkedAppsJoin).toHaveBeenCalledTimes(1)
+  })
+
+  it("restricts linked apps to the database project", async () => {
+    const db = buildListDb([])
+    const app = wrapRouter(db)
+    const res = await app.fetch(req("GET", "/"))
+
+    expect(res.status).toBe(200)
+    const projectScopedJoin = (
+      db.linkedAppsJoin.mock.calls as unknown as Array<[unknown, SQL]>
+    )[0]?.[1]
+    if (!projectScopedJoin) throw new Error("Missing linked-app project join")
+    expect(new PgDialect().sqlToQuery(projectScopedJoin).sql).toContain(
+      '"apps"."project_id" = "databases"."project_id"'
+    )
+  })
+
+  it("returns 200 with array", async () => {
+    const app = wrapRouter(buildListDb([]))
     const res = await app.fetch(req("GET", "/"))
     expect(res.status).toBe(200)
     const data = await res.json()

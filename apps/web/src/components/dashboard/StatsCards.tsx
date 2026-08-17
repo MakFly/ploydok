@@ -1,5 +1,6 @@
 // SPDX-License-Identifier: AGPL-3.0-only
 import * as React from "react";
+import { Skeleton } from "@workspace/ui/components/skeleton";
 import type { AppListItem } from "../../lib/apps";
 import type { Build } from "@ploydok/shared";
 
@@ -37,7 +38,7 @@ function StatCard({ label, value, sub, accent = "default", isLoading = false }: 
     <div className="rounded-2xl bg-panel p-5 space-y-1">
       <p className="text-xs text-muted-foreground font-medium uppercase tracking-wide">{label}</p>
       {isLoading ? (
-        <div className="h-8 w-12 rounded bg-muted animate-pulse" />
+        <Skeleton className="h-8 w-12" />
       ) : (
         <p className={["text-2xl font-bold tabular-nums", ACCENT_CLASSES[accent]].join(" ")}>
           {value}

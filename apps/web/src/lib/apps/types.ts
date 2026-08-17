@@ -1,11 +1,11 @@
 // SPDX-License-Identifier: AGPL-3.0-only
 import type {
+  AppQuickLink,
   AppRuntimeSettings,
   AppStatus,
   Build,
   BuildStatus,
   RestartPolicy,
-  AppQuickLink,
 } from "@ploydok/shared"
 
 export interface AppListItem {

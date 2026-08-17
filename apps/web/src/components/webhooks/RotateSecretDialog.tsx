@@ -226,7 +226,7 @@ export function RotateSecretDialog({
               <Button
                 size="sm"
                 onClick={() => void handleRotate()}
-                disabled={pending || totpCode.length !== 6}
+                loading={pending} disabled={totpCode.length !== 6}
               >
                 {pending ? "Verifying..." : "Rotate secret"}
               </Button>

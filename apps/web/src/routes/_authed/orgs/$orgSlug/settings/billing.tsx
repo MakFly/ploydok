@@ -1,5 +1,7 @@
 // SPDX-License-Identifier: AGPL-3.0-only
 import * as React from "react"
+import { Button } from "@workspace/ui/components/button"
+import { Skeleton } from "@workspace/ui/components/skeleton"
 import { createFileRoute, useSearch } from "@tanstack/react-router"
 import { Suspense } from "react"
 import { ShellPage } from "../../../../../components/layout/AppShell"
@@ -28,7 +30,7 @@ function BillingPage(): React.JSX.Element {
       title="Billing"
       description="Manage your plan, upgrade, and handle billing settings."
     >
-      <Suspense fallback={<div>Loading...</div>}>
+      <Suspense fallback={<Skeleton className="h-48 w-full rounded-2xl" />}>
         <BillingContent
           orgSlug={orgSlug}
           showSuccess={success}
@@ -135,13 +137,16 @@ function BillingContent({
             </div>
           </div>
           {data.plan.slug !== "enterprise" && (
-            <button
+            <Button
+              variant="outline"
+              size="sm"
               onClick={handleManageSubscription}
-              disabled={portalMutation.isPending}
-              className="rounded-lg border border-gray-300 px-4 py-2 text-sm font-medium hover:bg-gray-50 disabled:opacity-50"
+              loading={portalMutation.isPending}
             >
-              {portalMutation.isPending ? "Loading..." : "Manage Subscription"}
-            </button>
+              {portalMutation.isPending
+                ? "Opening Stripe…"
+                : "Manage Subscription"}
+            </Button>
           )}
         </div>
       )}
@@ -159,15 +164,15 @@ function BillingContent({
                   </div>
                 </div>
                 {data.plan.slug !== planSlug && (
-                  <button
+                  <Button
+                    size="sm"
                     onClick={() =>
                       handleUpgrade(planSlug as "pro" | "enterprise")
                     }
-                    disabled={checkoutMutation.isPending}
-                    className="rounded-lg bg-blue-600 px-4 py-2 text-sm font-medium text-white hover:bg-blue-700 disabled:opacity-50"
+                    loading={checkoutMutation.isPending}
                   >
-                    {checkoutMutation.isPending ? "Loading..." : "Upgrade"}
-                  </button>
+                    {checkoutMutation.isPending ? "Opening Stripe…" : "Upgrade"}
+                  </Button>
                 )}
                 {data.plan.slug === planSlug && (
                   <div className="text-sm text-gray-500">Current plan</div>

@@ -4,6 +4,7 @@ import { createFileRoute } from "@tanstack/react-router"
 import { RiRefreshLine, RiShieldCheckLine } from "@remixicon/react"
 import { Button } from "@workspace/ui/components/button"
 import { Badge } from "@workspace/ui/components/badge"
+import { Skeleton } from "@workspace/ui/components/skeleton"
 import {
   useAcknowledgeAdvisory,
   useAdminAdvisories,
@@ -36,11 +37,9 @@ function AdminAdvisoriesPage(): React.JSX.Element {
           variant="outline"
           className="gap-2"
           onClick={() => refresh.mutate()}
-          disabled={refresh.isPending}
+          loading={refresh.isPending}
         >
-          <RiRefreshLine
-            className={refresh.isPending ? "size-4 animate-spin" : "size-4"}
-          />
+          <RiRefreshLine className="size-4" />
           Refresh
         </Button>
       </div>
@@ -73,8 +72,8 @@ export function AdvisoryTable({
 
   if (loading) {
     return (
-      <div className="rounded-md border border-border p-4 text-sm text-muted-foreground">
-        Loading...
+      <div className="rounded-md border border-border p-4" aria-busy="true" aria-label="Loading advisories">
+        <Skeleton className="h-16 w-full rounded-md" />
       </div>
     )
   }
@@ -138,7 +137,7 @@ export function AdvisoryTable({
                 <Button
                   size="sm"
                   variant="ghost"
-                  disabled={ack.isPending}
+                  loading={ack.isPending}
                   onClick={() => ack.mutate({ matchId: row.match.id })}
                 >
                   Acknowledge

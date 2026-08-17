@@ -6,6 +6,7 @@ import {
   RiRefreshLine,
 } from "@remixicon/react"
 import { Button } from "@workspace/ui/components/button"
+import { Skeleton } from "@workspace/ui/components/skeleton"
 import { toast } from "sonner"
 
 // ---------------------------------------------------------------------------
@@ -46,7 +47,9 @@ export interface CachedReposPanelProps {
 
 // ---------------------------------------------------------------------------
 
-export function CachedReposPanel(props: CachedReposPanelProps): React.JSX.Element {
+export function CachedReposPanel(
+  props: CachedReposPanelProps
+): React.JSX.Element {
   const {
     title,
     description,
@@ -100,11 +103,9 @@ export function CachedReposPanel(props: CachedReposPanelProps): React.JSX.Elemen
             variant="outline"
             size="sm"
             onClick={() => void handleAll()}
-            disabled={isSyncing}
+            loading={isSyncing}
           >
-            <RiRefreshLine
-              className={`mr-1.5 size-3.5 ${isSyncing ? "animate-spin" : ""}`}
-            />
+            {!isSyncing && <RiRefreshLine className="mr-1.5 size-3.5" />}
             {isSyncing ? "Syncing..." : "Sync all"}
           </Button>
         )}
@@ -112,7 +113,10 @@ export function CachedReposPanel(props: CachedReposPanelProps): React.JSX.Elemen
 
       <div className="rounded-2xl bg-panel">
         {isLoading ? (
-          <div className="p-6 text-sm text-muted-foreground">Loading cache status…</div>
+          <div className="space-y-2 p-6" aria-busy="true" aria-label="Loading cache status">
+            <Skeleton className="h-10 w-full rounded-md" />
+            <Skeleton className="h-10 w-full rounded-md" />
+          </div>
         ) : isError ? (
           <p className="p-6 text-sm text-destructive" role="alert">
             Failed to load cache status: {errorMessage ?? "unknown error"}
@@ -125,11 +129,9 @@ export function CachedReposPanel(props: CachedReposPanelProps): React.JSX.Elemen
                 variant="outline"
                 size="sm"
                 onClick={() => void handleAll()}
-                disabled={isSyncing}
+                loading={isSyncing}
               >
-                <RiRefreshLine
-                  className={`mr-1.5 size-3.5 ${isSyncing ? "animate-spin" : ""}`}
-                />
+                {!isSyncing && <RiRefreshLine className="mr-1.5 size-3.5" />}
                 {isSyncing ? "Syncing..." : "Sync now"}
               </Button>
             )}
@@ -187,8 +189,8 @@ function CacheRow({
           <StatusPill status={syncing ? "syncing" : entry.status} />
         </div>
         <p className="text-xs text-muted-foreground">
-          {entry.repoCount} {entry.repoCount === 1 ? "repo" : "repos"} cached · synced{" "}
-          {formatAge(entry.ageMs)}
+          {entry.repoCount} {entry.repoCount === 1 ? "repo" : "repos"} cached ·
+          synced {formatAge(entry.ageMs)}
         </p>
       </div>
 
@@ -197,11 +199,12 @@ function CacheRow({
           variant="outline"
           size="sm"
           onClick={onSync}
-          disabled={pending || disabled}
+          loading={pending || syncing}
+          disabled={disabled}
         >
-          <RiRefreshLine
-            className={`mr-1.5 size-3.5 ${pending || syncing ? "animate-spin" : ""}`}
-          />
+          {!(pending || syncing) && (
+            <RiRefreshLine className="mr-1.5 size-3.5" />
+          )}
           {pending || syncing ? "Syncing..." : "Sync"}
         </Button>
       )}
@@ -209,7 +212,11 @@ function CacheRow({
   )
 }
 
-function StatusPill({ status }: { status: "fresh" | "stale" | "syncing" }): React.JSX.Element {
+function StatusPill({
+  status,
+}: {
+  status: "fresh" | "stale" | "syncing"
+}): React.JSX.Element {
   if (status === "syncing") {
     return (
       <span className="inline-flex items-center gap-1 font-mono text-[10px] tracking-wide text-blue-600 uppercase dark:text-blue-400">

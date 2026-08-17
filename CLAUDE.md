@@ -97,6 +97,30 @@ Règles d'usage :
   - use Zustand only if a shared client store is genuinely required
 - Remove dead code created by your change. Do not leave behind unused helpers, compatibility shims, or stale tests.
 
+## Button Loading State (mandatory)
+
+Any button that fires a state-changing request must show an in-button spinner while that request is in flight. A click with no visual feedback is a bug, not a detail.
+
+- Use the shared primitive: `<Button loading={mutation.isPending}>`. `loading` renders the spinner, disables the button, and sets `aria-busy`. Source: `packages/ui/src/components/button.tsx`.
+- Applies to: `POST`, `PUT`, `PATCH`, `DELETE`, form submits, and any explicitly user-triggered async action (deploy, sync, revoke, reset, import). Includes actions that end in a redirect: the spinner covers the round trip before the browser navigates.
+- Does not apply to: pure navigation (links, tabs, `asChild` anchors), local UI toggles (open a dialog, expand a form), and background refetches the user did not trigger.
+- Read-only exception: an explicit "Refresh" button may use `loading={isFetching}`. Automatic polling must never spin a button.
+- Do not hand-roll `animate-spin` inside a `Button`. Leave the idle icon in place: the primitive hides every non-spinner icon while loading, so exactly one spinner shows.
+- Do not pass `disabled={isPending}` alongside `loading={isPending}`. `loading` already disables. Keep `disabled` for the other reasons only, such as an invalid form.
+- Keep or swap the label (`Save` becomes `Saving...`), but never leave the button visually idle.
+- `asChild` buttons get no injected spinner (Radix `Slot` accepts a single child). If an anchor-shaped action needs a pending state, render a real `button`.
+
+### Pending state must cover the navigation, not just the mutation
+
+The perceived wait ends when the next page paints, not when the request resolves. A pending flag released at the mutation boundary flashes and is worse than none.
+
+- Use `usePendingAction` (`apps/web/src/lib/hooks/use-pending-action.ts`) for any action that navigates. It floors the pending window at 500ms and lets it run to the end of the navigation: `await run()` does not settle before the floor, so a caller that navigates afterwards inherits the guarantee.
+- `keepPendingOnSuccess` for anything that leaves the page (full-page redirect, `router.navigate`): the flag must never fall back to idle before the component unmounts.
+- A code path that navigates **without** any mutation still needs a pending state. An early `return` that just routes is the most common source of a dead click.
+- An async `onSuccess` callback must be awaited before releasing the pending flag. Firing it with `void` and releasing in `finally` re-enables the button while the app is still working, and lets the user click twice.
+- Every client navigation is also covered globally by `NavigationProgress` (`apps/web/src/components/layout/NavigationProgress.tsx`), mounted in `__root.tsx`. It reads `useRouterState({ select: (s) => s.isLoading })`. Do not use `s.isTransitioning`: it exists in the router types but is never set in this build.
+- A confirm button inside an `AlertDialog` unmounts with the dialog on click, so its spinner is never seen. Put the pending state on the trigger, which stays on screen.
+
 ## Validation Commands
 
 - Prefer targeted validation for the area you changed before broader checks.

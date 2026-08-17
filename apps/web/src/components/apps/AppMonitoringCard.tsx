@@ -32,32 +32,32 @@ function pushToHistory(history: Array<number>, value: number): Array<number> {
 function MonitoringSkeleton(): React.JSX.Element {
   return (
     <div
-      className="flex animate-pulse flex-col gap-3 rounded-2xl bg-panel p-4"
+      className="flex flex-col gap-3 rounded-2xl bg-panel p-4"
       aria-busy="true"
       aria-label="Loading monitoring"
     >
       <div className="flex items-start justify-between gap-2">
         <div className="flex min-w-0 items-center gap-2">
-          <div className="size-4 rounded bg-muted" />
+          <div className="size-4 rounded skeleton-surface" />
           <div className="min-w-0 space-y-1.5">
-            <div className="h-3.5 w-32 rounded bg-muted" />
-            <div className="h-2.5 w-24 rounded bg-muted" />
+            <div className="h-3.5 w-32 rounded skeleton-surface" />
+            <div className="h-2.5 w-24 rounded skeleton-surface" />
           </div>
         </div>
-        <div className="h-3 w-16 rounded bg-muted" />
+        <div className="h-3 w-16 rounded skeleton-surface" />
       </div>
       <div className="grid grid-cols-3 gap-2">
-        <div className="h-12 rounded-md bg-muted" />
-        <div className="h-12 rounded-md bg-muted" />
-        <div className="h-12 rounded-md bg-muted" />
+        <div className="h-12 rounded-md skeleton-surface" />
+        <div className="h-12 rounded-md skeleton-surface" />
+        <div className="h-12 rounded-md skeleton-surface" />
       </div>
       <div className="space-y-1.5">
-        <div className="h-2.5 w-full rounded bg-muted" />
-        <div className="h-1.5 w-full rounded-full bg-muted" />
+        <div className="h-2.5 w-full rounded skeleton-surface" />
+        <div className="h-1.5 w-full rounded-full skeleton-surface" />
       </div>
       <div className="grid grid-cols-2 gap-2">
-        <div className="h-20 rounded-md bg-muted" />
-        <div className="h-20 rounded-md bg-muted" />
+        <div className="h-20 rounded-md skeleton-surface" />
+        <div className="h-20 rounded-md skeleton-surface" />
       </div>
     </div>
   )

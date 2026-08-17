@@ -173,7 +173,7 @@ function DatabaseMonitoringPanel({
           type="button"
           variant="outline"
           size="sm"
-          disabled={isFetching}
+          loading={isFetching}
           onClick={() => void refetch()}
         >
           {isFetching ? "Refreshing..." : "Refresh"}

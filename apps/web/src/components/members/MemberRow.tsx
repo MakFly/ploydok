@@ -110,7 +110,7 @@ export function MemberRow({
                 size="sm"
                 variant="ghost"
                 onClick={handleRemove}
-                disabled={removeMutation.isPending}
+                loading={removeMutation.isPending}
               >
                 <RiDeleteBin6Line className="h-4 w-4" />
               </Button>

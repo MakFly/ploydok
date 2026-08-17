@@ -132,7 +132,7 @@ export function createDiskRouter(db: Db): Hono<AppEnv> {
     }
   })
 
-  // POST /disk/prune/build-cache — buildctl prune (keep-duration/keep-storage defaults).
+  // POST /disk/prune/build-cache — host Docker builder cache prune.
   router.post("/prune/build-cache", instanceAdmin, async (c) => {
     const user = getUser(c)
     try {

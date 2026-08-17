@@ -54,7 +54,7 @@ function MembersPage(): React.JSX.Element {
               {Array.from({ length: 3 }).map((_, i) => (
                 <div
                   key={i}
-                  className="h-16 animate-pulse rounded-lg border border-border bg-muted"
+                  className="h-16 rounded-lg border border-border skeleton-surface"
                 />
               ))}
             </div>
@@ -176,7 +176,7 @@ function PendingInvitationRow({
             size="sm"
             variant="ghost"
             onClick={handleRevoke}
-            disabled={revokeMutation.isPending}
+            loading={revokeMutation.isPending}
           >
             Revoke
           </Button>

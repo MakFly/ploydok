@@ -150,8 +150,18 @@ function LiveDurationCell({
 // Props
 // ---------------------------------------------------------------------------
 
+export interface DeploymentApplication {
+  id: string
+  name: string
+  slug: string
+}
+
+export type DeploymentTableBuild = Build & {
+  app?: DeploymentApplication
+}
+
 export interface DeploymentsTableProps {
-  builds: Array<Build>
+  builds: Array<DeploymentTableBuild>
   /** Called when user clicks "View logs" on a build. */
   onSelectBuild: (buildId: string) => void
   /** Called when user confirms rollback on a build. */
@@ -160,6 +170,14 @@ export interface DeploymentsTableProps {
   onCancel?: (build: Build) => void
   /** Loading state — shows skeleton rows when true. */
   isLoading?: boolean
+  /** Adds the owning application column for workspace-wide deployment lists. */
+  showApplication?: boolean
+  /** Builds an application deployments URL for the application column. */
+  appDeploymentsHref?: (app: DeploymentApplication) => string
+  /** Disables client-side pagination when the API already paginates rows. */
+  paginate?: boolean
+  /** Hides mutating actions for workspace members without owner rights. */
+  canManage?: boolean
 }
 
 // ---------------------------------------------------------------------------
@@ -171,6 +189,7 @@ interface RowActionsProps {
   onSelectBuild: (id: string) => void
   onRollback: (build: Build) => void
   onCancel?: (build: Build) => void
+  canManage: boolean
 }
 
 function RowActions({
@@ -178,6 +197,7 @@ function RowActions({
   onSelectBuild,
   onRollback,
   onCancel,
+  canManage,
 }: RowActionsProps): React.JSX.Element {
   const canRollback =
     build.status === "succeeded" || build.status === "succeeded_with_warning"
@@ -197,8 +217,8 @@ function RowActions({
         <DropdownMenuItem onClick={() => onSelectBuild(build.id)}>
           View logs
         </DropdownMenuItem>
-        <DropdownMenuSeparator />
-        {canCancel && onCancel ? (
+        {canManage ? <DropdownMenuSeparator /> : null}
+        {canManage && canCancel && onCancel ? (
           <AlertDialog>
             <AlertDialogTrigger asChild>
               <DropdownMenuItem onSelect={(e) => e.preventDefault()}>
@@ -228,7 +248,7 @@ function RowActions({
             </AlertDialogContent>
           </AlertDialog>
         ) : null}
-        {canRollback ? (
+        {canManage && canRollback ? (
           <AlertDialog>
             <AlertDialogTrigger asChild>
               <DropdownMenuItem onSelect={(e) => e.preventDefault()}>
@@ -256,9 +276,9 @@ function RowActions({
               </AlertDialogFooter>
             </AlertDialogContent>
           </AlertDialog>
-        ) : (
+        ) : canManage ? (
           <DropdownMenuItem disabled>Rollback (unavailable)</DropdownMenuItem>
-        )}
+        ) : null}
       </DropdownMenuContent>
     </DropdownMenu>
   )
@@ -271,9 +291,41 @@ function RowActions({
 function makeColumns(
   onSelectBuild: (id: string) => void,
   onRollback: (build: Build) => void,
-  onCancel?: (build: Build) => void
-): Array<ColumnDef<Build>> {
+  onCancel?: (build: Build) => void,
+  showApplication = false,
+  appDeploymentsHref?: (app: DeploymentApplication) => string,
+  canManage = true
+): Array<ColumnDef<DeploymentTableBuild>> {
+  const applicationColumn: Array<ColumnDef<DeploymentTableBuild>> =
+    showApplication
+      ? [
+          {
+            id: "application",
+            header: "Application",
+            cell: ({ row }) => {
+              const app = row.original.app
+              if (!app) {
+                return <span className="text-xs text-muted-foreground">—</span>
+              }
+              const href = appDeploymentsHref?.(app)
+              return href ? (
+                <a
+                  href={href}
+                  onClick={(event) => event.stopPropagation()}
+                  className="font-medium text-foreground hover:text-primary hover:underline"
+                >
+                  {app.name}
+                </a>
+              ) : (
+                <span className="font-medium text-foreground">{app.name}</span>
+              )
+            },
+          },
+        ]
+      : []
+
   return [
+    ...applicationColumn,
     {
       id: "commit",
       header: "Commit",
@@ -409,6 +461,7 @@ function makeColumns(
             onSelectBuild={onSelectBuild}
             onRollback={onRollback}
             onCancel={onCancel}
+            canManage={canManage}
           />
         </div>
       ),
@@ -426,10 +479,29 @@ export function DeploymentsTable({
   onRollback,
   onCancel,
   isLoading,
+  showApplication,
+  appDeploymentsHref,
+  canManage = true,
+  paginate = true,
 }: DeploymentsTableProps): React.JSX.Element {
   const columns = React.useMemo(
-    () => makeColumns(onSelectBuild, onRollback, onCancel),
-    [onSelectBuild, onRollback, onCancel]
+    () =>
+      makeColumns(
+        onSelectBuild,
+        onRollback,
+        onCancel,
+        showApplication,
+        appDeploymentsHref,
+        canManage
+      ),
+    [
+      onSelectBuild,
+      onRollback,
+      onCancel,
+      showApplication,
+      appDeploymentsHref,
+      canManage,
+    ]
   )
 
   if (isLoading) {
@@ -448,11 +520,12 @@ export function DeploymentsTable({
   }
 
   return (
-    <DataTable<Build>
+    <DataTable<DeploymentTableBuild>
       columns={columns}
       rows={builds}
       pageSize={10}
       onRowClick={(build) => onSelectBuild(build.id)}
+      paginate={paginate}
     />
   )
 }
@@ -463,14 +536,14 @@ export function DeploymentsTable({
 
 function DeploymentsTableSkeleton(): React.JSX.Element {
   return (
-    <div className="animate-pulse overflow-hidden rounded-lg border border-border">
-      <div className="h-10 bg-muted/40" />
+    <div className="overflow-hidden rounded-lg border border-border">
+      <div className="h-10 skeleton-surface" />
       {[...Array<null>(4)].map((_, i) => (
         <div key={i} className="flex gap-4 border-t border-border/60 px-4 py-3">
-          <div className="h-4 w-16 rounded bg-muted" />
-          <div className="h-4 w-20 rounded bg-muted" />
-          <div className="h-4 w-12 rounded bg-muted" />
-          <div className="h-4 w-24 rounded bg-muted" />
+          <div className="h-4 w-16 rounded skeleton-surface" />
+          <div className="h-4 w-20 rounded skeleton-surface" />
+          <div className="h-4 w-12 rounded skeleton-surface" />
+          <div className="h-4 w-24 rounded skeleton-surface" />
         </div>
       ))}
     </div>

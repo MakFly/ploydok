@@ -13,8 +13,8 @@ import { Input } from "@workspace/ui/components/input"
 import { Label } from "@workspace/ui/components/label"
 import { Textarea } from "@workspace/ui/components/textarea"
 import { Alert, AlertDescription } from "@workspace/ui/components/alert"
-import {  useRestoreBackup } from "../../lib/backups"
-import type {Backup} from "../../lib/backups";
+import { useRestoreBackup } from "../../lib/backups"
+import type { Backup } from "../../lib/backups"
 
 interface RestoreDialogProps {
   backup: Backup
@@ -60,16 +60,18 @@ export function RestoreDialog({
           <DialogTitle>Restore database</DialogTitle>
           <DialogDescription>
             Restoring from backup{" "}
-            <span className="font-mono text-xs">{backup.id}</span> will overwrite the current database
-            contents. This action cannot be undone.
+            <span className="font-mono text-xs">{backup.id}</span> will
+            overwrite the current database contents. This action cannot be
+            undone.
           </DialogDescription>
         </DialogHeader>
 
         <form onSubmit={handleSubmit} className="space-y-4">
           <Alert variant="destructive">
             <AlertDescription>
-              This will destroy all current data in <strong>{databaseName}</strong> and replace it
-              with the backup contents.
+              This will destroy all current data in{" "}
+              <strong>{databaseName}</strong> and replace it with the backup
+              contents.
             </AlertDescription>
           </Alert>
 
@@ -87,7 +89,8 @@ export function RestoreDialog({
                 autoComplete="off"
               />
               <p className="text-xs text-muted-foreground">
-                The backup is age-encrypted. Paste your private key here — it will not be stored.
+                The backup is age-encrypted. Paste your private key here — it
+                will not be stored.
               </p>
             </div>
           )}
@@ -95,8 +98,10 @@ export function RestoreDialog({
           <div className="space-y-1.5">
             <Label htmlFor="restore-confirm">
               Type{" "}
-              <code className="font-mono bg-muted px-1 rounded text-xs">{expectedConfirm}</code> to
-              confirm
+              <code className="rounded bg-muted px-1 font-mono text-xs">
+                {expectedConfirm}
+              </code>{" "}
+              to confirm
             </Label>
             <Input
               id="restore-confirm"
@@ -114,8 +119,8 @@ export function RestoreDialog({
             <Button
               type="submit"
               variant="destructive"
+              loading={restore.isPending}
               disabled={
-                restore.isPending ||
                 confirm !== expectedConfirm ||
                 (backup.ageEncrypted && !ageIdentity)
               }

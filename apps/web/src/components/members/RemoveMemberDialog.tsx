@@ -47,7 +47,7 @@ export function RemoveMemberDialog({
           </AlertDialogCancel>
           <AlertDialogAction
             onClick={onConfirm}
-            disabled={isLoading}
+            loading={isLoading}
             variant="destructive"
           >
             {isLoading ? "Removing..." : "Remove"}

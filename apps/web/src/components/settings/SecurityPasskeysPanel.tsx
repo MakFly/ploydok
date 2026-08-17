@@ -7,7 +7,6 @@ import {
   RiErrorWarningLine,
   RiFingerprintLine,
   RiKey2Line,
-  RiLoader4Line,
   RiShieldKeyholeLine,
   RiSmartphoneLine,
   RiUsbLine,
@@ -27,6 +26,7 @@ import {
 import { Button } from "@workspace/ui/components/button"
 import { Input } from "@workspace/ui/components/input"
 import { Label } from "@workspace/ui/components/label"
+import { Skeleton } from "@workspace/ui/components/skeleton"
 import { cn } from "@workspace/ui/lib/utils"
 import { toast } from "sonner"
 import {
@@ -181,20 +181,11 @@ function AddPasskeyCard(): React.JSX.Element {
           </div>
           <Button
             type="submit"
-            disabled={!support.available || addPasskey.isPending}
+            loading={addPasskey.isPending} disabled={!support.available}
             className="md:min-w-32"
           >
-            {addPasskey.isPending ? (
-              <>
-                <RiLoader4Line className="size-4 animate-spin" />
-                Enrolling…
-              </>
-            ) : (
-              <>
-                <RiAddLine className="size-4" />
-                Add passkey
-              </>
-            )}
+            <RiAddLine className="size-4" />
+            {addPasskey.isPending ? "Enrolling…" : "Add passkey"}
           </Button>
         </div>
 
@@ -302,7 +293,7 @@ function PasskeyRow({
               <Button
                 variant="ghost"
                 size="sm"
-                disabled={!canRemove || removePasskey.isPending}
+                loading={removePasskey.isPending} disabled={!canRemove}
                 aria-label={`Remove ${displayName}`}
                 className={cn(
                   "text-muted-foreground hover:text-destructive",
@@ -381,11 +372,12 @@ function CardFrame({
 
 function LoadingRow(): React.JSX.Element {
   return (
-    <div className="rounded-lg border border-dashed border-panel-border bg-panel-inset p-4">
-      <p className="flex items-center gap-2 text-xs text-muted-foreground">
-        <RiLoader4Line className="size-3.5 animate-spin" />
-        Loading passkeys…
-      </p>
+    <div
+      className="rounded-lg border border-dashed border-panel-border bg-panel-inset p-4"
+      aria-busy="true"
+      aria-label="Loading passkeys"
+    >
+      <Skeleton className="h-10 w-full rounded-md" />
     </div>
   )
 }

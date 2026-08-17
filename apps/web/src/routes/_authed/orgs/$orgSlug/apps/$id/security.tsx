@@ -3,6 +3,7 @@ import * as React from "react"
 import { createFileRoute } from "@tanstack/react-router"
 import { useQuery } from "@tanstack/react-query"
 import { Badge } from "@workspace/ui/components/badge"
+import { Skeleton } from "@workspace/ui/components/skeleton"
 import { AdvisoryTable } from "../../../../admin/security/advisories"
 import { useAppAdvisories } from "../../../../../../lib/advisories"
 import { getLatestScan } from "../../../../../../lib/app-scans"
@@ -97,7 +98,9 @@ function ImageScanPanel({ appId }: { appId: string }): React.JSX.Element {
           Failed to load the latest image scan.
         </div>
       ) : isLoading ? (
-        <div className="text-sm text-muted-foreground">Loading...</div>
+        <div aria-busy="true" aria-label="Loading security advisories">
+          <Skeleton className="h-24 w-full rounded-lg" />
+        </div>
       ) : !data ? (
         <div className="text-sm text-muted-foreground">No image scan yet.</div>
       ) : data.status === "pending" || data.status === "running" ? (

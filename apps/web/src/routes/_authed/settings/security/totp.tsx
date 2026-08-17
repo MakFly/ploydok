@@ -4,7 +4,6 @@ import { createFileRoute } from "@tanstack/react-router"
 import {
   RiCheckboxCircleFill,
   RiDeleteBin6Line,
-  RiLoader4Line,
   RiQrCodeLine,
   RiShieldKeyholeLine,
 } from "@remixicon/react"
@@ -21,6 +20,7 @@ import {
   AlertDialogTrigger,
 } from "@workspace/ui/components/alert-dialog"
 import { Button } from "@workspace/ui/components/button"
+import { Skeleton } from "@workspace/ui/components/skeleton"
 import { Switch } from "@workspace/ui/components/switch"
 import { QRCodeSVG } from "qrcode.react"
 import { toast } from "sonner"
@@ -136,10 +136,7 @@ function TotpPage(): React.JSX.Element {
   if (isLoading) {
     return (
       <CardFrame>
-        <p className="flex items-center gap-2 text-xs text-muted-foreground">
-          <RiLoader4Line className="size-3.5 animate-spin" />
-          Loading…
-        </p>
+        <Skeleton className="h-10 w-full rounded-md" />
       </CardFrame>
     )
   }
@@ -211,12 +208,9 @@ function TotpIdleView({
       <Button
         size="sm"
         onClick={onEnable}
-        disabled={isPending}
+        loading={isPending}
         className="mt-2"
       >
-        {isPending ? (
-          <RiLoader4Line className="mr-1.5 size-3.5 animate-spin" />
-        ) : null}
         Enable TOTP
       </Button>
     </CardFrame>
@@ -320,12 +314,9 @@ function TotpScanView({
           <Button
             size="sm"
             onClick={onVerify}
-            disabled={!isValidCode || isPending}
+            loading={isPending} disabled={!isValidCode}
             className="flex-1"
           >
-            {isPending ? (
-              <RiLoader4Line className="mr-1.5 size-3.5 animate-spin" />
-            ) : null}
             Verify &amp; enable
           </Button>
         </div>
@@ -358,7 +349,7 @@ function TotpEnabledView({
             <Button
               variant="outline"
               size="sm"
-              disabled={isPending}
+              loading={isPending}
               className="text-destructive hover:bg-destructive/10 hover:text-destructive"
             >
               <RiDeleteBin6Line className="mr-1.5 size-3.5" />

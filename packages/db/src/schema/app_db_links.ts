@@ -1,5 +1,5 @@
 // SPDX-License-Identifier: AGPL-3.0-only
-import { pgTable, text, timestamp, uniqueIndex } from 'drizzle-orm/pg-core'
+import { pgTable, text, timestamp, uniqueIndex, index } from 'drizzle-orm/pg-core'
 import { apps } from './apps'
 import { databases } from './databases'
 
@@ -18,7 +18,14 @@ export const app_db_links = pgTable(
       .notNull()
       .$defaultFn(() => new Date()),
   },
-  (t) => [uniqueIndex('app_db_links_unique').on(t.app_id, t.database_id, t.env_prefix)],
+  (t) => [
+    uniqueIndex('app_db_links_unique').on(t.app_id, t.database_id, t.env_prefix),
+    index('app_db_links_database_id_app_id_env_prefix_idx').on(
+      t.database_id,
+      t.app_id,
+      t.env_prefix,
+    ),
+  ],
 )
 
 export type AppDbLinkRow = typeof app_db_links.$inferSelect

@@ -8,6 +8,7 @@ import { apiBaseUrl } from "../../lib/api/base"
 import { PasskeyButton } from "../../components/auth/PasskeyButton"
 import { getGitProviderStatus } from "../../lib/git-providers"
 import { resolvePostAuthPath } from "../../lib/auth-guards"
+import { usePendingAction } from "../../lib/hooks/use-pending-action"
 import {
   AuthShell,
   authFieldClass,
@@ -80,7 +81,7 @@ function LoginPage(): React.JSX.Element {
     >
       {mode === "password" ? (
         <PasswordModePanel
-          onSuccess={() => void handleAuthSuccess()}
+          onSuccess={handleAuthSuccess}
           onSwitchPasskey={() => setMode("passkey")}
           onSwitchBackup={() => setMode("backup")}
         />
@@ -88,7 +89,7 @@ function LoginPage(): React.JSX.Element {
         <PasskeyModePanel
           email={email}
           onEmailChange={setEmail}
-          onSuccess={() => void handleAuthSuccess()}
+          onSuccess={handleAuthSuccess}
           onSwitchPassword={() => setMode("password")}
           onSwitchBackup={() => setMode("backup")}
         />
@@ -127,32 +128,35 @@ function PasswordModePanel({
   onSwitchPasskey,
   onSwitchBackup,
 }: {
-  onSuccess: () => void
+  onSuccess: () => Promise<void>
   onSwitchPasskey: () => void
   onSwitchBackup: () => void
 }): React.JSX.Element {
   const [email, setEmail] = React.useState("")
   const [password, setPassword] = React.useState("")
   const [error, setError] = React.useState<string | null>(null)
-  const [loading, setLoading] = React.useState(false)
+
+  // onSuccess ends in a navigation, so it has to be awaited inside the pending
+  // window. Releasing before it resolves re-enables the button while the app
+  // is still working.
+  const { pending: loading, run } = usePendingAction(async () => {
+    await apiFetch("/auth/login/password", {
+      method: "POST",
+      body: { email, password },
+    })
+    toast.success("Signed in")
+    await onSuccess()
+  })
 
   const handleSubmit = async (e: React.FormEvent): Promise<void> => {
     e.preventDefault()
-    setLoading(true)
     setError(null)
     try {
-      await apiFetch("/auth/login/password", {
-        method: "POST",
-        body: { email, password },
-      })
-      toast.success("Signed in")
-      onSuccess()
+      await run()
     } catch (err) {
       const msg = err instanceof Error ? err.message : "Authentication failed"
       toast.error(msg)
       setError(msg)
-    } finally {
-      setLoading(false)
     }
   }
 
@@ -204,7 +208,7 @@ function PasswordModePanel({
       )}
       <Button
         type="submit"
-        disabled={loading}
+        loading={loading}
         className="h-11 w-full rounded-[10px]"
       >
         {loading ? "Signing in…" : "Sign in"}
@@ -228,7 +232,7 @@ function PasskeyModePanel({
 }: {
   email: string
   onEmailChange: (value: string) => void
-  onSuccess: () => void
+  onSuccess: () => Promise<void>
   onSwitchPassword: () => void
   onSwitchBackup: () => void
 }): React.JSX.Element {
@@ -258,36 +262,37 @@ function BackupCodePanel({
   onSuccess,
   onBack,
 }: {
-  onSuccess: () => void
+  onSuccess: () => Promise<void>
   onBack: () => void
 }): React.JSX.Element {
   const [email, setEmail] = React.useState("")
   const [code, setCode] = React.useState("")
   const [error, setError] = React.useState<string | null>(null)
-  const [loading, setLoading] = React.useState(false)
+
+  const { pending: loading, run } = usePendingAction(async () => {
+    const res = await fetch(`${apiBaseUrl()}/auth/backup-codes/consume`, {
+      method: "POST",
+      credentials: "include",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify({ email, code }),
+    })
+    if (!res.ok) {
+      const data = (await res.json()) as { error?: { message?: string } }
+      throw new Error(data.error?.message ?? "Invalid backup code")
+    }
+    toast.success("Signed in")
+    await onSuccess()
+  })
 
   const handleSubmit = async (e: React.FormEvent): Promise<void> => {
     e.preventDefault()
-    setLoading(true)
     setError(null)
     try {
-      const res = await fetch(`${apiBaseUrl()}/auth/backup-codes/consume`, {
-        method: "POST",
-        credentials: "include",
-        headers: { "Content-Type": "application/json" },
-        body: JSON.stringify({ email, code }),
-      })
-      if (!res.ok) {
-        const data = (await res.json()) as { error?: { message?: string } }
-        throw new Error(data.error?.message ?? "Invalid backup code")
-      }
-      toast.success("Signed in")
-      void onSuccess()
+      await run()
     } catch (err) {
-      toast.error(err instanceof Error ? err.message : "Authentication failed")
-      setError(err instanceof Error ? err.message : "Authentication failed")
-    } finally {
-      setLoading(false)
+      const msg = err instanceof Error ? err.message : "Authentication failed"
+      toast.error(msg)
+      setError(msg)
     }
   }
 
@@ -328,7 +333,7 @@ function BackupCodePanel({
       <div className="space-y-2">
         <Button
           type="submit"
-          disabled={loading}
+          loading={loading}
           className="h-11 w-full rounded-[10px]"
         >
           {loading ? "Signing in…" : "Sign in"}

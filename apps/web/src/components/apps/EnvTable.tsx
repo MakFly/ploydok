@@ -45,7 +45,10 @@ export function validateKey(key: string): string | undefined {
   return undefined
 }
 
-export function hasDiff(localVars: Array<EnvVarPatch>, serverVars: Array<EnvVar>): boolean {
+export function hasDiff(
+  localVars: Array<EnvVarPatch>,
+  serverVars: Array<EnvVar>
+): boolean {
   if (localVars.length !== serverVars.length) return true
   const serverMap = new Map(serverVars.map((v) => [v.key, v]))
   for (const local of localVars) {
@@ -85,8 +88,15 @@ interface ImportDialogState {
   filename: string
 }
 
-export function EnvTable({ serverVars, isSaving, onSave, lockReason }: EnvTableProps): React.JSX.Element {
-  const [rows, setRows] = React.useState<Array<EditableVar>>(() => initEditable(serverVars))
+export function EnvTable({
+  serverVars,
+  isSaving,
+  onSave,
+  lockReason,
+}: EnvTableProps): React.JSX.Element {
+  const [rows, setRows] = React.useState<Array<EditableVar>>(() =>
+    initEditable(serverVars)
+  )
   const [revealAll, setRevealAll] = React.useState(false)
   const [monacoDialog, setMonacoDialog] = React.useState<MonacoDialogState>({
     open: false,
@@ -113,11 +123,13 @@ export function EnvTable({ serverVars, isSaving, onSave, lockReason }: EnvTableP
     }
   }, [serverVars])
 
-  const localPatches: Array<EnvVarPatch> = rows.map(({ key, value, secret }) => ({
-    key,
-    value,
-    secret,
-  }))
+  const localPatches: Array<EnvVarPatch> = rows.map(
+    ({ key, value, secret }) => ({
+      key,
+      value,
+      secret,
+    })
+  )
 
   const diff = hasDiff(localPatches, serverVars)
   const hasKeyErrors = rows.some((r) => r.keyError !== undefined)
@@ -158,14 +170,20 @@ export function EnvTable({ serverVars, isSaving, onSave, lockReason }: EnvTableP
           next.keyError = validateKey(next.key)
         }
         return next
-      }),
+      })
     )
   }
 
   function addRow() {
     setRows((prev) => [
       ...prev,
-      { key: "", value: "", secret: false, revealed: false, keyError: undefined },
+      {
+        key: "",
+        value: "",
+        secret: false,
+        revealed: false,
+        keyError: undefined,
+      },
     ])
   }
 
@@ -179,7 +197,12 @@ export function EnvTable({ serverVars, isSaving, onSave, lockReason }: EnvTableP
 
   function openMonacoEditor(index: number) {
     const row = rows[index]
-    setMonacoDialog({ open: true, rowIndex: index, rowKey: row.key, rowValue: row.value })
+    setMonacoDialog({
+      open: true,
+      rowIndex: index,
+      rowKey: row.key,
+      rowValue: row.value,
+    })
   }
 
   function handleMonacoSave(newValue: string) {
@@ -207,7 +230,9 @@ export function EnvTable({ serverVars, isSaving, onSave, lockReason }: EnvTableP
   async function readFile(file: File) {
     setImportError(null)
     if (file.size > MAX_IMPORT_BYTES) {
-      setImportError(`File too large (${(file.size / 1024).toFixed(0)} KB, max 512 KB)`)
+      setImportError(
+        `File too large (${(file.size / 1024).toFixed(0)} KB, max 512 KB)`
+      )
       return
     }
     try {
@@ -253,7 +278,10 @@ export function EnvTable({ serverVars, isSaving, onSave, lockReason }: EnvTableP
     if (file) await readFile(file)
   }
 
-  function handleImportConfirm(entries: Array<EnvVarPatch>, strategy: ImportStrategy) {
+  function handleImportConfirm(
+    entries: Array<EnvVarPatch>,
+    strategy: ImportStrategy
+  ) {
     setRows((prev) => {
       if (strategy === "replace") {
         return entries.map((e) => ({
@@ -349,14 +377,19 @@ export function EnvTable({ serverVars, isSaving, onSave, lockReason }: EnvTableP
               onClick={() => setRevealAll((v) => !v)}
               className="gap-1.5 text-xs"
             >
-              {revealAll ? <EyeOffIcon className="size-3.5" /> : <EyeIcon className="size-3.5" />}
+              {revealAll ? (
+                <EyeOffIcon className="size-3.5" />
+              ) : (
+                <EyeIcon className="size-3.5" />
+              )}
               {revealAll ? "Hide all" : "Reveal all"}
             </Button>
           )}
           <Button
             type="button"
             size="sm"
-            disabled={!diff || isSaving || hasKeyErrors || Boolean(lockReason)}
+            loading={isSaving}
+            disabled={!diff || hasKeyErrors || Boolean(lockReason)}
             onClick={handleSave}
             title={lockReason}
           >
@@ -383,18 +416,20 @@ export function EnvTable({ serverVars, isSaving, onSave, lockReason }: EnvTableP
           <div className="flex flex-col items-center gap-2 text-primary">
             <UploadIcon className="size-8" />
             <p className="text-sm font-medium">Drop your .env file here</p>
-            <p className="text-xs text-primary/70">We'll parse and let you review before import</p>
+            <p className="text-xs text-primary/70">
+              We'll parse and let you review before import
+            </p>
           </div>
         </div>
       )}
 
       {/* Table */}
-      <div className="overflow-hidden rounded-xl rounded-2xl bg-panel/30">
+      <div className="overflow-hidden rounded-2xl rounded-xl bg-panel/30">
         {rows.length === 0 ? (
           <EmptyDropArea onPickFile={openFilePicker} onAddManually={addRow} />
         ) : (
           <>
-            <div className="grid grid-cols-[minmax(200px,1.1fr)_minmax(260px,2fr)_auto_auto_auto] gap-0 border-b border-border bg-muted/40 px-4 py-2.5 text-[11px] font-medium uppercase tracking-wide text-muted-foreground">
+            <div className="grid grid-cols-[minmax(200px,1.1fr)_minmax(260px,2fr)_auto_auto_auto] gap-0 border-b border-border bg-muted/40 px-4 py-2.5 text-[11px] font-medium tracking-wide text-muted-foreground uppercase">
               <span>Key</span>
               <span>Value</span>
               <span className="px-3">Secret</span>
@@ -418,7 +453,9 @@ export function EnvTable({ serverVars, isSaving, onSave, lockReason }: EnvTableP
                       <input
                         type="text"
                         value={row.key}
-                        onChange={(e) => updateRow(idx, { key: e.target.value.toUpperCase() })}
+                        onChange={(e) =>
+                          updateRow(idx, { key: e.target.value.toUpperCase() })
+                        }
                         placeholder="MY_VAR"
                         aria-label="Variable key"
                         className={[
@@ -430,7 +467,9 @@ export function EnvTable({ serverVars, isSaving, onSave, lockReason }: EnvTableP
                         ].join(" ")}
                       />
                       {row.keyError && (
-                        <p className="mt-1 text-[10px] text-destructive">{row.keyError}</p>
+                        <p className="mt-1 text-[10px] text-destructive">
+                          {row.keyError}
+                        </p>
                       )}
                     </div>
 
@@ -439,7 +478,9 @@ export function EnvTable({ serverVars, isSaving, onSave, lockReason }: EnvTableP
                       <input
                         type={isSecret && !isRevealed ? "password" : "text"}
                         value={row.value}
-                        onChange={(e) => updateRow(idx, { value: e.target.value })}
+                        onChange={(e) =>
+                          updateRow(idx, { value: e.target.value })
+                        }
                         placeholder={isSecret ? SECRET_MASK : "value"}
                         aria-label="Variable value"
                         className="w-full rounded-md border border-border bg-background px-2.5 py-1.5 font-mono text-xs outline-none focus:border-ring focus:ring-1 focus:ring-ring"
@@ -449,7 +490,9 @@ export function EnvTable({ serverVars, isSaving, onSave, lockReason }: EnvTableP
                           type="button"
                           onClick={() => toggleRevealRow(idx)}
                           title={isRevealed ? "Hide" : "Reveal"}
-                          aria-label={isRevealed ? "Hide value" : "Reveal value"}
+                          aria-label={
+                            isRevealed ? "Hide value" : "Reveal value"
+                          }
                           className="flex-shrink-0 rounded p-1.5 text-muted-foreground transition-colors hover:bg-muted hover:text-foreground"
                         >
                           {isRevealed ? (
@@ -468,10 +511,12 @@ export function EnvTable({ serverVars, isSaving, onSave, lockReason }: EnvTableP
                         role="switch"
                         aria-checked={isSecret}
                         onClick={() => updateRow(idx, { secret: !isSecret })}
-                        title={isSecret ? "Mark as plain text" : "Mark as secret"}
+                        title={
+                          isSecret ? "Mark as plain text" : "Mark as secret"
+                        }
                         className={[
                           "relative inline-flex h-4 w-7 flex-shrink-0 cursor-pointer rounded-full border-2 border-transparent",
-                          "transition-colors duration-200 ease-in-out focus:outline-none focus:ring-2 focus:ring-ring focus:ring-offset-1",
+                          "transition-colors duration-200 ease-in-out focus:ring-2 focus:ring-ring focus:ring-offset-1 focus:outline-none",
                           isSecret ? "bg-primary" : "bg-muted",
                         ].join(" ")}
                       >
@@ -580,7 +625,8 @@ function EmptyDropArea({
       <div>
         <p className="text-sm font-medium">Drop a .env file to get started</p>
         <p className="mt-1 text-xs text-muted-foreground">
-          Or paste variables manually. KEY=value syntax, comments and quotes are supported.
+          Or paste variables manually. KEY=value syntax, comments and quotes are
+          supported.
         </p>
       </div>
       <div className="mt-1 flex items-center gap-2">

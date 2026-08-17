@@ -286,7 +286,7 @@ export function OpenAdminerDialog({
                 type="button"
                 variant="outline"
                 onClick={handleRevealPassword}
-                disabled={reveal.isPending}
+                loading={reveal.isPending}
               >
                 {reveal.isPending
                   ? "Revealing..."
@@ -310,7 +310,7 @@ export function OpenAdminerDialog({
             <Button
               type="button"
               onClick={handleCreateSession}
-              disabled={createSession.isPending || totpCode.length !== 6}
+              loading={createSession.isPending} disabled={totpCode.length !== 6}
             >
               {createSession.isPending ? "Opening..." : "Create session"}
             </Button>

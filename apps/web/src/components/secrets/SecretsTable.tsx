@@ -125,7 +125,8 @@ export function SecretsTable({
                         phase: secret.phase,
                       })
                     }
-                    disabled={isDeleting || secret.managed_by === "database"}
+                    loading={isDeleting}
+                    disabled={secret.managed_by === "database"}
                     title={
                       secret.managed_by === "database"
                         ? "Managed by database link"

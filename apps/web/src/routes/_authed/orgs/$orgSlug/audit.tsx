@@ -164,13 +164,13 @@ function AuditTimelineSkeleton(): React.JSX.Element {
           className="flex items-center justify-between gap-4 rounded-md rounded-2xl bg-panel px-4 py-3"
         >
           <div className="flex min-w-0 flex-1 items-center gap-3">
-            <div className="h-5 w-20 animate-pulse rounded-full bg-muted" />
+            <div className="h-5 w-20 rounded-full skeleton-surface" />
             <div className="min-w-0 flex-1 space-y-2">
-              <div className="h-3 w-48 animate-pulse rounded bg-muted" />
-              <div className="h-3 w-32 animate-pulse rounded bg-muted" />
+              <div className="h-3 w-48 rounded skeleton-surface" />
+              <div className="h-3 w-32 rounded skeleton-surface" />
             </div>
           </div>
-          <div className="h-3 w-16 animate-pulse rounded bg-muted" />
+          <div className="h-3 w-16 rounded skeleton-surface" />
         </div>
       ))}
     </div>

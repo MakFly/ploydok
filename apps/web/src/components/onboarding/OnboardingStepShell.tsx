@@ -170,44 +170,46 @@ export function OnboardingStepShell({
       </aside>
 
       <section className="flex min-w-0 flex-1 flex-col overflow-y-auto px-6 py-8 sm:px-10 md:px-14 lg:py-10">
-        <div className="mx-auto flex min-h-full w-full max-w-[28rem] flex-col">
-          <div className="mb-6 flex items-center gap-3 md:hidden">
-            {onBack ? (
-              <Button
-                type="button"
-                variant="ghost"
-                size="icon-sm"
-                onClick={onBack}
-              >
-                <span aria-hidden>←</span>
-                <span className="sr-only">Back</span>
-              </Button>
-            ) : null}
-            <span aria-hidden className="flex flex-1 items-center gap-1.5">
-              {stepOrder.map((step, index) => (
-                <span
-                  key={step}
-                  className={cn(
-                    "h-1 flex-1 rounded-full",
-                    index <= activeIndex ? "bg-foreground" : "bg-border"
-                  )}
-                />
-              ))}
-            </span>
-            <span className="text-xs font-medium text-muted-foreground">
-              {stepCopy[activeStep].label}
-            </span>
-            <ThemeToggle />
+        <div className="mx-auto flex w-full max-w-[28rem] shrink-0 items-center gap-3 pb-6 md:hidden">
+          {onBack ? (
             <Button
               type="button"
               variant="ghost"
               size="icon-sm"
-              onClick={onLogout}
+              onClick={onBack}
             >
-              <RiLogoutBoxRLine aria-hidden className="size-3.5" />
-              <span className="sr-only">Log out</span>
+              <span aria-hidden>←</span>
+              <span className="sr-only">Back</span>
             </Button>
-          </div>
+          ) : null}
+          <span aria-hidden className="flex flex-1 items-center gap-1.5">
+            {stepOrder.map((step, index) => (
+              <span
+                key={step}
+                className={cn(
+                  "h-1 flex-1 rounded-full",
+                  index <= activeIndex ? "bg-foreground" : "bg-border"
+                )}
+              />
+            ))}
+          </span>
+          <span className="text-xs font-medium text-muted-foreground">
+            {stepCopy[activeStep].label}
+          </span>
+          <ThemeToggle />
+          <Button
+            type="button"
+            variant="ghost"
+            size="icon-sm"
+            onClick={onLogout}
+          >
+            <RiLogoutBoxRLine aria-hidden className="size-3.5" />
+            <span className="sr-only">Log out</span>
+          </Button>
+        </div>
+        {/* m-auto rather than justify-center: in a scrollable flex column,
+            centering through alignment clips the top once content overflows. */}
+        <div className="m-auto flex w-full max-w-[28rem] flex-col">
           {children}
         </div>
       </section>
@@ -244,7 +246,7 @@ export function StepFooter({
   hint?: React.ReactNode
 }): React.JSX.Element {
   return (
-    <div className="mt-auto flex flex-col gap-2 pt-10 pb-2">
+    <div className="flex flex-col gap-2 pt-10">
       {hint ? <p className="text-xs text-muted-foreground">{hint}</p> : null}
       {children}
     </div>

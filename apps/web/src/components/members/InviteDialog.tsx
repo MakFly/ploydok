@@ -132,7 +132,7 @@ export function InviteDialog({
             </Button>
             <Button
               type="submit"
-              disabled={inviteMutation.isPending}
+              loading={inviteMutation.isPending}
               className="flex-1"
             >
               {inviteMutation.isPending ? "Sending..." : "Send invitation"}

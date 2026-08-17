@@ -197,7 +197,7 @@ function AdvancedSettingsPage() {
       <div className="flex gap-2">
         <Button
           onClick={handleSave}
-          disabled={!isValid || updateMutation.isPending}
+          loading={updateMutation.isPending} disabled={!isValid}
           className="w-fit"
         >
           {updateMutation.isPending ? "Saving..." : "Save"}

@@ -166,7 +166,7 @@ export function AddSecretDialog({
             >
               Cancel
             </Button>
-            <Button type="submit" disabled={isPending}>
+            <Button type="submit" loading={isPending}>
               {isPending ? "Saving…" : "Save secret"}
             </Button>
           </DialogFooter>
