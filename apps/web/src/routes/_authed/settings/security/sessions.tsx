@@ -7,7 +7,6 @@ import {
   RiErrorWarningLine,
   RiGlobalLine,
   RiMapPinLine,
-  RiRadarLine,
   RiShieldCheckLine,
   RiSmartphoneLine,
   RiTimeLine,
@@ -27,6 +26,7 @@ import {
 import { Button } from "@workspace/ui/components/button"
 import { Skeleton } from "@workspace/ui/components/skeleton"
 import { cn } from "@workspace/ui/lib/utils"
+import { SessionHistoryPopover } from "../../../../components/settings/SessionHistoryPopover"
 import {
   useRevokeOthers,
   useRevokeSession,
@@ -64,121 +64,101 @@ function SessionsPage(): React.JSX.Element {
 
   return (
     <div className="space-y-5">
-      <section
-        className={cn(
-          "relative overflow-hidden rounded-lg border p-4",
-          "border-emerald-500/30 bg-emerald-500/[0.04]"
-        )}
-      >
-        <div
-          aria-hidden
-          className="pointer-events-none absolute inset-0 bg-[radial-gradient(circle_at_bottom_right,var(--color-chart-1)_0%,transparent_60%)] opacity-10"
-        />
-        <div className="relative flex flex-col gap-3 md:flex-row md:items-center md:justify-between">
-          <div className="flex items-start gap-3">
-            <div className="flex size-10 shrink-0 items-center justify-center rounded-md bg-emerald-500/15 text-emerald-600 dark:text-emerald-400">
-              <RiRadarLine className="size-5" />
-            </div>
-            <div className="space-y-0.5">
-              <p className="font-mono text-[10px] tracking-wide text-emerald-700 uppercase dark:text-emerald-300">
-                Live fleet
-              </p>
-              <h3 className="text-sm font-medium">
-                {sessions?.length ?? 0}{" "}
-                {sessions?.length === 1 ? "active session" : "active sessions"}
-              </h3>
-              <p className="text-xs text-muted-foreground">
-                {others.length === 0
-                  ? "Only this device is signed in."
-                  : `${others.length} other ${
-                      others.length === 1 ? "device is" : "devices are"
-                    } signed in right now.`}
-              </p>
-            </div>
-          </div>
-          {others.length > 0 ? (
-            <AlertDialog>
-              {/* The confirm button unmounts with the dialog, so the trigger
-                  is what carries the pending state. */}
-              <AlertDialogTrigger asChild>
-                <Button
-                  variant="destructive"
-                  size="sm"
-                  loading={revokeOthers.isPending}
-                >
-                  <RiCloseCircleLine />
-                  Sign out {others.length} other
-                  {others.length === 1 ? "" : "s"}
-                </Button>
-              </AlertDialogTrigger>
-              <AlertDialogContent>
-                <AlertDialogHeader>
-                  <AlertDialogMedia>
-                    <RiCloseCircleLine />
-                  </AlertDialogMedia>
-                  <AlertDialogTitle>
-                    Sign out all other devices?
-                  </AlertDialogTitle>
-                  <AlertDialogDescription>
-                    Every device except this one will be signed out immediately.
-                    They will have to re-authenticate with a passkey to regain
-                    access.
-                  </AlertDialogDescription>
-                </AlertDialogHeader>
-                <AlertDialogFooter>
-                  <AlertDialogCancel>Cancel</AlertDialogCancel>
-                  <AlertDialogAction
-                    variant="destructive"
-                    onClick={() => revokeOthers.mutate()}
-                  >
-                    {revokeOthers.isPending ? "Signing out…" : "Sign them out"}
-                  </AlertDialogAction>
-                </AlertDialogFooter>
-              </AlertDialogContent>
-            </AlertDialog>
-          ) : null}
-        </div>
-      </section>
-
-      <div className="space-y-2">
-        <div className="flex items-baseline justify-between px-1">
-          <p className="font-mono text-[10px] tracking-wide text-muted-foreground uppercase">
-            Devices
-          </p>
-          {current ? (
-            <p className="font-mono text-[10px] text-muted-foreground">
-              This session expires{" "}
-              <span title={new Date(current.expires_at).toLocaleString()}>
-                {relativeTime(current.expires_at, true)}
-              </span>
+      <section className="space-y-3">
+        <div className="flex flex-col gap-2 sm:flex-row sm:items-end sm:justify-between">
+          <div>
+            <h2 className="text-base font-semibold">Sessions</h2>
+            <p className="mt-1 text-xs text-muted-foreground">
+              Devices logged into your account
             </p>
-          ) : null}
+          </div>
+          <SessionHistoryPopover sessions={sorted} />
         </div>
 
         {isLoading ? (
           <div
-            className="space-y-2 rounded-lg border border-dashed border-panel-border bg-panel-inset p-4"
+            className="space-y-2 rounded-xl border border-dashed border-panel-border bg-panel-inset p-4"
             aria-busy="true"
             aria-label="Loading sessions"
           >
-            <Skeleton className="h-10 w-full rounded-md" />
-            <Skeleton className="h-10 w-full rounded-md" />
+            <Skeleton className="h-14 w-full rounded-lg" />
+            <Skeleton className="h-14 w-full rounded-lg" />
           </div>
         ) : sorted.length > 0 ? (
-          <ul className="space-y-2">
-            {sorted.map((session) => (
-              <SessionRow key={session.id} session={session} />
-            ))}
-          </ul>
+          <div className="space-y-3">
+            {current ? (
+              <ul className="space-y-2">
+                <SessionRow session={current} />
+              </ul>
+            ) : null}
+
+            {others.length > 0 ? (
+              <div className="overflow-hidden rounded-xl border border-border bg-card">
+                <div className="flex min-h-[58px] items-center justify-between gap-3 border-b border-border px-4">
+                  <span className="text-[13px] font-medium">
+                    {others.length} other{" "}
+                    {others.length === 1 ? "session" : "sessions"}
+                  </span>
+                  <AlertDialog>
+                    <AlertDialogTrigger asChild>
+                      <Button
+                        variant="ghost"
+                        size="xs"
+                        loading={revokeOthers.isPending}
+                      >
+                        <RiCloseCircleLine />
+                        Sign out all
+                      </Button>
+                    </AlertDialogTrigger>
+                    <AlertDialogContent>
+                      <AlertDialogHeader>
+                        <AlertDialogMedia>
+                          <RiCloseCircleLine />
+                        </AlertDialogMedia>
+                        <AlertDialogTitle>
+                          Sign out all other devices?
+                        </AlertDialogTitle>
+                        <AlertDialogDescription>
+                          Every device except this one will be signed out
+                          immediately. They will have to re-authenticate with a
+                          passkey to regain access.
+                        </AlertDialogDescription>
+                      </AlertDialogHeader>
+                      <AlertDialogFooter>
+                        <AlertDialogCancel>Cancel</AlertDialogCancel>
+                        <AlertDialogAction
+                          variant="destructive"
+                          onClick={() => revokeOthers.mutate()}
+                        >
+                          {revokeOthers.isPending
+                            ? "Signing out…"
+                            : "Sign them out"}
+                        </AlertDialogAction>
+                      </AlertDialogFooter>
+                    </AlertDialogContent>
+                  </AlertDialog>
+                </div>
+                <ul className="divide-y divide-border">
+                  {others.map((session) => (
+                    <SessionRow key={session.id} session={session} compact />
+                  ))}
+                </ul>
+              </div>
+            ) : (
+              <p className="px-1 text-xs text-muted-foreground">
+                No other active sessions.
+              </p>
+            )}
+          </div>
         ) : (
-          <div className="flex flex-col items-center justify-center gap-2 rounded-lg border border-dashed border-panel-border bg-panel-inset px-4 py-10 text-center">
+          <div className="flex flex-col items-center justify-center gap-2 rounded-xl border border-dashed border-panel-border bg-panel-inset px-4 py-10 text-center">
             <div className="flex size-10 items-center justify-center rounded-full bg-muted">
               <RiComputerLine className="size-5 text-muted-foreground" />
             </div>
             <p className="text-sm font-medium">No active sessions</p>
           </div>
         )}
-      </div>
+      </section>
 
       {current ? (
         <p className="text-xs text-muted-foreground">
@@ -223,7 +203,13 @@ function parseUA(ua: string): ParsedUA {
   return { os, browser, icon }
 }
 
-function SessionRow({ session }: { session: SessionInfo }): React.JSX.Element {
+function SessionRow({
+  session,
+  compact = false,
+}: {
+  session: SessionInfo
+  compact?: boolean
+}): React.JSX.Element {
   const revoke = useRevokeSession()
   const { os, browser, icon: Icon } = parseUA(session.user_agent)
   const pending = revoke.isPending && revoke.variables === session.id
@@ -232,10 +218,12 @@ function SessionRow({ session }: { session: SessionInfo }): React.JSX.Element {
   return (
     <li
       className={cn(
-        "relative rounded-lg border bg-card transition-colors",
-        session.is_current
-          ? "border-emerald-500/30 ring-1 ring-emerald-500/10"
-          : "border-border hover:bg-muted/30"
+        "relative bg-card transition-colors",
+        compact
+          ? "hover:bg-muted/30"
+          : session.is_current
+            ? "rounded-xl border border-emerald-500/30 ring-1 ring-emerald-500/10"
+            : "rounded-xl border border-border hover:bg-muted/30"
       )}
     >
       <div className="flex flex-col gap-3 p-4 md:flex-row md:items-center md:gap-4">
@@ -345,24 +333,23 @@ function SessionRow({ session }: { session: SessionInfo }): React.JSX.Element {
   )
 }
 
-function relativeTime(iso: string, future = false): string {
+function relativeTime(iso: string): string {
   const now = Date.now()
   const then = new Date(iso).getTime()
-  const diff = future ? then - now : now - then
-  if (diff <= 0) return future ? "any moment" : "just now"
+  const diff = now - then
+  if (diff <= 0) return "just now"
   const s = Math.floor(diff / 1000)
-  const prefix = future ? "in " : ""
-  const suffix = future ? "" : " ago"
-  if (s < 45) return future ? "in a moment" : "just now"
+  const suffix = " ago"
+  if (s < 45) return "just now"
   const m = Math.floor(s / 60)
-  if (m < 60) return `${prefix}${m}m${suffix}`
+  if (m < 60) return `${m}m${suffix}`
   const h = Math.floor(m / 60)
-  if (h < 24) return `${prefix}${h}h${suffix}`
+  if (h < 24) return `${h}h${suffix}`
   const d = Math.floor(h / 24)
-  if (d < 7) return `${prefix}${d}d${suffix}`
+  if (d < 7) return `${d}d${suffix}`
   const w = Math.floor(d / 7)
-  if (w < 5) return `${prefix}${w}w${suffix}`
+  if (w < 5) return `${w}w${suffix}`
   const mo = Math.floor(d / 30)
-  if (mo < 12) return `${prefix}${mo}mo${suffix}`
-  return `${prefix}${Math.floor(d / 365)}y${suffix}`
+  if (mo < 12) return `${mo}mo${suffix}`
+  return `${Math.floor(d / 365)}y${suffix}`
 }
