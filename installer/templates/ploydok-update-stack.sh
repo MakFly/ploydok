@@ -3,7 +3,7 @@
 set -Eeuo pipefail
 
 STACK_FILE="${PLOYDOK_INSTALL_DIR}/docker-stack.yml"
-IDENTITY_REGEX='^https://github\.com/dev-toolings/ploydok/\.github/workflows/release-images\.yml@.*$'
+IDENTITY_REGEX='^https://github\.com/MakFly/ploydok/\.github/workflows/release-images\.yml@.*$'
 
 command -v cosign >/dev/null 2>&1 || {
   echo "ploydok update refused: cosign is required" >&2

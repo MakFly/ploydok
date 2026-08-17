@@ -21,7 +21,7 @@ permissions:
 
 env:
   REGISTRY: ghcr.io
-  OWNER: dev-toolings
+  OWNER: makfly
 
 jobs:
   build:

@@ -1,7 +1,7 @@
 # SPDX-License-Identifier: AGPL-3.0-only
 # Production image for ploydok-agent (gRPC daemon).
 # Build context = monorepo root.
-#   docker build -f agent/Dockerfile.prod -t ghcr.io/dev-toolings/ploydok-agent:0.0.1 .
+#   docker build -f agent/Dockerfile.prod -t ghcr.io/makfly/ploydok-agent:0.0.1 .
 
 FROM rust:1.88-slim-bookworm AS builder
 WORKDIR /workspace

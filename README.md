@@ -1,8 +1,8 @@
 # Ploydok - Self-Hosted PaaS for Docker, Git Deploys, Databases and Blue/Green Rollouts
 
-[![CI](https://github.com/dev-toolings/ploydok/actions/workflows/ci.yml/badge.svg)](https://github.com/dev-toolings/ploydok/actions/workflows/ci.yml)
-[![Integration](https://github.com/dev-toolings/ploydok/actions/workflows/ci-integration.yml/badge.svg)](https://github.com/dev-toolings/ploydok/actions/workflows/ci-integration.yml)
-[![Release images](https://github.com/dev-toolings/ploydok/actions/workflows/release-images.yml/badge.svg)](https://github.com/dev-toolings/ploydok/actions/workflows/release-images.yml)
+[![CI](https://github.com/MakFly/ploydok/actions/workflows/ci.yml/badge.svg)](https://github.com/MakFly/ploydok/actions/workflows/ci.yml)
+[![Integration](https://github.com/MakFly/ploydok/actions/workflows/ci-integration.yml/badge.svg)](https://github.com/MakFly/ploydok/actions/workflows/ci-integration.yml)
+[![Release images](https://github.com/MakFly/ploydok/actions/workflows/release-images.yml/badge.svg)](https://github.com/MakFly/ploydok/actions/workflows/release-images.yml)
 [![License: AGPL-3.0-only](https://img.shields.io/badge/license-AGPL--3.0--only-blue.svg)](./LICENSE)
 [![Runtime: Docker Swarm](https://img.shields.io/badge/runtime-Docker%20Swarm-2496ED.svg)](https://docs.docker.com/engine/swarm/)
 [![Stack: Bun Hono React](https://img.shields.io/badge/stack-Bun%20%2B%20Hono%20%2B%20React-black.svg)](./package.json)
@@ -125,13 +125,13 @@ containerized workload and has extra guardrails for popular stacks.
 Install Ploydok on a Debian or Ubuntu VPS with one command:
 
 ```bash
-curl -fsSL https://raw.githubusercontent.com/dev-toolings/ploydok/main/installer/bootstrap.sh | sudo bash
+curl -fsSL https://raw.githubusercontent.com/MakFly/ploydok/main/installer/bootstrap.sh | sudo bash
 ```
 
 Install in coexist mode when another proxy already owns ports 80 and 443:
 
 ```bash
-curl -fsSL https://raw.githubusercontent.com/dev-toolings/ploydok/main/installer/bootstrap.sh \
+curl -fsSL https://raw.githubusercontent.com/MakFly/ploydok/main/installer/bootstrap.sh \
   | sudo bash -s -- --mode=coexist --yes
 ```
 

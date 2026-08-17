@@ -20,7 +20,7 @@ permissions:
   packages: write
 
 env:
-  OWNER: dev-toolings
+  OWNER: makfly
   IMAGES: "ploydok-api ploydok-web ploydok-agent ploydok-caddy ploydok-adminer"
 
 jobs:
