@@ -109,8 +109,9 @@ export function DeleteAppButton({
             </AlertDialogCancel>
             <AlertDialogAction
               onClick={() => void handleDelete()}
-              loading={deleteApp.isPending} disabled={confirmName !== app.name}
-              className="text-destructive-foreground bg-destructive hover:bg-destructive/90"
+              loading={deleteApp.isPending}
+              disabled={confirmName !== app.name}
+              className="bg-destructive bg-none text-white hover:bg-destructive/90"
             >
               {deleteApp.isPending ? "Deleting…" : "Delete app"}
             </AlertDialogAction>

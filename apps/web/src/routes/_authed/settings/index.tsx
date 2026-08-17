@@ -51,7 +51,7 @@ function SettingsOverviewPage(): React.JSX.Element {
           className="rounded-xl rounded-2xl bg-panel p-5"
         >
           <div className="flex items-center gap-4">
-            <div className="flex size-11 items-center justify-center rounded-full bg-primary text-primary-foreground">
+            <div className="flex size-10 items-center justify-center rounded-full bg-primary text-primary-foreground">
               <RiUserLine className="size-5" />
             </div>
             <div className="min-w-0 space-y-1">
@@ -117,7 +117,7 @@ function SectionLink({ section }: { section: SectionCard }): React.JSX.Element {
       className="group flex items-start gap-3 rounded-xl rounded-2xl bg-panel p-4 transition-colors hover:border-primary/40"
     >
       <div className="flex size-10 shrink-0 items-center justify-center rounded-md border border-border bg-background">
-        <Icon className="size-4 text-muted-foreground group-hover:text-foreground" />
+        <Icon className="size-5 text-muted-foreground group-hover:text-foreground" />
       </div>
       <div className="min-w-0 flex-1 space-y-1">
         <p className="font-mono text-[10px] tracking-wide text-muted-foreground uppercase">

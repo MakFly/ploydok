@@ -1,7 +1,7 @@
 // SPDX-License-Identifier: AGPL-3.0-only
 import * as React from "react"
 import { Button } from "@workspace/ui/components/button"
-import { listDeliveries } from "../../lib/webhooks"
+import { DECISION_LABELS, listDeliveries } from "../../lib/webhooks"
 import { DeliveryDetailsDialog } from "./DeliveryDetailsDialog"
 import type { DeliveryDecision, WebhookDelivery } from "../../lib/webhooks"
 
@@ -9,75 +9,43 @@ import type { DeliveryDecision, WebhookDelivery } from "../../lib/webhooks"
 // Decision badge
 // ---------------------------------------------------------------------------
 
-const DECISION_STYLE: Record<
-  DeliveryDecision,
-  { label: string; className: string }
-> = {
-  enqueued: {
-    label: "Enqueued",
-    className: "bg-green-500/10 text-green-700 dark:text-green-400",
-  },
-  coalesced: {
-    label: "Coalesced",
-    className: "bg-amber-500/10 text-amber-700 dark:text-amber-400",
-  },
-  retried: {
-    label: "Retried",
-    className: "bg-blue-500/10 text-blue-700 dark:text-blue-400",
-  },
-  skipped_disabled: {
-    label: "Skipped",
-    className: "bg-muted text-muted-foreground",
-  },
-  skipped_branch: {
-    label: "Skipped",
-    className: "bg-muted text-muted-foreground",
-  },
-  skipped_path: {
-    label: "Skipped",
-    className: "bg-muted text-muted-foreground",
-  },
-  skipped_directive: {
-    label: "Skipped",
-    className: "bg-muted text-muted-foreground",
-  },
-  skipped_unknown_app: {
-    label: "Skipped",
-    className: "bg-muted text-muted-foreground",
-  },
-  skipped_tag_disabled: {
-    label: "Skipped",
-    className: "bg-muted text-muted-foreground",
-  },
-  skipped_tag_pattern: {
-    label: "Skipped",
-    className: "bg-muted text-muted-foreground",
-  },
-  invalid_signature: {
-    label: "Invalid sig.",
-    className: "bg-destructive/10 text-destructive",
-  },
-  error: {
-    label: "Error",
-    className: "bg-destructive/10 text-destructive",
-  },
+const SKIPPED_CLASS = "bg-muted text-muted-foreground"
+const FAILED_CLASS = "bg-destructive/10 text-destructive"
+
+const DECISION_CLASS: Record<DeliveryDecision, string> = {
+  enqueued: "bg-green-500/10 text-green-700 dark:text-green-400",
+  coalesced: "bg-amber-500/10 text-amber-700 dark:text-amber-400",
+  retried: "bg-blue-500/10 text-blue-700 dark:text-blue-400",
+  skipped_disabled: SKIPPED_CLASS,
+  skipped_branch: SKIPPED_CLASS,
+  skipped_path: SKIPPED_CLASS,
+  skipped_directive: SKIPPED_CLASS,
+  skipped_unknown_app: SKIPPED_CLASS,
+  skipped_tag_disabled: SKIPPED_CLASS,
+  skipped_tag_pattern: SKIPPED_CLASS,
+  invalid_signature: FAILED_CLASS,
+  error: FAILED_CLASS,
 }
 
 function DecisionBadge({
   decision,
+  reason,
 }: {
   decision: DeliveryDecision
+  reason?: string | null
 }): React.JSX.Element {
-  const style = DECISION_STYLE[decision] ?? DECISION_STYLE.skipped_disabled
+  const className = DECISION_CLASS[decision]
+  const label = DECISION_LABELS[decision]
 
   return (
     <span
+      title={reason ?? label}
       className={[
         "inline-flex shrink-0 items-center rounded-full px-2 py-0.5 text-xs font-medium",
-        style.className,
+        className,
       ].join(" ")}
     >
-      {style.label}
+      {label}
     </span>
   )
 }
@@ -200,9 +168,13 @@ export function WebhookDeliveriesTable({
 
   if (loading) {
     return (
-      <div className="space-y-2" aria-busy="true" aria-label="Loading webhook deliveries">
+      <div
+        className="space-y-2"
+        aria-busy="true"
+        aria-label="Loading webhook deliveries"
+      >
         {[...Array<null>(5)].map((_, i) => (
-          <div key={i} className="h-10 rounded-md skeleton-surface" />
+          <div key={i} className="h-10 skeleton-surface rounded-md" />
         ))}
       </div>
     )
@@ -235,9 +207,10 @@ export function WebhookDeliveriesTable({
             />
           </svg>
         </div>
-        <p className="text-sm font-medium">No deliveries received</p>
-        <p className="mt-1 text-xs text-muted-foreground">
-          Make sure the webhook is properly configured on GitHub/GitLab.
+        <p className="text-sm font-medium">No deliveries yet</p>
+        <p className="mt-1 max-w-sm text-xs text-muted-foreground">
+          Nothing has reached this app yet. Check the signing secret below, then
+          the webhook URL on your provider, then the tracked branch.
         </p>
       </div>
     )
@@ -246,63 +219,66 @@ export function WebhookDeliveriesTable({
   return (
     <>
       <div className="overflow-x-auto rounded-lg border border-border">
-        <table className="w-full text-xs">
+        <table className="w-full text-sm">
           <thead>
-            <tr className="border-b border-border bg-muted/30">
+            <tr className="border-b border-border bg-muted/50">
               <th
                 scope="col"
-                className="px-3 py-2.5 text-left font-medium text-muted-foreground"
+                className="px-3 py-2 text-left font-medium text-muted-foreground"
               >
                 Time
               </th>
               <th
                 scope="col"
-                className="px-3 py-2.5 text-left font-medium text-muted-foreground"
+                className="px-3 py-2 text-left font-medium text-muted-foreground"
               >
                 Event
               </th>
               <th
                 scope="col"
-                className="px-3 py-2.5 text-left font-medium text-muted-foreground"
+                className="px-3 py-2 text-left font-medium text-muted-foreground"
               >
                 Branch / Ref
               </th>
               <th
                 scope="col"
-                className="px-3 py-2.5 text-left font-medium text-muted-foreground"
+                className="px-3 py-2 text-left font-medium text-muted-foreground"
               >
                 Commit
               </th>
               <th
                 scope="col"
-                className="px-3 py-2.5 text-left font-medium text-muted-foreground"
+                className="px-3 py-2 text-left font-medium text-muted-foreground"
               >
                 Decision
               </th>
-              <th scope="col" className="px-3 py-2.5">
+              <th scope="col" className="px-3 py-2">
                 <span className="sr-only">Actions</span>
               </th>
             </tr>
           </thead>
-          <tbody className="divide-y divide-border/60">
+          <tbody>
             {deliveries.map((d) => (
-              <tr key={d.id} className="transition-colors hover:bg-muted/20">
-                <td className="px-3 py-2.5 whitespace-nowrap text-muted-foreground">
+              <tr
+                key={d.id}
+                className="border-b border-border transition-colors last:border-0 hover:bg-muted/50"
+              >
+                <td className="px-3 py-2 whitespace-nowrap text-muted-foreground">
                   <time dateTime={d.receivedAt} title={safeIso(d.receivedAt)}>
                     {relativeTime(d.receivedAt)}
                   </time>
                 </td>
-                <td className="px-3 py-2.5 font-mono whitespace-nowrap">
+                <td className="px-3 py-2 font-mono whitespace-nowrap">
                   {d.event}
                 </td>
-                <td className="max-w-[120px] truncate px-3 py-2.5">
+                <td className="max-w-[120px] truncate px-3 py-2">
                   {d.ref ? (
                     refToBranch(d.ref)
                   ) : (
                     <span className="text-muted-foreground italic">—</span>
                   )}
                 </td>
-                <td className="px-3 py-2.5">
+                <td className="px-3 py-2">
                   {d.commitSha ? (
                     <span className="font-mono">{d.commitSha.slice(0, 7)}</span>
                   ) : null}
@@ -316,18 +292,23 @@ export function WebhookDeliveriesTable({
                     <span className="text-muted-foreground italic">—</span>
                   )}
                 </td>
-                <td className="px-3 py-2.5">
-                  <DecisionBadge decision={d.decision} />
+                <td className="px-3 py-2">
+                  <DecisionBadge
+                    decision={d.decision}
+                    reason={d.decisionReason}
+                  />
                 </td>
-                <td className="px-3 py-2.5 text-right">
-                  <button
+                <td className="px-3 py-2 text-right">
+                  <Button
                     type="button"
+                    variant="ghost"
+                    size="icon-xs"
                     aria-label="Show delivery details"
                     onClick={() => handleOpenDelivery(d)}
-                    className="inline-flex h-6 w-6 items-center justify-center rounded text-muted-foreground transition-colors hover:bg-muted hover:text-foreground"
+                    className="text-muted-foreground"
                   >
                     •••
-                  </button>
+                  </Button>
                 </td>
               </tr>
             ))}

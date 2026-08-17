@@ -19,7 +19,7 @@ import {
   FieldGroup,
   FieldLabel,
 } from "@workspace/ui/components/field"
-import { replayDelivery } from "../../lib/webhooks"
+import { DECISION_LABELS, replayDelivery } from "../../lib/webhooks"
 import type { WebhookDelivery } from "../../lib/webhooks"
 import type { ApiError } from "../../lib/api"
 
@@ -31,19 +31,6 @@ function safeIsoString(value: string | null | undefined): string {
   if (!value) return "—"
   const d = new Date(value)
   return Number.isNaN(d.getTime()) ? "—" : d.toISOString()
-}
-
-const DECISION_LABELS: Record<string, string> = {
-  enqueued: "Enqueued",
-  skipped_disabled: "Skipped — disabled",
-  skipped_branch: "Skipped — branch",
-  skipped_path: "Skipped — path",
-  skipped_directive: "Skipped — directive",
-  skipped_unknown_app: "Skipped — unknown app",
-  invalid_signature: "Invalid signature",
-  error: "Error",
-  coalesced: "Coalesced",
-  retried: "Retried",
 }
 
 // ---------------------------------------------------------------------------
@@ -171,9 +158,7 @@ function ReplayTotpDialog({
               className="font-mono tracking-[0.35em]"
               placeholder="000000"
               onChange={(event) =>
-                setTotpCode(
-                  event.target.value.replace(/\D/g, "").slice(0, 6),
-                )
+                setTotpCode(event.target.value.replace(/\D/g, "").slice(0, 6))
               }
             />
             <FieldError>{error}</FieldError>
@@ -192,7 +177,8 @@ function ReplayTotpDialog({
           <Button
             size="sm"
             onClick={() => void handleReplay()}
-            loading={pending} disabled={totpCode.length !== 6}
+            loading={pending}
+            disabled={totpCode.length !== 6}
           >
             {pending ? "Replaying…" : "Redeliver"}
           </Button>
@@ -262,7 +248,7 @@ export function DeliveryDetailsDialog({
           {activeTab === "payload" && (
             <div className="max-h-80 overflow-auto rounded-md bg-muted/50 p-3">
               {hasPayload ? (
-                <pre className="font-mono text-xs whitespace-pre-wrap break-words">
+                <pre className="font-mono text-xs break-words whitespace-pre-wrap">
                   {JSON.stringify(delivery.payloadSample, null, 2)}
                 </pre>
               ) : (
@@ -278,7 +264,7 @@ export function DeliveryDetailsDialog({
               <div className="grid grid-cols-[1fr_2fr] gap-2">
                 <span className="text-muted-foreground">Decision</span>
                 <span className="font-medium">
-                  {DECISION_LABELS[delivery.decision] ?? delivery.decision}
+                  {DECISION_LABELS[delivery.decision]}
                 </span>
               </div>
               {delivery.decisionReason && (
@@ -293,12 +279,16 @@ export function DeliveryDetailsDialog({
               </div>
               <div className="grid grid-cols-[1fr_2fr] gap-2">
                 <span className="text-muted-foreground">Received at</span>
-                <span className="font-mono">{safeIsoString(delivery.receivedAt)}</span>
+                <span className="font-mono">
+                  {safeIsoString(delivery.receivedAt)}
+                </span>
               </div>
               {delivery.processedAt && (
                 <div className="grid grid-cols-[1fr_2fr] gap-2">
                   <span className="text-muted-foreground">Processed at</span>
-                  <span className="font-mono">{safeIsoString(delivery.processedAt)}</span>
+                  <span className="font-mono">
+                    {safeIsoString(delivery.processedAt)}
+                  </span>
                 </div>
               )}
               <div className="grid grid-cols-[1fr_2fr] gap-2">

@@ -46,33 +46,33 @@ function TitleBar({
   warnCount: number
 }): React.JSX.Element {
   return (
-    <div className="flex h-8 shrink-0 items-center gap-2 border-b border-zinc-800 bg-zinc-900 px-4">
+    <div className="flex h-8 shrink-0 items-center gap-2 border-b border-white/10 bg-white/5 px-4">
       <span
         className={cn(
           "size-2 shrink-0 rounded-full",
-          isLive ? "animate-pulse bg-emerald-500" : "bg-zinc-600"
+          isLive ? "animate-pulse bg-emerald-500" : "bg-white/30"
         )}
         aria-hidden="true"
       />
-      <span className="truncate text-[11px] font-medium text-zinc-300">
+      <span className="truncate text-xs font-medium text-[#e5e7eb]">
         {title}
       </span>
-      <span className="shrink-0 text-[11px] text-zinc-600">
+      <span className="shrink-0 text-xs text-white/40">
         {isLive ? "Live" : "Disconnected"}
       </span>
       <div className="flex-1" />
       {errorCount > 0 && (
-        <span className="shrink-0 text-[11px] text-red-400 tabular-nums">
+        <span className="shrink-0 text-xs text-red-400 tabular-nums">
           {errorCount.toLocaleString()} err
         </span>
       )}
       {warnCount > 0 && (
-        <span className="shrink-0 text-[11px] text-amber-400 tabular-nums">
+        <span className="shrink-0 text-xs text-amber-400 tabular-nums">
           {warnCount.toLocaleString()} warn
         </span>
       )}
       {lineCount > 0 && (
-        <span className="shrink-0 text-[11px] text-zinc-500 tabular-nums">
+        <span className="shrink-0 text-xs text-white/50 tabular-nums">
           {lineCount.toLocaleString()} lines
         </span>
       )}
@@ -104,7 +104,7 @@ function FollowButton({
       <RiArrowDownLine className="size-3.5" aria-hidden="true" />
       Follow latest
       {newCount > 0 && (
-        <span className="rounded-full bg-primary-foreground/20 px-1.5 py-0.5 text-[10px]">
+        <span className="rounded-full bg-primary-foreground/20 px-1.5 py-0.5 text-xs">
           {newCount}
         </span>
       )}
@@ -132,26 +132,26 @@ function EmptyState({
   const hasFilter = filters.search.length > 0 || filters.level !== "all"
   if (filtered === 0 && total > 0 && hasFilter) {
     return (
-      <div className="flex h-full flex-col items-center justify-center gap-2 px-4 py-12 text-center text-sm text-zinc-500">
+      <div className="flex h-full flex-col items-center justify-center gap-2 px-4 py-12 text-center text-sm text-white/50">
         <span>No lines match the current filters.</span>
-        <span className="text-xs text-zinc-600">
-          {total.toLocaleString()} total — try clearing search or level.
+        <span className="text-xs text-white/40">
+          {total.toLocaleString()} total. Try clearing the search or the level.
         </span>
       </div>
     )
   }
   if (filtered === 0 && total === 0) {
     return (
-      <div className="flex h-full flex-col items-center justify-center gap-2 px-4 py-12 text-center text-sm text-zinc-500">
+      <div className="flex h-full flex-col items-center justify-center gap-2 px-4 py-12 text-center text-sm text-white/50">
         {hasError ? (
-          <span className="text-red-400">Stream error — see banner above.</span>
+          <span className="text-red-400">Stream error, see the banner above.</span>
         ) : connected ? (
           <>
             <span className="inline-flex items-center gap-2">
               <span className="size-2 animate-pulse rounded-full bg-emerald-500" />
-              Connected — waiting for output…
+              Connected, waiting for output…
             </span>
-            <span className="text-xs text-zinc-600">
+            <span className="text-xs text-white/40">
               Logs will stream here as the build emits them.
             </span>
           </>
@@ -460,16 +460,16 @@ export function BuildLogViewer({
   // ---------------------------------------------------------------------------
   const title =
     buildId && buildId !== "latest"
-      ? `Build ${buildId.slice(0, 8)}${appName ? ` — ${appName}` : ""}`
+      ? `Build ${buildId.slice(0, 8)}${appName ? ` · ${appName}` : ""}`
       : appName
-        ? `Runtime logs — ${appName}`
+        ? `Runtime logs · ${appName}`
         : "Runtime logs"
 
   return (
     <div
       ref={containerRef}
       className={cn(
-        "flex min-h-0 w-full flex-col overflow-hidden rounded-lg border border-zinc-800 bg-zinc-950",
+        "flex min-h-0 w-full flex-col overflow-hidden rounded-lg border border-white/10 bg-[#0d0d0d]",
         className
       )}
     >

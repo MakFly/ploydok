@@ -1,7 +1,13 @@
 // SPDX-License-Identifier: AGPL-3.0-only
 import * as React from "react"
 import { toast } from "sonner"
-import { RiAddLine, RiBellLine, RiDeleteBinLine, RiEditLine, RiFlashlightLine } from "@remixicon/react"
+import {
+  RiAddLine,
+  RiBellLine,
+  RiDeleteBinLine,
+  RiEditLine,
+  RiFlashlightLine,
+} from "@remixicon/react"
 import { Button } from "@workspace/ui/components/button"
 import { Badge } from "@workspace/ui/components/badge"
 import { Switch } from "@workspace/ui/components/switch"
@@ -28,17 +34,13 @@ function KindBadge({ kind }: { kind: NotificationChannel["kind"] }) {
     return (
       <Badge
         variant="outline"
-        className="text-green-700 border-green-600/40 dark:text-green-400"
+        className="border-green-600/40 text-green-700 dark:text-green-400"
       >
         {KIND_LABELS[kind]}
       </Badge>
     )
   }
-  return (
-    <Badge variant="secondary">
-      {KIND_LABELS[kind]} · Coming soon
-    </Badge>
-  )
+  return <Badge variant="secondary">{KIND_LABELS[kind]} · Coming soon</Badge>
 }
 
 interface ChannelRowProps {
@@ -53,12 +55,12 @@ function ChannelRow({ channel, appId, onEdit }: ChannelRowProps) {
   const toggleChannel = useToggleChannel(appId)
 
   async function handleDelete() {
-    if (!confirm(`Supprimer "${channel.name}" ?`)) return
+    if (!confirm(`Delete "${channel.name}"?`)) return
     try {
       await deleteChannel.mutateAsync(channel.id)
-      toast.success("Channel supprimé")
+      toast.success("Channel deleted")
     } catch {
-      toast.error("Impossible de supprimer le channel")
+      toast.error("Could not delete the channel")
     }
   }
 
@@ -66,12 +68,13 @@ function ChannelRow({ channel, appId, onEdit }: ChannelRowProps) {
     try {
       const result = await testChannel.mutateAsync(channel.id)
       if (result.success) {
-        toast.success("Message de test envoyé")
+        toast.success("Test message sent")
       } else {
-        toast.error(result.message ?? "Échec du test")
+        toast.error(result.message ?? "The test message failed to send")
       }
     } catch (err) {
-      const message = err instanceof Error ? err.message : "Échec du test"
+      const message =
+        err instanceof Error ? err.message : "The test message failed to send"
       toast.error(message)
     }
   }
@@ -80,25 +83,25 @@ function ChannelRow({ channel, appId, onEdit }: ChannelRowProps) {
     try {
       await toggleChannel.mutateAsync({ id: channel.id, enabled })
     } catch {
-      toast.error("Impossible de mettre à jour le channel")
+      toast.error("Could not update the channel")
     }
   }
 
   return (
-    <div className="flex flex-col gap-3 rounded-lg border border-border/60 bg-background/80 p-4 sm:flex-row sm:items-center sm:justify-between">
-      <div className="flex flex-col gap-1.5 min-w-0">
+    <div className="flex flex-col gap-3 rounded-lg border border-panel-border/70 bg-panel-inset p-4 sm:flex-row sm:items-center sm:justify-between">
+      <div className="flex min-w-0 flex-col gap-1.5">
         <div className="flex flex-wrap items-center gap-2">
-          <span className="font-medium text-sm truncate">{channel.name}</span>
+          <span className="truncate text-sm font-medium">{channel.name}</span>
           <KindBadge kind={channel.kind} />
         </div>
         <p className="text-xs text-muted-foreground">
           {channel.events.length === 0
-            ? "Aucun événement"
+            ? "No events selected"
             : channel.events.map((e) => EVENT_LABELS[e]).join(", ")}
         </p>
       </div>
 
-      <div className="flex items-center gap-2 flex-shrink-0">
+      <div className="flex flex-shrink-0 items-center gap-2">
         {channel.enabled && FUNCTIONAL_KINDS.has(channel.kind) && (
           <Button
             type="button"
@@ -106,7 +109,7 @@ function ChannelRow({ channel, appId, onEdit }: ChannelRowProps) {
             size="sm"
             onClick={() => void handleTest()}
             loading={testChannel.isPending}
-            title="Envoyer un message de test"
+            title="Send a test message"
           >
             <RiFlashlightLine className="size-4" />
             <span className="sr-only sm:not-sr-only">Test</span>
@@ -117,10 +120,10 @@ function ChannelRow({ channel, appId, onEdit }: ChannelRowProps) {
           variant="ghost"
           size="sm"
           onClick={() => onEdit(channel)}
-          title="Modifier"
+          title="Edit"
         >
           <RiEditLine className="size-4" />
-          <span className="sr-only">Modifier</span>
+          <span className="sr-only">Edit {channel.name}</span>
         </Button>
         <Button
           type="button"
@@ -129,17 +132,18 @@ function ChannelRow({ channel, appId, onEdit }: ChannelRowProps) {
           onClick={() => void handleDelete()}
           loading={deleteChannel.isPending}
           className="text-destructive hover:text-destructive"
-          title="Supprimer"
+          title="Delete"
         >
           <RiDeleteBinLine className="size-4" />
-          <span className="sr-only">Supprimer</span>
+          <span className="sr-only">Delete {channel.name}</span>
         </Button>
         <Switch
           checked={channel.enabled}
           onCheckedChange={(v) => void handleToggle(v)}
           disabled={toggleChannel.isPending}
           size="sm"
-          title={channel.enabled ? "Désactiver" : "Activer"}
+          aria-label={`${channel.enabled ? "Disable" : "Enable"} ${channel.name}`}
+          title={channel.enabled ? "Disable" : "Enable"}
         />
       </div>
     </div>
@@ -152,8 +156,9 @@ export function ChannelList({
 }: ChannelListProps): React.JSX.Element {
   const { data: channels, isLoading } = useChannels(appId)
   const [dialogOpen, setDialogOpen] = React.useState(false)
-  const [editingChannel, setEditingChannel] =
-    React.useState<NotificationChannel | undefined>(undefined)
+  const [editingChannel, setEditingChannel] = React.useState<
+    NotificationChannel | undefined
+  >(undefined)
 
   function openCreate() {
     setEditingChannel(undefined)
@@ -165,29 +170,32 @@ export function ChannelList({
     setDialogOpen(true)
   }
 
+  const isEmpty = !isLoading && (channels?.length ?? 0) === 0
+
   return (
     <div className="flex flex-col gap-4">
       {showHeader ? (
-        <div className="flex items-center justify-between">
+        <div className="flex flex-wrap items-start justify-between gap-3">
           <div>
             <h2 className="font-heading text-lg font-semibold">
-              Channels de notification
+              Notification channels
             </h2>
             <p className="text-sm text-muted-foreground">
-              Recevez des alertes sur vos outils préférés quand un événement se
-              produit.
+              Get alerted on the tools you already use when something happens.
             </p>
           </div>
-          <Button type="button" size="sm" onClick={openCreate}>
-            <RiAddLine className="size-4" />
-            Ajouter
-          </Button>
+          {isEmpty ? null : (
+            <Button type="button" size="sm" onClick={openCreate}>
+              <RiAddLine className="size-4" />
+              Add channel
+            </Button>
+          )}
         </div>
-      ) : (
+      ) : isEmpty ? null : (
         <div className="flex justify-end">
           <Button type="button" size="sm" onClick={openCreate}>
             <RiAddLine className="size-4" />
-            Ajouter
+            Add channel
           </Button>
         </div>
       )}
@@ -210,17 +218,19 @@ export function ChannelList({
           ))}
         </div>
       ) : (
-        <div className="flex flex-col items-center justify-center rounded-lg border border-dashed border-panel-border bg-panel-inset py-12 px-6 text-center">
-          <RiBellLine className="size-8 text-muted-foreground/50 mb-3" />
-          <p className="text-sm font-medium text-muted-foreground">
-            Aucun channel configuré
+        <div className="flex flex-col items-center justify-center rounded-lg border border-dashed border-panel-border bg-panel-inset px-6 py-10 text-center">
+          <RiBellLine
+            className="mb-3 size-7 text-muted-foreground/50"
+            aria-hidden="true"
+          />
+          <p className="text-sm font-medium">No channels yet</p>
+          <p className="mt-1 mb-4 max-w-xs text-xs text-muted-foreground">
+            Add a channel and every build and deployment event lands in
+            Discord, Telegram, or your inbox.
           </p>
-          <p className="text-xs text-muted-foreground/70 mt-1 mb-4">
-            Ajoutez un channel pour recevoir des notifications sur vos builds et déploiements.
-          </p>
-          <Button type="button" size="sm" variant="outline" onClick={openCreate}>
+          <Button type="button" size="sm" onClick={openCreate}>
             <RiAddLine className="size-4" />
-            Ajouter un channel
+            Add channel
           </Button>
         </div>
       )}

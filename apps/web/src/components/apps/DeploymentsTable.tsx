@@ -140,7 +140,7 @@ function LiveDurationCell({
   }, [inProgress])
 
   return (
-    <span className="text-xs text-muted-foreground">
+    <span className="text-muted-foreground">
       {formatDuration(startedAt, finishedAt)}
     </span>
   )
@@ -305,7 +305,7 @@ function makeColumns(
             cell: ({ row }) => {
               const app = row.original.app
               if (!app) {
-                return <span className="text-xs text-muted-foreground">—</span>
+                return <span className="text-muted-foreground">—</span>
               }
               const href = appDeploymentsHref?.(app)
               return href ? (
@@ -335,13 +335,13 @@ function makeColumns(
         return (
           <div className="flex min-w-0 flex-col gap-0.5">
             {sha ? (
-              <span className="font-mono text-xs">{sha.slice(0, 7)}</span>
+              <span className="font-mono">{sha.slice(0, 7)}</span>
             ) : (
-              <span className="text-xs text-muted-foreground">—</span>
+              <span className="text-muted-foreground">—</span>
             )}
             {msg ? (
               <span
-                className="max-w-[240px] truncate text-xs text-muted-foreground"
+                className="max-w-[240px] truncate text-muted-foreground"
                 title={msg}
               >
                 {truncate(msg, 60)}
@@ -395,7 +395,7 @@ function makeColumns(
       cell: ({ row }) => {
         const method = row.original.buildMethod
         if (!method) {
-          return <span className="text-xs text-muted-foreground">—</span>
+          return <span className="text-muted-foreground">—</span>
         }
         const label = BUILD_METHOD_LABEL[method] ?? method
         const cls =
@@ -430,7 +430,7 @@ function makeColumns(
             </span>
             {requestedBy ? (
               <span
-                className="font-mono text-[11px] text-muted-foreground"
+                className="font-mono text-xs text-muted-foreground"
                 title={row.original.requestedByUserId ?? undefined}
               >
                 {requestedBy}
@@ -444,7 +444,7 @@ function makeColumns(
       id: "started",
       header: "Started",
       cell: ({ row }) => (
-        <span className="text-xs text-muted-foreground">
+        <span className="text-muted-foreground">
           {row.original.startedAt
             ? new Date(row.original.startedAt).toLocaleString()
             : "—"}
@@ -540,10 +540,10 @@ function DeploymentsTableSkeleton(): React.JSX.Element {
       <div className="h-10 skeleton-surface" />
       {[...Array<null>(4)].map((_, i) => (
         <div key={i} className="flex gap-4 border-t border-border/60 px-4 py-3">
-          <div className="h-4 w-16 rounded skeleton-surface" />
-          <div className="h-4 w-20 rounded skeleton-surface" />
-          <div className="h-4 w-12 rounded skeleton-surface" />
-          <div className="h-4 w-24 rounded skeleton-surface" />
+          <div className="h-4 w-16 skeleton-surface rounded" />
+          <div className="h-4 w-20 skeleton-surface rounded" />
+          <div className="h-4 w-12 skeleton-surface rounded" />
+          <div className="h-4 w-24 skeleton-surface rounded" />
         </div>
       ))}
     </div>

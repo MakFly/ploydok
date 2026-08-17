@@ -281,7 +281,7 @@ export function ChannelDialog({
                 </Select>
               </FieldContent>
               <FieldDescription>
-                Discord, Slack, Telegram et Email sont opérationnels.
+                Discord, Telegram et Email sont opérationnels.
               </FieldDescription>
             </Field>
           )}

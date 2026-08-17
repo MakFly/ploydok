@@ -1,9 +1,11 @@
 // SPDX-License-Identifier: AGPL-3.0-only
 import * as React from "react"
+import { Link } from "@tanstack/react-router"
 import {
   RiFileCopyLine,
   RiLockPasswordLine,
   RiShieldCheckLine,
+  RiShieldKeyholeLine,
 } from "@remixicon/react"
 import { toast } from "sonner"
 import {
@@ -35,6 +37,7 @@ import {
   InputGroupAddon,
   InputGroupInput,
 } from "@workspace/ui/components/input-group"
+import { useTotpStatus } from "../../lib/totp"
 import { rotateWebhookSecret } from "../../lib/webhooks"
 import type { ApiError } from "../../lib/api"
 
@@ -60,6 +63,14 @@ export function RotateSecretDialog({
   const [error, setError] = React.useState<string | null>(null)
   const [copied, setCopied] = React.useState(false)
   const secretInputRef = React.useRef<HTMLInputElement>(null)
+
+  const { data: totp, isPending: totpPending } = useTotpStatus({
+    enabled: open,
+  })
+  // Rotation is guarded server-side by requireTotpVerified. Submitting a code
+  // without an enrolled secret counts as a failed verification and contributes
+  // to the lockout throttle, so the form stays out of reach until enrollment.
+  const totpMissing = totp?.enrolled === false
 
   React.useEffect(() => {
     if (!open) return
@@ -117,22 +128,40 @@ export function RotateSecretDialog({
 
   return (
     <Dialog open={open} onOpenChange={handleClose}>
-      <DialogContent className="sm:max-w-xl" showCloseButton={step !== "reveal"}>
+      <DialogContent
+        className="sm:max-w-xl"
+        showCloseButton={step !== "reveal"}
+      >
         <DialogHeader className="gap-3">
           <Badge variant="outline" className="w-fit">
             Secret Rotation
           </Badge>
           <DialogTitle>
-            {step === "totp" ? "Confirm the rotation" : "Store the new secret now"}
+            {step === "reveal"
+              ? "Store the new secret now"
+              : totpMissing
+                ? "Set up two-factor authentication first"
+                : "Confirm the rotation"}
           </DialogTitle>
           <DialogDescription className="leading-6">
-            {step === "totp"
-              ? "Use your authenticator to unlock a new webhook signing secret."
-              : "This value is shown once. Copy it immediately and update the provider configuration before the grace window ends."}
+            {step === "reveal"
+              ? "This value is shown once. Copy it immediately and update the provider configuration before the grace window ends."
+              : totpMissing
+                ? "Rotating a signing secret needs a second factor. Add an authenticator app to your account, then come back here."
+                : "Use your authenticator to unlock a new webhook signing secret."}
           </DialogDescription>
         </DialogHeader>
 
-        {step === "totp" ? (
+        {step === "totp" && totpMissing ? (
+          <Alert>
+            <RiShieldKeyholeLine />
+            <AlertTitle>No authenticator app on your account</AlertTitle>
+            <AlertDescription>
+              Two-factor authentication protects every secret rotation. Once it
+              is set up, this dialog will ask for a 6-digit code instead.
+            </AlertDescription>
+          </Alert>
+        ) : step === "totp" ? (
           <div className="flex flex-col gap-4">
             <Alert>
               <RiShieldCheckLine />
@@ -146,7 +175,9 @@ export function RotateSecretDialog({
             <FieldGroup>
               <Field data-invalid={Boolean(error)}>
                 <FieldContent className="gap-1">
-                  <FieldLabel htmlFor="totp-code">TOTP confirmation code</FieldLabel>
+                  <FieldLabel htmlFor="totp-code">
+                    TOTP confirmation code
+                  </FieldLabel>
                   <FieldDescription>
                     Enter the 6-digit code from your authenticator app.
                   </FieldDescription>
@@ -162,7 +193,9 @@ export function RotateSecretDialog({
                   className="font-mono tracking-[0.35em]"
                   placeholder="000000"
                   onChange={(event) =>
-                    setTotpCode(event.target.value.replace(/\D/g, "").slice(0, 6))
+                    setTotpCode(
+                      event.target.value.replace(/\D/g, "").slice(0, 6)
+                    )
                   }
                 />
                 <FieldError>{error}</FieldError>
@@ -183,8 +216,12 @@ export function RotateSecretDialog({
             <FieldGroup>
               <Field>
                 <FieldContent className="gap-1">
-                  <FieldLabel htmlFor="new-secret">New webhook secret</FieldLabel>
-                  <FieldDescription>Copy the secret before closing this dialog.</FieldDescription>
+                  <FieldLabel htmlFor="new-secret">
+                    New webhook secret
+                  </FieldLabel>
+                  <FieldDescription>
+                    Copy the secret before closing this dialog.
+                  </FieldDescription>
                 </FieldContent>
                 <InputGroup>
                   <InputGroupInput
@@ -213,7 +250,25 @@ export function RotateSecretDialog({
         )}
 
         <DialogFooter>
-          {step === "totp" ? (
+          {step === "totp" && totpMissing ? (
+            <>
+              <Button
+                size="sm"
+                variant="outline"
+                onClick={() => onOpenChange(false)}
+              >
+                Cancel
+              </Button>
+              <Button size="sm" asChild>
+                <Link
+                  to="/settings/security/totp"
+                  onClick={() => onOpenChange(false)}
+                >
+                  Set up two-factor authentication
+                </Link>
+              </Button>
+            </>
+          ) : step === "totp" ? (
             <>
               <Button
                 size="sm"
@@ -226,7 +281,8 @@ export function RotateSecretDialog({
               <Button
                 size="sm"
                 onClick={() => void handleRotate()}
-                loading={pending} disabled={totpCode.length !== 6}
+                loading={pending}
+                disabled={totpCode.length !== 6 || totpPending}
               >
                 {pending ? "Verifying..." : "Rotate secret"}
               </Button>

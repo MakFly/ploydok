@@ -7,6 +7,7 @@ import {
   RiCheckLine,
   RiCloseLine,
   RiDeleteBinLine,
+  RiGitBranchLine,
   RiGithubFill,
   RiGitlabFill,
   RiInformationLine,
@@ -15,6 +16,14 @@ import { Button } from "@workspace/ui/components/button"
 import { Skeleton } from "@workspace/ui/components/skeleton"
 import { Input } from "@workspace/ui/components/input"
 import { Switch } from "@workspace/ui/components/switch"
+import {
+  Dialog,
+  DialogContent,
+  DialogDescription,
+  DialogFooter,
+  DialogHeader,
+  DialogTitle,
+} from "@workspace/ui/components/dialog"
 import {
   Select,
   SelectContent,
@@ -49,6 +58,7 @@ import { useRegistryCredentials } from "../../lib/registry-credentials"
 import { RepoSelector } from "./RepoSelector"
 import { GitLabRepoSelector } from "./GitLabRepoSelector"
 import { PlanSelector } from "./PlanSelector"
+import type { ApiError } from "../../lib/api"
 import type { Database, DbKind, DbPlan } from "../../lib/databases"
 import type { PlanSelectorValue } from "./PlanSelector"
 import type {
@@ -245,6 +255,8 @@ export function CreateAppModal({
   const [stepIdx, setStepIdx] = React.useState(0)
   const [form, setForm] = React.useState<FormState>(INITIAL_FORM)
   const [showAdvanced, setShowAdvanced] = React.useState(false)
+  const [branchDialogOpen, setBranchDialogOpen] = React.useState(false)
+  const [pendingBranch, setPendingBranch] = React.useState("")
   const [submitError, setSubmitError] = React.useState<string | null>(null)
   const [submitInFlight, setSubmitInFlight] = React.useState(false)
   const submitInFlightRef = React.useRef(false)
@@ -272,10 +284,18 @@ export function CreateAppModal({
   const currentStep = steps[stepIdx]?.id ?? "source"
   const totalSteps = steps.length
 
-  const { data: ghBranches, isLoading: ghBranchesLoading } = useGitHubBranches(
+  const {
+    data: ghBranches,
+    isLoading: ghBranchesLoading,
+    error: ghBranchesError,
+  } = useGitHubBranches(
     form.source === "github" ? form.selectedRepo?.fullName : undefined
   )
-  const { data: glBranches, isLoading: glBranchesLoading } = useGitLabBranches(
+  const {
+    data: glBranches,
+    isLoading: glBranchesLoading,
+    error: glBranchesError,
+  } = useGitLabBranches(
     form.source === "gitlab" ? form.selectedRepo?.fullName : undefined
   )
 
@@ -286,14 +306,14 @@ export function CreateAppModal({
   const classifier = useStackClassification(
     classifierSource,
     classifierSource ? form.selectedRepo?.fullName : undefined,
-    form.branch || undefined
+    form.branch || undefined,
+    form.rootDir || undefined
   )
   const classification = classifier.data ?? null
+  const recommendedBuild = classification?.recommendedBuild
   const hasDockerfile =
-    classification === null
-      ? null
-      : classification.recommendedBuild === "dockerfile"
-  const detectionLoading = classifier.isLoading
+    recommendedBuild === undefined ? null : recommendedBuild === "dockerfile"
+  const detectionLoading = classifier.isFetching
   const { data: databases, isLoading: databasesLoading } = useDatabases(
     organizationId,
     { enabled: open && (currentStep === "database" || currentStep === "env") }
@@ -301,16 +321,32 @@ export function CreateAppModal({
 
   const branches: Array<GitBranch> =
     form.source === "github"
-      ? (ghBranches ?? [])
+      ? (ghBranches?.branches ?? [])
       : form.source === "gitlab"
-        ? (glBranches ?? [])
+        ? (glBranches?.branches ?? [])
         : []
+  // The GitHub App is installed nowhere: the repo picker still lists cached
+  // repos, but no branch can be read for any of them.
+  const branchesNeedInstall =
+    form.source === "github"
+      ? (ghBranches?.needsInstall ?? false)
+      : form.source === "gitlab"
+        ? (glBranches?.needsInstall ?? false)
+        : false
   const branchesLoading =
     form.source === "github"
       ? ghBranchesLoading
       : form.source === "gitlab"
         ? glBranchesLoading
         : false
+  // Without this, a failed branch fetch leaves an empty picker and a disabled
+  // "Continuer" with nothing on screen explaining why.
+  const branchesError: ApiError | null =
+    form.source === "github"
+      ? ghBranchesError
+      : form.source === "gitlab"
+        ? glBranchesError
+        : null
   const generatedDomain = buildGeneratedDomain(form, defaultDomainConfig.data)
   const generatedPublicUrl = buildGeneratedPublicUrl(
     generatedDomain,
@@ -331,6 +367,8 @@ export function CreateAppModal({
       setStepIdx(0)
       setForm(INITIAL_FORM)
       setShowAdvanced(false)
+      setBranchDialogOpen(false)
+      setPendingBranch("")
       setSubmitError(null)
       setSubmitInFlight(false)
       submitInFlightRef.current = false
@@ -347,23 +385,33 @@ export function CreateAppModal({
   }, [open])
 
   React.useEffect(() => {
-    if (branches.length > 0 && !form.branch) {
+    if (!branchDialogOpen || branches.length === 0) return
+    setPendingBranch((current) => {
+      if (branches.some((candidate) => candidate.name === current)) {
+        return current
+      }
       const repoDefault = form.selectedRepo?.defaultBranch
-      const defaultBranch =
-        repoDefault !== undefined ? repoDefault : (branches[0]?.name ?? "")
-      setForm((prev) => ({ ...prev, branch: defaultBranch }))
-    }
-  }, [branches, form.selectedRepo?.defaultBranch, form.branch])
+      return (
+        branches.find((candidate) => candidate.name === repoDefault)?.name ??
+        branches[0].name
+      )
+    })
+  }, [branchDialogOpen, branches, form.selectedRepo?.defaultBranch])
 
   React.useEffect(() => {
-    if (hasDockerfile === null) return
+    if (recommendedBuild === undefined) return
     setForm((prev) => {
       if (prev.buildMethodTouched) return prev
-      const next: BuildMethod = hasDockerfile ? "docker" : "nixpacks"
+      const next: BuildMethod =
+        recommendedBuild === "dockerfile"
+          ? "docker"
+          : recommendedBuild === "static"
+            ? "static"
+            : "nixpacks"
       if (prev.buildMethod === next) return prev
       return { ...prev, buildMethod: next }
     })
-  }, [hasDockerfile])
+  }, [recommendedBuild])
 
   React.useEffect(() => {
     if (classification?.stack !== "symfony") return
@@ -394,11 +442,11 @@ export function CreateAppModal({
   React.useEffect(() => {
     if (!open) return
     const onKey = (e: KeyboardEvent): void => {
-      if (e.key === "Escape") requestClose()
+      if (e.key === "Escape" && !branchDialogOpen) requestClose()
     }
     window.addEventListener("keydown", onKey)
     return () => window.removeEventListener("keydown", onKey)
-  }, [open, requestClose])
+  }, [open, requestClose, branchDialogOpen])
 
   if (!open) return null
 
@@ -415,8 +463,12 @@ export function CreateAppModal({
       source,
       selectedRepo: null,
       branch: "",
+      buildMethod: "auto",
+      buildMethodTouched: false,
       domainSuffix: prev.domainSuffix || randomDomainSuffix(),
     }))
+    setBranchDialogOpen(false)
+    setPendingBranch("")
     if (stepIdx > 0) setStepIdx(0)
   }
 
@@ -424,10 +476,38 @@ export function CreateAppModal({
     setForm((prev) => ({
       ...prev,
       selectedRepo: repo,
-      branch: "",
+      branch: prev.selectedRepo?.fullName === repo.fullName ? prev.branch : "",
       name: prev.name || (repo.fullName.split("/").at(-1) ?? ""),
       laravelSeedOnFirstDeploy: false,
+      ...(prev.selectedRepo?.fullName === repo.fullName
+        ? {}
+        : { buildMethod: "auto", buildMethodTouched: false }),
     }))
+    if (form.source === "github") {
+      setPendingBranch(
+        form.selectedRepo?.fullName === repo.fullName
+          ? form.branch
+          : repo.defaultBranch
+      )
+      setBranchDialogOpen(true)
+    }
+  }
+
+  const openBranchDialog = (): void => {
+    setPendingBranch(form.branch || form.selectedRepo?.defaultBranch || "")
+    setBranchDialogOpen(true)
+  }
+
+  const confirmBranch = (): void => {
+    if (!branches.some((candidate) => candidate.name === pendingBranch)) return
+    setForm((prev) => ({
+      ...prev,
+      branch: pendingBranch,
+      ...(prev.branch === pendingBranch
+        ? {}
+        : { buildMethod: "auto", buildMethodTouched: false }),
+    }))
+    setBranchDialogOpen(false)
   }
 
   const canGoNext = (): boolean => {
@@ -438,6 +518,15 @@ export function CreateAppModal({
     }
     if (currentStep === "env")
       return validateInitialEnvVars(form.initialEnvVars)
+    if (currentStep === "build") {
+      if (detectionLoading) return false
+      if (
+        classification?.requiresExplicitBuildChoice &&
+        !form.buildMethodTouched
+      ) {
+        return false
+      }
+    }
     if (currentStep === "database") {
       if (!/^[A-Z0-9_]+$/.test(form.database.envPrefix)) return false
       if (form.database.mode === "existing") {
@@ -507,7 +596,7 @@ export function CreateAppModal({
         aria-labelledby="create-app-title"
         className={cn(
           "fixed inset-x-2 top-1/2 z-50 -translate-y-1/2",
-          "sm:inset-x-auto sm:left-1/2 sm:w-full sm:max-w-6xl sm:-translate-x-1/2",
+          "sm:inset-x-auto sm:left-1/2 sm:w-full sm:max-w-[min(94vw,84rem)] sm:-translate-x-1/2",
           "rounded-2xl border border-border bg-background shadow-2xl",
           "flex h-[92vh] flex-col overflow-hidden sm:h-[88vh]",
           "data-[state=open]:animate-in data-[state=open]:fade-in-0 data-[state=open]:zoom-in-95"
@@ -612,7 +701,10 @@ export function CreateAppModal({
                   onRepoSelect={handleRepoSelect}
                   branches={branches}
                   branchesLoading={branchesLoading}
+                  branchesError={branchesError}
+                  branchesNeedInstall={branchesNeedInstall}
                   generatedPublicUrl={generatedPublicUrl}
+                  onOpenBranchDialog={openBranchDialog}
                 />
               )}
               {currentStep === "build" && (
@@ -643,6 +735,7 @@ export function CreateAppModal({
                   source={form.source}
                   repoFullName={form.selectedRepo?.fullName}
                   branch={form.branch}
+                  rootDir={form.rootDir}
                   database={form.database}
                   databases={databases ?? []}
                 />
@@ -699,7 +792,8 @@ export function CreateAppModal({
                   <Button
                     size="sm"
                     onClick={() => void handleSubmit()}
-                    loading={isSubmitting} disabled={!canGoNext()}
+                    loading={isSubmitting}
+                    disabled={!canGoNext()}
                   >
                     {isSubmitting ? "Création…" : "Créer l'application"}
                   </Button>
@@ -709,7 +803,192 @@ export function CreateAppModal({
           </div>
         </div>
       </div>
+
+      <BranchSelectionDialog
+        open={branchDialogOpen}
+        repo={form.source === "github" ? form.selectedRepo : null}
+        branches={branches}
+        value={pendingBranch}
+        isLoading={branchesLoading}
+        error={branchesError}
+        needsInstall={branchesNeedInstall}
+        onValueChange={setPendingBranch}
+        onConfirm={confirmBranch}
+        onOpenChange={setBranchDialogOpen}
+      />
     </>
+  )
+}
+
+interface BranchSelectionDialogProps {
+  open: boolean
+  repo: GitRepo | null
+  branches: Array<GitBranch>
+  value: string
+  isLoading: boolean
+  error: ApiError | null
+  needsInstall: boolean
+  onValueChange: (branch: string) => void
+  onConfirm: () => void
+  onOpenChange: (open: boolean) => void
+}
+
+export function BranchSelectionDialog({
+  open,
+  repo,
+  branches,
+  value,
+  isLoading,
+  error,
+  needsInstall,
+  onValueChange,
+  onConfirm,
+  onOpenChange,
+}: BranchSelectionDialogProps): React.JSX.Element {
+  const [search, setSearch] = React.useState("")
+
+  React.useEffect(() => {
+    if (open) setSearch("")
+  }, [open, repo?.fullName])
+
+  const normalizedSearch = search.trim().toLowerCase()
+  const visibleBranches = normalizedSearch
+    ? branches.filter((branch) =>
+        branch.name.toLowerCase().includes(normalizedSearch)
+      )
+    : branches
+  const canConfirm = branches.some((branch) => branch.name === value)
+
+  return (
+    <Dialog open={open} onOpenChange={onOpenChange}>
+      <DialogContent className="max-h-[min(42rem,calc(100dvh-2rem))] grid-rows-[auto_minmax(0,1fr)_auto] sm:max-w-lg">
+        <DialogHeader>
+          <DialogTitle className="flex items-center gap-2">
+            <RiGitBranchLine className="size-5 text-primary" />
+            Choisir une branche
+          </DialogTitle>
+          <DialogDescription>
+            {repo ? (
+              <>
+                Sélectionne la branche à déployer pour{" "}
+                <strong className="font-medium text-foreground">
+                  {repo.fullName}
+                </strong>
+                .
+              </>
+            ) : (
+              "Sélectionne d'abord un dépôt GitHub."
+            )}
+          </DialogDescription>
+        </DialogHeader>
+
+        <div className="min-h-0 space-y-3">
+          {!isLoading && !error && !needsInstall && branches.length > 0 && (
+            <Input
+              type="search"
+              value={search}
+              onChange={(event) => setSearch(event.target.value)}
+              placeholder="Rechercher une branche…"
+              aria-label="Rechercher une branche"
+              autoFocus
+            />
+          )}
+
+          {isLoading ? (
+            <div className="space-y-2" aria-label="Chargement des branches">
+              {[0, 1, 2, 3].map((item) => (
+                <div
+                  key={item}
+                  className="h-11 w-full skeleton-surface rounded-md"
+                />
+              ))}
+            </div>
+          ) : error ? (
+            <p
+              className="rounded-md border border-destructive/30 bg-destructive/10 px-3 py-2 text-sm text-destructive"
+              role="alert"
+            >
+              Impossible de charger les branches
+              {repo ? " de " + repo.fullName : ""} : {error.message}
+            </p>
+          ) : needsInstall ? (
+            <p
+              className="rounded-md border border-amber-500/30 bg-amber-500/10 px-3 py-2 text-sm text-foreground"
+              role="alert"
+            >
+              L'application GitHub Ploydok doit être installée avant de pouvoir
+              lire les branches.{" "}
+              <a
+                href="/settings/git-providers/github"
+                className="font-medium underline underline-offset-2"
+              >
+                Installer l'application GitHub
+              </a>
+              .
+            </p>
+          ) : branches.length === 0 ? (
+            <p
+              className="rounded-md border border-border bg-muted/40 px-3 py-6 text-center text-sm text-muted-foreground"
+              role="status"
+            >
+              Aucune branche trouvée pour ce dépôt.
+            </p>
+          ) : visibleBranches.length === 0 ? (
+            <p className="py-6 text-center text-sm text-muted-foreground">
+              Aucune branche ne correspond à « {search.trim()} ».
+            </p>
+          ) : (
+            <ul
+              className="scrollbar-thin max-h-[24rem] divide-y divide-border overflow-y-auto rounded-lg border border-border"
+              role="listbox"
+              aria-label="Branches GitHub"
+            >
+              {visibleBranches.map((branch) => {
+                const selected = branch.name === value
+                return (
+                  <li key={branch.name} role="option" aria-selected={selected}>
+                    <button
+                      type="button"
+                      className={cn(
+                        "flex w-full items-center gap-3 px-3 py-2.5 text-left transition-colors hover:bg-muted/70 focus-visible:ring-2 focus-visible:ring-ring focus-visible:-outline-offset-2 focus-visible:outline-none",
+                        selected && "bg-primary/10"
+                      )}
+                      onClick={() => onValueChange(branch.name)}
+                    >
+                      <RiGitBranchLine className="size-4 shrink-0 text-muted-foreground" />
+                      <span className="min-w-0 flex-1 truncate font-medium">
+                        {branch.name}
+                      </span>
+                      {branch.commitSha && (
+                        <code className="shrink-0 font-mono text-[11px] text-muted-foreground">
+                          {branch.commitSha.slice(0, 8)}
+                        </code>
+                      )}
+                      {selected && (
+                        <RiCheckLine className="size-4 shrink-0 text-primary" />
+                      )}
+                    </button>
+                  </li>
+                )
+              })}
+            </ul>
+          )}
+        </div>
+
+        <DialogFooter className="gap-2">
+          <Button
+            type="button"
+            variant="outline"
+            onClick={() => onOpenChange(false)}
+          >
+            Annuler
+          </Button>
+          <Button type="button" onClick={onConfirm} disabled={!canConfirm}>
+            Choisir cette branche
+          </Button>
+        </DialogFooter>
+      </DialogContent>
+    </Dialog>
   )
 }
 
@@ -855,7 +1134,10 @@ interface SourceStepProps {
   onRepoSelect: (repo: GitRepo) => void
   branches: Array<GitBranch>
   branchesLoading: boolean
+  branchesError: ApiError | null
+  branchesNeedInstall: boolean
   generatedPublicUrl: string
+  onOpenBranchDialog: () => void
 }
 
 function SourceStep({
@@ -865,7 +1147,10 @@ function SourceStep({
   onRepoSelect,
   branches,
   branchesLoading,
+  branchesError,
+  branchesNeedInstall,
   generatedPublicUrl,
+  onOpenBranchDialog,
 }: SourceStepProps): React.JSX.Element {
   const slug = form.name
     .trim()
@@ -930,6 +1215,9 @@ function SourceStep({
           onBranchChange={(v) => setField("branch", v)}
           branches={branches}
           branchesLoading={branchesLoading}
+          branchesError={branchesError}
+          branchesNeedInstall={branchesNeedInstall}
+          onOpenBranchDialog={onOpenBranchDialog}
         >
           <RepoSelector selected={form.selectedRepo} onSelect={onRepoSelect} />
         </GitSection>
@@ -943,6 +1231,8 @@ function SourceStep({
           onBranchChange={(v) => setField("branch", v)}
           branches={branches}
           branchesLoading={branchesLoading}
+          branchesError={branchesError}
+          branchesNeedInstall={branchesNeedInstall}
         >
           <GitLabRepoSelector
             selected={form.selectedRepo}
@@ -1073,6 +1363,9 @@ function GitSection({
   onBranchChange,
   branches,
   branchesLoading,
+  branchesError,
+  branchesNeedInstall,
+  onOpenBranchDialog,
   children,
 }: {
   providerLabel: string
@@ -1081,6 +1374,9 @@ function GitSection({
   onBranchChange: (v: string) => void
   branches: Array<GitBranch>
   branchesLoading: boolean
+  branchesError: ApiError | null
+  branchesNeedInstall: boolean
+  onOpenBranchDialog?: () => void
   children: React.ReactNode
 }): React.JSX.Element {
   const selectedBranch = branches.find((b) => b.name === branch)
@@ -1095,11 +1391,59 @@ function GitSection({
 
       {selectedRepo && (
         <div className="space-y-1.5">
-          <label htmlFor="branch-select" className="text-sm font-medium">
-            Branche
-          </label>
-          {branchesLoading ? (
-            <div className="h-9 w-full rounded-md skeleton-surface" />
+          {onOpenBranchDialog ? (
+            <div className="flex items-center justify-between gap-3 rounded-lg border border-border bg-muted/20 px-3 py-2.5">
+              <div className="flex min-w-0 items-center gap-2.5">
+                <RiGitBranchLine className="size-4 shrink-0 text-muted-foreground" />
+                <div className="min-w-0">
+                  <p className="text-xs text-muted-foreground">Branche</p>
+                  <p className="truncate text-sm font-medium">
+                    {branch || "Aucune branche sélectionnée"}
+                  </p>
+                </div>
+              </div>
+              <Button
+                type="button"
+                size="sm"
+                variant="outline"
+                onClick={onOpenBranchDialog}
+              >
+                {branch ? "Modifier" : "Choisir"}
+              </Button>
+            </div>
+          ) : branchesLoading ? (
+            <div className="h-9 w-full skeleton-surface rounded-md" />
+          ) : branchesError ? (
+            <p
+              className="rounded-md border border-destructive/30 bg-destructive/10 px-3 py-2 text-sm text-destructive"
+              role="alert"
+            >
+              Impossible de charger les branches de {selectedRepo.fullName} :{" "}
+              {branchesError.message}
+            </p>
+          ) : branchesNeedInstall ? (
+            <p
+              className="rounded-md border border-amber-500/30 bg-amber-500/10 px-3 py-2 text-sm text-foreground"
+              role="alert"
+            >
+              L'application GitHub Ploydok n'est installée sur aucun compte. La
+              liste des dépôts vient du cache local, mais aucune branche ne peut
+              être lue tant que l'installation n'est pas faite.{" "}
+              <a
+                href="/settings/git-providers/github"
+                className="font-medium underline underline-offset-2"
+              >
+                Installer l'application GitHub
+              </a>
+              .
+            </p>
+          ) : branches.length === 0 ? (
+            <p
+              className="rounded-md border border-border bg-muted/40 px-3 py-2 text-sm text-muted-foreground"
+              role="status"
+            >
+              Aucune branche trouvée pour {selectedRepo.fullName}.
+            </p>
           ) : (
             <Select value={branch} onValueChange={onBranchChange}>
               <SelectTrigger id="branch-select">
@@ -1302,7 +1646,7 @@ function BuildStep({
       case "python":
         return "Auto-pack Python (gunicorn/uvicorn selon framework)."
       case "compose":
-        return "Compose détecté — support natif prévu sprint 3.3. Nixpacks buildera le service principal en fallback."
+        return "Compose détecté — support natif indisponible. Sélectionne Nixpacks uniquement si le dépôt est aussi compatible sans Compose."
       default:
         return "Auto-pack zero-config (Node / Next / Python / Rust / …)"
     }
@@ -1358,7 +1702,7 @@ function BuildStep({
             label="Static site"
             hint="Build un dossier statique puis sert l'output via Caddy, sans container runtime"
             active={form.buildMethod === "static"}
-            detected={classification?.stack === "static"}
+            detected={classification?.recommendedBuild === "static"}
             onSelect={() => selectMethod("static")}
           />
         </div>
@@ -1370,7 +1714,11 @@ function BuildStep({
           label="Répertoire racine"
           placeholder="./"
           value={form.rootDir}
-          onChange={(v) => setField("rootDir", v)}
+          onChange={(v) => {
+            setField("rootDir", v)
+            setField("buildMethod", "auto")
+            setField("buildMethodTouched", false)
+          }}
         />
         <ConfigField
           id="dockerfile-path"
@@ -2130,6 +2478,7 @@ function EnvStep({
   source,
   repoFullName,
   branch,
+  rootDir,
   database,
   databases,
 }: {
@@ -2140,6 +2489,7 @@ function EnvStep({
   source: SourceKind
   repoFullName?: string
   branch: string
+  rootDir: string
   database: DatabaseSelection
   databases: Array<Database>
 }): React.JSX.Element {
@@ -2302,6 +2652,7 @@ function EnvStep({
         fullName: repoFullName,
         ref: branch,
         path: selectedEnvFile,
+        rootDir: rootDir || undefined,
       })
       const ignoredKeys = new Set<string>()
       const next = vars.filter((item) => {
@@ -2769,6 +3120,10 @@ function buildCreateAppBody(
   } else if (form.selectedRepo) {
     body.repoFullName = form.selectedRepo.fullName
     body.branch = form.branch
+
+    if (form.source === "github" && form.selectedRepo.installationId) {
+      body.installationId = form.selectedRepo.installationId
+    }
 
     if (form.source === "gitlab" && typeof form.selectedRepo.id === "number") {
       body.gitlabProjectId = form.selectedRepo.id

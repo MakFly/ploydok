@@ -7,6 +7,7 @@ import {
   RiEraserLine,
   RiHardDriveLine,
   RiLoader4Line,
+  RiRefreshLine,
 } from "@remixicon/react"
 import { toast } from "sonner"
 import { Button } from "@workspace/ui/components/button"
@@ -52,6 +53,12 @@ function diskBarTone(pct: number): string {
   return "bg-primary"
 }
 
+// Absolute rather than relative: nothing re-renders this panel on a timer, so
+// an "N seconds ago" label would freeze at whatever it said on the last fetch.
+function formatMeasuredAt(iso: string): string {
+  return new Date(iso).toLocaleTimeString()
+}
+
 function AdminDiskPage(): React.JSX.Element {
   const qc = useQueryClient()
   const [activeJob, setActiveJob] = React.useState<{
@@ -60,11 +67,28 @@ function AdminDiskPage(): React.JSX.Element {
   } | null>(null)
   const { data, isLoading, error } = useQuery<DiskUsageResponse, ApiError>({
     queryKey: DISK_USAGE_QUERY_KEY,
-    queryFn: getDiskUsage,
+    queryFn: () => getDiskUsage(),
+    // Matches the API-side cache window; a shorter one would just re-serve the
+    // same cached breakdown. While the API reports `stale`, poll until the
+    // background refresh lands.
+    staleTime: 60_000,
+    refetchInterval: (query) => (query.state.data?.stale ? 5_000 : false),
   })
 
-  const invalidateUsage = () =>
-    qc.invalidateQueries({ queryKey: DISK_USAGE_QUERY_KEY })
+  // Forced refresh — makes the API re-run `docker system df` instead of
+  // answering from cache. Used by the Refresh button and after a prune, where
+  // the cached numbers still describe the pre-prune host.
+  const refreshMutation = useMutation({
+    mutationFn: () => getDiskUsage(true),
+    onSuccess: (fresh: DiskUsageResponse) =>
+      qc.setQueryData(DISK_USAGE_QUERY_KEY, fresh),
+    onError: (err: unknown) => notifyMutationError(err, "Refresh failed"),
+  })
+
+  // The API answers a forced refresh immediately with the previous numbers and
+  // runs the walk behind it, so the button has to stay pending until `stale`
+  // clears — releasing it on the request would flash and lie.
+  const isRefreshing = refreshMutation.isPending || data?.stale === true
 
   const { data: job, error: jobError } = useQuery<DiskJobStatus, ApiError>({
     queryKey: ["admin", "disk", "job", activeJob?.id],
@@ -92,7 +116,7 @@ function AdminDiskPage(): React.JSX.Element {
           ? ` (${formatBytes(job.result.spaceReclaimedBytes)} reclaimed)`
           : ""
       toast.success(`${activeJob.label} complete${reclaimed}`)
-      void invalidateUsage()
+      refreshMutation.mutate()
       setActiveJob(null)
     } else if (job.status === "failed" || job.status === "cancelled") {
       toast.error(job.errorMessage ?? `${activeJob.label} failed`)
@@ -129,6 +153,16 @@ function AdminDiskPage(): React.JSX.Element {
           </p>
         </div>
         <div className="flex w-full flex-wrap gap-2 sm:w-auto">
+          <Button
+            type="button"
+            variant="outline"
+            className="w-full gap-2 sm:w-auto"
+            loading={isRefreshing}
+            onClick={() => refreshMutation.mutate()}
+          >
+            <RiRefreshLine className="size-4" />
+            Refresh
+          </Button>
           <Button
             type="button"
             variant="outline"
@@ -172,12 +206,12 @@ function AdminDiskPage(): React.JSX.Element {
 
       {isLoading ? (
         <div className="space-y-3">
-          <div className="h-24 rounded-xl border border-border skeleton-surface" />
+          <div className="h-24 skeleton-surface rounded-xl border border-border" />
           <div className="grid grid-cols-1 gap-3 sm:grid-cols-2 xl:grid-cols-4">
             {Array.from({ length: 4 }).map((_, i) => (
               <div
                 key={i}
-                className="h-28 rounded-xl border border-border skeleton-surface"
+                className="h-28 skeleton-surface rounded-xl border border-border"
               />
             ))}
           </div>
@@ -190,9 +224,16 @@ function AdminDiskPage(): React.JSX.Element {
         <div className="space-y-3">
           <div className="flex flex-wrap items-center justify-between gap-2">
             <h2 className="text-sm font-medium text-foreground">Categories</h2>
-            <span className="font-mono text-xs text-muted-foreground">
-              Image layers: {formatBytes(data.layersSizeBytes)}
-            </span>
+            <div className="flex flex-wrap items-center gap-x-3 gap-y-1 text-xs text-muted-foreground">
+              <span className="font-mono">
+                Image layers: {formatBytes(data.layersSizeBytes)}
+              </span>
+              <span aria-live="polite">
+                {isRefreshing
+                  ? "Refreshing…"
+                  : `Measured at ${formatMeasuredAt(data.refreshedAt)}`}
+              </span>
+            </div>
           </div>
           <div className="grid grid-cols-1 gap-3 sm:grid-cols-2 xl:grid-cols-4">
             {data.categories.map((category) => (

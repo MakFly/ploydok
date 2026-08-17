@@ -180,6 +180,7 @@ export const AppConfigSchema = z
     gitProvider: z.custom<GitProviderKind>((v) => v === "github"),
     repoFullName: z.string(), // 'owner/repo'
     branch: z.string(),
+    installationId: z.string().regex(/^\d+$/).optional(),
     rootDir: z.string().optional(),
     dockerfilePath: z.string().optional(),
     nixpacksConfigPath: z.string().optional(),

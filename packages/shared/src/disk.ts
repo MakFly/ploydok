@@ -33,6 +33,11 @@ export const DiskUsageResponseSchema = z.object({
   layersSizeBytes: z.number().nonnegative(),
   // Root-filesystem usage from the agent's host stats; null if unavailable.
   host: DiskHostUsageSchema.nullable(),
+  // When the breakdown was measured. `docker system df` is expensive, so the
+  // API serves it from a stale-while-revalidate cache: `stale` means a
+  // background refresh is running and these numbers are the previous ones.
+  refreshedAt: z.string(),
+  stale: z.boolean(),
 })
 export type DiskUsageResponse = z.infer<typeof DiskUsageResponseSchema>
 

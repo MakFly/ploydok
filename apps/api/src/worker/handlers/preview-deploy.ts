@@ -630,6 +630,8 @@ export async function handlePreviewDeploy(
       workspacePath,
       rootDir: app.root_dir,
     })
+    const inferredStartCommand =
+      app.start_command ?? classification.suggestedStartCommand ?? null
     await ensureFrameworkEnvVars({
       db,
       appId: app.id,
@@ -761,7 +763,7 @@ export async function handlePreviewDeploy(
         ...(app.node_version ? { nodeVersion: app.node_version } : {}),
         ...(app.install_command ? { installCmd: app.install_command } : {}),
         ...(app.build_command ? { buildCmd: app.build_command } : {}),
-        ...(app.start_command ? { startCmd: app.start_command } : {}),
+        ...(inferredStartCommand ? { startCmd: inferredStartCommand } : {}),
         ...(Object.keys(buildEnv).length > 0 ? { buildEnv } : {}),
         ...(Object.keys(runtimeEnv).length > 0 ? { runtimeEnv } : {}),
         onLog,

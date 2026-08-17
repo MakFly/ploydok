@@ -130,7 +130,7 @@ function AuditEventRow({ event }: { event: AuditEvent }): React.JSX.Element {
   const actionColor = getActionColor(event.action)
 
   return (
-    <div className="flex items-center justify-between gap-4 rounded-md rounded-2xl bg-panel px-4 py-3">
+    <div className="flex items-center justify-between gap-4 rounded-xl border border-panel-border bg-panel-inset px-4 py-3 shadow-sm">
       <div className="flex min-w-0 items-center gap-3">
         <span
           className={`shrink-0 rounded-full px-2.5 py-1 text-xs font-medium ${actionColor}`}
@@ -161,16 +161,16 @@ function AuditTimelineSkeleton(): React.JSX.Element {
       {Array.from({ length: 6 }).map((_, index) => (
         <div
           key={index}
-          className="flex items-center justify-between gap-4 rounded-md rounded-2xl bg-panel px-4 py-3"
+          className="flex items-center justify-between gap-4 rounded-xl border border-panel-border bg-panel-inset px-4 py-3 shadow-sm"
         >
           <div className="flex min-w-0 flex-1 items-center gap-3">
-            <div className="h-5 w-20 rounded-full skeleton-surface" />
+            <div className="h-5 w-20 skeleton-surface rounded-full" />
             <div className="min-w-0 flex-1 space-y-2">
-              <div className="h-3 w-48 rounded skeleton-surface" />
-              <div className="h-3 w-32 rounded skeleton-surface" />
+              <div className="h-3 w-48 skeleton-surface rounded" />
+              <div className="h-3 w-32 skeleton-surface rounded" />
             </div>
           </div>
-          <div className="h-3 w-16 rounded skeleton-surface" />
+          <div className="h-3 w-16 skeleton-surface rounded" />
         </div>
       ))}
     </div>

@@ -63,7 +63,7 @@ function ProviderDashboard(): React.JSX.Element {
           aria-label="Provider header"
           className="flex items-center gap-3 rounded-2xl rounded-xl bg-panel p-4"
         >
-          <div className="flex size-11 items-center justify-center rounded-md border border-border bg-background">
+          <div className="flex size-10 items-center justify-center rounded-md border border-border bg-background">
             <Icon className={`size-5 ${provider.accent}`} />
           </div>
           <div className="min-w-0 flex-1">

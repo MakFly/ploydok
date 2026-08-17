@@ -174,7 +174,7 @@ function PostureRow({ signal }: { signal: PostureSignal }): React.JSX.Element {
           className={cn("absolute top-1 left-1 size-2 rounded-full", dot)}
         />
         <div className="flex size-10 items-center justify-center rounded-md border border-border bg-background">
-          <Icon className="size-4 text-muted-foreground" />
+          <Icon className="size-5 text-muted-foreground" />
         </div>
       </div>
       <div className="min-w-0 flex-1">

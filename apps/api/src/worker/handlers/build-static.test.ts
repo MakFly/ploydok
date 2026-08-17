@@ -1,6 +1,7 @@
 // SPDX-License-Identifier: AGPL-3.0-only
 import { afterEach, describe, expect, test, beforeEach } from "bun:test"
 import {
+  chmod,
   mkdir,
   mkdtemp,
   rm,
@@ -28,13 +29,31 @@ afterEach(async () => {
 
 async function createStaticProject(): Promise<string> {
   const projectDir = await mkdtemp(path.join(tmpdir(), "ploydok-static-src-"))
+  const builderDir = path.join(projectDir, "vendor", "static-builder")
+  await mkdir(builderDir, { recursive: true })
+  await writeFile(
+    path.join(builderDir, "package.json"),
+    JSON.stringify({
+      name: "static-builder",
+      version: "1.0.0",
+      bin: { "static-builder": "bin.js" },
+    })
+  )
+  await writeFile(
+    path.join(builderDir, "bin.js"),
+    `#!/usr/bin/env bun
+import { mkdirSync, writeFileSync } from "node:fs"
+mkdirSync("dist/assets", { recursive: true })
+writeFileSync("dist/index.html", '<!doctype html><div id="app">static-ok</div>')
+writeFileSync("dist/assets/app.css", "body{color:#123456}")
+`
+  )
+  await chmod(path.join(builderDir, "bin.js"), 0o755)
   await writeFile(
     path.join(projectDir, "package.json"),
     JSON.stringify({
-      scripts: {
-        build:
-          "mkdir -p dist/assets && printf '<!doctype html><div id=\"app\">static-ok</div>' > dist/index.html && printf 'body{color:#123456}' > dist/assets/app.css",
-      },
+      scripts: { build: "static-builder" },
+      dependencies: { "static-builder": "file:./vendor/static-builder" },
     })
   )
   return projectDir
@@ -43,11 +62,17 @@ async function createStaticProject(): Promise<string> {
 describe("build-static", () => {
   test("runStaticBuild construit un vrai projet static et publie current", async () => {
     const projectDir = await createStaticProject()
+    const logs: string[] = []
     const r = await runStaticBuild({
       appId: "app1",
       sha: "abc123",
       sourceDir: projectDir,
+      onLog: (line) => logs.push(line),
     })
+    expect(logs[0]).toContain(" install --no-save")
+    expect(
+      logs.findIndex((line) => line.includes(" install --no-save"))
+    ).toBeLessThan(logs.findIndex((line) => line.includes(" run build")))
     expect(existsSync(r.shaDir)).toBe(true)
     expect(await readFile(path.join(r.shaDir, "index.html"), "utf8")).toContain(
       "static-ok"

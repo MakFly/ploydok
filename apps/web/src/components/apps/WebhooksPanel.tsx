@@ -1,12 +1,6 @@
 // SPDX-License-Identifier: AGPL-3.0-only
 import * as React from "react"
-import {
-  RiGitBranchLine,
-  RiInboxArchiveLine,
-  RiShieldCheckLine,
-  RiStackLine,
-  RiWebhookLine,
-} from "@remixicon/react"
+import { RiShieldCheckLine } from "@remixicon/react"
 import { toast } from "sonner"
 import {
   Alert,
@@ -17,19 +11,18 @@ import { Badge } from "@workspace/ui/components/badge"
 import { Button } from "@workspace/ui/components/button"
 import {
   Card,
+  CardAction,
   CardContent,
   CardDescription,
   CardHeader,
   CardTitle,
 } from "@workspace/ui/components/card"
-import { Separator } from "@workspace/ui/components/separator"
-import { Skeleton } from "@workspace/ui/components/skeleton"
 import { RotateSecretDialog } from "../webhooks/RotateSecretDialog"
 import { WebhookDeliveriesTable } from "../webhooks/WebhookDeliveriesTable"
 import { useApp } from "../../lib/apps"
 
 export function WebhooksPanel({ appId }: { appId: string }): React.JSX.Element {
-  const { data: app, isLoading } = useApp(appId)
+  const { data: app } = useApp(appId)
   const [dialogOpen, setDialogOpen] = React.useState(false)
   const [rotated, setRotated] = React.useState(false)
 
@@ -42,108 +35,53 @@ export function WebhooksPanel({ appId }: { appId: string }): React.JSX.Element {
 
   return (
     <div className="flex w-full flex-col gap-6">
-      <Card className="border border-border/70 bg-background/95">
-        <CardHeader className="gap-3 border-b border-border/60 pb-5">
-          <div className="flex flex-wrap items-center gap-2">
-            <Badge variant="outline">Webhook Journal</Badge>
-            {app?.gitProvider ? (
-              <Badge variant="secondary">{app.gitProvider}</Badge>
-            ) : null}
-          </div>
-          <CardTitle className="font-heading text-2xl">
-            Delivery timeline and decisions
-          </CardTitle>
-          <CardDescription className="max-w-2xl text-sm leading-6">
-            Inspect each incoming event, the resolved branch or tag, and the
-            build decision taken by the automation layer before a deploy is
-            queued.
+      <Card>
+        <CardHeader>
+          <CardTitle>Incoming deliveries</CardTitle>
+          <CardDescription>
+            Every event your provider sent, the branch or tag it resolved to,
+            and whether it started a deploy.
           </CardDescription>
+          <CardAction>
+            <div className="flex flex-wrap items-center gap-2">
+              {app?.gitProvider ? (
+                <Badge variant="secondary">{app.gitProvider}</Badge>
+              ) : null}
+            </div>
+          </CardAction>
         </CardHeader>
 
-        <CardContent className="py-5">
+        <CardContent>
           <WebhookDeliveriesTable appId={appId} />
         </CardContent>
       </Card>
 
-      <div className="flex flex-col gap-6">
-        <Card size="sm" className="border border-border/70 bg-muted/30">
-          <CardHeader className="gap-2">
-            <CardTitle>Decision inputs</CardTitle>
-            <CardDescription>
-              What Ploydok evaluates before it accepts a delivery.
-            </CardDescription>
-          </CardHeader>
-          <CardContent className="flex flex-col gap-3">
-            {isLoading ? (
-              <>
-                <Skeleton className="h-16 rounded-xl" />
-                <Skeleton className="h-16 rounded-xl" />
-                <Skeleton className="h-16 rounded-xl" />
-              </>
-            ) : (
-              <>
-                <InsightItem
-                  icon={<RiWebhookLine className="size-4" />}
-                  title="Provider event"
-                  description="Payload type, signature validity, and timestamp freshness."
-                />
-                <InsightItem
-                  icon={<RiGitBranchLine className="size-4" />}
-                  title="Target ref"
-                  description={`Branch or tag alignment with ${app?.branch ?? "main"} and tag deploy rules.`}
-                />
-                <InsightItem
-                  icon={<RiStackLine className="size-4" />}
-                  title="Queue shaping"
-                  description="Coalescing and disable flags decide whether a deployment is enqueued or skipped."
-                />
-              </>
-            )}
-          </CardContent>
-        </Card>
-
-        <Alert>
-          <RiInboxArchiveLine />
-          <AlertTitle>Operator hint</AlertTitle>
-          <AlertDescription>
-            If deliveries are missing, verify the provider secret first, then
-            the tracked branch, then the auto-deploy switches above.
-          </AlertDescription>
-        </Alert>
-      </div>
-
-      <Separator />
-
-      <Card className="border border-border/70 bg-background/95">
-        <CardHeader className="gap-3 border-b border-border/60 pb-5">
-          <div className="flex flex-wrap items-center gap-2">
-            <Badge variant="outline">Webhook Signature</Badge>
+      <Card>
+        <CardHeader>
+          <CardTitle>Signing secret</CardTitle>
+          <CardDescription>
+            A shared secret lets Ploydok verify that a delivery really came from
+            your provider. Rotating it asks for your TOTP code.
+          </CardDescription>
+          <CardAction>
             <Badge variant={hasSecret ? "secondary" : "outline"}>
               {hasSecret ? "Configured" : "Missing"}
             </Badge>
-          </div>
-          <CardTitle className="font-heading text-2xl">
-            Signing secret
-          </CardTitle>
-          <CardDescription className="max-w-2xl text-sm leading-6">
-            Protect inbound webhook deliveries with a shared secret. Rotation is
-            guarded by TOTP — the old secret stays valid 24 h so you can update
-            the provider without interruption.
-          </CardDescription>
+          </CardAction>
         </CardHeader>
 
-        <CardContent className="flex flex-col gap-4 py-5">
-          <div className="rounded-2xl border border-border/70 bg-muted/30 p-4">
+        <CardContent className="flex flex-col gap-4">
+          <div className="rounded-lg border border-panel-border/70 bg-panel-inset p-4">
             <div className="flex flex-col gap-2 md:flex-row md:items-center md:justify-between">
               <div className="flex flex-col gap-1">
-                <p className="text-[11px] tracking-[0.22em] text-muted-foreground uppercase">
+                <p className="text-[11px] tracking-wide text-muted-foreground uppercase">
                   Current state
                 </p>
-                <p className="font-heading text-xl">
+                <p className="text-sm font-medium">
                   {hasSecret ? "Secret is active" : "No secret configured yet"}
                 </p>
               </div>
-              <div className="rounded-xl border border-border/70 bg-background px-4 py-3 font-mono text-sm tracking-[0.28em]">
+              <div className="rounded-lg border border-panel-border/70 bg-background px-3 py-2 font-mono text-sm">
                 {hasSecret ? "••••••••••••••••" : "not-set"}
               </div>
             </div>
@@ -151,10 +89,10 @@ export function WebhooksPanel({ appId }: { appId: string }): React.JSX.Element {
 
           <Alert>
             <RiShieldCheckLine />
-            <AlertTitle>Grace period after rotation</AlertTitle>
+            <AlertTitle>The old secret keeps working for 24 hours</AlertTitle>
             <AlertDescription>
-              The old secret remains valid for 24 hours, which prevents downtime
-              while provider settings are being updated.
+              You have a full day to paste the new secret into your provider
+              before deliveries start failing.
             </AlertDescription>
           </Alert>
 
@@ -172,28 +110,6 @@ export function WebhooksPanel({ appId }: { appId: string }): React.JSX.Element {
         appId={appId}
         onRotated={handleRotated}
       />
-    </div>
-  )
-}
-
-function InsightItem({
-  icon,
-  title,
-  description,
-}: {
-  icon: React.ReactNode
-  title: string
-  description: string
-}): React.JSX.Element {
-  return (
-    <div className="flex items-start gap-3 rounded-xl border border-border/70 bg-background/85 px-3 py-3">
-      <span className="mt-0.5 flex size-8 shrink-0 items-center justify-center rounded-full bg-muted text-muted-foreground">
-        {icon}
-      </span>
-      <div className="flex flex-col gap-1">
-        <p className="font-medium">{title}</p>
-        <p className="text-sm leading-6 text-muted-foreground">{description}</p>
-      </div>
     </div>
   )
 }

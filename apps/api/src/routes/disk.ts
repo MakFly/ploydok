@@ -10,6 +10,7 @@ import {
   DiskUsageResponseSchema,
 } from "@ploydok/shared"
 import type { AuthUser } from "../auth/middleware"
+import type { DiskUsageResponse } from "@ploydok/shared"
 import { requireInstanceAdmin } from "../auth/instance-admin"
 import { getSharedAgent } from "../debug/singletons"
 import { childLogger } from "../logger"
@@ -24,50 +25,133 @@ function getUser(c: { get: (key: string) => unknown }): AuthUser {
   return c.get("user") as AuthUser
 }
 
+// ---------------------------------------------------------------------------
+// Disk usage cache
+//
+// The agent's ImageDf maps to `GET /system/df`, whose image branch walks the
+// whole layer store: measured at ~7 s on a 82-image host, and dockerd caches
+// nothing. Serving that synchronously turned every visit to /admin/disk into a
+// 7 s spinner, so reads go through a stale-while-revalidate cache: a fresh
+// entry answers in microseconds, a stale one answers immediately and kicks off
+// a background refresh, and only a cold process pays the full walk.
+// ---------------------------------------------------------------------------
+
+const FRESH_MS = 60_000
+
+let cached: { payload: DiskUsageResponse; at: number; gen: number } | null =
+  null
+let inflight: {
+  at: number
+  gen: number
+  promise: Promise<DiskUsageResponse>
+} | null = null
+// Walks are ordered by this counter, not by `at`: two of them can start within
+// the same millisecond and a wall-clock comparison then drops the newer result.
+let walkSeq = 0
+
+async function collectDiskUsage(): Promise<DiskUsageResponse> {
+  const agent = getSharedAgent()
+
+  // Independent RPCs: hostStats samples CPU for 100 ms and must not queue
+  // behind the df walk.
+  const [dfResult, hostResult] = await Promise.allSettled([
+    agent.imageDf({}),
+    agent.hostStats({}),
+  ])
+
+  if (dfResult.status === "rejected") throw dfResult.reason
+
+  let host: DiskUsageResponse["host"] = null
+  if (hostResult.status === "fulfilled") {
+    host = {
+      totalBytes: hostResult.value.diskTotalBytes,
+      usedBytes: hostResult.value.diskUsedBytes,
+      freeBytes: hostResult.value.diskFreeBytes,
+    }
+  } else {
+    log.warn(
+      { err: hostResult.reason },
+      "hostStats unavailable — disk.host will be null"
+    )
+  }
+
+  return DiskUsageResponseSchema.parse({
+    categories: dfResult.value.categories.map((cat) => ({
+      kind: cat.kind,
+      totalBytes: cat.totalBytes,
+      reclaimableBytes: cat.reclaimableBytes,
+      count: cat.count,
+    })),
+    layersSizeBytes: dfResult.value.layersSizeBytes,
+    host,
+    refreshedAt: new Date().toISOString(),
+    stale: false,
+  })
+}
+
+// Single-flight. `notBefore` lets a forced refresh reject an in-flight walk
+// that started before the caller's event (a prune that just finished), while
+// background revalidations happily join whatever is already running.
+function refreshDiskUsage(notBefore = 0): Promise<DiskUsageResponse> {
+  if (inflight && inflight.at >= notBefore) return inflight.promise
+
+  const at = Date.now()
+  const gen = ++walkSeq
+  const promise = collectDiskUsage()
+    .then((payload) => {
+      // Two walks can overlap when a forced refresh preempts a background one.
+      // Whoever started last wins, whatever the completion order.
+      if (!cached || cached.gen < gen) cached = { payload, at, gen }
+      return payload
+    })
+    .finally(() => {
+      if (inflight?.gen === gen) inflight = null
+    })
+
+  inflight = { at, gen, promise }
+  return promise
+}
+
+// Exposed for tests: module state outlives a single request by design.
+export function resetDiskUsageCache(): void {
+  cached = null
+  inflight = null
+}
+
 export function createDiskRouter(db: Db): Hono<AppEnv> {
   const router = new Hono<AppEnv>()
   const instanceAdmin = requireInstanceAdmin(db)
 
   // GET /disk/usage — `docker system df` breakdown + host filesystem usage.
+  //
+  // Never blocks on the walk when a previous measurement exists, including for
+  // `?refresh=1` (used by the Refresh button and after a prune job): the
+  // caller gets the last known breakdown flagged `stale` and polls until the
+  // refresh lands. Only a cold process has to wait.
   router.get("/usage", instanceAdmin, async (c) => {
-    const agent = getSharedAgent()
+    const forced = c.req.query("refresh") === "1"
 
-    let df: Awaited<ReturnType<typeof agent.imageDf>>
+    if (cached) {
+      const fresh = !forced && Date.now() - cached.at < FRESH_MS
+      if (!fresh) {
+        // A failing revalidation keeps the last good value rather than
+        // blanking the page.
+        void refreshDiskUsage(forced ? Date.now() : 0).catch((err) => {
+          log.warn({ err }, "background disk usage refresh failed")
+        })
+      }
+      // `inflight` covers the window where a refresh triggered by an earlier
+      // request is still running: reporting `stale: false` there would stop
+      // the dashboard from polling and freeze it on the previous numbers.
+      return c.json({ ...cached.payload, stale: inflight !== null })
+    }
+
     try {
-      df = await agent.imageDf({})
+      return c.json(await refreshDiskUsage())
     } catch (err) {
       const message = err instanceof Error ? err.message : String(err)
       return c.json({ error: { code: "AGENT_ERROR", message } }, 502)
     }
-
-    let host: {
-      totalBytes: number
-      usedBytes: number
-      freeBytes: number
-    } | null = null
-    try {
-      const hs = await agent.hostStats({})
-      host = {
-        totalBytes: hs.diskTotalBytes,
-        usedBytes: hs.diskUsedBytes,
-        freeBytes: hs.diskFreeBytes,
-      }
-    } catch (err) {
-      log.warn({ err }, "hostStats unavailable — disk.host will be null")
-    }
-
-    const payload = DiskUsageResponseSchema.parse({
-      categories: df.categories.map((cat) => ({
-        kind: cat.kind,
-        totalBytes: cat.totalBytes,
-        reclaimableBytes: cat.reclaimableBytes,
-        count: cat.count,
-      })),
-      layersSizeBytes: df.layersSizeBytes,
-      host,
-    })
-
-    return c.json(payload)
   })
 
   router.get("/jobs/:jobId", instanceAdmin, async (c) => {

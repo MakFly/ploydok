@@ -28,6 +28,13 @@ interface ManifestFileResponse {
   content: string;
 }
 
+function pathWithinRoot(path: string, rootDir?: string): string {
+  const normalizedRoot = rootDir?.trim().replace(/^\/+|\/+$/g, "");
+  return normalizedRoot && normalizedRoot !== "."
+    ? `${normalizedRoot}/${path}`
+    : path;
+}
+
 function buildFilesExistUrl(
   source: Source,
   fullName: string,
@@ -51,7 +58,7 @@ function buildFilesExistUrl(
 function buildManifestFileUrl(
   source: Source,
   fullName: string,
-  path: ManifestProbeKey,
+  path: string,
   ref: string,
 ): string {
   const params = new URLSearchParams({ path, ref });
@@ -70,17 +77,22 @@ async function runProbes(
   source: Source,
   fullName: string,
   ref: string,
+  rootDir?: string,
 ): Promise<{ probes: ProbeResults; files: Record<string, boolean> }> {
   const paths = Array.from(new Set([...ALL_PROBE_KEYS, ...MANIFEST_FILE_PROBE_KEYS]));
+  const repoPaths = paths.map((path) => pathWithinRoot(path, rootDir));
   try {
     const res = await apiFetch<FileExistsBatchResponse>(
-      buildFilesExistUrl(source, fullName, paths, ref),
+      buildFilesExistUrl(source, fullName, repoPaths, ref),
     );
     const out: ProbeResults = {};
     for (const key of ALL_PROBE_KEYS) {
-      if (res.files[key] === true) out[key] = true;
+      if (res.files[pathWithinRoot(key, rootDir)] === true) out[key] = true;
     }
-    return { probes: out, files: res.files };
+    const files = Object.fromEntries(
+      paths.map((path) => [path, res.files[pathWithinRoot(path, rootDir)] === true]),
+    );
+    return { probes: out, files };
   } catch {
     // Probe failures (404, network) are treated as "not present" — classifier will
     // handle missing signals gracefully.
@@ -92,14 +104,20 @@ export async function runStackClassificationProbes(
   source: Source,
   fullName: string,
   ref: string,
+  rootDir?: string,
 ): Promise<{ probes: ProbeResults; classification: StackClassification }> {
-  const { probes, files } = await runProbes(source, fullName, ref);
+  const { probes, files } = await runProbes(source, fullName, ref, rootDir);
   const manifestEntries = await Promise.all(
     MANIFEST_FILE_PROBE_KEYS.map(async (path) => {
       if (files[path] !== true) return null;
       try {
         const response = await apiFetch<ManifestFileResponse>(
-          buildManifestFileUrl(source, fullName, path, ref),
+          buildManifestFileUrl(
+            source,
+            fullName,
+            pathWithinRoot(path, rootDir),
+            ref,
+          ),
         );
         return [path, response.content] as const;
       } catch {
@@ -151,9 +169,15 @@ export async function importEnvFileVars(params: {
   fullName: string;
   path: string;
   ref: string;
+  rootDir?: string;
 }): Promise<Array<ParsedEnvVar>> {
   const response = await apiFetch<EnvFileResponse>(
-    buildEnvFileUrl(params.source, params.fullName, params.path, params.ref),
+    buildEnvFileUrl(
+      params.source,
+      params.fullName,
+      pathWithinRoot(params.path, params.rootDir),
+      params.ref,
+    ),
   );
   return parseEnvFile(response.content);
 }
@@ -175,18 +199,26 @@ export function useStackClassification(
   source: Source | undefined,
   fullName: string | undefined,
   ref: string | undefined,
+  rootDir?: string,
 ): UseStackClassificationResult {
   const enabled = Boolean(source && fullName && ref);
   const query = useQuery<
     { probes: ProbeResults; classification: StackClassification },
     ApiError
   >({
-    queryKey: ["stack-classifier", source ?? "", fullName ?? "", ref ?? ""],
+    queryKey: [
+      "stack-classifier",
+      source ?? "",
+      fullName ?? "",
+      ref ?? "",
+      rootDir?.trim() ?? "",
+    ],
     queryFn: async () => {
       return runStackClassificationProbes(
         source as Source,
         fullName as string,
         ref as string,
+        rootDir,
       );
     },
     enabled,

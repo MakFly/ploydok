@@ -34,7 +34,7 @@ const STATUS_BADGE: Record<
 > = {
   pending: {
     label: "Pending",
-    cls: "bg-zinc-700/40 text-zinc-300 ring-zinc-600/40",
+    cls: "bg-muted text-muted-foreground ring-border",
     Icon: RiTimeLine,
   },
   running: {
@@ -60,7 +60,7 @@ const STATUS_BADGE: Record<
   },
   cancelled: {
     label: "Cancelled",
-    cls: "bg-zinc-600/40 text-zinc-400 ring-zinc-500/30",
+    cls: "bg-muted text-muted-foreground ring-border",
     Icon: RiSubtractLine,
   },
 }
@@ -130,12 +130,12 @@ function CommitChip({
   }, [sha])
 
   return (
-    <span className="inline-flex items-center gap-1.5 text-[11px] text-zinc-400">
+    <span className="inline-flex items-center gap-1.5 text-xs text-muted-foreground">
       <button
         type="button"
         onClick={() => void handleCopy()}
         title={copied ? "Copied" : `Copy commit SHA (${sha})`}
-        className="inline-flex items-center gap-1 rounded px-1.5 py-0.5 font-mono text-zinc-300 transition-colors hover:bg-zinc-800 hover:text-zinc-100"
+        className="inline-flex items-center gap-1 rounded px-1.5 py-0.5 font-mono text-foreground transition-colors hover:bg-muted"
       >
         <RiGitCommitLine className="size-3" aria-hidden="true" />
         {sha.slice(0, 7)}
@@ -149,7 +149,7 @@ function CommitChip({
         )}
       </button>
       {message && (
-        <span className="hidden max-w-[28rem] truncate text-zinc-500 md:inline">
+        <span className="hidden max-w-[28rem] truncate text-muted-foreground md:inline">
           {message}
         </span>
       )}
@@ -173,7 +173,7 @@ function LiveDuration({ build }: { build: Build }): React.JSX.Element | null {
   const dur = formatDuration(build.startedAt, build.finishedAt)
   if (!dur) return null
   return (
-    <span className="inline-flex items-center gap-1 text-[11px] text-zinc-400 tabular-nums">
+    <span className="inline-flex items-center gap-1 text-xs text-muted-foreground tabular-nums">
       <RiTimeLine className="size-3" aria-hidden="true" />
       {dur}
     </span>
@@ -300,29 +300,29 @@ export function BuildLogDrawer({
         side="right"
         showCloseButton={false}
         className={cn(
-          "flex flex-col gap-0 border-zinc-800 bg-zinc-950 p-0 transition-[width,max-width] duration-200",
+          "flex flex-col gap-0 border-border bg-background p-0 transition-[width,max-width] duration-200",
           fullscreen
             ? "!w-screen !max-w-none sm:!max-w-none"
             : "!w-[95vw] !max-w-[95vw] sm:!max-w-[95vw]"
         )}
       >
         {/* ───────── Header ───────── */}
-        <SheetHeader className="flex flex-row items-center gap-3 space-y-0 border-b border-zinc-800 bg-zinc-900/60 px-4 py-2.5">
+        <SheetHeader className="flex flex-row items-center gap-3 space-y-0 border-b border-border bg-muted/40 px-4 py-2.5">
           <div className="flex min-w-0 flex-1 flex-col gap-1">
             {/* Top row: status + title + commit */}
             <div className="flex min-w-0 items-center gap-2">
               {build && <StatusBadge status={build.status} />}
-              <SheetTitle className="truncate text-sm font-medium text-zinc-100">
+              <SheetTitle className="truncate text-sm font-medium text-foreground">
                 {appName ? (
-                  <span className="text-zinc-400">{appName}</span>
+                  <span className="text-muted-foreground">{appName}</span>
                 ) : null}
                 {appName && (
                   <RiCornerDownRightLine
-                    className="mx-1 inline-block size-3 text-zinc-600"
+                    className="mx-1 inline-block size-3 text-muted-foreground/60"
                     aria-hidden="true"
                   />
                 )}
-                <span className="font-mono text-zinc-100">Build {shortId}</span>
+                <span className="font-mono text-foreground">Build {shortId}</span>
               </SheetTitle>
               {build?.commitSha && (
                 <CommitChip
@@ -333,7 +333,7 @@ export function BuildLogDrawer({
             </div>
             {/* Bottom row: meta */}
             {build && (
-              <div className="flex items-center gap-3 text-[11px] text-zinc-500">
+              <div className="flex items-center gap-3 text-xs text-muted-foreground">
                 <LiveDuration build={build} />
                 {build.startedAt && (
                   <span className="inline-flex items-center gap-1">
@@ -341,7 +341,7 @@ export function BuildLogDrawer({
                   </span>
                 )}
                 {build.buildMethod && (
-                  <span className="inline-flex items-center rounded bg-zinc-800/80 px-1.5 py-0.5 font-mono text-[10px] text-zinc-300">
+                  <span className="inline-flex items-center rounded bg-muted px-1.5 py-0.5 font-mono text-[11px] text-foreground">
                     {build.buildMethod}
                   </span>
                 )}
@@ -374,7 +374,7 @@ export function BuildLogDrawer({
               onClick={() => void handleDownload()}
               disabled={!buildId}
               title="Download raw .log file"
-              className="h-8 gap-1.5 text-zinc-300 hover:bg-zinc-800 hover:text-zinc-100"
+              className="h-8 gap-1.5 text-muted-foreground hover:bg-muted hover:text-foreground"
             >
               <RiDownloadLine className="size-3.5" aria-hidden="true" />
               <span className="hidden sm:inline">Download</span>
@@ -387,7 +387,7 @@ export function BuildLogDrawer({
                 fullscreen ? "Exit fullscreen (F)" : "Toggle fullscreen (F)"
               }
               aria-label="Toggle fullscreen"
-              className="h-8 w-8 text-zinc-300 hover:bg-zinc-800 hover:text-zinc-100"
+              className="h-8 w-8 text-muted-foreground hover:bg-muted hover:text-foreground"
             >
               <RiExpandDiagonalLine className="size-4" aria-hidden="true" />
             </Button>
@@ -397,7 +397,7 @@ export function BuildLogDrawer({
               onClick={onClose}
               title="Close (Esc)"
               aria-label="Close"
-              className="h-8 w-8 text-zinc-300 hover:bg-zinc-800 hover:text-zinc-100"
+              className="h-8 w-8 text-muted-foreground hover:bg-muted hover:text-foreground"
             >
               <RiCloseLine className="size-4" aria-hidden="true" />
             </Button>
@@ -436,7 +436,7 @@ export function BuildLogDrawer({
                 </p>
                 <pre
                   className={cn(
-                    "mt-1 max-h-28 overflow-auto whitespace-pre-wrap break-words font-mono text-[11px] leading-relaxed",
+                    "mt-1 max-h-28 overflow-auto whitespace-pre-wrap break-words font-mono text-xs leading-relaxed",
                     failureDetails.tone === "red"
                       ? "text-red-100/90"
                       : "text-amber-100/90"

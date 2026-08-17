@@ -12,7 +12,7 @@ function NotificationsPage(): React.JSX.Element {
   return (
     <ShellPage
       title="Notifications"
-      description="Configurez les channels pour recevoir des alertes sur vos builds et déploiements."
+      description="Choose where alerts about your builds and deployments are sent."
     >
       <ChannelList showHeader={false} />
     </ShellPage>

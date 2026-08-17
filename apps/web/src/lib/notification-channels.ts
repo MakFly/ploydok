@@ -272,7 +272,6 @@ export const KIND_LABELS: Record<NotificationKind, string> = {
 
 export const FUNCTIONAL_KINDS: ReadonlySet<NotificationKind> = new Set([
   "discord",
-  "slack",
   "email",
   "telegram",
 ])

@@ -23,6 +23,16 @@ export interface GitHubAppConfig {
   install_url?: string
 }
 
+export type GitHubAppCredentialsStatus =
+  | { status: "not_configured" | "readable" }
+  | {
+      status: "unreadable"
+      error: {
+        code: "GITHUB_APP_CREDENTIALS_UNREADABLE"
+        message: string
+      }
+    }
+
 export interface CreateGitHubAppResponse {
   manifest: Record<string, unknown>
   state: string
@@ -98,16 +108,26 @@ export function useGitHubRepos(params: ReposParams = {}) {
 // useGitHubBranches
 // ---------------------------------------------------------------------------
 
+// `needsInstall` distinguishes "this repo has no branches" from "the GitHub
+// App is not installed on any account any more". The repo picker is served
+// from a cache and stays populated in the second case, so the wizard needs the
+// flag to explain the dead end.
+export interface GitHubBranchesResult {
+  branches: Array<GitBranch>
+  needsInstall: boolean
+}
+
 export function useGitHubBranches(fullName?: string) {
-  return useQuery<Array<GitBranch>, ApiError>({
+  return useQuery<GitHubBranchesResult, ApiError>({
     queryKey: ["github", "branches", fullName ?? ""],
     queryFn: async () => {
-      if (!fullName) return []
+      if (!fullName) return { branches: [], needsInstall: false }
       const [owner, repo] = fullName.split("/")
-      const res = await apiFetch<{ branches: Array<GitBranch> }>(
-        `/github/repos/${owner}/${repo}/branches`
-      )
-      return res.branches
+      const res = await apiFetch<{
+        branches: Array<GitBranch>
+        needsInstall?: boolean
+      }>(`/github/repos/${owner}/${repo}/branches`)
+      return { branches: res.branches, needsInstall: res.needsInstall ?? false }
     },
     enabled: Boolean(fullName),
     staleTime: 60_000,
@@ -148,6 +168,26 @@ export function useGitHubAppConfig(options: { enabled?: boolean } = {}) {
     queryFn: () => apiFetch<GitHubAppConfig>("/github/app/config"),
     enabled: options.enabled ?? true,
     staleTime: 60_000,
+    retry: shouldRetryCriticalQuery,
+    retryDelay: criticalRetryDelay,
+    meta: { critical: true },
+  })
+}
+
+// ---------------------------------------------------------------------------
+// useGitHubAppCredentialsStatus — verify the locally stored private key
+// ---------------------------------------------------------------------------
+
+export function useGitHubAppCredentialsStatus(
+  options: { enabled?: boolean } = {}
+) {
+  return useQuery<GitHubAppCredentialsStatus, ApiError>({
+    queryKey: ["github", "app", "credentials", "status"],
+    queryFn: () =>
+      apiFetch<GitHubAppCredentialsStatus>("/github/app/credentials/status"),
+    enabled: options.enabled ?? true,
+    staleTime: 60_000,
+    refetchOnMount: "always",
     retry: shouldRetryCriticalQuery,
     retryDelay: criticalRetryDelay,
     meta: { critical: true },
@@ -246,6 +286,10 @@ export function useImportGitHubApp() {
       }),
     onSuccess: (config) => {
       qc.setQueryData(["github", "app", "config"], config)
+      qc.setQueryData<GitHubAppCredentialsStatus>(
+        ["github", "app", "credentials", "status"],
+        { status: "readable" }
+      )
       qc.invalidateQueries({ queryKey: ["github", "app"] })
       qc.invalidateQueries({ queryKey: ["github", "installations"] })
       qc.invalidateQueries({ queryKey: ["github", "cache-status"] })
@@ -286,6 +330,37 @@ export function useResetGitHubApp() {
 }
 
 // ---------------------------------------------------------------------------
+// useForgetLocalGitHubApp — delete an unreadable local config without GitHub
+// ---------------------------------------------------------------------------
+
+export interface ForgetLocalGitHubAppResponse {
+  ok: true
+  forgotten: true
+  remoteInstallationsModified: false
+}
+
+export function useForgetLocalGitHubApp() {
+  const qc = useQueryClient()
+  return useMutation<ForgetLocalGitHubAppResponse, ApiError, void>({
+    mutationFn: () =>
+      apiFetch<ForgetLocalGitHubAppResponse>(
+        "/github/app/config/local?confirm=forget-local-github-app",
+        { method: "DELETE" }
+      ),
+    onSuccess: async () => {
+      qc.setQueryData(["github", "app", "config"], {
+        configured: false,
+      } satisfies GitHubAppConfig)
+      qc.setQueryData<GitHubAppCredentialsStatus>(
+        ["github", "app", "credentials", "status"],
+        { status: "not_configured" }
+      )
+      await qc.invalidateQueries({ queryKey: ["github"] })
+    },
+  })
+}
+
+// ---------------------------------------------------------------------------
 // useInstallations — GET /github/installations
 // ---------------------------------------------------------------------------
 
@@ -305,14 +380,18 @@ export function useInstallations() {
 }
 
 // ---------------------------------------------------------------------------
-// useRevokeInstallation — DELETE /github/installations/:id
+// useRemoveGitHubInstallation — role-aware DELETE /github/installations/:id
 // ---------------------------------------------------------------------------
 
-export function useRevokeInstallation() {
+export type GitHubInstallationRemovalResponse =
+  | { ok: true; revoked: number }
+  | { ok: true; disconnected: number }
+
+export function useRemoveGitHubInstallation() {
   const qc = useQueryClient()
-  return useMutation<{ ok: true; revoked: number }, ApiError, number>({
+  return useMutation<GitHubInstallationRemovalResponse, ApiError, number>({
     mutationFn: (installationId) =>
-      apiFetch<{ ok: true; revoked: number }>(
+      apiFetch<GitHubInstallationRemovalResponse>(
         `/github/installations/${installationId}`,
         {
           method: "DELETE",
@@ -321,6 +400,7 @@ export function useRevokeInstallation() {
     onSuccess: () => {
       qc.invalidateQueries({ queryKey: ["github", "installations"] })
       qc.invalidateQueries({ queryKey: ["github", "repos"] })
+      qc.invalidateQueries({ queryKey: ["git-providers", "status"] })
     },
   })
 }

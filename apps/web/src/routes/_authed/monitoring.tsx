@@ -680,7 +680,7 @@ function EmptyState(): React.JSX.Element {
   return (
     <div className="flex flex-col items-center justify-center gap-3 rounded-xl border border-dashed border-panel-border bg-panel-inset px-6 py-16 text-center">
       <div className="flex size-12 items-center justify-center rounded-full bg-muted">
-        <RiRadarLine className="size-5 text-muted-foreground" />
+        <RiRadarLine className="size-6 text-muted-foreground" />
       </div>
       <div className="space-y-1">
         <p className="text-sm font-medium">Fleet is empty</p>
@@ -697,7 +697,7 @@ function NoResults({ onReset }: { onReset: () => void }): React.JSX.Element {
   return (
     <div className="flex flex-col items-center justify-center gap-3 rounded-xl border border-dashed border-panel-border bg-panel-inset px-6 py-12 text-center">
       <div className="flex size-10 items-center justify-center rounded-full bg-muted">
-        <RiSearchLine className="size-4 text-muted-foreground" />
+        <RiSearchLine className="size-5 text-muted-foreground" />
       </div>
       <div className="space-y-1">
         <p className="text-sm font-medium">No containers match</p>

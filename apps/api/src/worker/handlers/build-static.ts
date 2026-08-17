@@ -147,6 +147,17 @@ async function detectDefaultBuildCommand(cwd: string): Promise<string | null> {
   }
 }
 
+async function detectDefaultInstallCommand(
+  cwd: string
+): Promise<string | null> {
+  try {
+    await readFile(path.join(cwd, "package.json"), "utf8")
+    return `${JSON.stringify(process.execPath)} install --no-save`
+  } catch {
+    return null
+  }
+}
+
 /**
  * Promote un build SHA en `current` via symlink atomique :
  *   1. créer un symlink temporaire `current.<rand>` → `<sha>/`
@@ -213,9 +224,12 @@ export async function runStaticBuild(
     throw new Error("staticOutputDir must stay inside the workspace root")
   }
 
-  if (opts.installCommand?.trim()) {
+  const installCommand =
+    opts.installCommand?.trim() ||
+    (await detectDefaultInstallCommand(workspaceRoot))
+  if (installCommand) {
     await runShellCommand({
-      command: opts.installCommand,
+      command: installCommand,
       cwd: workspaceRoot,
       ...(opts.env !== undefined && { env: opts.env }),
       ...(opts.onLog !== undefined && { onLog: opts.onLog }),

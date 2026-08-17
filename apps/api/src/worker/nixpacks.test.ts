@@ -776,4 +776,30 @@ describe("nixpacksBuild", () => {
       "COMPOSER_ALLOW_SUPERUSER=1 composer install --ignore-platform-reqs"
     )
   })
+
+  it("returns the planned start command and applies config/command overrides", async () => {
+    spawnSpy = spyOn(Bun, "spawn").mockReturnValue(
+      fakeBunProcess({
+        stdoutLines: [
+          '{"providers":["python"],"phases":{"install":{}},"start":{"cmd":"gunicorn app:app"}}',
+        ],
+      }) as ReturnType<typeof Bun.spawn>
+    )
+
+    const plan = await nixpacksMod.nixpacksPlan({
+      workspacePath: tmpDir,
+      configFile: "nixpacks.toml",
+      startCmd: "gunicorn --bind 0.0.0.0:$PORT app:app",
+    })
+
+    expect(plan?.start?.cmd).toBe("gunicorn app:app")
+    const spawnMock = spawnSpy as unknown as {
+      mock: { calls: Array<[unknown[], unknown]> }
+    }
+    const cmd = spawnMock.mock.calls[0]![0] as string[]
+    expect(cmd).toContain("--config")
+    expect(cmd).toContain(path.join(tmpDir, "nixpacks.toml"))
+    expect(cmd).toContain("--start-cmd")
+    expect(cmd).toContain("gunicorn --bind 0.0.0.0:$PORT app:app")
+  })
 })

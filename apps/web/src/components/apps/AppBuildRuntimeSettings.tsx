@@ -114,6 +114,19 @@ function getBuildRuntimePlaceholders(
   stack: Stack | undefined,
   buildMethod: string | undefined
 ): BuildRuntimePlaceholders {
+  if (buildMethod === "static") {
+    return withDefaultPlaceholders({
+      buildMethod: "static",
+      nodeVersion: "22",
+      installCommand: "npm install",
+      buildCommand: "npm run build",
+      startCommand: "managed static server",
+      staticOutputDir: "dist",
+      runtimePort: "80",
+      healthcheckPort: "80",
+    })
+  }
+
   switch (stack) {
     case "laravel":
       return withDefaultPlaceholders({
@@ -307,9 +320,6 @@ function getBuildRuntimePlaceholders(
         healthcheckPort: "80",
       })
     default:
-      if (buildMethod === "static") {
-        return getBuildRuntimePlaceholders("static", buildMethod)
-      }
       return DEFAULT_PLACEHOLDERS
   }
 }
@@ -423,7 +433,8 @@ export function AppBuildRuntimeSettings({
   const stackClassification = useStackClassification(
     repoSource,
     app.repoFullName,
-    app.branch || undefined
+    app.branch || undefined,
+    app.rootDir || undefined
   )
   const placeholders = React.useMemo(
     () =>

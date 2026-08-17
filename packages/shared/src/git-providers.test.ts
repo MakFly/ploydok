@@ -12,6 +12,7 @@ describe("GitRepoSchema", () => {
       private: false,
       defaultBranch: "main",
       cloneUrl: "https://github.com/octocat/hello-world.git",
+      installationId: "42",
     };
 
     const result = GitRepoSchema.parse(raw);
@@ -22,6 +23,7 @@ describe("GitRepoSchema", () => {
     expect(result.private).toBe(false);
     expect(result.defaultBranch).toBe("main");
     expect(result.cloneUrl).toBe("https://github.com/octocat/hello-world.git");
+    expect(result.installationId).toBe("42");
   });
 
   it("parses a repo with string id (e.g. GitLab style)", () => {

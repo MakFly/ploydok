@@ -22,6 +22,7 @@ import {
   Card,
   CardContent,
   CardDescription,
+  CardFooter,
   CardHeader,
   CardTitle,
 } from "@workspace/ui/components/card"
@@ -64,17 +65,31 @@ function AppSettingsGeneral(): React.JSX.Element {
   }
 
   return (
-    <div className="w-full px-4 py-6 md:px-8 md:py-8">
-      <div className="grid w-full gap-6 sm:grid-cols-2 xl:grid-cols-3">
-        <SourceCard app={app} />
+    <div className="w-full space-y-4 px-4 py-6 md:px-8 md:py-8">
+      <SourceCard app={app} />
 
+      <div className="grid gap-4 xl:grid-cols-2">
         <AppMetadataCard app={app} />
-
-        <div className="sm:col-span-2 xl:col-span-3">
-          <ChannelList appId={appId} />
-        </div>
+        <NotificationsCard appId={appId} />
       </div>
     </div>
+  )
+}
+
+function NotificationsCard({ appId }: { appId: string }): React.JSX.Element {
+  return (
+    <Card>
+      <CardHeader>
+        <CardTitle>Notifications</CardTitle>
+        <CardDescription>
+          Where to send alerts about this app&apos;s builds and deployments.
+        </CardDescription>
+      </CardHeader>
+
+      <CardContent>
+        <ChannelList appId={appId} showHeader={false} />
+      </CardContent>
+    </Card>
   )
 }
 
@@ -136,44 +151,48 @@ function AppMetadataCard({ app }: { app: AppDetail }): React.JSX.Element {
   }
 
   return (
-    <Card className="sm:col-span-2 xl:col-span-3">
+    <Card>
       <CardHeader>
         <CardTitle>Icon & quick links</CardTitle>
         <CardDescription>
-          Dashboard icon and shortcut links shown for this app.
+          How this app is shown on the dashboard, and the shortcuts listed under
+          it.
         </CardDescription>
       </CardHeader>
 
-      <CardContent className="space-y-6">
-        <>
-          <div className="flex flex-col gap-3 sm:flex-row sm:items-start">
-            <div className="min-w-0 flex-1 space-y-2">
-              <Label htmlFor="app-icon-url">Icon URL</Label>
-              <Input
-                id="app-icon-url"
-                type="url"
-                value={iconUrl}
-                onChange={(e) => setIconUrl(e.target.value)}
-                placeholder="https://example.com/icon.png"
-              />
-            </div>
-            {iconUrl && (
-              <AppIcon
-                name={app.name}
-                src={iconUrl}
-                className="size-10 sm:mt-7"
-              />
-            )}
+      <CardContent className="max-w-2xl space-y-6">
+        <div className="flex items-start gap-3">
+          <div className="min-w-0 flex-1 space-y-2">
+            <Label htmlFor="app-icon-url">Icon URL</Label>
+            <Input
+              id="app-icon-url"
+              type="url"
+              value={iconUrl}
+              onChange={(e) => setIconUrl(e.target.value)}
+              placeholder="https://example.com/icon.png"
+            />
+          </div>
+          <AppIcon
+            name={app.name}
+            src={iconUrl || null}
+            className="mt-7 size-9"
+          />
+        </div>
+
+        <div className="space-y-3">
+          <div className="flex items-center justify-between gap-2">
+            <Label>Quick links</Label>
+            <span className="text-xs text-muted-foreground">
+              {quickLinks.length}/8
+            </span>
           </div>
 
-          <div className="space-y-3">
-            <div className="flex items-center justify-between">
-              <Label>Quick links</Label>
-              <span className="text-xs text-muted-foreground">
-                {quickLinks.length}/8
-              </span>
-            </div>
-
+          {quickLinks.length === 0 ? (
+            <p className="text-xs text-muted-foreground">
+              No shortcuts yet. Add one to link a dashboard, a status page, or
+              anything you open often for this app.
+            </p>
+          ) : (
             <div className="space-y-2">
               {quickLinks.map((link, idx) => (
                 <div
@@ -213,43 +232,45 @@ function AppMetadataCard({ app }: { app: AppDetail }): React.JSX.Element {
                 </div>
               ))}
             </div>
+          )}
 
-            <Button
-              type="button"
-              variant="outline"
-              size="sm"
-              onClick={addQuickLink}
-              disabled={quickLinks.length >= 8}
-              className="gap-1.5"
-            >
-              <RiAddLine className="size-3.5" aria-hidden="true" />
-              Add quick link
-            </Button>
-          </div>
-
-          {app.gitProvider === "image" ? (
-            <div className="flex items-center justify-between gap-4 rounded-md border border-border bg-muted/30 p-3">
-              <div className="space-y-1">
-                <Label htmlFor="track-latest">Track image updates</Label>
-                <p className="text-xs text-muted-foreground">
-                  Redeploy this app when the configured image tag resolves to a
-                  new registry digest.
-                </p>
-              </div>
-              <Switch
-                id="track-latest"
-                checked={trackLatest}
-                onCheckedChange={setTrackLatest}
-                aria-label="Track image updates"
-              />
-            </div>
-          ) : null}
-
-          <Button onClick={handleSave} loading={updateMutation.isPending}>
-            {updateMutation.isPending ? "Saving…" : "Save changes"}
+          <Button
+            type="button"
+            variant="outline"
+            size="sm"
+            onClick={addQuickLink}
+            disabled={quickLinks.length >= 8}
+            className="gap-1.5"
+          >
+            <RiAddLine className="size-3.5" aria-hidden="true" />
+            Add quick link
           </Button>
-        </>
+        </div>
+
+        {app.gitProvider === "image" ? (
+          <div className="flex items-center justify-between gap-4 rounded-lg border border-panel-border/70 bg-panel-inset p-3">
+            <div className="space-y-1">
+              <Label htmlFor="track-latest">Track image updates</Label>
+              <p className="text-xs text-muted-foreground">
+                Redeploy this app when the configured image tag resolves to a
+                new registry digest.
+              </p>
+            </div>
+            <Switch
+              id="track-latest"
+              checked={trackLatest}
+              onCheckedChange={setTrackLatest}
+              aria-label="Track image updates"
+            />
+          </div>
+        ) : null}
       </CardContent>
+
+      <CardFooter className="justify-end">
+        <Button onClick={handleSave} loading={updateMutation.isPending}>
+          {updateMutation.isPending ? "Saving…" : "Save changes"}
+        </Button>
+      </CardFooter>
     </Card>
   )
 }
@@ -278,7 +299,7 @@ function SourceCard({ app }: { app: AppDetail }): React.JSX.Element {
     app.gitProvider === "gitlab" ? RiGitlabFill : RiGithubFill
 
   return (
-    <Card className="sm:col-span-2 xl:col-span-3">
+    <Card>
       <CardHeader>
         <CardTitle>Source & domain</CardTitle>
         <CardDescription>
@@ -286,7 +307,7 @@ function SourceCard({ app }: { app: AppDetail }): React.JSX.Element {
         </CardDescription>
       </CardHeader>
 
-      <CardContent className="grid gap-4 sm:grid-cols-2 xl:grid-cols-4">
+      <CardContent className="grid gap-3 sm:grid-cols-2 xl:grid-cols-4">
         <InfoTile
           label="Repository"
           value={app.repoFullName ?? "—"}
@@ -353,7 +374,7 @@ function InfoTile({
   )
 
   return (
-    <div className="min-w-0 rounded-md border bg-muted/40 px-3 py-2.5">
+    <div className="min-w-0 rounded-lg border border-panel-border/70 bg-panel-inset px-3 py-2.5">
       <p className="flex items-center gap-1.5 text-[11px] font-medium tracking-wide text-muted-foreground uppercase">
         {icon}
         {label}
@@ -388,34 +409,34 @@ function InfoTile({
 
 function SettingsSkeleton(): React.JSX.Element {
   return (
-    <div className="grid w-full gap-6 sm:grid-cols-2 xl:grid-cols-3">
-      <Card className="sm:col-span-2 xl:col-span-3">
+    <div className="w-full space-y-4">
+      <Card>
         <CardHeader>
           <Skeleton className="h-5 w-40" />
           <Skeleton className="h-4 w-72" />
         </CardHeader>
-        <CardContent className="grid gap-4 sm:grid-cols-2 xl:grid-cols-4">
+        <CardContent className="grid gap-3 sm:grid-cols-2 xl:grid-cols-4">
           {Array.from({ length: 4 }).map((_, i) => (
             <Skeleton key={i} className="h-16 rounded-md" />
           ))}
         </CardContent>
       </Card>
-      {Array.from({ length: 3 }).map((_, index) => (
-        <Card
-          key={index}
-          className={index === 0 ? "sm:col-span-2 xl:col-span-2" : undefined}
-        >
-          <CardHeader>
-            <Skeleton className="h-5 w-40" />
-            <Skeleton className="h-4 w-72" />
-          </CardHeader>
-          <CardContent className="flex flex-col gap-3">
-            <Skeleton className="h-10 w-full" />
-            <Skeleton className="h-10 w-full" />
-            <Skeleton className="h-10 w-full" />
-          </CardContent>
-        </Card>
-      ))}
+
+      <div className="grid gap-4 xl:grid-cols-2">
+        {Array.from({ length: 2 }).map((_, index) => (
+          <Card key={index}>
+            <CardHeader>
+              <Skeleton className="h-5 w-40" />
+              <Skeleton className="h-4 w-72" />
+            </CardHeader>
+            <CardContent className="flex flex-col gap-3">
+              <Skeleton className="h-10 w-full" />
+              <Skeleton className="h-10 w-full" />
+              <Skeleton className="h-10 w-full" />
+            </CardContent>
+          </Card>
+        ))}
+      </div>
     </div>
   )
 }

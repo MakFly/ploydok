@@ -501,12 +501,12 @@ function DatabasesGridSkeleton(): React.JSX.Element {
       {Array.from({ length: 6 }).map((_, index) => (
         <div
           key={index}
-          className="rounded-2xl border border-panel-border bg-panel p-4"
+          className="rounded-xl border border-panel-border bg-panel-inset p-4 shadow-sm"
         >
-          <div className="h-4 w-32 rounded skeleton-surface" />
-          <div className="mt-2 h-3 w-44 rounded skeleton-surface" />
-          <div className="mt-6 h-3 w-20 rounded skeleton-surface" />
-          <div className="mt-2 h-3 w-28 rounded skeleton-surface" />
+          <div className="h-4 w-32 skeleton-surface rounded" />
+          <div className="mt-2 h-3 w-44 skeleton-surface rounded" />
+          <div className="mt-6 h-3 w-20 skeleton-surface rounded" />
+          <div className="mt-2 h-3 w-28 skeleton-surface rounded" />
         </div>
       ))}
     </div>

@@ -281,7 +281,7 @@ function EmptyState({ onCreate }: { onCreate: () => void }): React.JSX.Element {
   return (
     <div className="flex flex-col items-center justify-center gap-3 rounded-xl border border-dashed border-panel-border bg-panel-inset px-6 py-12 text-center">
       <div className="flex size-12 items-center justify-center rounded-full bg-muted">
-        <RiShip2Line className="size-5 text-muted-foreground" />
+        <RiShip2Line className="size-6 text-muted-foreground" />
       </div>
       <div className="space-y-1">
         <p className="text-sm font-medium">No credentials yet</p>

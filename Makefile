@@ -20,6 +20,7 @@ help:
 	@printf "  %-14s $(C_DIM)%s$(C_RESET)\n" "" "reste au premier plan à la fin (enchaîne sur 'make dev') — Ctrl-C pour sortir"
 	@printf "\n$(C_CAT)▶ Dev$(C_RESET)\n"
 	@printf "  $(C_TARGET)%-14s$(C_RESET) $(C_DESC)%s$(C_RESET)\n" "dev"       "Lance web + api via turbo (http://localhost:5173 + :3335)"
+	@printf "  %-14s $(C_DIM)%s$(C_RESET)\n" "" "remonte l'infra et attend postgres/redis avant de démarrer"
 	@printf "  $(C_TARGET)%-14s$(C_RESET) $(C_DESC)%s$(C_RESET)\n" "stop"      "Arrête les containers Compose sans les supprimer"
 	@printf "  $(C_TARGET)%-14s$(C_RESET) $(C_DESC)%s$(C_RESET)\n" "dev-agent" "[debug] Lance l'agent Rust en natif (insecure, /tmp/ploydok/agent.sock)"
 	@printf "  %-14s $(C_DIM)%s$(C_RESET)\n" "" "⚠ stop le container 'agent' d'abord — collision sur le socket"
@@ -32,7 +33,7 @@ help:
 	@printf "  $(C_TARGET)%-14s$(C_RESET) $(C_DESC)%s$(C_RESET)\n" "db-reset"   "Wipe runtime app/db containers + Postgres + Redis + apply migrations"
 	@printf "  $(C_TARGET)%-14s$(C_RESET) $(C_DESC)%s$(C_RESET)\n" "db-seed"    "Seed dev (login: dev@ploydok.local / pwd: DEVD-EVDE-VDEV)"
 	@printf "\n$(C_CAT)▶ Infra$(C_RESET)\n"
-	@printf "  $(C_TARGET)%-14s$(C_RESET) $(C_DESC)%s$(C_RESET)\n" "secrets-init" "Génère PLOYDOK_PG_PASSWORD + PLOYDOK_REDIS_PASSWORD dans .env.local"
+	@printf "  $(C_TARGET)%-14s$(C_RESET) $(C_DESC)%s$(C_RESET)\n" "secrets-init" "Génère les secrets persistants de dev dans .env.local"
 	@printf "  $(C_TARGET)%-14s$(C_RESET) $(C_DESC)%s$(C_RESET)\n" "infra-up"     "docker compose up (postgres + redis + caddy + buildkitd + registry + agent)"
 	@printf "  $(C_TARGET)%-14s$(C_RESET) $(C_DESC)%s$(C_RESET)\n" "infra-down"   "cleanup infra (stop + rm containers + networks)"
 	@printf "  $(C_TARGET)%-14s$(C_RESET) $(C_DESC)%s$(C_RESET)\n" "infra-stop"   "stop infra containers (sans les supprimer)"
@@ -53,7 +54,30 @@ install:
 	@echo "[install] setup done — starting dev servers (web:5173 + api:3335), Ctrl-C to stop"
 	$(MAKE) dev
 
+# L'API refuse de booter sans Postgres ni Redis, et turbo tue alors toute la run
+# (web compris). `dev` remonte donc l'infra et attend qu'elle soit prête avant
+# de lancer turbo. Idempotent : ~2 s quand tout tourne déjà.
 dev:
+	@docker info >/dev/null 2>&1 || { \
+	  printf '[dev] docker daemon injoignable. Démarre Docker, puis relance make dev\n'; \
+	  exit 1; \
+	}
+	@busy=""; \
+	for port in 3335 5173; do \
+	  if ss -ltnH 2>/dev/null | awk '{print $$4}' | grep -qE "[:.]$$port\$$"; then \
+	    busy="$$busy $$port"; \
+	  fi; \
+	done; \
+	if [ -n "$$busy" ]; then \
+	  printf '[dev] port(s) déjà occupé(s) :%s\n' "$$busy"; \
+	  printf "[dev] un 'make dev' tourne sûrement dans un autre shell. Ferme-le avant de relancer\n"; \
+	  exit 1; \
+	fi
+	@$(MAKE) --no-print-directory infra-up
+	@printf '[dev] waiting for postgres + redis to report healthy...\n'
+	@docker compose --env-file apps/api/.env.local -f infra/docker-compose.yml up -d --no-recreate --wait --wait-timeout 120 postgres redis
+	@$(MAKE) --no-print-directory db-ensure-auth
+	@printf '[dev] starting web:5173 + api:3335\n'
 	bunx turbo dev
 
 stop: infra-stop
@@ -127,6 +151,20 @@ secrets-init:
 	  echo "[secrets-init] REDIS_URL generated"; \
 	else \
 	  echo "[secrets-init] REDIS_URL already present — skipped"; \
+	fi; \
+	if ! grep -q '^MASTER_KEY=' "$$ENV_FILE" 2>/dev/null; then \
+	  MASTER_KEY=$$(openssl rand -base64 32); \
+	  echo "MASTER_KEY=$$MASTER_KEY" >> "$$ENV_FILE"; \
+	  echo "[secrets-init] MASTER_KEY generated"; \
+	else \
+	  echo "[secrets-init] MASTER_KEY already present — skipped"; \
+	fi; \
+	if ! grep -q '^SESSION_SECRET=' "$$ENV_FILE" 2>/dev/null; then \
+	  SESSION_SECRET=$$(openssl rand -hex 32); \
+	  echo "SESSION_SECRET=$$SESSION_SECRET" >> "$$ENV_FILE"; \
+	  echo "[secrets-init] SESSION_SECRET generated"; \
+	else \
+	  echo "[secrets-init] SESSION_SECRET already present — skipped"; \
 	fi
 
 infra-up: secrets-init

@@ -47,6 +47,7 @@ export type BuildMethodRecommendation =
   | "compose"
   | "nixpacks"
   | "railpack"
+  | "static"
 
 export type ProbeKey =
   // Docker / Compose
@@ -80,19 +81,26 @@ export type ProbeKey =
   | "astro.config.mjs"
   | "astro.config.ts"
   | "deno.json"
+  | "bun.lock"
   | "bun.lockb"
   // Python
   | "pyproject.toml"
   | "requirements.txt"
   | "manage.py"
+  | "main.py"
+  | "app.py"
+  | "wsgi.py"
   // Other languages
   | "go.mod"
   | "Cargo.toml"
   | "Gemfile"
+  | ".ruby-version"
   | "mix.exs"
   | "pom.xml"
   | "build.gradle"
   | "build.gradle.kts"
+  | "settings.gradle"
+  | "settings.gradle.kts"
   // Static
   | "index.html"
 
@@ -105,6 +113,8 @@ export type ProbeResults = Partial<Record<ProbeKey, boolean>>
 
 export type ManifestProbeKey =
   | "package.json"
+  | "astro.config.mjs"
+  | "astro.config.ts"
   | "composer.json"
   | "composer.lock"
   | "Gemfile"
@@ -151,6 +161,10 @@ export interface StackClassification {
    * Empty for stacks that Nixpacks handles natively (e.g. Laravel).
    */
   suggestedEnvVars: Record<string, string>
+  /** Safe conventional runtime command inferred from strong repository signals. */
+  suggestedStartCommand?: string
+  /** The detected repository cannot be deployed safely without a manual build choice. */
+  requiresExplicitBuildChoice?: boolean
 }
 
 /** Ordered list of all probe keys the classifier understands. */
@@ -182,17 +196,24 @@ export const ALL_PROBE_KEYS: ReadonlyArray<ProbeKey> = [
   "astro.config.mjs",
   "astro.config.ts",
   "deno.json",
+  "bun.lock",
   "bun.lockb",
   "pyproject.toml",
   "requirements.txt",
   "manage.py",
+  "main.py",
+  "app.py",
+  "wsgi.py",
   "go.mod",
   "Cargo.toml",
   "Gemfile",
+  ".ruby-version",
   "mix.exs",
   "pom.xml",
   "build.gradle",
   "build.gradle.kts",
+  "settings.gradle",
+  "settings.gradle.kts",
   "index.html",
 ]
 
@@ -211,6 +232,8 @@ export const ENV_FILE_PROBE_KEYS: ReadonlyArray<ProbeKey> = [
 
 export const MANIFEST_FILE_PROBE_KEYS: ReadonlyArray<ManifestProbeKey> = [
   "package.json",
+  "astro.config.mjs",
+  "astro.config.ts",
   "composer.json",
   "composer.lock",
   "Gemfile",
@@ -283,6 +306,48 @@ function manifestContains(
   return keys.some((key) => pattern.test(manifests[key] ?? ""))
 }
 
+function pythonManifestDeclaresPackage(
+  requirements: string | undefined,
+  pyproject: string | undefined,
+  packageName: string
+): boolean {
+  const escapedName = packageName.replace(/[.*+?^${}()|[\]\\]/g, "\\$&")
+  const requirementPattern = new RegExp(
+    `^\\s*${escapedName}(?:\\[[^\\]]+\\])?\\s*(?:[<>=!~;@]|$)`,
+    "i"
+  )
+  if (
+    requirements
+      ?.split(/\r?\n/)
+      .some((line) => requirementPattern.test(line.replace(/\s+#.*$/, "")))
+  ) {
+    return true
+  }
+
+  if (!pyproject) return false
+  const withoutComments = pyproject.replace(/\s+#.*$/gm, "")
+  const projectDependencies = withoutComments.match(
+    /(?:^|\n)\s*dependencies\s*=\s*\[([\s\S]*?)\]/
+  )?.[1]
+  const quotedDependencyPattern = new RegExp(
+    `["']${escapedName}(?:\\[[^\\]]+\\])?\\s*(?:[<>=!~;@][^"']*)?["']`,
+    "i"
+  )
+  if (
+    projectDependencies && quotedDependencyPattern.test(projectDependencies)
+  ) {
+    return true
+  }
+
+  const poetryDependencies = withoutComments.match(
+    /(?:^|\n)\s*\[tool\.poetry\.dependencies\]\s*\n([\s\S]*?)(?=\n\s*\[|$)/
+  )?.[1]
+  return Boolean(
+    poetryDependencies &&
+      new RegExp(`^\\s*${escapedName}\\s*=`, "im").test(poetryDependencies)
+  )
+}
+
 function mergeSuggestedEnvVars(
   classification: StackClassification,
   suggestedEnvVars: Record<string, string>
@@ -316,19 +381,17 @@ export function classifyStack(probes: ProbeResults): StackClassification {
   // 2. Compose detected (Ploydok doesn't yet run compose natively — warn).
   const compose = composeSignal(probes)
   if (compose) {
-    const hasDockerfileBuild = false // already handled above
     return {
       stack: "compose",
       framework: "Docker Compose",
       confidence: "high",
       signals: [compose],
       recommendedBuild: "compose",
-      warnings: hasDockerfileBuild
-        ? []
-        : [
-            "Docker Compose détecté — support natif prévu sprint 3.3. Pour l'instant, fallback dockerfile ou nixpacks.",
-          ],
+      warnings: [
+        "Le déploiement Compose natif n'est pas encore disponible dans Ploydok ; choisis explicitement une autre méthode de build.",
+      ],
       suggestedEnvVars: {},
+      requiresExplicitBuildChoice: true,
     }
   }
 
@@ -454,12 +517,15 @@ export function classifyStack(probes: ProbeResults): StackClassification {
         suggestedEnvVars: {},
       }
     }
-    if (has(probes, "bun.lockb")) {
+    const bunLock = (["bun.lock", "bun.lockb"] as const).find((key) =>
+      has(probes, key)
+    )
+    if (bunLock) {
       return {
         stack: "bun",
         framework: "Bun",
         confidence: "high",
-        signals: ["package.json", "bun.lockb"],
+        signals: ["package.json", bunLock],
         recommendedBuild: "nixpacks",
         warnings: [],
         suggestedEnvVars: {},
@@ -502,7 +568,7 @@ export function classifyStack(probes: ProbeResults): StackClassification {
       signals,
       recommendedBuild: "nixpacks",
       warnings: [],
-      suggestedEnvVars: { PYTHON_VERSION: "3.12" },
+      suggestedEnvVars: { NIXPACKS_PYTHON_VERSION: "3.12" },
     }
   }
   if (hasAny(probes, ["pyproject.toml", "requirements.txt"])) {
@@ -550,7 +616,11 @@ export function classifyStack(probes: ProbeResults): StackClassification {
       signals: ["Gemfile"],
       recommendedBuild: "nixpacks",
       warnings: [
-        "Support Ruby dans nixpacks upstream est partiel — tester le build avant de compter dessus.",
+        ...(has(probes, ".ruby-version")
+          ? []
+          : [
+              "Nixpacks exige une version Ruby : ajoute .ruby-version ou configure NIXPACKS_RUBY_VERSION.",
+            ]),
       ],
       suggestedEnvVars: {
         RAILS_ENV: "production",
@@ -575,16 +645,24 @@ export function classifyStack(probes: ProbeResults): StackClassification {
       : has(probes, "build.gradle")
         ? "build.gradle"
         : "build.gradle.kts"
+    const missingGradleSettings =
+      sig !== "pom.xml" &&
+      !hasAny(probes, ["settings.gradle", "settings.gradle.kts"])
     return {
       stack: "java",
       framework: "Java/JVM",
       confidence: "medium",
       signals: [sig],
-      recommendedBuild: "dockerfile",
-      warnings: [
-        "Support JVM dans nixpacks est patchy — préfère un Dockerfile.",
-      ],
+      recommendedBuild: "nixpacks",
+      warnings: missingGradleSettings
+        ? [
+            "Nixpacks attend settings.gradle(.kts) pour détecter un projet Gradle ; ajoute-le ou fournis un Dockerfile.",
+          ]
+        : [],
       suggestedEnvVars: {},
+      ...(missingGradleSettings
+        ? { requiresExplicitBuildChoice: true }
+        : {}),
     }
   }
 
@@ -595,7 +673,7 @@ export function classifyStack(probes: ProbeResults): StackClassification {
       framework: "Static HTML",
       confidence: "medium",
       signals: ["index.html"],
-      recommendedBuild: "nixpacks",
+      recommendedBuild: "static",
       warnings: [],
       suggestedEnvVars: {},
     }
@@ -675,6 +753,71 @@ export function classifyStackWithManifests(
     }
   }
 
+  const astroFromPackage =
+    base.stack === "node" && hasPackage(packageJson, "astro")
+  if (base.stack === "astro" || astroFromPackage) {
+    const astroBase: StackClassification = astroFromPackage
+      ? {
+          ...base,
+          stack: "astro",
+          framework: "Astro",
+          confidence: "high",
+          signals: ["package.json"],
+        }
+      : base
+    const hasAstroConfig =
+      has(probes, "astro.config.mjs") || has(probes, "astro.config.ts")
+    const astroConfig =
+      manifests["astro.config.mjs"] ?? manifests["astro.config.ts"]
+    const outputTokenCount = astroConfig?.match(/\boutput\b/g)?.length ?? 0
+    const hasDirectConfigObject = /\bdefineConfig\s*\(\s*\{/.test(
+      astroConfig ?? ""
+    )
+    const configCanBeStatic =
+      !hasAstroConfig ||
+      (Boolean(astroConfig?.trim()) &&
+        hasDirectConfigObject &&
+        !/\.\.\./.test(astroConfig ?? "") &&
+        !/\badapter\b/.test(astroConfig ?? "") &&
+        (outputTokenCount === 0 ||
+          (outputTokenCount === 1 &&
+            /\boutput\s*:\s*["']static["']/.test(astroConfig ?? ""))))
+
+    if (configCanBeStatic) {
+      return {
+        ...astroBase,
+        recommendedBuild: "static",
+        suggestedEnvVars: {},
+      }
+    }
+
+    return mergeSuggestedEnvVars(astroBase, {
+      NIXPACKS_NODE_VERSION: "22",
+    })
+  }
+
+  const packageScripts = asObject(packageJson?.scripts)
+  const packageBuildScript =
+    typeof packageScripts?.build === "string" ? packageScripts.build : ""
+  const hasPackageStartScript = typeof packageScripts?.start === "string"
+  if (
+    (base.stack === "node" || base.stack === "bun") &&
+    has(probes, "index.html") &&
+    hasPackage(packageJson, "vite") &&
+    /(?:^|\s|&&)vite\s+build(?:\s|$)/.test(packageBuildScript) &&
+    !hasPackageStartScript
+  ) {
+    return {
+      stack: "static",
+      framework: "Vite",
+      confidence: "high",
+      signals: ["package.json", "index.html"],
+      recommendedBuild: "static",
+      warnings: [],
+      suggestedEnvVars: {},
+    }
+  }
+
   if (base.stack === "node" && hasPackage(packageJson, "hono")) {
     return {
       ...mergeSuggestedEnvVars(base, {
@@ -710,7 +853,7 @@ export function classifyStackWithManifests(
     })
   }
 
-  if (base.stack === "remix" || base.stack === "astro") {
+  if (base.stack === "remix") {
     return mergeSuggestedEnvVars(base, {
       NIXPACKS_NODE_VERSION: "22",
     })
@@ -722,7 +865,7 @@ export function classifyStackWithManifests(
       stack: "hono",
       framework: "Hono",
       confidence: "high",
-      signals: ["package.json", "bun.lockb"],
+      signals: base.signals,
     }
   }
 
@@ -733,27 +876,85 @@ export function classifyStackWithManifests(
   }
 
   if (base.stack === "python") {
-    const pythonManifests = manifests["requirements.txt"] ?? manifests["pyproject.toml"] ?? ""
-    if (/fastapi/i.test(pythonManifests)) {
+    const requirements = manifests["requirements.txt"]
+    const pyproject = manifests["pyproject.toml"]
+    if (pythonManifestDeclaresPackage(requirements, pyproject, "fastapi")) {
+      const hasUvicorn = pythonManifestDeclaresPackage(
+        requirements,
+        pyproject,
+        "uvicorn"
+      )
+      const moduleName = has(probes, "main.py")
+        ? "main"
+        : has(probes, "app.py")
+          ? "app"
+          : null
       return {
-        ...mergeSuggestedEnvVars(base, { PYTHONUNBUFFERED: "1" }),
+        ...mergeSuggestedEnvVars(base, {
+          NIXPACKS_PYTHON_VERSION: "3.12",
+          PYTHONUNBUFFERED: "1",
+        }),
         stack: "fastapi",
         framework: "FastAPI",
         confidence: "high",
+        ...(moduleName && hasUvicorn
+          ? {
+              suggestedStartCommand: `uvicorn ${moduleName}:app --host 0.0.0.0 --port \$PORT`,
+            }
+          : {
+              warnings: [
+                ...base.warnings,
+                !hasUvicorn
+                  ? "FastAPI détecté sans dépendance uvicorn : ajoute uvicorn au projet avant de configurer sa commande de démarrage."
+                  : "FastAPI détecté sans main.py/app.py : configure explicitement la commande uvicorn.",
+              ],
+            }),
       }
     }
-    if (/flask/i.test(pythonManifests)) {
+    if (pythonManifestDeclaresPackage(requirements, pyproject, "flask")) {
+      const hasGunicorn = pythonManifestDeclaresPackage(
+        requirements,
+        pyproject,
+        "gunicorn"
+      )
+      const moduleName = has(probes, "wsgi.py")
+        ? "wsgi"
+        : has(probes, "app.py")
+          ? "app"
+          : null
       return {
-        ...mergeSuggestedEnvVars(base, { PYTHONUNBUFFERED: "1" }),
+        ...mergeSuggestedEnvVars(base, {
+          NIXPACKS_PYTHON_VERSION: "3.12",
+          PYTHONUNBUFFERED: "1",
+        }),
         stack: "flask",
         framework: "Flask",
         confidence: "high",
+        ...(moduleName && hasGunicorn
+          ? {
+              suggestedStartCommand: `gunicorn --bind 0.0.0.0:\$PORT ${moduleName}:app`,
+            }
+          : {
+              warnings: [
+                ...base.warnings,
+                !hasGunicorn
+                  ? "Flask détecté sans dépendance gunicorn : ajoute gunicorn au projet avant de configurer sa commande de démarrage."
+                  : "Flask détecté sans app.py/wsgi.py : configure explicitement la commande gunicorn.",
+              ],
+            }),
       }
     }
+    return mergeSuggestedEnvVars(base, {
+      NIXPACKS_PYTHON_VERSION: "3.12",
+      PYTHONUNBUFFERED: "1",
+    })
   }
 
   if (base.stack === "django") {
-    return mergeSuggestedEnvVars(base, { PYTHONUNBUFFERED: "1" })
+    return mergeSuggestedEnvVars(base, {
+      NIXPACKS_PYTHON_VERSION: "3.12",
+      PYTHONUNBUFFERED: "1",
+    })
   }
 
   if (base.stack === "ruby" && manifestContains(manifests, ["Gemfile"], /\brails\b/)) {

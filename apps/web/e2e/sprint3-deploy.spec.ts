@@ -128,9 +128,15 @@ test.describe("sprint3 — deploy flow < 2 min", () => {
     await page.getByText(repoName, { exact: false }).first().click();
 
     const branch = process.env.E2E_TEST_REPO_BRANCH ?? "main";
-    // Wait for branch select to populate.
-    await page.waitForSelector("select#branch-select");
-    await page.locator("select#branch-select").selectOption(branch);
+    // Repository selection opens the branch picker dialog.
+    const branchDialog = page.getByRole("dialog", {
+      name: "Choisir une branche",
+    });
+    await expect(branchDialog).toBeVisible();
+    await branchDialog.getByText(branch, { exact: true }).click();
+    await branchDialog
+      .getByRole("button", { name: "Choisir cette branche" })
+      .click();
 
     await page.getByRole("button", { name: /next/i }).click();
 

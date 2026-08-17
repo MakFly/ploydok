@@ -416,12 +416,15 @@ export function deriveDefaultAppDomainBase(opts: {
     return `${publicHost.replace(/\./g, "-")}.sslip.io`
   }
 
+  // `.localhost` resolves to loopback without any DNS or /etc/hosts entry, and
+  // wildcards work out of the box. A `.local` base would be swallowed by mDNS
+  // on most Linux hosts (`nsswitch` stops at `[NOTFOUND=return]`).
   if (
     !publicHost ||
     publicHost === "localhost" ||
     publicHost.endsWith(".local")
   ) {
-    return "demo.ploydok.local"
+    return "demo.localhost"
   }
 
   return `apps.${publicHost}`
@@ -874,7 +877,8 @@ export function createAppsRouter(db: Db): Hono {
           {
             error: {
               code: "GITHUB_INSTALLATION_NOT_ACCESSIBLE",
-              message: "The selected GitHub installation is not accessible to this user",
+              message:
+                "The selected GitHub installation is not accessible to this user",
             },
           },
           412

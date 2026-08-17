@@ -230,7 +230,7 @@ function AppDeploymentsTab(): React.JSX.Element {
 
   if (error) {
     return (
-      <div className="w-full px-4 py-6 md:px-8 md:py-8">
+      <div className="w-full space-y-4 px-4 py-6 md:px-8 md:py-8">
         <p className="text-sm text-destructive" role="alert">
           Failed to load deployments: {error.message}
         </p>
@@ -253,7 +253,7 @@ function AppDeploymentsTab(): React.JSX.Element {
               <p className="text-sm font-semibold text-destructive">
                 {selectedFailure.label}
               </p>
-              <pre className="mt-2 max-h-36 overflow-auto whitespace-pre-wrap break-words rounded-md bg-background/70 p-3 font-mono text-xs text-foreground">
+              <pre className="mt-2 max-h-36 overflow-auto rounded-md bg-background p-3 font-mono text-xs break-words whitespace-pre-wrap text-foreground">
                 {selectedFailure.message}
               </pre>
             </div>
@@ -281,17 +281,7 @@ function AppDeploymentsTab(): React.JSX.Element {
 
       {app ? (
         <>
-          <section className="flex flex-col gap-3">
-            <header>
-              <h2 className="text-base font-semibold text-foreground">
-                Build & runtime
-              </h2>
-              <p className="text-xs text-muted-foreground">
-                Deployment pipeline settings for this application.
-              </p>
-            </header>
-            <AppBuildRuntimeSettings app={app} />
-          </section>
+          <AppBuildRuntimeSettings app={app} />
 
           <Separator />
         </>
@@ -299,8 +289,8 @@ function AppDeploymentsTab(): React.JSX.Element {
 
       <section className="flex flex-col gap-3">
         <header>
-          <h2 className="text-base font-semibold text-foreground">Triggers</h2>
-          <p className="text-xs text-muted-foreground">
+          <h2 className="text-sm font-semibold">Triggers</h2>
+          <p className="text-xs leading-5 text-muted-foreground">
             How a push or a webhook becomes a deploy.
           </p>
         </header>
@@ -311,8 +301,8 @@ function AppDeploymentsTab(): React.JSX.Element {
 
       <section className="flex flex-col gap-3">
         <header>
-          <h2 className="text-base font-semibold text-foreground">Webhooks</h2>
-          <p className="text-xs text-muted-foreground">
+          <h2 className="text-sm font-semibold">Webhooks</h2>
+          <p className="text-xs leading-5 text-muted-foreground">
             Inbound provider deliveries and signing secret.
           </p>
         </header>

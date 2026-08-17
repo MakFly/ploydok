@@ -82,7 +82,7 @@ mock.module("../debug/singletons", () => ({
   getSharedCaddy: () => ({}),
 }))
 
-const { createDiskRouter } = await import("./disk")
+const { createDiskRouter, resetDiskUsageCache } = await import("./disk")
 
 // ---------------------------------------------------------------------------
 // Test app builder — injects a fake auth middleware
@@ -117,6 +117,7 @@ beforeEach(() => {
   fakeJob = null
   mockImageDf.mockClear()
   mockHostStats.mockClear()
+  resetDiskUsageCache()
 })
 
 describe("GET /disk/jobs/:jobId", () => {
@@ -223,5 +224,63 @@ describe("GET /disk/usage", () => {
     const app = buildTestApp(fakeUser())
     const res = await app.request("/disk/usage")
     expect(res.status).toBe(502)
+  })
+
+  it("serves a second read from cache without re-walking the agent", async () => {
+    const app = buildTestApp(fakeUser())
+    await app.request("/disk/usage")
+    const res = await app.request("/disk/usage")
+
+    expect(res.status).toBe(200)
+    const body = (await res.json()) as { stale: boolean }
+    expect(body.stale).toBe(false)
+    expect(mockImageDf).toHaveBeenCalledTimes(1)
+  })
+
+  it("answers ?refresh=1 from cache without waiting, and re-walks behind it", async () => {
+    const app = buildTestApp(fakeUser())
+    await app.request("/disk/usage") // warms the cache with the default mock
+
+    let release: (() => void) | undefined
+    mockImageDf.mockImplementationOnce(async () => {
+      await new Promise<void>((resolve) => {
+        release = resolve
+      })
+      return { categories: [], layersSizeBytes: 42 }
+    })
+
+    const res = await app.request("/disk/usage?refresh=1")
+
+    // Returned while the second walk is still blocked on `release`.
+    expect(res.status).toBe(200)
+    const body = (await res.json()) as {
+      stale: boolean
+      layersSizeBytes: number
+    }
+    expect(body.stale).toBe(true)
+    expect(body.layersSizeBytes).toBe(900)
+    expect(mockImageDf).toHaveBeenCalledTimes(2)
+
+    release?.()
+    await Bun.sleep(0)
+
+    const after = (await (await app.request("/disk/usage")).json()) as {
+      stale: boolean
+      layersSizeBytes: number
+    }
+    expect(after.stale).toBe(false)
+    expect(after.layersSizeBytes).toBe(42)
+  })
+
+  it("coalesces concurrent cold reads into a single agent walk", async () => {
+    const app = buildTestApp(fakeUser())
+    const [a, b, c] = await Promise.all([
+      app.request("/disk/usage"),
+      app.request("/disk/usage"),
+      app.request("/disk/usage"),
+    ])
+
+    expect([a.status, b.status, c.status]).toEqual([200, 200, 200])
+    expect(mockImageDf).toHaveBeenCalledTimes(1)
   })
 })

@@ -7,14 +7,14 @@ import { and, eq, or } from "drizzle-orm"
 import { ENV_FILE_PROBE_KEYS, MANIFEST_FILE_PROBE_KEYS } from "@ploydok/shared"
 import { createDb } from "@ploydok/db"
 import {
-  deleteGitHubAppConfig,
+  deleteGitHubAppLocalState,
   deleteGitHubInstallationUser,
   deleteGitHubInstallationUserForUser,
-  deleteGitHubInstallationUsers,
   assignGitHubInstallationToUser,
   getCacheStatus,
   getGitHubAppConfig,
   getInstallationStaleness,
+  lockGitHubAppConfigForReset,
   listInstallations,
   listGitHubInstallationIdsForUser,
   listRepos,
@@ -23,15 +23,21 @@ import {
 } from "@ploydok/db/queries"
 import type { ProviderRepoRow } from "@ploydok/db/queries"
 import { provider_credentials, provider_installations } from "@ploydok/db"
-import { decryptField, encryptField } from "../github/app-credentials"
+import {
+  decryptAppPrivateKey,
+  decryptField,
+  encryptField,
+} from "../github/app-credentials"
 import { buildManifest } from "../github/manifest"
 import { childLogger } from "../logger"
 import { GitHubCache } from "../github/cache"
 import { GitHubProvider } from "../github/client"
 import {
+  evictAllInstallationTokens,
   listAppInstallations,
   revokeAppInstallation,
 } from "../github/installation-tokens"
+import { GitHubAppCredentialsError } from "../github/errors"
 import { handleWebhook, verifySignature } from "../github/webhook"
 import { findRecentByPayloadHash } from "../webhooks/deliveries"
 import { githubWebhookRateLimit } from "../webhooks/rate-limiters"
@@ -44,6 +50,7 @@ import {
   sanitizeReturnTo,
 } from "./provider-return"
 import type { ProviderReturnPath } from "./provider-return"
+import { isAllowedNestedProviderFilePath } from "./provider-file-path"
 import { isInstanceAdmin, requireInstanceAdmin } from "../auth/instance-admin"
 
 // ---------------------------------------------------------------------------
@@ -54,6 +61,9 @@ const ghCache = new GitHubCache()
 export const ghProvider = new GitHubProvider(ghCache)
 
 const log = childLogger("github.routes")
+
+const GITHUB_APP_CREDENTIALS_UNREADABLE_MESSAGE =
+  "The stored GitHub App private key cannot be decrypted. MASTER_KEY may have changed; restore the original key or recreate the GitHub App. No GitHub installation was modified."
 
 const ImportGitHubAppConfigBody = z.object({
   appId: z.string().trim().regex(/^\d+$/, "appId must be numeric"),
@@ -86,18 +96,15 @@ function emptyFileProbeResult(
 }
 
 function isAllowedEnvFilePath(path: string): boolean {
-  return ENV_FILE_PROBE_KEYS.includes(
-    path as (typeof ENV_FILE_PROBE_KEYS)[number]
-  )
+  return isAllowedNestedProviderFilePath(path, ENV_FILE_PROBE_KEYS)
 }
 
 function isAllowedManifestFilePath(path: string): boolean {
-  return MANIFEST_FILE_PROBE_KEYS.includes(
-    path as (typeof MANIFEST_FILE_PROBE_KEYS)[number]
-  )
+  return isAllowedNestedProviderFilePath(path, MANIFEST_FILE_PROBE_KEYS)
 }
 
 const RESET_APP_CONFIRMATION = "uninstall-github-installations"
+const FORGET_LOCAL_APP_CONFIRMATION = "forget-local-github-app"
 
 // ---------------------------------------------------------------------------
 // Router
@@ -115,6 +122,8 @@ const githubAppAdmin = requireInstanceAdmin(db)
 githubRouter.use("/app/manifest", githubAppAdmin)
 githubRouter.use("/app/import", githubAppAdmin)
 githubRouter.use("/app/config", githubAppAdmin)
+githubRouter.use("/app/config/local", githubAppAdmin)
+githubRouter.use("/app/credentials/status", githubAppAdmin)
 
 async function markGitHubInstallationSyncPending(opts: {
   installationId: string
@@ -187,6 +196,30 @@ function normalizePem(value: string): string {
   return trimmed.includes("\\n") && !trimmed.includes("\n")
     ? trimmed.replaceAll("\\n", "\n")
     : trimmed
+}
+
+function isSameStoredGitHubApp(
+  expected: NonNullable<Awaited<ReturnType<typeof getGitHubAppConfig>>>,
+  current: NonNullable<Awaited<ReturnType<typeof getGitHubAppConfig>>>
+): boolean {
+  const sameValue = (left: unknown, right: unknown) =>
+    Buffer.isBuffer(left) && Buffer.isBuffer(right)
+      ? left.equals(right)
+      : left === right
+
+  return (
+    current.id === expected.id &&
+    current.app_id === expected.app_id &&
+    current.client_id === expected.client_id &&
+    current.slug === expected.slug &&
+    current.name === expected.name &&
+    sameValue(current.client_secret_enc, expected.client_secret_enc) &&
+    sameValue(current.client_secret_nonce, expected.client_secret_nonce) &&
+    sameValue(current.pem_enc, expected.pem_enc) &&
+    sameValue(current.pem_nonce, expected.pem_nonce) &&
+    sameValue(current.webhook_secret_enc, expected.webhook_secret_enc) &&
+    sameValue(current.webhook_secret_nonce, expected.webhook_secret_nonce)
+  )
 }
 
 // ---------------------------------------------------------------------------
@@ -344,10 +377,28 @@ async function getUserGitHubInstallationIds(userId: string): Promise<string[]> {
   return listGitHubInstallationIdsForUser(db, userId)
 }
 
+async function getAccessibleGitHubInstallationIds(
+  userId: string
+): Promise<string[]> {
+  if (!(await isInstanceAdmin(db, userId))) {
+    return getUserGitHubInstallationIds(userId)
+  }
+  const installations = await listAppInstallations()
+  return installations.map((installation) => String(installation.id))
+}
+
 async function listUserGitHubInstallations(userId: string) {
   const allowedIds = new Set(await getUserGitHubInstallationIds(userId))
   if (allowedIds.size === 0) return []
-  const installations = await listAppInstallations().catch(() => [])
+  // A GitHub outage and a revoked installation both end up as an empty list
+  // here. Callers cannot tell them apart, so at least leave a trace.
+  const installations = await listAppInstallations().catch((err: unknown) => {
+    log.warn(
+      { err, userId },
+      "listAppInstallations failed; treating the user as having no installation"
+    )
+    return []
+  })
   return installations.filter((installation) =>
     allowedIds.has(String(installation.id))
   )
@@ -369,11 +420,13 @@ function preferredInstallations(
 // ---------------------------------------------------------------------------
 
 function dbRowToWire(row: ProviderRepoRow) {
+  const installationId = normalizeGitHubInstallationId(row.installation_id)
   return {
     id: row.id,
     fullName: row.full_name,
     description: row.description ?? null,
     private: row.private,
+    ...(installationId ? { installationId } : {}),
     defaultBranch: row.default_branch ?? "main",
     cloneUrl: row.html_url
       ? row.html_url.replace(/\/?$/, ".git")
@@ -508,7 +561,7 @@ githubRouter.get("/repos", async (c) => {
       try {
         const repo = await ghProvider.getRepo(String(inst.id), search)
         return c.json({
-          repos: [repo],
+          repos: [{ ...repo, installationId: String(inst.id) }],
           page: 1,
           perPage,
           hasMore: false,
@@ -563,7 +616,13 @@ githubRouter.post("/installations/sync", async (c) => {
   if (installationId === null) {
     return c.json({ error: "invalid_installation_id" }, 400)
   }
-  const allowedIds = await getUserGitHubInstallationIds(user.id)
+  let allowedIds: string[]
+  try {
+    allowedIds = await getAccessibleGitHubInstallationIds(user.id)
+  } catch (err) {
+    log.error({ err, userId: user.id }, "failed to resolve GitHub sync scope")
+    return c.json({ error: "github_api_error", detail: String(err) }, 502)
+  }
   if (installationId && !allowedIds.includes(installationId)) {
     return c.json({ error: "github_installation_not_found" }, 404)
   }
@@ -596,7 +655,8 @@ githubRouter.post("/installations/sync", async (c) => {
 
 // ---------------------------------------------------------------------------
 // GET /github/installations/cache-status  (auth required)
-// Returns the freshness + cached repo count for every github installation.
+// Returns cache status for every live installation to instance admins, and
+// only user-linked installations to members.
 // ---------------------------------------------------------------------------
 
 const STALE_THRESHOLD_MS = 10 * 60 * 1000
@@ -604,7 +664,13 @@ const STALE_THRESHOLD_MS = 10 * 60 * 1000
 githubRouter.get("/installations/cache-status", async (c) => {
   const userId = getUserId(c)
   if (!userId) return c.json({ error: "unauthenticated" }, 401)
-  const installationIds = await getUserGitHubInstallationIds(userId)
+  let installationIds: string[]
+  try {
+    installationIds = await getAccessibleGitHubInstallationIds(userId)
+  } catch (err) {
+    log.error({ err, userId }, "failed to resolve GitHub cache-status scope")
+    return c.json({ error: "github_api_error", detail: String(err) }, 502)
+  }
   const rows = await getCacheStatus(
     db,
     "github",
@@ -646,7 +712,15 @@ githubRouter.get("/repos/:owner/:repo/branches", async (c) => {
 
   const installations = await listUserGitHubInstallations(userId)
   if (installations.length === 0) {
-    return c.json({ branches: [] })
+    // The repo picker is served from the cached repo table, so it stays
+    // populated after an installation is revoked on GitHub. Without this flag
+    // the wizard would report "no branches" for a repo that simply is not
+    // reachable any more.
+    return c.json({
+      branches: [],
+      needsInstall: true,
+      installUrl: `${getApiOrigin()}/github/installations/start`,
+    })
   }
 
   // Prefer the installation whose account matches the repo owner.
@@ -859,7 +933,8 @@ githubRouter.get("/repos/:owner/:repo/manifest-file", async (c) => {
 
 // ---------------------------------------------------------------------------
 // GET /github/installations  (auth required)
-// Lists every account/org where the Ploydok GitHub App is installed.
+// Instance admins see every live GitHub App installation. Members see only
+// installations explicitly linked to their user mapping.
 // ---------------------------------------------------------------------------
 
 githubRouter.get("/installations", async (c) => {
@@ -871,7 +946,9 @@ githubRouter.get("/installations", async (c) => {
   }
 
   try {
-    const installations = await listUserGitHubInstallations(userId)
+    const installations = (await isInstanceAdmin(db, userId))
+      ? await listAppInstallations()
+      : await listUserGitHubInstallations(userId)
     // Enrich each with a repository count (best-effort; skip on error).
     const enriched = await Promise.all(
       installations.map(async (inst) => {
@@ -897,16 +974,18 @@ githubRouter.get("/installations", async (c) => {
 })
 
 // ---------------------------------------------------------------------------
-// GET /github/installations/start  (auth required)
-// Creates a signed one-time-ish state cookie, then redirects to GitHub's App
-// installation UI. The setup callback validates this state before bouncing
-// back to the SPA.
+// GET /github/installations/start  (instance admin required)
+// Only an instance admin may start adding/updating a global App installation.
+// The signed state binds that admin for revalidation in the public callback.
 // ---------------------------------------------------------------------------
 
 githubRouter.get("/installations/start", async (c) => {
   const user = c.get("user")
   if (!user) {
     return c.json({ error: "unauthenticated" }, 401)
+  }
+  if (!(await isInstanceAdmin(db, user.id))) {
+    return c.json({ error: "admin_required" }, 403)
   }
   const config = await getGitHubAppConfig(db)
   if (!config) {
@@ -932,7 +1011,8 @@ githubRouter.get("/installations/start", async (c) => {
 
 // ---------------------------------------------------------------------------
 // DELETE /github/installations/:id  (auth required)
-// Revokes the installation — Ploydok loses access to all repos in that org/user.
+// Members disconnect only their own local mapping. Instance admins revoke the
+// GitHub installation globally and remove its local state.
 // ---------------------------------------------------------------------------
 
 githubRouter.delete("/installations/:id", async (c) => {
@@ -976,13 +1056,12 @@ githubRouter.delete("/installations/:id", async (c) => {
 })
 
 // ---------------------------------------------------------------------------
-// GET /github/app/setup  (public — GitHub redirects here after install/update)
+// GET /github/app/setup  (public GitHub redirect; signed admin state required)
 // ---------------------------------------------------------------------------
 // GitHub appends `?installation_id=X&setup_action=install|update` when a user
-// finishes installing (or updating) the App. We simply forward those params
-// to the SPA so it can show a success banner and refetch the installations
-// list. Security note: never trust `installation_id` — the UI re-queries
-// /github/installations via App JWT to get the authoritative list.
+// finishes installing (or updating) the App. Before any mapping, credential
+// write, or enqueue, the callback verifies that the user bound into the signed
+// state is still an instance admin. Never trust `installation_id` alone.
 // ---------------------------------------------------------------------------
 
 githubRouter.get("/app/setup", async (c) => {
@@ -1010,39 +1089,45 @@ githubRouter.get("/app/setup", async (c) => {
 
   c.header("Set-Cookie", clearCookieStr(INSTALL_STATE_COOKIE))
   if (stateValid) {
-    const normalizedInstallationId =
-      normalizeGitHubInstallationId(installationId)
-    if (!normalizedInstallationId) {
-      params.set("install_error", "missing_installation_id")
+    const requestedByIsAdmin = requestedBy
+      ? await isInstanceAdmin(db, requestedBy)
+      : false
+    if (!requestedByIsAdmin) {
+      params.set("install_error", "admin_required")
     } else {
-      const syncId = nanoid()
-      try {
-        await markGitHubInstallationSyncPending({
-          installationId: normalizedInstallationId,
-          actorUserId: requestedBy,
-          source: "api",
-        })
-        if (requestedBy) {
+      const actorUserId = requestedBy as string
+      const normalizedInstallationId =
+        normalizeGitHubInstallationId(installationId)
+      if (!normalizedInstallationId) {
+        params.set("install_error", "missing_installation_id")
+      } else {
+        const syncId = nanoid()
+        try {
+          await markGitHubInstallationSyncPending({
+            installationId: normalizedInstallationId,
+            actorUserId,
+            source: "api",
+          })
           await assignGitHubInstallationToUser(
             db,
             normalizedInstallationId,
-            requestedBy
+            actorUserId
           )
+          await enqueueProviderReposSync({
+            provider: "github",
+            installationId: normalizedInstallationId,
+            requestedBy: actorUserId,
+            syncId,
+          })
+          params.set("installed", "1")
+          params.set("sync_id", syncId)
+        } catch (err) {
+          log.error(
+            { err, installationId: normalizedInstallationId, syncId },
+            "github setup callback sync enqueue failed"
+          )
+          params.set("install_error", "sync_failed")
         }
-        await enqueueProviderReposSync({
-          provider: "github",
-          installationId: normalizedInstallationId,
-          ...(requestedBy ? { requestedBy } : {}),
-          syncId,
-        })
-        params.set("installed", "1")
-        if (requestedBy) params.set("sync_id", syncId)
-      } catch (err) {
-        log.error(
-          { err, installationId: normalizedInstallationId, syncId },
-          "github setup callback sync enqueue failed"
-        )
-        params.set("install_error", "sync_failed")
       }
     }
   } else if (state || rawInstallStateCookie) {
@@ -1274,6 +1359,95 @@ githubRouter.get("/app/config", async (c) => {
 })
 
 // ---------------------------------------------------------------------------
+// GET /github/app/credentials/status  (instance admin only)
+// ---------------------------------------------------------------------------
+
+githubRouter.get("/app/credentials/status", async (c) => {
+  const config = await getGitHubAppConfig(db)
+  if (!config) {
+    return c.json({ status: "not_configured" as const })
+  }
+
+  try {
+    await decryptAppPrivateKey(config)
+    return c.json({ status: "readable" as const })
+  } catch (err) {
+    if (!(err instanceof GitHubAppCredentialsError)) {
+      throw err
+    }
+
+    log.warn({ err }, "github app credentials check failed")
+    return c.json({
+      status: "unreadable" as const,
+      error: {
+        code: "GITHUB_APP_CREDENTIALS_UNREADABLE" as const,
+        message: GITHUB_APP_CREDENTIALS_UNREADABLE_MESSAGE,
+      },
+    })
+  }
+})
+
+// ---------------------------------------------------------------------------
+// DELETE /github/app/config/local  (instance admin only — local recovery)
+// ---------------------------------------------------------------------------
+
+githubRouter.delete("/app/config/local", async (c) => {
+  if (c.req.query("confirm") !== FORGET_LOCAL_APP_CONFIRMATION) {
+    return c.json(
+      {
+        error: {
+          code: "CONFIRMATION_REQUIRED",
+          message:
+            "Pass confirm=forget-local-github-app to forget the unreadable GitHub App configuration locally.",
+        },
+      },
+      400
+    )
+  }
+
+  const reset = await db.transaction(async (tx) => {
+    const transactionDb = tx as unknown as typeof db
+    const config = await lockGitHubAppConfigForReset(transactionDb)
+    if (config) {
+      try {
+        await decryptAppPrivateKey(config)
+        return false
+      } catch (err) {
+        if (!(err instanceof GitHubAppCredentialsError)) {
+          throw err
+        }
+      }
+    }
+
+    await deleteGitHubAppLocalState(transactionDb)
+    return true
+  })
+  if (!reset) {
+    return c.json(
+      {
+        error: {
+          code: "GITHUB_APP_LOCAL_RESET_NOT_ALLOWED",
+          message:
+            "The GitHub App credentials are readable. Use the standard reset to uninstall remote installations first.",
+        },
+      },
+      409
+    )
+  }
+
+  evictAllInstallationTokens()
+  log.warn(
+    { remoteInstallationsModified: false },
+    "forgot unreadable GitHub App configuration locally"
+  )
+  return c.json({
+    ok: true,
+    forgotten: true,
+    remoteInstallationsModified: false,
+  })
+})
+
+// ---------------------------------------------------------------------------
 // DELETE /github/app/config  (auth required — destructive admin reset)
 // ---------------------------------------------------------------------------
 
@@ -1291,7 +1465,26 @@ githubRouter.delete("/app/config", async (c) => {
 
   const config = await getGitHubAppConfig(db)
   if (!config) {
-    await deleteGitHubInstallationUsers(db)
+    const reset = await db.transaction(async (tx) => {
+      const transactionDb = tx as unknown as typeof db
+      const currentConfig = await lockGitHubAppConfigForReset(transactionDb)
+      if (currentConfig) return false
+      await deleteGitHubAppLocalState(transactionDb)
+      return true
+    })
+    if (!reset) {
+      return c.json(
+        {
+          error: {
+            code: "GITHUB_APP_CONFIG_CHANGED",
+            message:
+              "The GitHub App configuration changed during reset. Retry using the appropriate reset flow.",
+          },
+        },
+        409
+      )
+    }
+    evictAllInstallationTokens()
     return c.json({ ok: true, uninstalled: 0 })
   }
 
@@ -1300,10 +1493,23 @@ githubRouter.delete("/app/config", async (c) => {
     installations = await listAppInstallations()
   } catch (err) {
     log.error({ err }, "github app reset failed while listing installations")
+    if (err instanceof GitHubAppCredentialsError) {
+      return c.json(
+        {
+          error: {
+            code: "GITHUB_APP_CREDENTIALS_UNREADABLE",
+            message: GITHUB_APP_CREDENTIALS_UNREADABLE_MESSAGE,
+          },
+        },
+        500
+      )
+    }
     return c.json(
       {
-        error: "github_api_error",
-        detail: String(err),
+        error: {
+          code: "GITHUB_API_ERROR",
+          message: "Unable to list GitHub App installations.",
+        },
       },
       502
     )
@@ -1319,8 +1525,10 @@ githubRouter.delete("/app/config", async (c) => {
       )
       return c.json(
         {
-          error: "github_api_error",
-          detail: String(err),
+          error: {
+            code: "GITHUB_API_ERROR",
+            message: "Unable to uninstall the GitHub App installation.",
+          },
           failed_installation_id: installation.id,
         },
         502
@@ -1328,14 +1536,28 @@ githubRouter.delete("/app/config", async (c) => {
     }
   }
 
-  await db
-    .delete(provider_credentials)
-    .where(eq(provider_credentials.provider, "github"))
-  await db
-    .delete(provider_installations)
-    .where(eq(provider_installations.provider, "github"))
-  await deleteGitHubInstallationUsers(db)
-  await deleteGitHubAppConfig(db)
+  const reset = await db.transaction(async (tx) => {
+    const transactionDb = tx as unknown as typeof db
+    const currentConfig = await lockGitHubAppConfigForReset(transactionDb)
+    if (currentConfig && !isSameStoredGitHubApp(config, currentConfig)) {
+      return false
+    }
+    await deleteGitHubAppLocalState(transactionDb)
+    return true
+  })
+  if (!reset) {
+    return c.json(
+      {
+        error: {
+          code: "GITHUB_APP_CONFIG_CHANGED",
+          message:
+            "The GitHub App configuration changed during reset. The current local configuration was preserved.",
+        },
+      },
+      409
+    )
+  }
+  evictAllInstallationTokens()
   return c.json({ ok: true, uninstalled: installations.length })
 })
 

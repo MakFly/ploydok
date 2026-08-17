@@ -9,12 +9,20 @@ import { decryptSecret, encryptSecret } from "../secrets/crypto"
 import {
   ensureFrameworkEnvVars,
   generateLaravelAppKey,
+  phaseForFrameworkEnvKey,
   sanitizeFrameworkEnvValues,
   sanitizeLaravelEnvValues,
   suggestedEnvForFramework,
 } from "./framework-env"
 
 describe("framework env guardrails", () => {
+  it("puts builder selectors and compile-time framework env in the build", () => {
+    expect(phaseForFrameworkEnvKey("NIXPACKS_PYTHON_VERSION")).toBe("build")
+    expect(phaseForFrameworkEnvKey("MIX_ENV")).toBe("both")
+    expect(phaseForFrameworkEnvKey("RAILS_ENV")).toBe("both")
+    expect(phaseForFrameworkEnvKey("PHX_SERVER")).toBe("runtime")
+  })
+
   it("generates Laravel-compatible APP_KEY values", () => {
     expect(generateLaravelAppKey()).toMatch(/^base64:[A-Za-z0-9+/]+=*$/)
   })

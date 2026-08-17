@@ -13,7 +13,7 @@ export function GettingStartedPanel({
 }): React.JSX.Element {
   return (
     <ShellPanel title="Get started" description="Les premières étapes utiles.">
-      <div className="space-y-3">
+      <div className="space-y-2">
         <MiniStep
           label="Connect GitHub"
           body={
@@ -39,6 +39,31 @@ export function GettingStartedPanel({
   )
 }
 
+const miniItemClass =
+  "group flex min-h-12 w-full items-center justify-between gap-3 rounded-xl border border-panel-border bg-panel-inset px-4 py-3 text-left shadow-sm transition-colors outline-none hover:border-muted-foreground/30 hover:bg-accent/40 focus-visible:ring-2 focus-visible:ring-ring"
+
+function MiniItemContent({
+  label,
+  body,
+}: {
+  label: string
+  body: string
+}): React.JSX.Element {
+  return (
+    <>
+      <span className="min-w-0">
+        <span className="block text-sm font-medium text-foreground">
+          {label}
+        </span>
+        <span className="block text-xs leading-5 text-muted-foreground">
+          {body}
+        </span>
+      </span>
+      <RiArrowRightUpLine className="size-4 shrink-0 text-muted-foreground transition-colors group-hover:text-foreground" />
+    </>
+  )
+}
+
 export function MiniStep({
   label,
   body,
@@ -54,17 +79,8 @@ export function MiniStep({
     typeof Link
   >[0]
   return (
-    <Link
-      {...linkProps}
-      className="flex items-center justify-between rounded-md rounded-2xl bg-panel px-4 py-3 transition-colors hover:bg-accent/40"
-    >
-      <span>
-        <span className="block text-sm font-medium text-foreground">
-          {label}
-        </span>
-        <span className="block text-xs text-muted-foreground">{body}</span>
-      </span>
-      <RiArrowRightUpLine className="size-4 text-muted-foreground" />
+    <Link {...linkProps} className={miniItemClass}>
+      <MiniItemContent label={label} body={body} />
     </Link>
   )
 }
@@ -79,18 +95,8 @@ export function MiniButton({
   onClick: () => void
 }): React.JSX.Element {
   return (
-    <button
-      type="button"
-      onClick={onClick}
-      className="flex w-full items-center justify-between rounded-md rounded-2xl bg-panel px-4 py-3 text-left transition-colors hover:bg-accent/40"
-    >
-      <span>
-        <span className="block text-sm font-medium text-foreground">
-          {label}
-        </span>
-        <span className="block text-xs text-muted-foreground">{body}</span>
-      </span>
-      <RiArrowRightUpLine className="size-4 text-muted-foreground" />
+    <button type="button" onClick={onClick} className={miniItemClass}>
+      <MiniItemContent label={label} body={body} />
     </button>
   )
 }

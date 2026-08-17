@@ -88,7 +88,7 @@ function DarkSelect({
       value={value}
       onChange={onChange}
       aria-label={ariaLabel}
-      className="h-7 cursor-pointer rounded border border-zinc-700 bg-zinc-800 px-2 text-[11px] text-zinc-100 focus:ring-1 focus:ring-zinc-500 focus:outline-none"
+      className="h-7 cursor-pointer rounded border border-white/15 bg-white/10 px-2 text-xs text-[#e5e7eb] focus:ring-1 focus:ring-white/30 focus:outline-none"
     >
       {children}
     </select>
@@ -122,8 +122,8 @@ function IconToggle({
       className={cn(
         "inline-flex h-7 w-7 items-center justify-center rounded transition-colors",
         active
-          ? "bg-zinc-700 text-zinc-100"
-          : "text-zinc-400 hover:bg-zinc-700/60 hover:text-zinc-100"
+          ? "bg-white/15 text-[#e5e7eb]"
+          : "text-white/55 hover:bg-white/10 hover:text-[#e5e7eb]"
       )}
     >
       {children}
@@ -150,8 +150,8 @@ function CountChip({
     return (
       <span
         className={cn(
-          "inline-flex items-center gap-1 rounded px-1.5 py-0.5 text-[10px] font-medium",
-          "bg-zinc-800/40 text-zinc-600"
+          "inline-flex items-center gap-1 rounded px-1.5 py-0.5 text-[11px] font-medium",
+          "bg-white/5 text-white/40"
         )}
         title={`No ${level}s`}
       >
@@ -177,7 +177,7 @@ function CountChip({
           : `Show only ${level === "error" ? "errors" : "warnings"} (${count})`
       }
       className={cn(
-        "inline-flex items-center gap-1 rounded px-1.5 py-0.5 text-[10px] font-medium tabular-nums transition-colors",
+        "inline-flex items-center gap-1 rounded px-1.5 py-0.5 text-[11px] font-medium tabular-nums transition-colors",
         palette
       )}
     >
@@ -271,7 +271,7 @@ export function LogFilters({
   return (
     <div
       className={cn(
-        "flex flex-wrap items-center gap-2 border-b border-zinc-800 bg-zinc-900/95 px-4 py-2 backdrop-blur",
+        "flex flex-wrap items-center gap-2 border-b border-white/10 bg-white/5 px-4 py-2 backdrop-blur",
         className
       )}
       role="toolbar"
@@ -281,7 +281,7 @@ export function LogFilters({
       <div className="flex shrink-0 items-center gap-1.5">
         <label
           htmlFor="log-volume"
-          className="text-[11px] text-zinc-400 select-none"
+          className="text-xs text-white/55 select-none"
         >
           Lines
         </label>
@@ -303,7 +303,7 @@ export function LogFilters({
       <div className="flex shrink-0 items-center gap-1.5">
         <label
           htmlFor="log-level"
-          className="text-[11px] text-zinc-400 select-none"
+          className="text-xs text-white/55 select-none"
         >
           Level
         </label>
@@ -324,7 +324,7 @@ export function LogFilters({
       {/* Search with icon + clear button */}
       <div className="relative flex shrink-0 items-center">
         <RiSearchLine
-          className="pointer-events-none absolute left-2 size-3.5 text-zinc-500"
+          className="pointer-events-none absolute left-2 size-3.5 text-white/45"
           aria-hidden="true"
         />
         <input
@@ -333,7 +333,7 @@ export function LogFilters({
           value={searchDraft}
           onChange={handleSearchChange}
           placeholder="Search…  (press / to focus)"
-          className="h-7 w-56 rounded border border-zinc-700 bg-zinc-800 pr-6 pl-6 text-[11px] text-zinc-100 placeholder:text-zinc-500 focus:ring-1 focus:ring-zinc-500 focus:outline-none"
+          className="h-7 w-56 rounded border border-white/15 bg-white/10 pr-6 pl-6 text-xs text-[#e5e7eb] placeholder:text-white/40 focus:ring-1 focus:ring-white/30 focus:outline-none"
           aria-label="Search log lines"
         />
         {searchDraft && (
@@ -341,7 +341,7 @@ export function LogFilters({
             type="button"
             onClick={handleClearSearch}
             aria-label="Clear search"
-            className="absolute right-1.5 flex items-center justify-center rounded p-0.5 text-zinc-500 transition-colors hover:text-zinc-300"
+            className="absolute right-1.5 flex items-center justify-center rounded p-0.5 text-white/45 transition-colors hover:text-[#e5e7eb]"
           >
             <RiCloseLine className="size-3" aria-hidden="true" />
           </button>
@@ -366,25 +366,23 @@ export function LogFilters({
 
       {/* Jump to error nav */}
       {onJumpError && errorCount > 0 && (
-        <div className="flex shrink-0 items-center gap-0.5 rounded border border-zinc-700 bg-zinc-800/60">
+        <div className="flex shrink-0 items-center gap-0.5 rounded border border-white/15 bg-white/5">
           <button
             type="button"
             onClick={() => onJumpError("prev")}
             title="Previous error (Shift+N)"
             aria-label="Jump to previous error"
-            className="inline-flex h-7 w-6 items-center justify-center text-zinc-400 hover:bg-zinc-700/60 hover:text-zinc-100"
+            className="inline-flex h-7 w-6 items-center justify-center text-white/55 hover:bg-white/10 hover:text-[#e5e7eb]"
           >
             <RiArrowUpLine className="size-3.5" aria-hidden="true" />
           </button>
-          <span className="px-1 text-[10px] text-zinc-500 select-none">
-            err
-          </span>
+          <span className="px-1 text-xs text-white/45 select-none">err</span>
           <button
             type="button"
             onClick={() => onJumpError("next")}
             title="Next error (N)"
             aria-label="Jump to next error"
-            className="inline-flex h-7 w-6 items-center justify-center text-zinc-400 hover:bg-zinc-700/60 hover:text-zinc-100"
+            className="inline-flex h-7 w-6 items-center justify-center text-white/55 hover:bg-white/10 hover:text-[#e5e7eb]"
           >
             <RiArrowDownLine className="size-3.5" aria-hidden="true" />
           </button>
@@ -396,13 +394,13 @@ export function LogFilters({
 
       {/* Buffered count badge (visible when paused and buffer > 0) */}
       {state.paused && bufferedCount > 0 && (
-        <span className="shrink-0 rounded bg-amber-500/20 px-1.5 py-0.5 text-[10px] font-medium text-amber-400">
+        <span className="shrink-0 rounded bg-amber-500/20 px-1.5 py-0.5 text-[11px] font-medium text-amber-400">
           +{bufferedCount.toLocaleString()} buffered
         </span>
       )}
 
       {/* Display toggles */}
-      <div className="flex shrink-0 items-center gap-0.5 border-l border-zinc-800 pl-2">
+      <div className="flex shrink-0 items-center gap-0.5 border-l border-white/10 pl-2">
         <IconToggle
           active={state.wrap}
           onClick={() => onChange({ wrap: !state.wrap })}
@@ -422,21 +420,21 @@ export function LogFilters({
       </div>
 
       {/* Action buttons */}
-      <div className="flex shrink-0 items-center gap-0.5 border-l border-zinc-800 pl-2">
+      <div className="flex shrink-0 items-center gap-0.5 border-l border-white/10 pl-2">
         <button
           type="button"
           onClick={handleTogglePause}
           title={
             state.paused
-              ? "Resume — flush buffered lines (P)"
+              ? "Resume and flush buffered lines (P)"
               : "Pause display (P)"
           }
           aria-pressed={state.paused}
           className={cn(
-            "inline-flex items-center gap-1.5 rounded px-2 py-1 text-[11px] font-medium transition-colors",
+            "inline-flex items-center gap-1.5 rounded px-2 py-1 text-xs font-medium transition-colors",
             state.paused
               ? "bg-amber-500/20 text-amber-400 hover:bg-amber-500/30"
-              : "text-zinc-400 hover:bg-zinc-700/60 hover:text-zinc-100"
+              : "text-white/55 hover:bg-white/10 hover:text-[#e5e7eb]"
           )}
         >
           {state.paused ? (

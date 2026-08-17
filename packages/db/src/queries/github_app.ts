@@ -1,9 +1,10 @@
 // SPDX-License-Identifier: AGPL-3.0-only
 import type { Db } from '../client';
-import { and, eq } from "drizzle-orm"
+import { and, eq, sql } from "drizzle-orm"
 import {
   github_app,
   github_installation_users,
+  provider_credentials,
   provider_installations,
 } from "../schema"
 
@@ -30,6 +31,39 @@ export async function getGitHubAppConfig(db: Db): Promise<(typeof github_app.$in
     .where(eq(github_app.id, SINGLETON_ID))
     .limit(1);
   return rows[0] ?? null;
+}
+
+/**
+ * Serializes GitHub App replacement/reset writes and locks the singleton row.
+ * The table lock also covers the not-configured case, where no row exists for
+ * SELECT FOR UPDATE to lock. Must be called inside a transaction.
+ */
+export async function lockGitHubAppConfigForReset(
+  db: Db
+): Promise<(typeof github_app.$inferSelect) | null> {
+  await db.execute(
+    sql`LOCK TABLE ${github_app} IN SHARE ROW EXCLUSIVE MODE`
+  )
+  const rows = await db
+    .select()
+    .from(github_app)
+    .where(eq(github_app.id, SINGLETON_ID))
+    .limit(1)
+    .for("update")
+  return rows[0] ?? null
+}
+
+/** Locks the current singleton against reset/re-import for a short side effect. */
+export async function lockGitHubAppConfigForUse(
+  db: Db
+): Promise<(typeof github_app.$inferSelect) | null> {
+  const rows = await db
+    .select()
+    .from(github_app)
+    .where(eq(github_app.id, SINGLETON_ID))
+    .limit(1)
+    .for("share")
+  return rows[0] ?? null
 }
 
 /** Upserts the singleton GitHub App config. */
@@ -71,6 +105,18 @@ export async function saveGitHubAppConfig(db: Db, cfg: GitHubAppConfig): Promise
 /** Deletes the singleton GitHub App config (used by the reset flow). */
 export async function deleteGitHubAppConfig(db: Db): Promise<void> {
   await db.delete(github_app).where(eq(github_app.id, SINGLETON_ID));
+}
+
+/** Deletes every local record owned by the GitHub App integration. */
+export async function deleteGitHubAppLocalState(db: Db): Promise<void> {
+  await db
+    .delete(provider_credentials)
+    .where(eq(provider_credentials.provider, "github"))
+  await db
+    .delete(provider_installations)
+    .where(eq(provider_installations.provider, "github"))
+  await db.delete(github_installation_users)
+  await db.delete(github_app).where(eq(github_app.id, SINGLETON_ID))
 }
 
 export async function assignGitHubInstallationToUser(

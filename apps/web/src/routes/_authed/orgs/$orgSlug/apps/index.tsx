@@ -176,7 +176,7 @@ function AppCard({
   }
 
   return (
-    <article className="group overflow-hidden rounded-2xl bg-panel transition-colors hover:border-foreground/20">
+    <article className="group overflow-hidden rounded-xl border border-panel-border bg-panel-inset shadow-sm transition-colors hover:border-muted-foreground/30">
       <Link
         to={settingsPath as never}
         className="block p-4 hover:bg-accent/30 focus-visible:ring-2 focus-visible:ring-ring focus-visible:outline-none"
@@ -247,7 +247,10 @@ function AppsGridSkeleton(): React.JSX.Element {
       aria-label="Loading applications"
     >
       {Array.from({ length: 6 }).map((_, index) => (
-        <div key={index} className="rounded-2xl bg-panel p-4">
+        <div
+          key={index}
+          className="rounded-xl border border-panel-border bg-panel-inset p-4 shadow-sm"
+        >
           <div className="flex items-start justify-between gap-3">
             <div className="flex min-w-0 items-center gap-3">
               <Skeleton className="size-10 rounded-xl" />

@@ -21,7 +21,8 @@ import type {
   BuildStatus,
   CaddyExtraHandlers,
   CdnConfig,
-  CloudflareManagedCdn, CloudflareManagedCdnStatus 
+  CloudflareManagedCdn,
+  CloudflareManagedCdnStatus,
 } from "@ploydok/shared"
 import type {
   AppDetail,
@@ -246,8 +247,8 @@ export function useApp(appId: string, opts?: UseAppOptions) {
             build.status === "succeeded_with_warning") &&
           build.commitSha
       )
-      // Attach builds[] returned by the endpoint so consumers (e.g. LastDeploymentCard)
-      // can derive the last build without a separate /builds request.
+      // Attach builds[] returned by the endpoint so consumers can derive the
+      // last build without a separate /builds request.
       return {
         ...normalized,
         currentCommitSha:
@@ -329,9 +330,7 @@ export function useBuilds(appId: string, opts?: UseBuildsOptions) {
     staleTime: 10_000,
     enabled: Boolean(appId),
     refetchInterval: (query) =>
-      hasActiveBuilds(query.state.data)
-        ? 3_000
-        : false,
+      hasActiveBuilds(query.state.data) ? 3_000 : false,
     ...(opts?.initialData !== undefined
       ? { initialData: opts.initialData }
       : {}),
@@ -382,7 +381,9 @@ export function patchBuildsWithSseEvent(
 
   const nextStatus = statusForBuildEvent(type, payload)
   const source = current ?? []
-  const existingIndex = source.findIndex((build) => build.id === payload.buildId)
+  const existingIndex = source.findIndex(
+    (build) => build.id === payload.buildId
+  )
   const eventTime = typeof payload.t === "number" ? payload.t : now
 
   const patch = (build: Build): Build => {

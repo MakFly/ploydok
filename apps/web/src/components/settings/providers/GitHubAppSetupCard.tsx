@@ -11,6 +11,7 @@ interface GitHubAppSetupCardProps {
   onCreate: () => void
   onImported: () => void
   error: string | null
+  mode?: "setup" | "reconnect"
 }
 
 /**
@@ -23,9 +24,10 @@ export function GitHubAppSetupCard({
   onCreate,
   onImported,
   error,
+  mode = "setup",
 }: GitHubAppSetupCardProps): React.JSX.Element {
   const importApp = useImportGitHubApp()
-  const [showImport, setShowImport] = React.useState(false)
+  const [showImport, setShowImport] = React.useState(mode === "reconnect")
   const [form, setForm] = React.useState<ImportGitHubAppPayload>({
     appId: "",
     clientId: "",
@@ -75,10 +77,15 @@ export function GitHubAppSetupCard({
           <GitHubIcon className="size-5 text-muted-foreground" />
         </div>
         <div>
-          <p className="text-sm font-medium">No GitHub App configured</p>
+          <p className="text-sm font-medium">
+            {mode === "reconnect"
+              ? "Reconnect the GitHub App"
+              : "No GitHub App configured"}
+          </p>
           <p className="text-xs text-muted-foreground">
-            Create a new GitHub App, or reconnect the existing one after a local
-            DB reset.
+            {mode === "reconnect"
+              ? "Replace the unreadable local credentials with the values from the existing GitHub App."
+              : "Create a new GitHub App, or reconnect the existing one after a local DB reset."}
           </p>
         </div>
       </div>
@@ -87,25 +94,27 @@ export function GitHubAppSetupCard({
           {error}
         </p>
       )}
-      <div className="flex flex-wrap gap-2">
-        <Button
-          onClick={onCreate}
-          size="sm"
-          loading={isPending}
-          disabled={importApp.isPending}
-        >
-          {isPending ? "Redirecting to GitHub..." : "Create GitHub App"}
-        </Button>
-        <Button
-          type="button"
-          onClick={() => setShowImport((value) => !value)}
-          size="sm"
-          variant="outline"
-          disabled={isPending || importApp.isPending}
-        >
-          Reconnect existing App
-        </Button>
-      </div>
+      {mode === "setup" && (
+        <div className="flex flex-wrap gap-2">
+          <Button
+            onClick={onCreate}
+            size="sm"
+            loading={isPending}
+            disabled={importApp.isPending}
+          >
+            {isPending ? "Redirecting to GitHub..." : "Create GitHub App"}
+          </Button>
+          <Button
+            type="button"
+            onClick={() => setShowImport((value) => !value)}
+            size="sm"
+            variant="outline"
+            disabled={isPending || importApp.isPending}
+          >
+            Reconnect existing App
+          </Button>
+        </div>
+      )}
       {showImport && (
         <form
           className="grid w-full gap-3 border-t border-border pt-4 md:grid-cols-2"

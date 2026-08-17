@@ -146,6 +146,7 @@ describe("AppConfigSchema", () => {
   it("parses a full config with all optional fields", () => {
     const full = {
       ...base,
+      installationId: "42",
       rootDir: "./backend",
       dockerfilePath: "Dockerfile.prod",
       installCommand: "bun install",
@@ -165,6 +166,7 @@ describe("AppConfigSchema", () => {
     }
     const result = AppConfigSchema.parse(full)
     expect(result.buildMethod).toBe("docker")
+    expect(result.installationId).toBe("42")
     expect(result.restartPolicy).toBe("on-failure")
     expect(result.watchPaths).toEqual(["src/**", "package.json"])
     expect(result.healthcheck?.path).toBe("/healthz")

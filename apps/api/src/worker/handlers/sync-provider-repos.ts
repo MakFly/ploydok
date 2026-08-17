@@ -3,6 +3,8 @@ import {
   upsertInstallation,
   replaceInstallationRepos,
   getGitLabConfig,
+  getGitHubAppConfig,
+  lockGitHubAppConfigForUse,
 } from "@ploydok/db/queries"
 import type { ProviderCredentialRow } from "@ploydok/db"
 import type {
@@ -20,6 +22,7 @@ import { listAppInstallations } from "../../github/installation-tokens"
 import { ghProvider } from "../../routes/github"
 import { GitLabProvider } from "../../gitlab/client"
 import { decryptField } from "../../github/app-credentials"
+import { getGitHubAppConfigFingerprint } from "../../github/config-fingerprint"
 import { workerLog } from "../logger"
 import { providerReposSyncQueue } from "../queues"
 import { eventBus } from "../event-bus"
@@ -245,8 +248,37 @@ async function syncGitHub(
 }
 
 async function syncGitHubFanOut(db: Db, ctx: SyncCtx): Promise<void> {
+  const initialConfig = await getGitHubAppConfig(db)
+  if (!initialConfig) {
+    workerLog.info("github fan-out: App config missing, abandoning")
+    return
+  }
+  const configFingerprint = getGitHubAppConfigFingerprint(initialConfig)
   const installations = await listAppInstallations()
-  await pruneStaleGitHubInstallations(db, installations)
+  const withConfigFence = async (
+    sideEffect: (transactionDb: Db) => Promise<void>
+  ): Promise<boolean> =>
+    db.transaction(async (tx) => {
+      const transactionDb = tx as unknown as Db
+      const currentConfig = await lockGitHubAppConfigForUse(transactionDb)
+      if (
+        !currentConfig ||
+        getGitHubAppConfigFingerprint(currentConfig) !== configFingerprint
+      ) {
+        return false
+      }
+      await sideEffect(transactionDb)
+      return true
+    })
+
+  if (
+    !(await withConfigFence((transactionDb) =>
+      pruneStaleGitHubInstallations(transactionDb, installations)
+    ))
+  ) {
+    workerLog.info("github fan-out: App config changed, abandoning stale result")
+    return
+  }
   workerLog.info(
     { count: installations.length },
     "github fan-out: enqueuing per-installation jobs"
@@ -267,7 +299,17 @@ async function syncGitHubFanOut(db: Db, ctx: SyncCtx): Promise<void> {
     const installId = String(install.id)
 
     try {
-      await upsertLiveGitHubInstallation(db, install)
+      if (
+        !(await withConfigFence((transactionDb) =>
+          upsertLiveGitHubInstallation(transactionDb, install)
+        ))
+      ) {
+        workerLog.info(
+          { installId },
+          "github fan-out: App config changed before installation upsert"
+        )
+        return
+      }
     } catch (err) {
       workerLog.warn(
         { err, installId },
@@ -278,25 +320,34 @@ async function syncGitHubFanOut(db: Db, ctx: SyncCtx): Promise<void> {
 
     const credentialId = getGitHubInstallationDbId(installId)
     try {
-      await db
-        .insert(provider_credentials)
-        .values({
-          id: credentialId,
-          provider: "github",
-          credential_type: "installation",
-          last_sync_status: "pending",
-          last_sync_actor_user_id: ctx.requestedBy ?? null,
-          last_sync_source: "system",
-        })
-        .onConflictDoUpdate({
-          target: provider_credentials.id,
-          set: {
+      const credentialWritten = await withConfigFence(async (transactionDb) => {
+        await transactionDb
+          .insert(provider_credentials)
+          .values({
+            id: credentialId,
+            provider: "github",
+            credential_type: "installation",
             last_sync_status: "pending",
             last_sync_actor_user_id: ctx.requestedBy ?? null,
             last_sync_source: "system",
-            updated_at: new Date(),
-          },
-        })
+          })
+          .onConflictDoUpdate({
+            target: provider_credentials.id,
+            set: {
+              last_sync_status: "pending",
+              last_sync_actor_user_id: ctx.requestedBy ?? null,
+              last_sync_source: "system",
+              updated_at: new Date(),
+            },
+          })
+      })
+      if (!credentialWritten) {
+        workerLog.info(
+          { credentialId },
+          "github fan-out: App config changed before credential upsert"
+        )
+        return
+      }
     } catch (err) {
       workerLog.warn(
         { err, credentialId },
@@ -305,14 +356,24 @@ async function syncGitHubFanOut(db: Db, ctx: SyncCtx): Promise<void> {
       continue
     }
 
-    await enqueueProviderReposSync({
-      provider: "github",
-      installationId: installId,
-      ...(ctx.syncId !== undefined ? { syncId: ctx.syncId } : {}),
-      ...(ctx.requestedBy !== undefined
-        ? { requestedBy: ctx.requestedBy }
-        : {}),
-    })
+    if (
+      !(await withConfigFence(async () => {
+        await enqueueProviderReposSync({
+          provider: "github",
+          installationId: installId,
+          ...(ctx.syncId !== undefined ? { syncId: ctx.syncId } : {}),
+          ...(ctx.requestedBy !== undefined
+            ? { requestedBy: ctx.requestedBy }
+            : {}),
+        })
+      }))
+    ) {
+      workerLog.info(
+        { installId },
+        "github fan-out: App config changed before child enqueue"
+      )
+      return
+    }
   }
 }
 

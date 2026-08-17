@@ -31,7 +31,7 @@ describe("classifyStack — Compose", () => {
     const r = classifyStack(probes(["compose.yaml"]))
     expect(r.stack).toBe("compose")
     expect(r.recommendedBuild).toBe("compose")
-    expect(r.warnings.length).toBeGreaterThan(0)
+    expect(r.warnings.join(" ")).toContain("pas encore disponible")
   })
 
   it("docker-compose.yml also matches", () => {
@@ -143,9 +143,118 @@ describe("classifyStack — JS/TS frameworks", () => {
     expect(r.stack).toBe("astro")
   })
 
+  it("recommends static hosting for Astro's default static output", () => {
+    const r = classifyStackWithManifests(
+      probes(["package.json", "astro.config.mjs"]),
+      {
+        "package.json": JSON.stringify({ dependencies: { astro: "^5.0.0" } }),
+        "astro.config.mjs":
+          "export default defineConfig({ integrations: [mdx(), react()] })",
+      }
+    )
+    expect(r.stack).toBe("astro")
+    expect(r.recommendedBuild).toBe("static")
+  })
+
+  it("recommends static hosting when Astro has no config file", () => {
+    const r = classifyStackWithManifests(probes(["package.json"]), {
+      "package.json": JSON.stringify({ dependencies: { astro: "^5.0.0" } }),
+    })
+    expect(r.stack).toBe("astro")
+    expect(r.recommendedBuild).toBe("static")
+  })
+
+  it("keeps a conservative runtime build when an Astro config cannot be read", () => {
+    const r = classifyStackWithManifests(
+      probes(["package.json", "astro.config.mjs"]),
+      {
+        "package.json": JSON.stringify({ dependencies: { astro: "^5.0.0" } }),
+      }
+    )
+    expect(r.recommendedBuild).toBe("nixpacks")
+  })
+
+  it("keeps Astro server output on a runtime build", () => {
+    const r = classifyStackWithManifests(
+      probes(["package.json", "astro.config.mjs"]),
+      {
+        "package.json": JSON.stringify({
+          dependencies: { astro: "^5.0.0", "@astrojs/node": "^9.0.0" },
+        }),
+        "astro.config.mjs":
+          "export default defineConfig({ output: 'server', adapter: node() })",
+      }
+    )
+    expect(r.stack).toBe("astro")
+    expect(r.recommendedBuild).toBe("nixpacks")
+  })
+
+  it("keeps indirect Astro output configuration on a runtime build", () => {
+    const r = classifyStackWithManifests(
+      probes(["package.json", "astro.config.mjs"]),
+      {
+        "package.json": JSON.stringify({ dependencies: { astro: "^5.0.0" } }),
+        "astro.config.mjs":
+          "const output = process.env.ASTRO_OUTPUT; export default defineConfig({ output })",
+      }
+    )
+    expect(r.recommendedBuild).toBe("nixpacks")
+  })
+
+  it("keeps imported or spread Astro configuration on a runtime build", () => {
+    for (const config of [
+      'import serverConfig from "./server-config"; export default defineConfig(serverConfig)',
+      'import serverConfig from "./server-config"; export default defineConfig({ ...serverConfig })',
+    ]) {
+      const r = classifyStackWithManifests(
+        probes(["package.json", "astro.config.mjs"]),
+        {
+          "package.json": JSON.stringify({ dependencies: { astro: "^5.0.0" } }),
+          "astro.config.mjs": config,
+        }
+      )
+      expect(r.recommendedBuild).toBe("nixpacks")
+    }
+  })
+
   it("Bun via bun.lockb", () => {
     const r = classifyStack(probes(["package.json", "bun.lockb"]))
     expect(r.stack).toBe("bun")
+  })
+
+  it("Bun via the current bun.lock format", () => {
+    const r = classifyStack(probes(["package.json", "bun.lock"]))
+    expect(r.stack).toBe("bun")
+    expect(r.signals).toContain("bun.lock")
+  })
+
+  it("recommends static hosting for a Vite SPA without a start script", () => {
+    const r = classifyStackWithManifests(
+      probes(["package.json", "index.html"]),
+      {
+        "package.json": JSON.stringify({
+          scripts: { build: "vite build" },
+          devDependencies: { vite: "^7.0.0" },
+        }),
+      }
+    )
+    expect(r.stack).toBe("static")
+    expect(r.framework).toBe("Vite")
+    expect(r.recommendedBuild).toBe("static")
+  })
+
+  it("keeps a Vite-backed server on a runtime build when it has start", () => {
+    const r = classifyStackWithManifests(
+      probes(["package.json", "index.html"]),
+      {
+        "package.json": JSON.stringify({
+          scripts: { build: "vite build", start: "node server.js" },
+          dependencies: { vite: "^7.0.0", express: "^5.0.0" },
+        }),
+      }
+    )
+    expect(r.stack).toBe("node")
+    expect(r.recommendedBuild).toBe("nixpacks")
   })
 
   it("Node generic with warning about Node version", () => {
@@ -202,6 +311,61 @@ describe("classifyStack — Python", () => {
     const r = classifyStack(probes(["requirements.txt"]))
     expect(r.stack).toBe("python")
   })
+
+  it("infers a production FastAPI start command from main.py", () => {
+    const r = classifyStackWithManifests(
+      probes(["requirements.txt", "main.py"]),
+      { "requirements.txt": "fastapi\nuvicorn\n" }
+    )
+    expect(r.stack).toBe("fastapi")
+    expect(r.suggestedStartCommand).toBe(
+      "uvicorn main:app --host 0.0.0.0 --port $PORT"
+    )
+    expect(r.suggestedEnvVars.NIXPACKS_PYTHON_VERSION).toBe("3.12")
+  })
+
+  it("infers a production Flask start command from app.py", () => {
+    const r = classifyStackWithManifests(
+      probes(["requirements.txt", "app.py"]),
+      { "requirements.txt": "flask\ngunicorn\n" }
+    )
+    expect(r.stack).toBe("flask")
+    expect(r.suggestedStartCommand).toBe(
+      "gunicorn --bind 0.0.0.0:$PORT app:app"
+    )
+  })
+
+  it("does not infer Python runtime commands for undeclared servers", () => {
+    const fastApi = classifyStackWithManifests(
+      probes(["requirements.txt", "main.py"]),
+      { "requirements.txt": "fastapi\n" }
+    )
+    const flask = classifyStackWithManifests(
+      probes(["requirements.txt", "app.py"]),
+      { "requirements.txt": "flask\n" }
+    )
+
+    expect(fastApi.suggestedStartCommand).toBeUndefined()
+    expect(fastApi.warnings.join(" ")).toContain("uvicorn")
+    expect(flask.suggestedStartCommand).toBeUndefined()
+    expect(flask.warnings.join(" ")).toContain("gunicorn")
+  })
+
+  it("ignores Python package names in comments and optional dependency groups", () => {
+    const requirements = classifyStackWithManifests(
+      probes(["requirements.txt", "main.py"]),
+      { "requirements.txt": "fastapi==0.115\n# uvicorn intentionally absent\n" }
+    )
+    const pyproject = classifyStackWithManifests(
+      probes(["pyproject.toml", "app.py"]),
+      {
+        "pyproject.toml": `[project]\ndependencies = ["flask"]\n[project.optional-dependencies]\ndev = ["gunicorn"]`,
+      }
+    )
+
+    expect(requirements.suggestedStartCommand).toBeUndefined()
+    expect(pyproject.suggestedStartCommand).toBeUndefined()
+  })
 })
 
 describe("classifyStack — other languages", () => {
@@ -214,9 +378,9 @@ describe("classifyStack — other languages", () => {
     { files: ["Cargo.toml"], stack: "rust", build: "nixpacks" },
     { files: ["Gemfile"], stack: "ruby", build: "nixpacks" },
     { files: ["mix.exs"], stack: "elixir", build: "nixpacks" },
-    { files: ["pom.xml"], stack: "java", build: "dockerfile" },
-    { files: ["build.gradle"], stack: "java", build: "dockerfile" },
-    { files: ["build.gradle.kts"], stack: "java", build: "dockerfile" },
+    { files: ["pom.xml"], stack: "java", build: "nixpacks" },
+    { files: ["build.gradle"], stack: "java", build: "nixpacks" },
+    { files: ["build.gradle.kts"], stack: "java", build: "nixpacks" },
   ]
   for (const c of cases) {
     it(`${c.files.join(" + ")} → ${c.stack} (${c.build})`, () => {
@@ -225,6 +389,17 @@ describe("classifyStack — other languages", () => {
       expect(r.recommendedBuild).toBe(c.build)
     })
   }
+
+  it("warns when a Gradle project lacks settings.gradle", () => {
+    const r = classifyStack(probes(["build.gradle"]))
+    expect(r.warnings.join(" ")).toContain("settings.gradle")
+    expect(r.requiresExplicitBuildChoice).toBe(true)
+  })
+
+  it("accepts a versioned Ruby project without the missing-version warning", () => {
+    const r = classifyStack(probes(["Gemfile", ".ruby-version"]))
+    expect(r.warnings.join(" ")).not.toContain(".ruby-version")
+  })
 })
 
 describe("classifyStack — static + unknown", () => {
@@ -237,6 +412,7 @@ describe("classifyStack — static + unknown", () => {
   it("Static: index.html only", () => {
     const r = classifyStack(probes(["index.html"]))
     expect(r.stack).toBe("static")
+    expect(r.recommendedBuild).toBe("static")
   })
 
   it("Unknown: no signal", () => {
@@ -301,9 +477,9 @@ describe("classifyStack — suggestedEnvVars", () => {
     })
   })
 
-  it("Django: injects PYTHON_VERSION=3.12", () => {
+  it("Django: selects Python 3.12 through the Nixpacks provider variable", () => {
     const r = classifyStack(probes(["manage.py", "requirements.txt"]))
-    expect(r.suggestedEnvVars).toEqual({ PYTHON_VERSION: "3.12" })
+    expect(r.suggestedEnvVars).toEqual({ NIXPACKS_PYTHON_VERSION: "3.12" })
   })
 
   it("Ruby/Rails: injects RAILS_ENV and RAILS_SERVE_STATIC_FILES", () => {

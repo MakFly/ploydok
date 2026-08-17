@@ -980,6 +980,20 @@ export async function handleDeploy(
       workspacePath,
       rootDir: app.root_dir,
     })
+    if (
+      detected.method === "nixpacks" &&
+      app.start_command === null &&
+      workspaceClassification.suggestedStartCommand
+    ) {
+      app.start_command = workspaceClassification.suggestedStartCommand
+      await db
+        .update(apps)
+        .set({ start_command: app.start_command, updated_at: new Date() })
+        .where(eq(apps.id, app.id))
+      onLog(
+        `[deploy] inferred start command for ${workspaceClassification.framework ?? workspaceClassification.stack}: ${app.start_command}`
+      )
+    }
     try {
       const { injected, repaired } = await ensureFrameworkEnvVars({
         db,
@@ -1309,7 +1323,15 @@ export async function handleDeploy(
         const plan = await nixpacksPlan({
           workspacePath,
           ...(app.root_dir !== null && { rootDir: app.root_dir }),
+          ...(app.nixpacks_config_path !== null && {
+            configFile: app.nixpacks_config_path,
+          }),
           ...(app.node_version !== null && { nodeVersion: app.node_version }),
+          ...(app.install_command !== null && {
+            installCmd: app.install_command,
+          }),
+          ...(app.build_command !== null && { buildCmd: app.build_command }),
+          ...(app.start_command !== null && { startCmd: app.start_command }),
           ...(Object.keys(buildEnv).length > 0 && { buildEnv }),
         })
         if (plan) {
@@ -1323,6 +1345,11 @@ export async function handleDeploy(
           if (!hasPhases && providers.length === 0) {
             throw new FatalDeployError(
               "Nixpacks ne détecte aucun provider dans ce repo — ajoute un Dockerfile, un nixpacks.toml, ou choisis un autre build_method."
+            )
+          }
+          if (!plan.start?.cmd?.trim()) {
+            throw new FatalDeployError(
+              "Nixpacks n'a trouvé aucune commande de démarrage — ajoute un script start, un Procfile, un nixpacks.toml ou configure start_command."
             )
           }
           onLog(

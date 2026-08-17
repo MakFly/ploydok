@@ -66,6 +66,47 @@ describe("HTTP e2e", () => {
     expect(res.status).not.toBe(403);
   });
 
+  it("protège le statut des credentials GitHub avec l'auth applicative", async () => {
+    const res = await fetch(`${baseUrl}/github/app/credentials/status`);
+
+    expect(res.status).toBe(401);
+    expect(await res.json()).toEqual({
+      error: {
+        code: "UNAUTHENTICATED",
+        message: "Authentication required",
+      },
+    });
+  });
+
+  it("protège le reset GitHub local avec CSRF puis l'auth applicative", async () => {
+    const withoutCsrf = await fetch(
+      `${baseUrl}/github/app/config/local?confirm=forget-local-github-app`,
+      { method: "DELETE" },
+    );
+    expect(withoutCsrf.status).toBe(403);
+    expect(await withoutCsrf.json()).toMatchObject({
+      error: { code: "CSRF_MISMATCH" },
+    });
+
+    const csrfRes = await fetch(`${baseUrl}/auth/csrf`);
+    const { token } = (await csrfRes.json()) as { token: string };
+    const cookie = (csrfRes.headers.get("set-cookie") ?? "").split(";")[0];
+    const withoutAuth = await fetch(
+      `${baseUrl}/github/app/config/local?confirm=forget-local-github-app`,
+      {
+        method: "DELETE",
+        headers: {
+          cookie: cookie ?? "",
+          "x-csrf-token": token,
+        },
+      },
+    );
+    expect(withoutAuth.status).toBe(401);
+    expect(await withoutAuth.json()).toMatchObject({
+      error: { code: "UNAUTHENTICATED" },
+    });
+  });
+
   it("route inconnue retourne 404 JSON", async () => {
     const res = await fetch(`${baseUrl}/nope`);
     expect(res.status).toBe(404);

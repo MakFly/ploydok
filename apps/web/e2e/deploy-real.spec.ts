@@ -13,7 +13,7 @@
  *   E2E_TEST_EMAIL          – backup-code login email
  *   E2E_TEST_BACKUP_CODE    – backup code (format: XXXX-XXXX-XXXX)
  *   E2E_API_URL             – defaults to http://localhost:3335
- *   PLOYDOK_DOMAIN_BASE     – defaults to demo.ploydok.local
+ *   PLOYDOK_DOMAIN_BASE     – defaults to demo.localhost
  *
  * Prerequisites (run in separate shells before launching this spec):
  *   Shell 1: make infra-up       (caddy + buildkitd + registry)
@@ -37,7 +37,7 @@ const REAL_E2E = process.env.PLOYDOK_E2E_REAL === "1"
 // ---------------------------------------------------------------------------
 
 const API = API_URL
-const DOMAIN_BASE = process.env.PLOYDOK_DOMAIN_BASE ?? "demo.ploydok.local"
+const DOMAIN_BASE = process.env.PLOYDOK_DOMAIN_BASE ?? "demo.localhost"
 const CADDY_PORT = 8180
 const POLL_INTERVAL_MS = 2_000
 const BUILD_TIMEOUT_MS = 180_000

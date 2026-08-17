@@ -11,10 +11,17 @@ import {
 } from "bun:test"
 import * as realQueries from "@ploydok/db/queries"
 import { env } from "../env"
+import { GitHubAppCredentialsError } from "../github/errors"
 
 let mockGitHubAppConfig: Record<string, unknown> | null = null
+let lockedGitHubAppConfigOverride: Record<string, unknown> | null | undefined
+let decryptAppPrivateKeyFailure: Error | null = null
 const importedConfigs: Array<Record<string, unknown>> = []
 let deleteConfigCalls = 0
+let deleteInstallationUsersCalls = 0
+let transactionCalls = 0
+let lockConfigCalls = 0
+let evictAllTokenCalls = 0
 const credentialUpserts: Array<{
   values: Record<string, unknown>
   conflict: Record<string, unknown>
@@ -27,9 +34,12 @@ const installationAssignments: Array<{
 const localDisconnects: Array<{ installationId: string; userId: string }> = []
 let userGitHubInstallationIds = ["42"]
 let cacheStatusRows: Array<Record<string, unknown>> = []
+let cachedRepoRows: Array<Record<string, unknown>> = []
 const cacheStatusFilters: unknown[][] = []
 const deletedTables: Array<unknown> = []
 let liveInstallations: Array<{ id: number; accountLogin?: string }> = []
+let listInstallationsFailure: Error | null = null
+let listInstallationsCalls = 0
 const revokedInstallations: number[] = []
 let revokeFailure: Error | null = null
 let fakeInstanceAdmin = true
@@ -78,6 +88,10 @@ const fakeDb = {
       deletedTables.push(table)
     },
   })),
+  transaction: mock(async (callback: (tx: unknown) => Promise<unknown>) => {
+    transactionCalls += 1
+    return callback(fakeDb)
+  }),
 }
 
 mock.module("@ploydok/db", () => ({
@@ -97,7 +111,14 @@ mock.module("@ploydok/db", () => ({
 mock.module("../github/installation-tokens", () => ({
   getInstallationToken: async () => "test-installation-token",
   evictInstallationToken: () => undefined,
-  listAppInstallations: async () => liveInstallations,
+  evictAllInstallationTokens: () => {
+    evictAllTokenCalls += 1
+  },
+  listAppInstallations: async () => {
+    listInstallationsCalls += 1
+    if (listInstallationsFailure) throw listInstallationsFailure
+    return liveInstallations
+  },
   revokeAppInstallation: async (installationId: number) => {
     if (revokeFailure) throw revokeFailure
     revokedInstallations.push(installationId)
@@ -114,6 +135,10 @@ mock.module("../github/app-credentials", () => ({
     nonce: Buffer.from("nonce"),
   }),
   decryptField: async (enc: Buffer) => enc.toString().replace(/^enc:/, ""),
+  decryptAppPrivateKey: async (config: { pem_enc: Buffer }) => {
+    if (decryptAppPrivateKeyFailure) throw decryptAppPrivateKeyFailure
+    return config.pem_enc.toString().replace(/^enc:/, "")
+  },
 }))
 mock.module("../webhooks/deliveries", () => ({
   findRecentByPayloadHash: async () => recentDelivery,
@@ -146,6 +171,17 @@ mock.module("@ploydok/db/queries", () => ({
   deleteGitHubAppConfig: async () => {
     deleteConfigCalls += 1
   },
+  lockGitHubAppConfigForReset: async () => {
+    lockConfigCalls += 1
+    return lockedGitHubAppConfigOverride === undefined
+      ? mockGitHubAppConfig
+      : lockedGitHubAppConfigOverride
+  },
+  deleteGitHubAppLocalState: async () => {
+    deletedTables.push(fakeProviderCredentials, fakeProviderInstallations)
+    deleteInstallationUsersCalls += 1
+    deleteConfigCalls += 1
+  },
   assignGitHubInstallationToUser: async (
     _db: unknown,
     installationId: string,
@@ -154,13 +190,18 @@ mock.module("@ploydok/db/queries", () => ({
     installationAssignments.push({ installationId, userId })
   },
   deleteGitHubInstallationUser: async () => undefined,
-  deleteGitHubInstallationUsers: async () => undefined,
+  deleteGitHubInstallationUsers: async () => {
+    deleteInstallationUsersCalls += 1
+  },
   deleteGitHubInstallationUserForUser: async (
     _db: unknown,
     installationId: string,
     userId: string
   ) => {
     localDisconnects.push({ installationId, userId })
+    userGitHubInstallationIds = userGitHubInstallationIds.filter(
+      (id) => id !== installationId
+    )
   },
   listGitHubInstallationIdsForUser: async () => userGitHubInstallationIds,
   userOwnsGitHubInstallation: async (
@@ -169,7 +210,10 @@ mock.module("@ploydok/db/queries", () => ({
     installationId: string
   ) => userGitHubInstallationIds.includes(installationId),
   listInstallations: async () => [],
-  listRepos: async () => ({ rows: [], total: 0 }),
+  listRepos: async () => ({
+    rows: cachedRepoRows,
+    total: cachedRepoRows.length,
+  }),
   getInstallationStaleness: async () => ({ mostStaleAt: null, count: 0 }),
   getCacheStatus: async (...args: unknown[]) => {
     cacheStatusFilters.push(args)
@@ -241,17 +285,26 @@ function signAppState(state: string, returnTo?: string): string {
 
 beforeEach(() => {
   mockGitHubAppConfig = null
+  lockedGitHubAppConfigOverride = undefined
+  decryptAppPrivateKeyFailure = null
   importedConfigs.length = 0
   deleteConfigCalls = 0
+  deleteInstallationUsersCalls = 0
+  transactionCalls = 0
+  lockConfigCalls = 0
+  evictAllTokenCalls = 0
   credentialUpserts.length = 0
   enqueuedSyncs.length = 0
   installationAssignments.length = 0
   localDisconnects.length = 0
   userGitHubInstallationIds = ["42"]
   cacheStatusRows = []
+  cachedRepoRows = []
   cacheStatusFilters.length = 0
   deletedTables.length = 0
   liveInstallations = []
+  listInstallationsFailure = null
+  listInstallationsCalls = 0
   revokedInstallations.length = 0
   revokeFailure = null
   fakeInstanceAdmin = true
@@ -368,6 +421,84 @@ describe("GET /github/app/config", () => {
   })
 })
 
+describe("GET /github/app/credentials/status", () => {
+  it("returns not_configured when no GitHub App is stored", async () => {
+    const res = await buildApp(FAKE_USER).request(
+      "/github/app/credentials/status"
+    )
+
+    expect(res.status).toBe(200)
+    expect(await res.json()).toEqual({ status: "not_configured" })
+  })
+
+  it("returns readable when the private key decrypts", async () => {
+    mockGitHubAppConfig = {
+      pem_enc: Buffer.from("enc:private-key"),
+      pem_nonce: Buffer.from("nonce"),
+    }
+
+    const res = await buildApp(FAKE_USER).request(
+      "/github/app/credentials/status"
+    )
+
+    expect(res.status).toBe(200)
+    expect(await res.json()).toEqual({ status: "readable" })
+  })
+
+  it("returns a safe unreadable status without leaking the crypto cause", async () => {
+    mockGitHubAppConfig = {
+      pem_enc: Buffer.from("ciphertext"),
+      pem_nonce: Buffer.from("nonce"),
+    }
+    decryptAppPrivateKeyFailure = new GitHubAppCredentialsError(
+      new DOMException("operation-specific secret detail", "OperationError")
+    )
+
+    const res = await buildApp(FAKE_USER).request(
+      "/github/app/credentials/status"
+    )
+    const body = await res.json()
+
+    expect(res.status).toBe(200)
+    expect(body).toEqual({
+      status: "unreadable",
+      error: {
+        code: "GITHUB_APP_CREDENTIALS_UNREADABLE",
+        message: expect.stringContaining("MASTER_KEY"),
+      },
+    })
+    expect(JSON.stringify(body)).not.toContain(
+      "operation-specific secret detail"
+    )
+  })
+
+  it("keeps key-loading failures as server errors", async () => {
+    mockGitHubAppConfig = {
+      pem_enc: Buffer.from("ciphertext"),
+      pem_nonce: Buffer.from("nonce"),
+    }
+    decryptAppPrivateKeyFailure = new Error("master key loader unavailable")
+
+    const res = await buildApp(FAKE_USER).request(
+      "/github/app/credentials/status"
+    )
+
+    expect(res.status).toBe(500)
+    expect(await res.text()).not.toContain("master key loader unavailable")
+  })
+
+  it("rejects non-admin users", async () => {
+    fakeInstanceAdmin = false
+
+    const res = await buildApp(FAKE_USER).request(
+      "/github/app/credentials/status"
+    )
+
+    expect(res.status).toBe(403)
+    expect(await res.json()).toEqual({ error: "admin_required" })
+  })
+})
+
 describe("GET /github/repos/:owner/:repo/files-exist", () => {
   it("checks all requested paths through one batch HTTP endpoint", async () => {
     mockGitHubAppConfig = { app_id: "123" }
@@ -399,6 +530,50 @@ describe("GET /github/repos/:owner/:repo/files-exist", () => {
 })
 
 describe("GitHub routes are user-scoped", () => {
+  it("returns every linked installation for one user and excludes foreign ones", async () => {
+    fakeInstanceAdmin = false
+    mockGitHubAppConfig = { slug: "ploydok-local" }
+    userGitHubInstallationIds = ["42", "77"]
+    liveInstallations = [
+      { id: 42, accountLogin: "Org A" },
+      { id: 77, accountLogin: "Org B" },
+      { id: 99, accountLogin: "Foreign" },
+    ]
+    using _spy = spyOn(githubModule.ghProvider, "listRepos").mockResolvedValue({
+      repos: [],
+      hasMore: false,
+    })
+
+    const res = await buildApp(FAKE_USER).request("/github/installations")
+    const body = (await res.json()) as {
+      installations: Array<{ id: number }>
+    }
+
+    expect(res.status).toBe(200)
+    expect(body.installations.map(({ id }) => id)).toEqual([42, 77])
+  })
+
+  it("returns every live App installation to an instance admin", async () => {
+    userGitHubInstallationIds = ["42"]
+    mockGitHubAppConfig = { slug: "ploydok-local" }
+    liveInstallations = [
+      { id: 42, accountLogin: "Linked" },
+      { id: 99, accountLogin: "Foreign mapping" },
+    ]
+    using _spy = spyOn(githubModule.ghProvider, "listRepos").mockResolvedValue({
+      repos: [],
+      hasMore: false,
+    })
+
+    const res = await buildApp(FAKE_USER).request("/github/installations")
+    const body = (await res.json()) as {
+      installations: Array<{ id: number }>
+    }
+
+    expect(res.status).toBe(200)
+    expect(body.installations.map(({ id }) => id)).toEqual([42, 99])
+  })
+
   it("never reads an env file through an installation not linked to the user", async () => {
     mockGitHubAppConfig = { app_id: "123" }
     userGitHubInstallationIds = ["42"]
@@ -422,7 +597,36 @@ describe("GitHub routes are user-scoped", () => {
     expect(attemptedIds).toEqual(["42"])
   })
 
+  it("reads an allow-listed manifest below a safe rootDir", async () => {
+    mockGitHubAppConfig = { app_id: "123" }
+    userGitHubInstallationIds = ["42"]
+    liveInstallations = [{ id: 42, accountLogin: "MakFly" }]
+    const attemptedPaths: string[] = []
+    using _spy = spyOn(githubModule.ghProvider, "readFile").mockImplementation(
+      async (_installationId, _fullName, filePath) => {
+        attemptedPaths.push(filePath)
+        return '{"dependencies":{"astro":"^5.0.0"}}'
+      }
+    )
+
+    const res = await buildApp(FAKE_USER).request(
+      "/github/repos/MakFly/monorepo/manifest-file?path=apps%2Fblog%2Fpackage.json&ref=main"
+    )
+
+    expect(res.status).toBe(200)
+    expect(attemptedPaths).toEqual(["apps/blog/package.json"])
+  })
+
+  it("rejects traversal in a nested manifest path", async () => {
+    const res = await buildApp(FAKE_USER).request(
+      "/github/repos/MakFly/monorepo/manifest-file?path=apps%2F..%2Fpackage.json&ref=main"
+    )
+
+    expect(res.status).toBe(400)
+  })
+
   it("lists and reports cache state only for linked installations", async () => {
+    fakeInstanceAdmin = false
     mockGitHubAppConfig = { slug: "ploydok-local" }
     userGitHubInstallationIds = ["42"]
     liveInstallations = [
@@ -460,7 +664,50 @@ describe("GitHub routes are user-scoped", () => {
     expect(cacheStatusFilters[0]?.[2]).toEqual(["github:42"])
   })
 
+  it("reports cache state for every live installation to an admin", async () => {
+    userGitHubInstallationIds = ["42"]
+    liveInstallations = [
+      { id: 42, accountLogin: "Linked" },
+      { id: 99, accountLogin: "Foreign mapping" },
+    ]
+    cacheStatusRows = [
+      {
+        id: "github:42",
+        externalId: "42",
+        accountLogin: "Linked",
+        avatarUrl: null,
+        htmlUrl: null,
+        lastSyncedAt: new Date(),
+        repoCount: 1,
+      },
+      {
+        id: "github:99",
+        externalId: "99",
+        accountLogin: "Foreign mapping",
+        avatarUrl: null,
+        htmlUrl: null,
+        lastSyncedAt: new Date(),
+        repoCount: 2,
+      },
+    ]
+
+    const res = await buildApp(FAKE_USER).request(
+      "/github/installations/cache-status"
+    )
+    const body = (await res.json()) as {
+      installations: Array<{ externalId: string }>
+    }
+
+    expect(res.status).toBe(200)
+    expect(body.installations.map(({ externalId }) => externalId)).toEqual([
+      "42",
+      "99",
+    ])
+    expect(cacheStatusFilters[0]?.[2]).toEqual(["github:42", "github:99"])
+  })
+
   it("syncs only linked installations and rejects a foreign id", async () => {
+    fakeInstanceAdmin = false
     userGitHubInstallationIds = ["42", "77"]
     const app = buildApp(FAKE_USER)
 
@@ -485,6 +732,41 @@ describe("GitHub routes are user-scoped", () => {
       }),
     ])
     expect(foreignRes.status).toBe(404)
+  })
+
+  it("lets an admin sync all live installations or one explicit live installation", async () => {
+    userGitHubInstallationIds = ["42"]
+    liveInstallations = [
+      { id: 42, accountLogin: "Linked" },
+      { id: 99, accountLogin: "Foreign mapping" },
+    ]
+    const app = buildApp(FAKE_USER)
+
+    const allRes = await app.request("/github/installations/sync", {
+      method: "POST",
+      body: "{}",
+    })
+
+    expect(allRes.status).toBe(202)
+    expect(enqueuedSyncs.map(({ installationId }) => installationId)).toEqual([
+      "42",
+      "99",
+    ])
+
+    enqueuedSyncs.length = 0
+    credentialUpserts.length = 0
+    const explicitRes = await app.request("/github/installations/sync", {
+      method: "POST",
+      body: JSON.stringify({ installationId: "99" }),
+    })
+
+    expect(explicitRes.status).toBe(202)
+    expect(enqueuedSyncs).toEqual([
+      expect.objectContaining({
+        installationId: "99",
+        requestedBy: FAKE_USER.id,
+      }),
+    ])
   })
 })
 
@@ -600,6 +882,29 @@ describe("DELETE /github/app/config", () => {
     expect(deletedTables).toHaveLength(2)
   })
 
+  it("returns a credential error when the App private key cannot be decrypted", async () => {
+    mockGitHubAppConfig = { slug: "ploydok-local" }
+    listInstallationsFailure = new GitHubAppCredentialsError(
+      new DOMException("The operation failed", "OperationError")
+    )
+    const app = buildApp(FAKE_USER)
+    const res = await app.request(
+      "/github/app/config?confirm=uninstall-github-installations",
+      { method: "DELETE" }
+    )
+
+    expect(res.status).toBe(500)
+    expect(await res.json()).toMatchObject({
+      error: {
+        code: "GITHUB_APP_CREDENTIALS_UNREADABLE",
+        message: expect.stringContaining("MASTER_KEY"),
+      },
+    })
+    expect(deleteConfigCalls).toBe(0)
+    expect(revokedInstallations).toHaveLength(0)
+    expect(deletedTables).toHaveLength(0)
+  })
+
   it("keeps local config when a GitHub uninstall fails", async () => {
     mockGitHubAppConfig = { slug: "ploydok-local" }
     liveInstallations = [{ id: 42 }]
@@ -612,11 +917,182 @@ describe("DELETE /github/app/config", () => {
 
     expect(res.status).toBe(502)
     expect((await res.json()) as Record<string, unknown>).toMatchObject({
-      error: "github_api_error",
+      error: { code: "GITHUB_API_ERROR" },
       failed_installation_id: 42,
     })
     expect(deleteConfigCalls).toBe(0)
     expect(deletedTables).toHaveLength(0)
+  })
+
+  it("preserves a concurrently imported config when a non-PEM secret changed", async () => {
+    mockGitHubAppConfig = {
+      id: "singleton",
+      app_id: "123",
+      client_id: "Iv1.client",
+      slug: "ploydok-local",
+      name: "Ploydok Local",
+      client_secret_enc: Buffer.from("old-client-secret"),
+      client_secret_nonce: Buffer.from("client-nonce"),
+      pem_enc: Buffer.from("same-pem"),
+      pem_nonce: Buffer.from("pem-nonce"),
+      webhook_secret_enc: Buffer.from("webhook-secret"),
+      webhook_secret_nonce: Buffer.from("webhook-nonce"),
+    }
+    lockedGitHubAppConfigOverride = {
+      ...mockGitHubAppConfig,
+      client_secret_enc: Buffer.from("new-client-secret"),
+    }
+
+    const res = await buildApp(FAKE_USER).request(
+      "/github/app/config?confirm=uninstall-github-installations",
+      { method: "DELETE" }
+    )
+
+    expect(res.status).toBe(409)
+    expect(await res.json()).toMatchObject({
+      error: { code: "GITHUB_APP_CONFIG_CHANGED" },
+    })
+    expect(deleteConfigCalls).toBe(0)
+    expect(deletedTables).toHaveLength(0)
+    expect(evictAllTokenCalls).toBe(0)
+    expect(transactionCalls).toBe(1)
+    expect(lockConfigCalls).toBe(1)
+  })
+})
+
+describe("DELETE /github/app/config/local", () => {
+  const endpoint = "/github/app/config/local?confirm=forget-local-github-app"
+
+  it("requires an authenticated user", async () => {
+    const res = await buildApp().request(endpoint, { method: "DELETE" })
+
+    expect(res.status).toBe(401)
+    expect(await res.json()).toEqual({ error: "Unauthorized" })
+    expect(deleteConfigCalls).toBe(0)
+  })
+
+  it("rejects non-admin users", async () => {
+    fakeInstanceAdmin = false
+
+    const res = await buildApp(FAKE_USER).request(endpoint, {
+      method: "DELETE",
+    })
+
+    expect(res.status).toBe(403)
+    expect(await res.json()).toEqual({ error: "admin_required" })
+    expect(deleteConfigCalls).toBe(0)
+  })
+
+  it("requires the local recovery confirmation query", async () => {
+    mockGitHubAppConfig = {
+      pem_enc: Buffer.from("ciphertext"),
+      pem_nonce: Buffer.from("nonce"),
+    }
+    decryptAppPrivateKeyFailure = new GitHubAppCredentialsError(
+      new DOMException("The operation failed", "OperationError")
+    )
+
+    const res = await buildApp(FAKE_USER).request("/github/app/config/local", {
+      method: "DELETE",
+    })
+
+    expect(res.status).toBe(400)
+    expect(await res.json()).toMatchObject({
+      error: { code: "CONFIRMATION_REQUIRED" },
+    })
+    expect(deleteConfigCalls).toBe(0)
+  })
+
+  it("refuses local-only reset when credentials are readable", async () => {
+    mockGitHubAppConfig = {
+      pem_enc: Buffer.from("enc:private-key"),
+      pem_nonce: Buffer.from("nonce"),
+    }
+
+    const res = await buildApp(FAKE_USER).request(endpoint, {
+      method: "DELETE",
+    })
+
+    expect(res.status).toBe(409)
+    expect(await res.json()).toMatchObject({
+      error: { code: "GITHUB_APP_LOCAL_RESET_NOT_ALLOWED" },
+    })
+    expect(deleteConfigCalls).toBe(0)
+    expect(deletedTables).toHaveLength(0)
+    expect(revokedInstallations).toHaveLength(0)
+    expect(listInstallationsCalls).toBe(0)
+    expect(transactionCalls).toBe(1)
+    expect(lockConfigCalls).toBe(1)
+    expect(evictAllTokenCalls).toBe(0)
+  })
+
+  it("forgets unreadable local state without modifying GitHub", async () => {
+    mockGitHubAppConfig = {
+      pem_enc: Buffer.from("ciphertext"),
+      pem_nonce: Buffer.from("nonce"),
+    }
+    decryptAppPrivateKeyFailure = new GitHubAppCredentialsError(
+      new DOMException("operation-specific secret detail", "OperationError")
+    )
+
+    const res = await buildApp(FAKE_USER).request(endpoint, {
+      method: "DELETE",
+    })
+
+    expect(res.status).toBe(200)
+    expect(await res.json()).toEqual({
+      ok: true,
+      forgotten: true,
+      remoteInstallationsModified: false,
+    })
+    expect(deletedTables).toHaveLength(2)
+    expect(deleteInstallationUsersCalls).toBe(1)
+    expect(deleteConfigCalls).toBe(1)
+    expect(revokedInstallations).toHaveLength(0)
+    expect(listInstallationsCalls).toBe(0)
+    expect(transactionCalls).toBe(1)
+    expect(lockConfigCalls).toBe(1)
+    expect(evictAllTokenCalls).toBe(1)
+  })
+
+  it("keeps key-loading failures as server errors without deleting state", async () => {
+    mockGitHubAppConfig = {
+      pem_enc: Buffer.from("ciphertext"),
+      pem_nonce: Buffer.from("nonce"),
+    }
+    decryptAppPrivateKeyFailure = new Error("master key loader unavailable")
+
+    const res = await buildApp(FAKE_USER).request(endpoint, {
+      method: "DELETE",
+    })
+
+    expect(res.status).toBe(500)
+    expect(await res.text()).not.toContain("master key loader unavailable")
+    expect(deleteConfigCalls).toBe(0)
+    expect(deletedTables).toHaveLength(0)
+    expect(revokedInstallations).toHaveLength(0)
+    expect(evictAllTokenCalls).toBe(0)
+  })
+
+  it("is idempotent when no GitHub App config remains", async () => {
+    const res = await buildApp(FAKE_USER).request(endpoint, {
+      method: "DELETE",
+    })
+
+    expect(res.status).toBe(200)
+    expect(await res.json()).toEqual({
+      ok: true,
+      forgotten: true,
+      remoteInstallationsModified: false,
+    })
+    expect(deletedTables).toHaveLength(2)
+    expect(deleteInstallationUsersCalls).toBe(1)
+    expect(deleteConfigCalls).toBe(1)
+    expect(revokedInstallations).toHaveLength(0)
+    expect(listInstallationsCalls).toBe(0)
+    expect(transactionCalls).toBe(1)
+    expect(lockConfigCalls).toBe(1)
+    expect(evictAllTokenCalls).toBe(1)
   })
 })
 
@@ -632,6 +1108,61 @@ describe("GET /github/repos", () => {
     expect(res.status).toBe(503)
     const body = (await res.json()) as Record<string, unknown>
     expect(body["error"]).toBe("github_app_not_configured")
+  })
+
+  it("returns the accessible installation id with a live repository", async () => {
+    mockGitHubAppConfig = { app_id: "123" }
+    liveInstallations = [{ id: 42, accountLogin: "MakFly" }]
+    using _spy = spyOn(githubModule.ghProvider, "getRepo").mockResolvedValue({
+      id: 123,
+      fullName: "MakFly/astro-docs",
+      description: null,
+      private: false,
+      defaultBranch: "main",
+      cloneUrl: "https://github.com/MakFly/astro-docs.git",
+    })
+
+    const res = await buildApp(FAKE_USER).request(
+      "/github/repos?search=MakFly%2Fastro-docs"
+    )
+
+    expect(res.status).toBe(200)
+    expect(await res.json()).toMatchObject({
+      repos: [
+        {
+          fullName: "MakFly/astro-docs",
+          installationId: "42",
+        },
+      ],
+    })
+  })
+
+  it("returns the normalized installation id with a cached repository", async () => {
+    mockGitHubAppConfig = { app_id: "123" }
+    liveInstallations = [{ id: 42, accountLogin: "MakFly" }]
+    cachedRepoRows = [
+      {
+        id: "github:repo:123",
+        installation_id: "github:42",
+        full_name: "MakFly/astro-docs",
+        description: null,
+        private: false,
+        default_branch: "main",
+        html_url: "https://github.com/MakFly/astro-docs",
+      },
+    ]
+
+    const res = await buildApp(FAKE_USER).request("/github/repos")
+
+    expect(res.status).toBe(200)
+    expect(await res.json()).toMatchObject({
+      repos: [
+        {
+          fullName: "MakFly/astro-docs",
+          installationId: "42",
+        },
+      ],
+    })
   })
 })
 
@@ -655,6 +1186,17 @@ describe("GET /github/installations/start", () => {
       "https://github.com/apps/ploydok-local/installations/new?state="
     )
     expect(res.headers.get("set-cookie")).toContain("gh_install_state=")
+  })
+
+  it("rejects non-admin users before starting an installation", async () => {
+    fakeInstanceAdmin = false
+    mockGitHubAppConfig = { slug: "ploydok-local" }
+
+    const res = await buildApp(FAKE_USER).request("/github/installations/start")
+
+    expect(res.status).toBe(403)
+    expect(await res.json()).toEqual({ error: "admin_required" })
+    expect(res.headers.get("set-cookie")).toBeNull()
   })
 })
 
@@ -685,6 +1227,53 @@ describe("DELETE /github/installations/:id", () => {
       { installationId: "42", userId: FAKE_USER.id },
     ])
     expect(revokedInstallations).toHaveLength(0)
+  })
+
+  it("disconnects only the selected mapping and leaves another organization usable", async () => {
+    fakeInstanceAdmin = false
+    mockGitHubAppConfig = { slug: "ploydok-local" }
+    userGitHubInstallationIds = ["42", "77"]
+    liveInstallations = [
+      { id: 42, accountLogin: "Org A" },
+      { id: 77, accountLogin: "Org B" },
+      { id: 99, accountLogin: "Foreign" },
+    ]
+    using _spy = spyOn(githubModule.ghProvider, "listRepos").mockResolvedValue({
+      repos: [],
+      hasMore: false,
+    })
+    const app = buildApp(FAKE_USER)
+
+    const disconnectRes = await app.request("/github/installations/42", {
+      method: "DELETE",
+    })
+    const installationsRes = await app.request("/github/installations")
+    const syncRemainingRes = await app.request("/github/installations/sync", {
+      method: "POST",
+      body: JSON.stringify({ installationId: "77" }),
+    })
+    const installationsBody = (await installationsRes.json()) as {
+      installations: Array<{ id: number }>
+    }
+
+    expect(disconnectRes.status).toBe(200)
+    expect(await disconnectRes.json()).toEqual({ ok: true, disconnected: 42 })
+    expect(localDisconnects).toEqual([
+      { installationId: "42", userId: FAKE_USER.id },
+    ])
+    expect(revokedInstallations).toHaveLength(0)
+    expect(deletedTables).toHaveLength(0)
+    expect(userGitHubInstallationIds).toEqual(["77"])
+    expect(installationsRes.status).toBe(200)
+    expect(installationsBody.installations.map(({ id }) => id)).toEqual([77])
+    expect(syncRemainingRes.status).toBe(202)
+    expect(enqueuedSyncs).toEqual([
+      expect.objectContaining({
+        provider: "github",
+        installationId: "77",
+        requestedBy: FAKE_USER.id,
+      }),
+    ])
   })
 })
 
@@ -750,7 +1339,7 @@ describe("GET /github/app/setup", () => {
     expect(enqueuedSyncs).toHaveLength(0)
   })
 
-  it("keeps an in-flight installation using the legacy state cookie working", async () => {
+  it("rejects a legacy state that has no signed admin identity", async () => {
     const app = buildApp()
     const state = "legacy-state"
     const res = await app.request(
@@ -764,13 +1353,34 @@ describe("GET /github/app/setup", () => {
 
     expect(res.status).toBe(302)
     const location = new URL(res.headers.get("location")!)
-    expect(location.searchParams.get("installed")).toBe("1")
+    expect(location.searchParams.get("installed")).toBeNull()
     expect(location.searchParams.get("sync_id")).toBeNull()
-    expect(enqueuedSyncs[0]).toMatchObject({
-      provider: "github",
-      installationId: "42",
-    })
-    expect(enqueuedSyncs[0]).not.toHaveProperty("requestedBy")
+    expect(location.searchParams.get("install_error")).toBe("admin_required")
+    expect(credentialUpserts).toHaveLength(0)
+    expect(installationAssignments).toHaveLength(0)
+    expect(enqueuedSyncs).toHaveLength(0)
+  })
+
+  it("rejects a signed callback when its user is no longer an instance admin", async () => {
+    fakeInstanceAdmin = false
+    const state = "demoted-admin-state"
+
+    const res = await buildApp().request(
+      `/github/app/setup?installation_id=42&setup_action=install&state=${state}`,
+      {
+        headers: {
+          cookie: `gh_install_state=${encodeURIComponent(signInstallState(state))}`,
+        },
+      }
+    )
+    const location = new URL(res.headers.get("location")!)
+
+    expect(res.status).toBe(302)
+    expect(location.searchParams.get("install_error")).toBe("admin_required")
+    expect(location.searchParams.get("installed")).toBeNull()
+    expect(credentialUpserts).toHaveLength(0)
+    expect(installationAssignments).toHaveLength(0)
+    expect(enqueuedSyncs).toHaveLength(0)
   })
 
   it("returns to the onboarding wizard when the signed state asked for it", async () => {

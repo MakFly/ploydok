@@ -34,6 +34,7 @@ import {
   sanitizeReturnTo,
 } from "./provider-return"
 import type { ProviderReturnPath } from "./provider-return"
+import { isAllowedNestedProviderFilePath } from "./provider-file-path"
 
 const log = childLogger("gitlab.routes")
 
@@ -59,15 +60,11 @@ function readFileProbeQuery(
 }
 
 function isAllowedEnvFilePath(path: string): boolean {
-  return ENV_FILE_PROBE_KEYS.includes(
-    path as (typeof ENV_FILE_PROBE_KEYS)[number]
-  )
+  return isAllowedNestedProviderFilePath(path, ENV_FILE_PROBE_KEYS)
 }
 
 function isAllowedManifestFilePath(path: string): boolean {
-  return MANIFEST_FILE_PROBE_KEYS.includes(
-    path as (typeof MANIFEST_FILE_PROBE_KEYS)[number]
-  )
+  return isAllowedNestedProviderFilePath(path, MANIFEST_FILE_PROBE_KEYS)
 }
 
 // ---------------------------------------------------------------------------

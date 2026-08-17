@@ -256,7 +256,7 @@ function PasskeyRow({
     <li className="group relative rounded-2xl bg-panel transition-colors hover:bg-muted/30">
       <div className="flex flex-col gap-3 p-4 md:flex-row md:items-center md:gap-4">
         <div className="flex size-10 shrink-0 items-center justify-center rounded-md bg-muted">
-          <Icon className="size-4 text-muted-foreground" />
+          <Icon className="size-5 text-muted-foreground" />
         </div>
 
         <div className="min-w-0 flex-1 space-y-1">

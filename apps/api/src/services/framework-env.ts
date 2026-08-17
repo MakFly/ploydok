@@ -46,8 +46,11 @@ export function suggestedEnvForFramework(
   return suggested
 }
 
-function phaseForFrameworkEnvKey(key: string): "build" | "runtime" | "both" {
+export function phaseForFrameworkEnvKey(
+  key: string
+): "build" | "runtime" | "both" {
   if (key.startsWith("NIXPACKS_")) return "build"
+  if (key === "MIX_ENV" || key === "RAILS_ENV") return "both"
   if (
     key.startsWith("NEXT_PUBLIC_") ||
     key.startsWith("PUBLIC_") ||

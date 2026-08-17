@@ -91,10 +91,10 @@ describe("default app domains", () => {
 
   it("keeps the dev fallback for localhost and .local hosts", () => {
     expect(deriveDefaultAppDomainBase({ publicHost: "localhost" })).toBe(
-      "demo.ploydok.local"
+      "demo.localhost"
     )
     expect(deriveDefaultAppDomainBase({ publicHost: "ploydok.local" })).toBe(
-      "demo.ploydok.local"
+      "demo.localhost"
     )
   })
 

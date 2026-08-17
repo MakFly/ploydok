@@ -49,7 +49,7 @@ function makeSelectChain(rows: unknown[]): SelectChain {
 }
 
 function mockDb(opts: { gitlabTokenRows?: unknown[]; updateRow?: unknown } = {}) {
-  return {
+  const db = {
     select: (_fields?: unknown) => ({
       from: (_table: unknown) => makeSelectChain(opts.gitlabTokenRows ?? []),
     }),
@@ -75,8 +75,9 @@ function mockDb(opts: { gitlabTokenRows?: unknown[]; updateRow?: unknown } = {})
     delete: (_table: unknown) => ({
       where: (_condition: unknown) => Promise.resolve(),
     }),
-    transaction: async (fn: (tx: unknown) => Promise<void>) => fn(null),
+    transaction: async <T>(fn: (tx: unknown) => Promise<T>) => fn(db),
   }
+  return db
 }
 
 // ---------------------------------------------------------------------------
@@ -95,6 +96,14 @@ describe("handleSyncProviderRepos — GitHub fan-out", () => {
   let upsertInstallationSpy: ReturnType<typeof spyOn>
   let enqueueReposSyncSpy: ReturnType<typeof spyOn>
   let listInstallationsSpy: ReturnType<typeof spyOn>
+  let getConfigSpy: ReturnType<typeof spyOn>
+  let lockConfigSpy: ReturnType<typeof spyOn>
+
+  const githubConfig = {
+    app_id: "123",
+    pem_enc: Buffer.from("ciphertext"),
+    pem_nonce: Buffer.from("nonce"),
+  }
 
   beforeEach(() => {
     listInstallationsSpy = spyOn(
@@ -130,11 +139,22 @@ describe("handleSyncProviderRepos — GitHub fan-out", () => {
     spyOn(queues.providerReposSyncQueue, "add").mockImplementation(
       mockEnqueue as unknown as typeof queues.providerReposSyncQueue.add
     )
+
+    getConfigSpy = spyOn(
+      providerReposQueries,
+      "getGitHubAppConfig"
+    ).mockResolvedValue(githubConfig as never)
+    lockConfigSpy = spyOn(
+      providerReposQueries,
+      "lockGitHubAppConfigForUse"
+    ).mockResolvedValue(githubConfig as never)
   })
 
   afterEach(() => {
     listInstallationsSpy.mockRestore()
     upsertInstallationSpy.mockRestore()
+    getConfigSpy.mockRestore()
+    lockConfigSpy.mockRestore()
   })
 
   it("enqueues one child job per installation", async () => {
@@ -174,6 +194,36 @@ describe("handleSyncProviderRepos — GitHub fan-out", () => {
       provider: "github",
       installationId: "999",
     })
+  })
+
+  it("abandons without DB reinsertion or enqueue when config is deleted after fetch", async () => {
+    lockConfigSpy.mockResolvedValueOnce(null)
+    const { handleSyncProviderRepos } = await import("./sync-provider-repos")
+    const db = mockDb()
+    mockEnqueue.mockClear()
+
+    await handleSyncProviderRepos(db as never, { provider: "github" })
+
+    expect(listInstallationsSpy).toHaveBeenCalledTimes(1)
+    expect(upsertInstallationSpy).not.toHaveBeenCalled()
+    expect(mockEnqueue).not.toHaveBeenCalled()
+  })
+
+  it("abandons stale fan-out when the same App is re-imported", async () => {
+    lockConfigSpy.mockResolvedValueOnce({
+      ...githubConfig,
+      pem_enc: Buffer.from("replacement-ciphertext"),
+      pem_nonce: Buffer.from("replacement-nonce"),
+    } as never)
+    const { handleSyncProviderRepos } = await import("./sync-provider-repos")
+    const db = mockDb()
+    mockEnqueue.mockClear()
+
+    await handleSyncProviderRepos(db as never, { provider: "github" })
+
+    expect(listInstallationsSpy).toHaveBeenCalledTimes(1)
+    expect(upsertInstallationSpy).not.toHaveBeenCalled()
+    expect(mockEnqueue).not.toHaveBeenCalled()
   })
 })
 

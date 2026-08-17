@@ -1,6 +1,7 @@
 // SPDX-License-Identifier: AGPL-3.0-only
 import { signAppJwt } from "./jwt";
-import { decryptField } from "./app-credentials";
+import { decryptAppPrivateKey } from "./app-credentials";
+import { getGitHubAppConfigFingerprint } from "./config-fingerprint";
 import { getGitHubAppConfig } from "@ploydok/db/queries";
 import { createDb } from "@ploydok/db";
 import { env } from "../env";
@@ -12,6 +13,7 @@ import { env } from "../env";
 interface CachedToken {
   token: string;
   expiresAt: number; // epoch ms
+  configFingerprint: string;
 }
 
 // ---------------------------------------------------------------------------
@@ -37,19 +39,27 @@ const db = createDb(env.DATABASE_URL);
  * Tokens are cached in-process for 50 minutes; GitHub grants 1 hour.
  */
 export async function getInstallationToken(installationId: string): Promise<string> {
-  const cached = TOKEN_CACHE.get(installationId);
-  if (cached && Date.now() < cached.expiresAt) {
-    return cached.token;
-  }
-
-  // Load GitHub App config from DB
+  // Always validate the current DB config before consulting the process-local
+  // cache. This is the cross-process revocation fence after a local App reset.
   const config = await getGitHubAppConfig(db);
   if (!config) {
+    TOKEN_CACHE.delete(installationId);
     throw new Error("GitHub App not configured — run the App manifest flow first");
   }
+  const configFingerprint = getGitHubAppConfigFingerprint(config);
+
+  const cached = TOKEN_CACHE.get(installationId);
+  if (
+    cached &&
+    cached.configFingerprint === configFingerprint &&
+    Date.now() < cached.expiresAt
+  ) {
+    return cached.token;
+  }
+  TOKEN_CACHE.delete(installationId);
 
   // Decrypt the PEM private key
-  const pem = await decryptField(config.pem_enc as Buffer, config.pem_nonce as Buffer);
+  const pem = await decryptAppPrivateKey(config);
 
   // Sign a short-lived JWT for the App itself
   const jwt = signAppJwt(pem, config.app_id);
@@ -78,10 +88,22 @@ export async function getInstallationToken(installationId: string): Promise<stri
   const data = (await res.json()) as { token: string; expires_at: string };
   const token = data.token;
 
+  // The App may have been reset or re-imported while GitHub was issuing the
+  // token. Re-read the DB before making that bearer observable or cacheable.
+  const currentConfig = await getGitHubAppConfig(db);
+  if (
+    !currentConfig ||
+    getGitHubAppConfigFingerprint(currentConfig) !== configFingerprint
+  ) {
+    TOKEN_CACHE.delete(installationId);
+    throw new Error("GitHub App configuration changed while issuing a token");
+  }
+
   // Cache with 50-minute TTL regardless of actual expiry
   TOKEN_CACHE.set(installationId, {
     token,
     expiresAt: Date.now() + CACHE_TTL_MS,
+    configFingerprint,
   });
 
   return token;
@@ -92,6 +114,11 @@ export async function getInstallationToken(installationId: string): Promise<stri
  */
 export function evictInstallationToken(installationId: string): void {
   TOKEN_CACHE.delete(installationId);
+}
+
+/** Evicts all process-local GitHub installation tokens after an App reset. */
+export function evictAllInstallationTokens(): void {
+  TOKEN_CACHE.clear();
 }
 
 export interface AppInstallation {
@@ -114,7 +141,7 @@ export async function listAppInstallations(): Promise<AppInstallation[]> {
     throw new Error("GitHub App not configured");
   }
 
-  const pem = await decryptField(config.pem_enc as Buffer, config.pem_nonce as Buffer);
+  const pem = await decryptAppPrivateKey(config);
   const jwt = signAppJwt(pem, config.app_id);
 
   const res = await fetch("https://api.github.com/app/installations?per_page=100", {
@@ -160,7 +187,7 @@ export async function revokeAppInstallation(installationId: number): Promise<voi
     throw new Error("GitHub App not configured");
   }
 
-  const pem = await decryptField(config.pem_enc as Buffer, config.pem_nonce as Buffer);
+  const pem = await decryptAppPrivateKey(config);
   const jwt = signAppJwt(pem, config.app_id);
 
   const res = await fetch(`https://api.github.com/app/installations/${installationId}`, {

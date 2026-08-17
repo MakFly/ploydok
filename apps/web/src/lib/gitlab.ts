@@ -138,15 +138,21 @@ export function useGitLabRepos(params: GitLabReposParams = {}) {
   })
 }
 
+// Same shape as the GitHub hook so the create-app wizard reads both the same
+// way. GitLab uses a PAT rather than a per-account install, so `needsInstall`
+// is always false here.
 export function useGitLabBranches(fullName?: string) {
-  return useQuery<Array<GitBranch>, ApiError>({
+  return useQuery<
+    { branches: Array<GitBranch>; needsInstall: boolean },
+    ApiError
+  >({
     queryKey: ["gitlab", "branches", fullName ?? ""],
     queryFn: async () => {
-      if (!fullName) return []
+      if (!fullName) return { branches: [], needsInstall: false }
       const res = await apiFetch<{ branches: Array<GitBranch> }>(
         `/gitlab/repos/${encodeURIComponent(fullName)}/branches`
       )
-      return res.branches
+      return { branches: res.branches, needsInstall: false }
     },
     enabled: Boolean(fullName),
     staleTime: 60_000,

@@ -19,6 +19,26 @@ export type DeliveryDecision =
   | "coalesced"
   | "retried"
 
+/**
+ * One label per decision. Every `skipped_*` case gets its own wording: a shared
+ * "Skipped" would hide the only thing the reader is looking for, which is why
+ * this particular push did not deploy.
+ */
+export const DECISION_LABELS: Record<DeliveryDecision, string> = {
+  enqueued: "Enqueued",
+  coalesced: "Coalesced",
+  retried: "Retried",
+  skipped_disabled: "Auto-deploy off",
+  skipped_branch: "Other branch",
+  skipped_path: "Path filtered",
+  skipped_directive: "Skipped by commit",
+  skipped_unknown_app: "Unknown app",
+  skipped_tag_disabled: "Tag deploys off",
+  skipped_tag_pattern: "Tag not matched",
+  invalid_signature: "Invalid signature",
+  error: "Error",
+}
+
 export interface WebhookDelivery {
   id: string
   appId?: string | null

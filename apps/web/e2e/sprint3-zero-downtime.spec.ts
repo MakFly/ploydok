@@ -14,7 +14,7 @@
  *
  * Required env vars (in addition to auth vars from helpers/auth.ts):
  *   E2E_FIXTURE_APP_ID   – id of an already-running app (pre-seeded in DB).
- *   E2E_FIXTURE_APP_DOMAIN – hostname of that app (e.g. my-app.demo.ploydok.local).
+ *   E2E_FIXTURE_APP_DOMAIN – hostname of that app (e.g. my-app.demo.localhost).
  */
 import { expect, test } from "@playwright/test";
 import { API_URL, WEB_URL, loginWithBackupCode } from "./helpers/auth";

@@ -37,6 +37,10 @@ const fakeDb = {
 mock.module("@ploydok/db", () => ({
   createDb: () => fakeDb,
   provider_credentials: fakeTable,
+  users: {
+    id: "id",
+    is_instance_admin: "is_instance_admin",
+  },
 }))
 
 mock.module("@ploydok/db/queries", () => ({

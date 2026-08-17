@@ -74,7 +74,7 @@ export function MemberRow({
 
   return (
     <>
-      <div className="flex items-center justify-between rounded-2xl bg-panel p-4">
+      <div className="flex items-center justify-between rounded-xl border border-panel-border bg-panel-inset p-4 shadow-sm">
         <div className="flex items-center gap-3">
           <div className="flex h-10 w-10 items-center justify-center rounded-full bg-primary/10 text-sm font-semibold text-primary">
             {member.user.display_name.charAt(0).toUpperCase()}

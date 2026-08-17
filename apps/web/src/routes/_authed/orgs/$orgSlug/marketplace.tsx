@@ -182,7 +182,7 @@ function TemplateCard({
     <button
       type="button"
       onClick={onOpen}
-      className="group flex h-full cursor-pointer flex-col gap-3 rounded-2xl border border-panel-border bg-panel p-4 text-left transition-colors outline-none hover:border-primary/50 hover:bg-accent/40 focus-visible:ring-2 focus-visible:ring-ring"
+      className="group flex h-full cursor-pointer flex-col gap-3 rounded-xl border border-panel-border bg-panel-inset p-4 text-left shadow-sm transition-colors outline-none hover:border-muted-foreground/30 hover:bg-accent/40 focus-visible:ring-2 focus-visible:ring-ring"
     >
       <div className="flex items-center gap-3">
         <div className="flex size-10 shrink-0 items-center justify-center overflow-hidden rounded-md bg-muted">
@@ -232,17 +232,17 @@ function CatalogSkeleton(): React.JSX.Element {
       {Array.from({ length: 8 }).map((_, idx) => (
         <div
           key={idx}
-          className="flex h-32 flex-col gap-3 rounded-2xl border border-panel-border bg-panel p-4"
+          className="flex h-32 flex-col gap-3 rounded-xl border border-panel-border bg-panel-inset p-4 shadow-sm"
         >
           <div className="flex items-center gap-3">
-            <span className="size-10 shrink-0 rounded-md skeleton-surface" />
+            <span className="size-10 shrink-0 skeleton-surface rounded-md" />
             <div className="flex-1 space-y-2">
-              <span className="block h-3 w-24 rounded skeleton-surface" />
-              <span className="block h-2 w-12 rounded skeleton-surface" />
+              <span className="block h-3 w-24 skeleton-surface rounded" />
+              <span className="block h-2 w-12 skeleton-surface rounded" />
             </div>
           </div>
-          <span className="block h-2 w-full rounded skeleton-surface" />
-          <span className="block h-2 w-3/4 rounded skeleton-surface" />
+          <span className="block h-2 w-full skeleton-surface rounded" />
+          <span className="block h-2 w-3/4 skeleton-surface rounded" />
         </div>
       ))}
     </div>
@@ -361,7 +361,7 @@ function TemplateDialog({
                   </Button>
                 </div>
                 {isLoading ? (
-                  <div className="h-40 rounded-md skeleton-surface" />
+                  <div className="h-40 skeleton-surface rounded-md" />
                 ) : error ? (
                   <p
                     role="alert"

@@ -35,6 +35,7 @@ import {
   RiSettings3Line,
   RiShapesLine,
   RiShieldCheckLine,
+  RiShieldKeyholeLine,
   RiSidebarFoldLine,
   RiStackLine,
   RiSunLine,
@@ -109,7 +110,6 @@ import type { AppStatus, OrganizationSummary } from "@ploydok/shared"
 
 interface AppShellProps {
   children: React.ReactNode
-  banner?: React.ReactNode
 }
 
 interface ShellPageProps {
@@ -244,6 +244,35 @@ const accountNav: Array<NavItem> = [
   { label: "Changelog", icon: RiHistoryLine, href: "/changelog" },
   { label: "Settings", icon: RiSettings3Line, href: "/settings" },
 ]
+
+/**
+ * Several core operations sit behind `requireTotpVerified` server-side: secret
+ * reveal, webhook secret rotation and replay, database credential rotation,
+ * the Adminer console, and backup restore. Enrollment is skippable at setup and
+ * absent from the invitation flow, so without this prompt the requirement is
+ * only ever discovered by hitting a wall mid-task.
+ */
+function TwoFactorPrompt(): React.JSX.Element {
+  return (
+    <Link
+      to="/settings/security/totp"
+      preload={false}
+      className="mb-1 flex flex-col gap-1.5 rounded-xl border border-amber-500/30 bg-amber-500/10 p-3 transition-colors group-data-[sidebar-state=collapsed]/shell:hidden hover:bg-amber-500/15"
+    >
+      <span className="flex items-center gap-2 text-xs font-semibold text-amber-700 dark:text-amber-400">
+        <RiShieldKeyholeLine className="size-4 shrink-0" aria-hidden="true" />
+        Two-factor required
+      </span>
+      <span className="text-[11px] leading-4 text-muted-foreground">
+        Rotating secrets, restoring a backup or opening a database console all
+        ask for a 6-digit code.
+      </span>
+      <span className="text-[11px] font-medium text-amber-700 dark:text-amber-400">
+        Set it up
+      </span>
+    </Link>
+  )
+}
 
 function SidebarProfileSkeleton(): React.JSX.Element {
   return (
@@ -466,10 +495,7 @@ function CreateWorkspaceDialog({
   )
 }
 
-export function AppShell({
-  children,
-  banner,
-}: AppShellProps): React.JSX.Element {
+export function AppShell({ children }: AppShellProps): React.JSX.Element {
   const pathname = useRouterState({
     select: (state) => state.location.pathname,
   })
@@ -577,12 +603,7 @@ export function AppShell({
     {
       title: "Platform",
       items: platformNav
-        .filter(
-          (item) =>
-            !item.adminOnly ||
-            me?.is_instance_admin ||
-            meLoading
-        )
+        .filter((item) => !item.adminOnly || me?.is_instance_admin || meLoading)
         .map((item) => {
           const resolved = resolveNavItem(item, currentOrgSlug)
           return item.adminOnly && meLoading
@@ -849,9 +870,9 @@ export function AppShell({
                             >
                               <div
                                 aria-busy="true"
-                                className="flex h-9 w-full items-center gap-2 overflow-hidden rounded-[10px] p-2 group-data-[sidebar-state=collapsed]/shell:justify-center"
+                                className="flex h-8 w-full items-center gap-2 overflow-hidden rounded-[10px] px-2 py-1.5 group-data-[sidebar-state=collapsed]/shell:justify-center"
                               >
-                                <Skeleton className="size-5 shrink-0" />
+                                <Skeleton className="size-4 shrink-0" />
                                 <Skeleton className="h-3 w-10 group-data-[sidebar-state=collapsed]/shell:hidden" />
                               </div>
                             </li>
@@ -864,11 +885,11 @@ export function AppShell({
                                 title={item.tooltip ?? "Bientôt disponible"}
                                 aria-disabled="true"
                                 className={cx(
-                                  "flex w-full cursor-not-allowed items-center gap-2 overflow-hidden rounded-[10px] p-2 text-sm text-neutral-400 outline-none",
+                                  "flex w-full cursor-not-allowed items-center gap-2 overflow-hidden rounded-[10px] px-2 py-1.5 text-sm text-neutral-400 outline-none",
                                   "group-data-[sidebar-state=collapsed]/shell:justify-center"
                                 )}
                               >
-                                <Icon className="size-5 shrink-0" />
+                                <Icon className="size-4 shrink-0" />
                                 <span className="truncate group-data-[sidebar-state=collapsed]/shell:hidden">
                                   {item.label}
                                 </span>
@@ -890,7 +911,7 @@ export function AppShell({
                               preload={false}
                               title={item.label}
                               className={cx(
-                                "flex w-full cursor-pointer items-center gap-2 overflow-hidden rounded-[10px] p-2 text-sm font-medium transition-colors outline-none focus-visible:ring-2 focus-visible:ring-[#3080ff] focus-visible:ring-offset-2",
+                                "flex w-full cursor-pointer items-center gap-2 overflow-hidden rounded-[10px] px-2 py-1.5 text-sm font-medium transition-colors outline-none focus-visible:ring-2 focus-visible:ring-[#3080ff] focus-visible:ring-offset-2",
                                 "group-data-[sidebar-state=collapsed]/shell:justify-center",
                                 active
                                   ? "bg-[image:var(--gradient-primary)] text-white shadow-[0_0_0_1px_#3080ff,inset_0_1px_0_0_#ffffff40]"
@@ -899,7 +920,7 @@ export function AppShell({
                             >
                               <Icon
                                 className={cx(
-                                  "size-5 shrink-0",
+                                  "size-4 shrink-0",
                                   active ? "text-white" : "text-neutral-500"
                                 )}
                               />
@@ -917,44 +938,7 @@ export function AppShell({
 
               {/* Footer */}
               <div className="mt-3 flex flex-col gap-1">
-                <ul className="flex w-full min-w-0 flex-col gap-1 group-data-[sidebar-state=collapsed]/shell:hidden">
-                  {accountNavItems.map((item) => {
-                    const Icon = item.icon
-                    if (!item.to) return null
-                    const showReleaseDot =
-                      item.label === "Changelog" && unseenRelease
-                    return (
-                      <li key={item.label} className="relative">
-                        <Link
-                          to={item.to}
-                          preload={false}
-                          onClick={showReleaseDot ? markReleaseSeen : undefined}
-                          title={
-                            showReleaseDot
-                              ? `New in v${version} — click to mark as seen`
-                              : item.label
-                          }
-                          className="flex w-full cursor-pointer items-center gap-2 overflow-hidden rounded-[10px] p-2 text-sm font-medium text-neutral-500 transition-colors outline-none hover:bg-neutral-200 dark:hover:bg-neutral-800"
-                        >
-                          <Icon className="size-5 shrink-0 text-neutral-500" />
-                          <span className="truncate">{item.label}</span>
-                          {showReleaseDot ? (
-                            <span
-                              aria-label={`New release v${version}`}
-                              className="ml-auto inline-flex items-center gap-1 rounded-full bg-primary/10 px-1.5 py-0.5 text-[10px] font-semibold tracking-wide text-primary uppercase"
-                            >
-                              <span
-                                aria-hidden="true"
-                                className="inline-block size-1.5 rounded-full bg-primary"
-                              />
-                              New
-                            </span>
-                          ) : null}
-                        </Link>
-                      </li>
-                    )
-                  })}
-                </ul>
+                {me && !me.has_totp ? <TwoFactorPrompt /> : null}
 
                 {/* User */}
                 <ul className="relative mt-1 flex w-full min-w-0 flex-col gap-1">
@@ -971,11 +955,11 @@ export function AppShell({
                             type="button"
                             title={displayName}
                             className={cx(
-                              "flex w-full cursor-pointer items-center gap-2 overflow-hidden rounded-xl bg-sidebar-accent p-2 text-sm transition-colors outline-none hover:bg-sidebar-accent/80",
+                              "flex w-full cursor-pointer items-center gap-2 overflow-hidden rounded-xl bg-sidebar-accent px-2 py-1.5 text-sm transition-colors outline-none hover:bg-sidebar-accent/80",
                               "group-data-[sidebar-state=collapsed]/shell:justify-center"
                             )}
                           >
-                            <span className="flex size-8 shrink-0 items-center justify-center rounded-full bg-[image:var(--gradient-primary)] text-xs font-semibold text-white shadow-[0_0_0_1px_#3080ff,inset_0_1px_0_0_#ffffff40]">
+                            <span className="flex size-7 shrink-0 items-center justify-center rounded-full bg-[image:var(--gradient-primary)] text-[10px] font-semibold text-white shadow-[0_0_0_1px_#3080ff,inset_0_1px_0_0_#ffffff40]">
                               {initials}
                             </span>
                             <span className="grid flex-1 text-left leading-tight group-data-[sidebar-state=collapsed]/shell:hidden">
@@ -1011,6 +995,44 @@ export function AppShell({
 
                           <DropdownMenuSeparator className="-mx-2.5 my-2.5 h-px bg-border" />
 
+                          {accountNavItems.map((item) => {
+                            const Icon = item.icon
+                            if (!item.to) return null
+                            const showReleaseDot =
+                              item.label === "Changelog" && unseenRelease
+                            return (
+                              <DropdownMenuItem
+                                key={item.label}
+                                asChild
+                                className="cursor-pointer rounded-xl p-2 text-sm text-foreground"
+                              >
+                                <Link
+                                  to={item.to}
+                                  preload={false}
+                                  onClick={
+                                    showReleaseDot ? markReleaseSeen : undefined
+                                  }
+                                  className="flex items-center gap-2.5"
+                                >
+                                  <Icon className="size-4 shrink-0 text-muted-foreground" />
+                                  {item.label}
+                                  {showReleaseDot ? (
+                                    <span
+                                      aria-label={`New release v${version}`}
+                                      className="ml-auto inline-flex items-center gap-1 rounded-full bg-primary/10 px-1.5 py-0.5 text-[10px] font-semibold tracking-wide text-primary uppercase"
+                                    >
+                                      <span
+                                        aria-hidden="true"
+                                        className="inline-block size-1.5 rounded-full bg-primary"
+                                      />
+                                      New
+                                    </span>
+                                  ) : null}
+                                </Link>
+                              </DropdownMenuItem>
+                            )
+                          })}
+
                           <DropdownMenuItem
                             asChild
                             className="cursor-pointer rounded-xl p-2 text-sm text-foreground"
@@ -1020,7 +1042,7 @@ export function AppShell({
                               preload={false}
                               className="flex items-center gap-2.5"
                             >
-                              <RiShieldCheckLine className="size-5 shrink-0 text-muted-foreground" />
+                              <RiShieldCheckLine className="size-4 shrink-0 text-muted-foreground" />
                               Security
                             </Link>
                           </DropdownMenuItem>
@@ -1030,9 +1052,9 @@ export function AppShell({
                           >
                             <span className="flex items-center gap-2.5">
                               {resolvedTheme === "dark" ? (
-                                <RiSunLine className="size-5 shrink-0 text-muted-foreground" />
+                                <RiSunLine className="size-4 shrink-0 text-muted-foreground" />
                               ) : (
-                                <RiMoonLine className="size-5 shrink-0 text-muted-foreground" />
+                                <RiMoonLine className="size-4 shrink-0 text-muted-foreground" />
                               )}
                               {resolvedTheme === "dark"
                                 ? "Light theme"
@@ -1055,9 +1077,9 @@ export function AppShell({
                             className="cursor-pointer rounded-xl p-2 text-sm"
                           >
                             {signOut.pending ? (
-                              <RiLoader4Line className="size-5 shrink-0 animate-spin" />
+                              <RiLoader4Line className="size-4 shrink-0 animate-spin" />
                             ) : (
-                              <RiLogoutBoxRLine className="size-5 shrink-0" />
+                              <RiLogoutBoxRLine className="size-4 shrink-0" />
                             )}
                             {signOut.pending ? "Signing out…" : "Sign out"}
                           </DropdownMenuItem>
@@ -1078,7 +1100,6 @@ export function AppShell({
             "relative flex w-full min-w-0 flex-1 flex-col bg-white text-foreground dark:bg-neutral-950"
           )}
         >
-          {banner}
           <div className="relative flex h-12 items-center gap-2 px-3 sm:gap-3 sm:px-4 md:px-8">
             <button
               type="button"

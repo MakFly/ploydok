@@ -620,7 +620,7 @@ function EmptyDropArea({
   return (
     <div className="flex flex-col items-center justify-center gap-3 px-6 py-16 text-center">
       <div className="flex size-12 items-center justify-center rounded-full bg-muted">
-        <UploadIcon className="size-5 text-muted-foreground" />
+        <UploadIcon className="size-6 text-muted-foreground" />
       </div>
       <div>
         <p className="text-sm font-medium">Drop a .env file to get started</p>

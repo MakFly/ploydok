@@ -14,52 +14,56 @@
  *
  * Gate: PLOYDOK_FULL_INFRA=1 (agent + registry + caddy required).
  */
-import { expect, test } from "@playwright/test";
-import { API_URL, apiLoginWithCsrf } from "../helpers/auth";
+import { expect, test } from "@playwright/test"
+import { API_URL, apiLoginWithCsrf } from "../helpers/auth"
 
-const FULL_INFRA = process.env.PLOYDOK_FULL_INFRA === "1";
-const PROJECT_ID = process.env.E2E_TEST_PROJECT_ID;
+const FULL_INFRA = process.env.PLOYDOK_FULL_INFRA === "1"
+const PROJECT_ID = process.env.E2E_TEST_PROJECT_ID
 
-const POLL_INTERVAL_MS = 2_000;
-const DEPLOY_TIMEOUT_MS = 60_000;
+const POLL_INTERVAL_MS = 2_000
+const DEPLOY_TIMEOUT_MS = 60_000
 
-type AppRow = { id: string; status: string; domain: string | null };
+type AppRow = { id: string; status: string; domain: string | null }
 
 async function fetchApp(appId: string, cookies: string): Promise<AppRow> {
-  const res = await fetch(`${API_URL}/apps/${appId}`, { headers: { cookie: cookies } });
-  expect(res.ok, `GET /apps/${appId} failed: ${res.status}`).toBe(true);
-  const body = (await res.json()) as { app: AppRow };
-  return body.app;
+  const res = await fetch(`${API_URL}/apps/${appId}`, {
+    headers: { cookie: cookies },
+  })
+  expect(res.ok, `GET /apps/${appId} failed: ${res.status}`).toBe(true)
+  const body = (await res.json()) as { app: AppRow }
+  return body.app
 }
 
 async function waitForStatus(
   appId: string,
   target: string,
   cookies: string,
-  timeoutMs: number,
+  timeoutMs: number
 ): Promise<AppRow> {
-  const deadline = Date.now() + timeoutMs;
+  const deadline = Date.now() + timeoutMs
   while (Date.now() < deadline) {
-    const app = await fetchApp(appId, cookies);
-    if (app.status === target) return app;
+    const app = await fetchApp(appId, cookies)
+    if (app.status === target) return app
     if (app.status === "failed") {
-      throw new Error(`app ${appId} entered 'failed' during deploy`);
+      throw new Error(`app ${appId} entered 'failed' during deploy`)
     }
-    await new Promise((r) => setTimeout(r, POLL_INTERVAL_MS));
+    await new Promise((r) => setTimeout(r, POLL_INTERVAL_MS))
   }
-  throw new Error(`app ${appId} did not reach '${target}' within ${timeoutMs}ms`);
+  throw new Error(
+    `app ${appId} did not reach '${target}' within ${timeoutMs}ms`
+  )
 }
 
 test.describe("Sprint 3bis — deploy from Docker image", () => {
   test.skip(
     !FULL_INFRA || !PROJECT_ID,
-    "requires PLOYDOK_FULL_INFRA=1 and E2E_TEST_PROJECT_ID",
-  );
+    "requires PLOYDOK_FULL_INFRA=1 and E2E_TEST_PROJECT_ID"
+  )
 
-  test.setTimeout(DEPLOY_TIMEOUT_MS + 30_000);
+  test.setTimeout(DEPLOY_TIMEOUT_MS + 30_000)
 
   test("nginx:alpine image → container running + HTTP 200", async () => {
-    const { cookie: cookies, csrfToken } = await apiLoginWithCsrf();
+    const { cookie: cookies, csrfToken } = await apiLoginWithCsrf()
 
     const createRes = await fetch(`${API_URL}/apps`, {
       method: "POST",
@@ -78,19 +82,24 @@ test.describe("Sprint 3bis — deploy from Docker image", () => {
         // runner's healthcheck can actually succeed.
         healthcheck: { port: 80, path: "/" },
       }),
-    });
-    expect(createRes.ok, `POST /apps failed: ${createRes.status}`).toBe(true);
-    const { app } = (await createRes.json()) as { app: { id: string } };
+    })
+    expect(createRes.ok, `POST /apps failed: ${createRes.status}`).toBe(true)
+    const { app } = (await createRes.json()) as { app: { id: string } }
 
-    const running = await waitForStatus(app.id, "running", cookies, DEPLOY_TIMEOUT_MS);
-    expect(running.domain, "app should expose a domain").toBeTruthy();
+    const running = await waitForStatus(
+      app.id,
+      "running",
+      cookies,
+      DEPLOY_TIMEOUT_MS
+    )
+    expect(running.domain, "app should expose a domain").toBeTruthy()
 
-    // Hit Caddy on loopback with the app's Host header — avoids depending on
-    // *.demo.ploydok.local DNS resolution (not configured on every dev host).
+    // Hit Caddy on loopback with the app's Host header — keeps the assertion
+    // independent of whatever domain base the host is configured with.
     const resp = await fetch(`http://127.0.0.1:8180/`, {
       headers: { host: running.domain! },
       redirect: "manual",
-    });
-    expect([200, 301, 302, 308]).toContain(resp.status);
-  });
-});
+    })
+    expect([200, 301, 302, 308]).toContain(resp.status)
+  })
+})

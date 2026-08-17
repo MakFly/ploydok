@@ -11,8 +11,14 @@ import type {
   DiskUsageResponse,
 } from "@ploydok/shared"
 
-export async function getDiskUsage(): Promise<DiskUsageResponse> {
-  const data = await apiFetch<unknown>("/disk/usage")
+// `refresh` forces the API to re-run the expensive `docker system df` walk
+// instead of answering from its cache — used after a prune job completes.
+export async function getDiskUsage(
+  refresh = false
+): Promise<DiskUsageResponse> {
+  const data = await apiFetch<unknown>(
+    refresh ? "/disk/usage?refresh=1" : "/disk/usage"
+  )
   return DiskUsageResponseSchema.parse(data)
 }
 

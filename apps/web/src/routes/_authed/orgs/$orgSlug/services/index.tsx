@@ -12,7 +12,10 @@ import {
 } from "../../../../../components/layout/AppShell"
 import { ServiceStatusBadge } from "../../../../../components/services/ServiceStatusBadge"
 import { useServices } from "../../../../../lib/services"
-import { organizationPath, useCurrentOrganization  } from "../../../../../lib/organizations"
+import {
+  organizationPath,
+  useCurrentOrganization,
+} from "../../../../../lib/organizations"
 import type { ServiceSummary } from "../../../../../lib/services"
 
 export const Route = createFileRoute("/_authed/orgs/$orgSlug/services/")({
@@ -72,7 +75,7 @@ function ServiceCard({
   return (
     <Link
       to={detailPath as never}
-      className="group rounded-2xl bg-panel p-4 transition-colors hover:border-foreground/20 hover:bg-accent/30"
+      className="group rounded-xl border border-panel-border bg-panel-inset p-4 shadow-sm transition-colors outline-none hover:border-muted-foreground/30 hover:bg-accent/30 focus-visible:ring-2 focus-visible:ring-ring"
     >
       <div className="flex items-start justify-between gap-3">
         <div className="min-w-0">
@@ -134,17 +137,17 @@ function ServicesGridSkeleton(): React.JSX.Element {
       {Array.from({ length: 4 }).map((_, idx) => (
         <div
           key={idx}
-          className="rounded-2xl bg-panel p-4"
+          className="rounded-xl border border-panel-border bg-panel-inset p-4 shadow-sm"
         >
           <div className="flex items-start justify-between gap-3">
             <div className="flex-1 space-y-2">
-              <div className="h-4 w-32 rounded skeleton-surface" />
-              <div className="h-3 w-24 rounded skeleton-surface" />
+              <div className="h-4 w-32 skeleton-surface rounded" />
+              <div className="h-3 w-24 skeleton-surface rounded" />
             </div>
-            <div className="h-5 w-16 rounded skeleton-surface" />
+            <div className="h-5 w-16 skeleton-surface rounded" />
           </div>
           <div className="mt-4 border-t border-border pt-4">
-            <div className="h-3 w-28 rounded skeleton-surface" />
+            <div className="h-3 w-28 skeleton-surface rounded" />
           </div>
         </div>
       ))}

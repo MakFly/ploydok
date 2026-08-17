@@ -14,6 +14,19 @@
 | Registry v2               | `http://127.0.0.1:5000/v2/`                     |
 | Agent Rust                | `unix:///tmp/ploydok-agent.sock`                |
 
+## Domaine des apps en dev
+
+Base par défaut : **`demo.localhost`** (`deriveDefaultAppDomainBase`, `apps/api/src/routes/apps.ts`).
+Une app déployée est donc joignable sur `http://<slug>-<id>.demo.localhost:8180/`.
+
+`.localhost` résout vers la loopback sans DNS ni `/etc/hosts`, wildcards compris.
+Ne **pas** revenir à un TLD `.local` : la plupart des `nsswitch.conf` Linux routent
+ces noms vers mDNS avec `[NOTFOUND=return]`, la résolution s'arrête là et n'atteint
+jamais le resolver DNS. Caddy sert correctement, mais le navigateur n'arrive pas.
+
+Domaines créés avant la bascule : `bun run scripts/rebase-dev-domains.ts --apply`
+(réécrit `apps.domain` + `domains.hostname` et repatche la route Caddy ; dry run par défaut).
+
 ## Processus dev — interdits pour Claude
 
 **Ne jamais lancer, build-watch, ni tuer les process longs** : `make install`, `make dev`, `bun run dev`, `bun run --watch`, `nohup` API/web, `kill` d'un process dev. Seul l'utilisateur s'en charge. `make install` enchaîne sur `make dev` à la fin : il reste au premier plan, donc il est interdit lui aussi. Claude peut :

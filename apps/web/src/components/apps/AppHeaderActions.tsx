@@ -66,7 +66,8 @@ export function AppHeaderActions({
         size="sm"
         variant="default"
         onClick={() => deploy.mutate()}
-        loading={deploy.isPending} disabled={inFlight}
+        loading={deploy.isPending}
+        disabled={inFlight}
         title="Pull source from git, build, and deploy"
         className="gap-1.5"
       >
@@ -198,7 +199,7 @@ function ConfirmButton({
               }}
               className={cn(
                 variant === "destructive" &&
-                  "text-destructive-foreground bg-destructive hover:bg-destructive/90"
+                  "bg-destructive bg-none text-white hover:bg-destructive/90"
               )}
             >
               {confirmActionLabel}

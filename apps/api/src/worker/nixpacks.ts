@@ -936,6 +936,7 @@ export interface NixpacksPlan {
   buildImage?: string
   variables?: Record<string, string>
   phases?: Record<string, unknown>
+  start?: { cmd?: string }
   raw: unknown
 }
 
@@ -955,6 +956,7 @@ export interface NixpacksPlan {
 export async function nixpacksPlan(opts: {
   workspacePath: string
   rootDir?: string
+  configFile?: string
   nodeVersion?: string
   buildEnv?: Record<string, string>
   installCmd?: string
@@ -967,6 +969,9 @@ export async function nixpacksPlan(opts: {
   const effectiveBuildEnv = effectiveNixpacksEnv(opts)
   const commandOverrides = resolveNixpacksCommandOverrides(opts)
   const args = ["plan", ctx, "--format=json"]
+  if (opts.configFile) {
+    args.push("--config", path.join(opts.workspacePath, opts.configFile))
+  }
   if (commandOverrides.installCmd) {
     args.push("--install-cmd", commandOverrides.installCmd)
   }
@@ -998,12 +1003,14 @@ export async function nixpacksPlan(opts: {
       buildImage?: string
       variables?: Record<string, string>
       phases?: Record<string, unknown>
+      start?: { cmd?: string }
     }
     return {
       ...(parsed.providers !== undefined && { providers: parsed.providers }),
       ...(parsed.buildImage !== undefined && { buildImage: parsed.buildImage }),
       ...(parsed.variables !== undefined && { variables: parsed.variables }),
       ...(parsed.phases !== undefined && { phases: parsed.phases }),
+      ...(parsed.start !== undefined && { start: parsed.start }),
       raw: parsed,
     }
   } catch {

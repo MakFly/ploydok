@@ -15,9 +15,15 @@ export interface TotpStatus {
   requireTotpForSecretReveal: boolean
 }
 
-/** Fetch current TOTP enrollment status for the authed user. */
-export function useTotpStatus() {
+/**
+ * Fetch current TOTP enrollment status for the authed user.
+ *
+ * `enabled` lets a caller that only needs the status behind a closed dialog
+ * avoid an extra `/me` round trip on every page render.
+ */
+export function useTotpStatus({ enabled = true }: { enabled?: boolean } = {}) {
   return useQuery<TotpStatus, ApiError>({
+    enabled,
     queryKey: ["totp", "status"],
     queryFn: async () => {
       const me = await apiFetch<{

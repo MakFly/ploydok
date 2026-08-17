@@ -21,6 +21,9 @@ export const GitRepoSchema = z.object({
   private: z.boolean(),
   defaultBranch: z.string(),
   cloneUrl: z.string().url(), // https URL (sans token)
+  // GitHub App installation that grants access to this repository.
+  // Optional because GitLab repositories do not use GitHub installations.
+  installationId: z.string().regex(/^\d+$/).optional(),
 });
 export type GitRepo = z.infer<typeof GitRepoSchema>;
 

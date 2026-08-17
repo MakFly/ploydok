@@ -40,3 +40,31 @@
 
 - Tailwind v4 (config via CSS, pas JS). `packages/ui/src/styles/globals.css` est la source.
 - Classes longues → `cn(...)` + découpage par état. Éviter les string template imbriquées.
+
+## Taille des icônes — ratio, pas constante
+
+Une icône se dimensionne sur ce qui l'entoure. Il n'y a **pas** de taille globale :
+poser `size-4` partout aplatit les états vides et décentre les glyphes en pastille.
+
+| Contexte                             | Glyphe     | Règle                            |
+| ------------------------------------ | ---------- | -------------------------------- |
+| Aligné sur du texte `text-sm`        | `size-4`   | hauteur de capitale du texte     |
+| Dans une boîte `size-10`             | `size-5`   | **glyphe = moitié du conteneur** |
+| Dans une boîte `size-12` (état vide) | `size-6`   | idem                             |
+| Chip dense à côté de `text-[11px]`   | `size-3.5` |                                  |
+
+- **Deux tailles de conteneur seulement** : `size-10` pour un en-tête de section ou
+  de ligne, `size-12` pour l'icône centrée d'un état vide. Pas de `size-11`.
+- Dans un `<Button>`, ne **pas** mettre de classe de taille : le primitive injecte
+  `size-4` via `[&_svg:not([class*='size-'])]:size-4`. Une taille explicite la neutralise.
+- Les pastilles numérotées (`inline-flex size-5 rounded-full`) ne sont pas des icônes :
+  elles suivent leur texte, pas cette table.
+
+## Couleurs de surface — utiliser les tokens panel
+
+- Surface encastrée dans une `Card` : `bg-panel-inset` + `border-panel-border/70`.
+  `bg-background` s'inverse en dark (`#0a0a0a` plus sombre que le panel `#171717`).
+- Ne pas surcharger une `Card` avec `bg-*` : le primitive porte déjà `bg-panel`.
+- `text-destructive-foreground` **n'existe pas** comme token. Sur un bouton d'action
+  destructive, utiliser `bg-none bg-destructive text-white` : `bg-none` est nécessaire
+  pour annuler le `background-image` du variant `default`, qui recouvrirait la couleur.

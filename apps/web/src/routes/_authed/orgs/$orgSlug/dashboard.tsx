@@ -353,8 +353,8 @@ function StatCard({
       </div>
       {loading ? (
         <div className="mt-2 space-y-2" aria-hidden="true">
-          <div className="h-7 w-16 rounded skeleton-surface" />
-          <div className="h-3 w-28 rounded skeleton-surface" />
+          <div className="h-7 w-16 skeleton-surface rounded" />
+          <div className="h-3 w-28 skeleton-surface rounded" />
         </div>
       ) : (
         <>
@@ -382,7 +382,7 @@ function QuickLink({
   return (
     <Link
       to={to}
-      className="group flex items-center justify-between rounded-2xl rounded-md bg-panel px-4 py-3 transition-colors hover:bg-accent/40"
+      className="group flex min-h-12 items-center justify-between gap-3 rounded-xl border border-panel-border bg-panel-inset px-4 py-3 shadow-sm transition-colors outline-none hover:border-muted-foreground/30 hover:bg-accent/40 focus-visible:ring-2 focus-visible:ring-ring"
     >
       <span>
         <span className="block text-sm font-medium text-foreground">
@@ -433,10 +433,10 @@ function ActivitySkeleton(): React.JSX.Element {
     <div className="space-y-3">
       {Array.from({ length: 4 }).map((_, i) => (
         <div key={i} className="flex items-start gap-2.5">
-          <div className="mt-1 size-3 rounded-full skeleton-surface" />
+          <div className="mt-1 size-3 skeleton-surface rounded-full" />
           <div className="flex-1 space-y-1.5">
-            <div className="h-3 w-24 rounded skeleton-surface" />
-            <div className="h-2.5 w-40 rounded skeleton-surface" />
+            <div className="h-3 w-24 skeleton-surface rounded" />
+            <div className="h-2.5 w-40 skeleton-surface rounded" />
           </div>
         </div>
       ))}

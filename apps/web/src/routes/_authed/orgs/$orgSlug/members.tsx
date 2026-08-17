@@ -7,14 +7,8 @@ import { Badge } from "@workspace/ui/components/badge"
 import { ShellPage, ShellPanel } from "../../../../components/layout/AppShell"
 import { MemberRow } from "../../../../components/members/MemberRow"
 import { InviteDialog } from "../../../../components/members/InviteDialog"
-import {
-  
-  
-  useMembers,
-  useRevokeInvitation
-} from "../../../../lib/memberships"
-import type {Invitation, Member} from "../../../../lib/memberships";
-
+import { useMembers, useRevokeInvitation } from "../../../../lib/memberships"
+import type { Invitation, Member } from "../../../../lib/memberships"
 
 export const Route = createFileRoute("/_authed/orgs/$orgSlug/members")({
   component: MembersPage,
@@ -54,7 +48,7 @@ function MembersPage(): React.JSX.Element {
               {Array.from({ length: 3 }).map((_, i) => (
                 <div
                   key={i}
-                  className="h-16 rounded-lg border border-border skeleton-surface"
+                  className="h-16 skeleton-surface rounded-lg border border-border"
                 />
               ))}
             </div>
@@ -162,7 +156,7 @@ function PendingInvitationRow({
   }
 
   return (
-    <div className="flex items-center justify-between rounded-2xl bg-panel p-4">
+    <div className="flex items-center justify-between rounded-xl border border-panel-border bg-panel-inset p-4 shadow-sm">
       <div className="flex-1">
         <p className="text-sm font-medium text-foreground">
           {invitation.email}

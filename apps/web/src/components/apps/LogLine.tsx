@@ -79,7 +79,7 @@ function levelColorClass(level: LogSeverity): string {
     case "debug":
       return "text-sky-400"
     default:
-      return "text-zinc-300"
+      return "text-[#e5e7eb]"
   }
 }
 
@@ -150,12 +150,12 @@ function StructuredBody({
       {structured.fields.map((field, i) => (
         <span
           key={i}
-          className="inline-flex items-baseline gap-0.5 rounded bg-zinc-800/70 px-1 font-mono text-[11px] leading-5"
+          className="inline-flex items-baseline gap-0.5 rounded bg-white/8 px-1 font-mono text-[11px] leading-5"
           data-log-field={field.key}
         >
-          <span className="text-zinc-500">{field.key}</span>
-          <span className="text-zinc-600">=</span>
-          <span className="break-all text-zinc-300">
+          <span className="text-white/50">{field.key}</span>
+          <span className="text-white/35">=</span>
+          <span className="break-all text-[#e5e7eb]">
             <HighlightedText text={field.value} query={search} />
           </span>
         </span>
@@ -198,14 +198,14 @@ export const LogLine = React.memo(function LogLineRow({
     : line.text
   const structured = isStackTrace ? null : parseStructuredLine(bodyText)
 
-  const textColor = isStackTrace ? "text-zinc-400" : levelColorClass(level)
+  const textColor = isStackTrace ? "text-white/55" : levelColorClass(level)
   const rowBg = isError
     ? "bg-red-500/5 hover:bg-red-500/10"
     : isWarn
       ? "hover:bg-amber-500/5"
       : isDebug
         ? "hover:bg-sky-500/5"
-        : "hover:bg-zinc-900/60"
+        : "hover:bg-white/5"
   const wrapCls = wrap
     ? "whitespace-pre-wrap break-all"
     : "whitespace-pre overflow-hidden"
@@ -218,7 +218,7 @@ export const LogLine = React.memo(function LogLineRow({
     >
       {lineNumber !== undefined && (
         <span
-          className="w-10 shrink-0 text-right text-zinc-700 tabular-nums select-none group-hover/line:text-zinc-500"
+          className="w-10 shrink-0 text-right text-white/25 tabular-nums select-none group-hover/line:text-white/50"
           aria-hidden="true"
         >
           {lineNumber}
@@ -227,7 +227,7 @@ export const LogLine = React.memo(function LogLineRow({
 
       {showTimestamps && (
         <span
-          className="w-[7.5rem] shrink-0 text-right text-zinc-500 tabular-nums select-none"
+          className="w-[7.5rem] shrink-0 text-right text-white/45 tabular-nums select-none"
           aria-hidden="true"
         >
           {line.t !== undefined
@@ -243,7 +243,7 @@ export const LogLine = React.memo(function LogLineRow({
         className={`w-12 shrink-0 text-right font-semibold select-none ${levelColorClass(level)}`}
         aria-hidden="true"
       >
-        <span className={level === "info" ? "text-zinc-500" : undefined}>
+        <span className={level === "info" ? "text-white/50" : undefined}>
           {levelLabel(level)}
         </span>
       </span>

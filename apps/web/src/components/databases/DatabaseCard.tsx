@@ -118,7 +118,7 @@ export function DatabaseCard({
   const backupFailed = database.latest_backup_status === "failed"
 
   return (
-    <article className="group overflow-hidden rounded-2xl border border-panel-border bg-panel transition-[border-color,background-color,transform] hover:-translate-y-0.5 hover:border-foreground/20 hover:bg-accent/20 motion-reduce:hover:translate-y-0">
+    <article className="group overflow-hidden rounded-xl border border-panel-border bg-panel-inset shadow-sm transition-[border-color,background-color,transform] hover:-translate-y-0.5 hover:border-muted-foreground/30 hover:bg-accent/20 motion-reduce:hover:translate-y-0">
       <Link
         to={detailPath as never}
         className="block p-4 focus-visible:ring-2 focus-visible:ring-ring focus-visible:outline-none focus-visible:ring-inset"

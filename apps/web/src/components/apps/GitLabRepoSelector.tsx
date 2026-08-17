@@ -83,7 +83,7 @@ export function GitLabRepoSelector({
         </p>
       ) : (
         <ul
-          className="scrollbar-thin max-h-[clamp(14rem,88dvh_-_36rem,40rem)] divide-y divide-border overflow-y-auto rounded-md border border-border"
+          className="scrollbar-thin max-h-[clamp(14rem,88dvh_-_40rem,34rem)] divide-y divide-border overflow-y-auto rounded-md border border-border"
           role="listbox"
           aria-label="GitLab projects"
         >
@@ -137,11 +137,19 @@ function RepoItem({
     <li
       role="option"
       aria-selected={isSelected}
+      tabIndex={0}
       className={[
         "flex cursor-pointer items-start gap-3 px-3 py-3 text-sm transition-colors hover:bg-muted",
+        "focus-visible:ring-2 focus-visible:ring-ring focus-visible:-outline-offset-2 focus-visible:outline-none",
         isSelected ? "bg-primary/10" : "",
       ].join(" ")}
       onClick={() => onSelect(repo)}
+      onKeyDown={(e) => {
+        if (e.key === "Enter" || e.key === " ") {
+          e.preventDefault()
+          onSelect(repo)
+        }
+      }}
     >
       <div className="flex size-8 shrink-0 items-center justify-center rounded-md bg-muted font-mono text-[10px] text-muted-foreground uppercase">
         {repoName.slice(0, 2)}

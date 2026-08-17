@@ -46,9 +46,13 @@ function ServiceDetailPage(): React.JSX.Element {
   if (isLoading) {
     return (
       <ShellPage title="Service" eyebrow={organization?.name ?? "Workspace"}>
-        <div className="space-y-4" aria-busy="true" aria-label="Loading service">
-          <div className="h-8 w-48 rounded skeleton-surface" />
-          <div className="h-40 rounded-lg skeleton-surface" />
+        <div
+          className="space-y-4"
+          aria-busy="true"
+          aria-label="Loading service"
+        >
+          <div className="h-8 w-48 skeleton-surface rounded" />
+          <div className="h-40 skeleton-surface rounded-lg" />
         </div>
       </ShellPage>
     )
@@ -189,7 +193,7 @@ function Row({
   children: React.ReactNode
 }): React.JSX.Element {
   return (
-    <div className="flex items-center justify-between gap-4 rounded-md rounded-2xl bg-panel px-4 py-3">
+    <div className="flex items-center justify-between gap-4 rounded-xl border border-panel-border bg-panel-inset px-4 py-3 shadow-sm">
       <span className="text-xs font-medium text-muted-foreground">{label}</span>
       <span>{children}</span>
     </div>
@@ -206,7 +210,7 @@ function LogsPanel({ id }: { id: string }): React.JSX.Element {
       description="Dernières 200 lignes — rafraîchissement automatique toutes les 5 s."
     >
       {isLoading ? (
-        <div className="h-40 rounded-md skeleton-surface" />
+        <div className="h-40 skeleton-surface rounded-md" />
       ) : lines.length === 0 ? (
         <p className="text-xs text-muted-foreground">
           Aucune ligne de log disponible.
@@ -281,7 +285,7 @@ function GeneratedEnvPanel({
             return (
               <div
                 key={key}
-                className="flex items-center gap-2 rounded-md rounded-2xl bg-panel px-3 py-2"
+                className="flex items-center gap-2 rounded-xl border border-panel-border bg-panel-inset px-3 py-2 shadow-sm"
               >
                 <div className="min-w-0 flex-1">
                   <p className="truncate font-mono text-[11px] font-medium text-foreground">
@@ -379,7 +383,8 @@ function DeleteDialog({
             type="button"
             variant="destructive"
             onClick={() => void handleDelete()}
-            loading={deleteService.isPending} disabled={confirm !== expected}
+            loading={deleteService.isPending}
+            disabled={confirm !== expected}
           >
             {deleteService.isPending ? "Suppression…" : "Supprimer"}
           </Button>

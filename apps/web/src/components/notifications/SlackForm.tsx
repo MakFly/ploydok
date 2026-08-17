@@ -2,6 +2,12 @@
 import * as React from "react"
 import { Input } from "@workspace/ui/components/input"
 import {
+  Alert,
+  AlertDescription,
+  AlertTitle,
+} from "@workspace/ui/components/alert"
+import { Badge } from "@workspace/ui/components/badge"
+import {
   Field,
   FieldContent,
   FieldDescription,
@@ -22,6 +28,15 @@ export function SlackForm({
 }: SlackFormProps): React.JSX.Element {
   return (
     <div className="flex flex-col gap-4">
+      <div className="flex items-center gap-2">
+        <Badge variant="secondary">Coming soon</Badge>
+      </div>
+      <Alert>
+        <AlertTitle>Envoi désactivé pour le moment</AlertTitle>
+        <AlertDescription>
+          Les notifications Slack ne sont pas encore actives.
+        </AlertDescription>
+      </Alert>
       <Field>
         <FieldLabel htmlFor="slack-webhook-url">URL du webhook</FieldLabel>
         <FieldContent>

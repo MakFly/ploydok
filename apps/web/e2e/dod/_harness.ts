@@ -20,7 +20,7 @@
  *   E2E_TEST_EMAIL       – backup-code login email
  *   E2E_TEST_BACKUP_CODE – backup code (format: XXXX-XXXX-XXXX)
  *   PLOYDOK_E2E_REAL     – set to "1" to enable real infra specs
- *   PLOYDOK_DOMAIN_BASE  – defaults to demo.ploydok.local
+ *   PLOYDOK_DOMAIN_BASE  – defaults to demo.localhost
  */
 
 import { spawn } from "node:child_process"
@@ -33,7 +33,7 @@ import { performance } from "node:perf_hooks"
 export const REAL_E2E = process.env["PLOYDOK_E2E_REAL"] === "1"
 export const API_URL = process.env["E2E_API_URL"] ?? "http://localhost:3335"
 export const DOMAIN_BASE =
-  process.env["PLOYDOK_DOMAIN_BASE"] ?? "demo.ploydok.local"
+  process.env["PLOYDOK_DOMAIN_BASE"] ?? "demo.localhost"
 export const CADDY_HTTP_PORT = 8180
 
 // ---------------------------------------------------------------------------

@@ -90,8 +90,8 @@ function ProviderCard({
   const inner = (
     <>
       <div className="flex items-start gap-3">
-        <div className="flex size-11 shrink-0 items-center justify-center rounded-md border border-border bg-background">
-          <Icon className={cn("size-6", accent)} />
+        <div className="flex size-10 shrink-0 items-center justify-center rounded-md border border-border bg-background">
+          <Icon className={cn("size-5", accent)} />
         </div>
         <div className="min-w-0 flex-1 space-y-1">
           <div className="flex items-center gap-2">
