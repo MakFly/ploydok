@@ -106,6 +106,8 @@ export function createDebugRouter(deps: DebugRouterDeps = {}): Hono {
         image: "nginx:alpine",
         env: {},
         labels: {
+          // The agent refuses to operate on a container without ploydok.kind.
+          "ploydok.kind": "app",
           "ploydok.app_id": appId,
           "ploydok.owner_id": user.id,
         },

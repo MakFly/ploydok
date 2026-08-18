@@ -121,6 +121,7 @@ describe("POST /debug/spawn-nginx", () => {
     expect(createCall.image).toBe("nginx:alpine");
     expect(createCall.network).toBe("ploydok-public");
     expect(createCall.labels["ploydok.owner_id"]).toBe("user-1");
+    expect(createCall.labels["ploydok.kind"]).toBe("app");
     expect(createCall.name).toMatch(/^ploydok-[a-z0-9]{10}$/);
 
     expect(caddy.upsertRoute).toHaveBeenCalledTimes(1);
