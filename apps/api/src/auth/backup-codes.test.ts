@@ -120,7 +120,9 @@ describe("backup-code security properties", () => {
 
     expect(await consume(db, userId, codes[0]!)).toBe(true)
     expect(await consume(db, userId, codes[0]!)).toBe(false)
-  })
+    // generate + two consumes is ~30 bcrypt rounds at cost 10; the 5s default
+    // is not enough on a loaded CI runner.
+  }, 30_000)
 
   it("treats an empty atomic update result as an already-used code", async () => {
     const userId = "raced-user"
@@ -130,7 +132,7 @@ describe("backup-code security properties", () => {
     const codes = await generate(db, userId)
 
     expect(await consume(db, userId, codes[0]!)).toBe(false)
-  })
+  }, 30_000)
 })
 
 describe.skipIf(skip)("backup-codes", () => {
