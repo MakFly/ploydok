@@ -26,8 +26,10 @@ jobs:
           path: |
             node_modules
             ~/.bun/install/cache
-          key: ${{ runner.os }}-bun-${{ hashFiles('bun.lock') }}
+            .turbo
+          key: ${{ runner.os }}-bun-${{ hashFiles('bun.lock') }}-${{ github.sha }}
           restore-keys: |
+            ${{ runner.os }}-bun-${{ hashFiles('bun.lock') }}-
             ${{ runner.os }}-bun-
 
       - name: Install dependencies
@@ -48,14 +50,10 @@ jobs:
       - name: Audit JavaScript dependencies and verify triage
         run: bun run audit:dependencies
 
-      - name: Type check
-        run: bun run typecheck
-
-      - name: Lint
-        run: bun run lint
-
-      - name: Test
-        run: bun run test
+      # One turbo invocation so the three task graphs run concurrently and share
+      # a single cache read, instead of three sequential cold starts.
+      - name: Type check, lint and test
+        run: bunx turbo run typecheck lint test
 
   postgres-integration:
     name: Critical PostgreSQL integration

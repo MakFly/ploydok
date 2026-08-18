@@ -13,6 +13,22 @@ concurrency:
   cancel-in-progress: true
 
 jobs:
+  rust-audit:
+    name: Rust Advisory Audit
+    runs-on: ubuntu-latest
+
+    steps:
+      - name: Checkout
+        uses: actions/checkout@d23441a48e516b6c34aea4fa41551a30e30af803 # v6
+
+      - name: Install cargo-audit (prebuilt)
+        uses: taiki-e/install-action@5b4d68e2e660441203ab128a23676f1e4faf1532 # v2.86.3
+        with:
+          tool: cargo-audit@0.22.2
+
+      - name: Audit Rust dependencies
+        run: cargo audit --file agent/Cargo.lock --deny warnings
+
   integration:
     name: Integration Tests (DinD)
     runs-on: ubuntu-latest
@@ -42,16 +58,13 @@ jobs:
         with:
           workspaces: agent -> target
 
-      - name: Audit Rust dependencies
-        run: |
-          cargo install cargo-audit --locked --version 0.22.2
-          cargo audit --file agent/Cargo.lock --deny warnings
-
       # -----------------------------------------------------------------------
       # 3. Install system deps (protoc for agent proto generation)
       # -----------------------------------------------------------------------
       - name: Install protoc
-        run: sudo apt-get install -y protobuf-compiler
+        uses: arduino/setup-protoc@c65c819552d16ad3c9b72d9dfd5ba5237b9c906b # v3.0.0
+        with:
+          repo-token: ${{ secrets.GITHUB_TOKEN }}
 
       # -----------------------------------------------------------------------
       # 4. Install JS dependencies
@@ -99,8 +112,22 @@ jobs:
 
           docker exec ploydok-ci-redis redis-cli ping | grep -q PONG
 
+      - name: Set up Buildx
+        uses: docker/setup-buildx-action@bb05f3f5519dd87d3ba754cc423b652a5edd6d2c # v4.2.0
+
+      # The Caddy image is an xcaddy build with nine plugins; rebuilding it from
+      # scratch costs about 90s per run, so cache the layers between runs.
+      - name: Build Caddy image (cached)
+        uses: docker/build-push-action@53b7df96c91f9c12dcc8a07bcb9ccacbed38856a # v7.3.0
+        with:
+          context: infra/caddy
+          tags: ploydok-caddy:local
+          load: true
+          cache-from: type=gha,scope=ploydok-caddy
+          cache-to: type=gha,mode=max,scope=ploydok-caddy
+
       - name: Start Caddy
-        run: docker compose -f infra/docker-compose.yml up -d caddy
+        run: docker compose -f infra/docker-compose.yml up -d --no-build caddy
 
       - name: Wait for Caddy admin API
         run: |

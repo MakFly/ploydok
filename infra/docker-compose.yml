@@ -27,6 +27,9 @@ volumes:
 
 services:
   caddy:
+    # Named explicitly so CI can prebuild this xcaddy image with a layer cache
+    # and start the stack with --no-build.
+    image: ploydok-caddy:local
     build:
       context: ./caddy
       dockerfile: Dockerfile
