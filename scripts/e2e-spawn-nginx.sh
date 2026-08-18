@@ -44,11 +44,19 @@ trap cleanup EXIT
 # ---------------------------------------------------------------------------
 log_info "Étape 1 : spawn nginx via POST ${API_BASE}/debug/spawn-nginx"
 
-SPAWN_RESPONSE=$(curl -sf \
+# `curl -sf` hides the status and body, which turns any API-side failure into an
+# opaque exit 22 in CI. Capture both so the log states what actually happened.
+SPAWN_HTTP=$(curl -s -o /tmp/ploydok-e2e-spawn.json -w '%{http_code}' \
   -X POST \
   -H "Content-Type: application/json" \
   -H "X-Test-User: ci-test-user" \
-  "${API_BASE}/debug/spawn-nginx")
+  "${API_BASE}/debug/spawn-nginx" || echo "000")
+SPAWN_RESPONSE=$(cat /tmp/ploydok-e2e-spawn.json 2>/dev/null || true)
+
+if [[ "$SPAWN_HTTP" != "201" ]]; then
+  log_err "POST /debug/spawn-nginx a répondu ${SPAWN_HTTP}. Corps: ${SPAWN_RESPONSE:-<vide>}"
+  exit 1
+fi
 
 if [[ -z "$SPAWN_RESPONSE" ]]; then
   log_err "Réponse vide de POST /debug/spawn-nginx"
