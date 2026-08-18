@@ -1,5 +1,16 @@
 // SPDX-License-Identifier: AGPL-3.0-only
-import { and, desc, eq, inArray, isNotNull, isNull, lt, ne, or, sql } from "drizzle-orm"
+import {
+  and,
+  desc,
+  eq,
+  inArray,
+  isNotNull,
+  isNull,
+  lt,
+  ne,
+  or,
+  sql,
+} from "drizzle-orm"
 import type { Db } from "../client"
 import { builds } from "../schema"
 
@@ -108,6 +119,36 @@ export async function updateBuildStatus(
 
 export async function getBuildById(db: Db, id: string) {
   const rows = await db.select().from(builds).where(eq(builds.id, id)).limit(1)
+  return rows[0] ?? null
+}
+
+/** Persist cancellation intent before trying to interrupt queue/process work. */
+export async function requestBuildCancellation(
+  db: Db,
+  input: {
+    buildId: string
+    appId: string
+    requestedByUserId: string
+    reason: string
+  }
+) {
+  const rows = await db
+    .update(builds)
+    .set({
+      cancel_requested_at: new Date(),
+      cancel_requested_by_user_id: input.requestedByUserId,
+      status: "cancelled",
+      finished_at: new Date(),
+      error_message: input.reason,
+    })
+    .where(
+      and(
+        eq(builds.id, input.buildId),
+        eq(builds.app_id, input.appId),
+        inArray(builds.status, ["pending", "running"] as const)
+      )
+    )
+    .returning()
   return rows[0] ?? null
 }
 

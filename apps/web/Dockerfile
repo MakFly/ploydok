@@ -31,4 +31,5 @@ COPY --from=builder /app/apps/web/.output ./.output
 
 EXPOSE 3000
 
+USER bun
 CMD ["bun", ".output/server/index.mjs"]

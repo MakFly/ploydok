@@ -1,5 +1,5 @@
 // SPDX-License-Identifier: AGPL-3.0-only
-import { apps } from "@ploydok/db"
+import { apps, databases } from "@ploydok/db"
 import type { Db } from "@ploydok/db"
 import { getSharedAgent } from "../../debug/singletons"
 import { childLogger } from "../../logger"
@@ -17,8 +17,8 @@ export interface OrphanGcResult {
 }
 
 /**
- * Find containers labelled `ploydok.kind=app` whose `ploydok.app_id` is not
- * in the `apps` table, and remove them after a safety age threshold. Protects
+ * Find application and managed-database containers whose durable owner row is
+ * gone, and remove them after a safety age threshold. Protects
  * against leftover blue/green containers when a deploy crashes between DB
  * commit and container cleanup, or legacy state from an earlier Ploydok
  * version.
@@ -28,16 +28,24 @@ export interface OrphanGcResult {
  */
 export async function runOrphanContainerGc(db: Db): Promise<OrphanGcResult> {
   const agent = getSharedAgent()
-  const resp = await agent.listContainers({ kindFilter: "app" })
-  const live = await db.select({ id: apps.id }).from(apps)
-  const liveIds = new Set(live.map((r) => r.id))
+  const [appResp, databaseResp, liveApps, liveDatabases] = await Promise.all([
+    agent.listContainers({ kindFilter: "app" }),
+    agent.listContainers({ kindFilter: "database" }),
+    db.select({ id: apps.id }).from(apps),
+    db.select({ id: databases.id }).from(databases),
+  ])
+  const candidates = [...appResp.containers, ...databaseResp.containers]
+  const liveIds = new Set([
+    ...liveApps.map((r) => r.id),
+    ...liveDatabases.map((r) => r.id),
+  ])
 
   const result: OrphanGcResult = {
-    scanned: resp.containers.length,
+    scanned: candidates.length,
     removed: [],
   }
 
-  for (const c of resp.containers) {
+  for (const c of candidates) {
     if (!c.appId) continue
     if (liveIds.has(c.appId)) continue
     if ((c.uptimeS ?? 0) < ORPHAN_MIN_UPTIME_S) continue

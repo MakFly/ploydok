@@ -24,6 +24,7 @@ import {
   app_db_links,
   secrets,
   apps,
+  builds,
   password_history,
 } from "@ploydok/db"
 import type { Db } from "@ploydok/db"
@@ -31,6 +32,8 @@ import { childLogger } from "../logger"
 import { encryptSecret, decryptSecret } from "../secrets/crypto"
 import { getSharedAgent } from "../debug/singletons"
 import { deployQueue } from "../worker/queues"
+import { persistQueueOutboxWithDbRow } from "../worker/queue-enqueue"
+import { dispatchQueueOutboxEventById } from "../worker/queue-outbox-dispatcher"
 import { dispatch } from "../notify/index"
 import { createRedis } from "@ploydok/db"
 import { env } from "../env"
@@ -325,14 +328,7 @@ export async function rotatePassword(
 
     // 5. Store old password in password_history (for audit + rollback reference)
     const { enc: pwHistEnc, nonce: pwHistNonce } = await encryptSecret(oldPwd)
-    await db.insert(password_history).values({
-      id: nanoid(),
-      database_id: databaseId,
-      password_enc: pwHistEnc,
-      nonce: pwHistNonce,
-    })
-
-    // 6. Update databases.master_password_enc with new password
+    // 6. Prepare the new credentials before opening the atomic write.
     const newConnStr = oldConnStr
       ? rebuildConnectionString(kind, oldConnStr, newPwd, newUser)
       : oldConnStr
@@ -344,19 +340,7 @@ export async function rotatePassword(
           nonce: dbRow.connection_string_nonce,
         }
 
-    await db
-      .update(databases)
-      .set({
-        master_password_enc: newPwEnc,
-        master_password_nonce: newPwNonce,
-        ...(newConnStr && {
-          connection_string_enc: newConnEnc,
-          connection_string_nonce: newConnNonce,
-        }),
-      })
-      .where(eq(databases.id, databaseId))
-
-    // 7. Update linked app secrets for all linked apps
+    // 7. Load linked apps and prepare their encrypted secret rows.
     const links = await db
       .select()
       .from(app_db_links)
@@ -374,6 +358,10 @@ export async function rotatePassword(
       for (const r of appRows) appProjectMap.set(r.id, r.project_id)
     }
 
+    const preparedSecrets: Array<{
+      appId: string
+      rows: Array<typeof secrets.$inferInsert>
+    }> = []
     for (const link of links) {
       const prefix = link.env_prefix
       const vars = buildSecretVars(
@@ -385,21 +373,11 @@ export async function rotatePassword(
       )
       const appProjectId = appProjectMap.get(link.app_id) ?? null
 
-      // Delete old linked secrets for this (app, db) pair
-      await db
-        .delete(secrets)
-        .where(
-          and(
-            eq(secrets.app_id, link.app_id),
-            eq(secrets.linked_database_id, databaseId)
-          )
-        )
-
-      // Insert fresh secrets
       const now = new Date()
+      const rows: Array<typeof secrets.$inferInsert> = []
       for (const [key, value] of Object.entries(vars)) {
         const { enc, nonce } = await encryptSecret(value)
-        await db.insert(secrets).values({
+        rows.push({
           id: nanoid(),
           app_id: link.app_id,
           project_id: appProjectId,
@@ -411,18 +389,68 @@ export async function rotatePassword(
           created_at: now,
         })
       }
+      preparedSecrets.push({ appId: link.app_id, rows })
     }
 
-    rotLog.info({ linkedAppIds }, "linked app secrets updated")
-
-    // 8. Enqueue rolling redeploy for all linked apps
-    for (const appId of linkedAppIds) {
-      await deployQueue.add(
-        "deploy.requested",
-        { appId, kind: "rotation_redeploy" },
-        { jobId: `rotation-redeploy-${databaseId}-${appId}-${Date.now()}` }
+    const queued = await db.transaction(async (tx) => {
+      await tx.insert(password_history).values({
+        id: nanoid(),
+        database_id: databaseId,
+        password_enc: pwHistEnc,
+        nonce: pwHistNonce,
+      })
+      await tx
+        .update(databases)
+        .set({
+          master_password_enc: newPwEnc,
+          master_password_nonce: newPwNonce,
+          ...(newConnStr && {
+            connection_string_enc: newConnEnc,
+            connection_string_nonce: newConnNonce,
+          }),
+        })
+        .where(eq(databases.id, databaseId))
+      for (const prepared of preparedSecrets) {
+        await tx
+          .delete(secrets)
+          .where(
+            and(
+              eq(secrets.app_id, prepared.appId),
+              eq(secrets.linked_database_id, databaseId)
+            )
+          )
+        if (prepared.rows.length) await tx.insert(secrets).values(prepared.rows)
+      }
+      const queued = []
+      for (const appId of linkedAppIds) {
+        queued.push(
+          await persistQueueOutboxWithDbRow({
+            db: tx,
+            queue: deployQueue,
+            jobName: "deploy.requested",
+            insertRow: (innerTx) =>
+              innerTx
+                .insert(builds)
+                .values({ id: nanoid(), app_id: appId, source: "system" })
+                .returning()
+                .then((rows: (typeof builds.$inferSelect)[]) => rows[0]!),
+            buildPayload: (row) => ({ buildId: row.id }),
+          })
+        )
+      }
+      return queued
+    })
+    rotLog.info(
+      { linkedAppIds },
+      "credentials, secrets and redeploy intents committed"
+    )
+    await Promise.all(
+      queued.map((item) =>
+        dispatchQueueOutboxEventById(db, deployQueue, item.eventId).catch(
+          () => "retry" as const
+        )
       )
-    }
+    )
 
     // 9. Poll until all apps are running (5 min, 15s poll)
     if (linkedAppIds.length > 0) {
@@ -562,18 +590,6 @@ async function rollbackRotation(
       ? await encryptSecret(oldConnStr)
       : { enc: null, nonce: null }
 
-    await db
-      .update(databases)
-      .set({
-        master_password_enc: oldPwEnc,
-        master_password_nonce: oldPwNonce,
-        ...(oldConnStr && {
-          connection_string_enc: oldConnEnc,
-          connection_string_nonce: oldConnNonce,
-        }),
-      })
-      .where(eq(databases.id, databaseId))
-
     // Restore linked secrets from old connection string
     const links = await db
       .select()
@@ -591,15 +607,11 @@ async function rollbackRotation(
       for (const r of appRows) rollbackAppMap.set(r.id, r.project_id)
     }
 
+    const preparedSecrets: Array<{
+      appId: string
+      rows: Array<typeof secrets.$inferInsert>
+    }> = []
     for (const link of links) {
-      await db
-        .delete(secrets)
-        .where(
-          and(
-            eq(secrets.app_id, link.app_id),
-            eq(secrets.linked_database_id, databaseId)
-          )
-        )
       const vars = buildSecretVars(
         kind,
         oldConnStr,
@@ -609,9 +621,10 @@ async function rollbackRotation(
       )
       const appProjectId = rollbackAppMap.get(link.app_id) ?? null
       const now = new Date()
+      const rows: Array<typeof secrets.$inferInsert> = []
       for (const [key, value] of Object.entries(vars)) {
         const { enc, nonce } = await encryptSecret(value)
-        await db.insert(secrets).values({
+        rows.push({
           id: nanoid(),
           app_id: link.app_id,
           project_id: appProjectId,
@@ -623,20 +636,58 @@ async function rollbackRotation(
           created_at: now,
         })
       }
+      preparedSecrets.push({ appId: link.app_id, rows })
     }
 
-    // Re-deploy all linked apps with old credentials
-    for (const appId of linkedAppIds) {
-      await deployQueue
-        .add(
-          "deploy.requested",
-          { appId, kind: "rotation_rollback" },
-          { jobId: `rotation-rollback-${databaseId}-${appId}-${Date.now()}` }
+    const queued = await db.transaction(async (tx) => {
+      await tx
+        .update(databases)
+        .set({
+          master_password_enc: oldPwEnc,
+          master_password_nonce: oldPwNonce,
+          ...(oldConnStr && {
+            connection_string_enc: oldConnEnc,
+            connection_string_nonce: oldConnNonce,
+          }),
+        })
+        .where(eq(databases.id, databaseId))
+      for (const prepared of preparedSecrets) {
+        await tx
+          .delete(secrets)
+          .where(
+            and(
+              eq(secrets.app_id, prepared.appId),
+              eq(secrets.linked_database_id, databaseId)
+            )
+          )
+        if (prepared.rows.length) await tx.insert(secrets).values(prepared.rows)
+      }
+      const queued = []
+      for (const appId of linkedAppIds) {
+        queued.push(
+          await persistQueueOutboxWithDbRow({
+            db: tx,
+            queue: deployQueue,
+            jobName: "deploy.requested",
+            insertRow: (innerTx) =>
+              innerTx
+                .insert(builds)
+                .values({ id: nanoid(), app_id: appId, source: "system" })
+                .returning()
+                .then((rows: (typeof builds.$inferSelect)[]) => rows[0]!),
+            buildPayload: (row) => ({ buildId: row.id }),
+          })
         )
-        .catch((err) =>
-          rollLog.warn({ err, appId }, "rollback redeploy enqueue failed")
+      }
+      return queued
+    })
+    await Promise.all(
+      queued.map((item) =>
+        dispatchQueueOutboxEventById(db, deployQueue, item.eventId).catch(
+          () => "retry" as const
         )
-    }
+      )
+    )
 
     // Try to drop the new user that was created
     await dropOldUser(agent, containerId, kind, {
@@ -650,6 +701,7 @@ async function rollbackRotation(
       { err },
       "rollback failed — manual intervention may be required"
     )
+    throw err
   } finally {
     await db
       .update(databases)

@@ -8,6 +8,7 @@ import { apiBaseUrl } from "../../lib/api/base"
 import { PasskeyButton } from "../../components/auth/PasskeyButton"
 import { getGitProviderStatus } from "../../lib/git-providers"
 import { resolvePostAuthPath } from "../../lib/auth-guards"
+import { getRememberedOnboardingDeploymentSource } from "../../lib/onboarding"
 import { usePendingAction } from "../../lib/hooks/use-pending-action"
 import {
   AuthShell,
@@ -59,10 +60,13 @@ function LoginPage(): React.JSX.Element {
         apiFetch<Me>("/me"),
         getGitProviderStatus(),
       ])
+      const onboardingSource =
+        await getRememberedOnboardingDeploymentSource(me.id)
       const target = resolvePostAuthPath(
         me,
         providers,
-        normalizeLoginRedirect(redirect)
+        normalizeLoginRedirect(redirect),
+        onboardingSource
       )
       await router.navigate({ href: target })
     } catch {

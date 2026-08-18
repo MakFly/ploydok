@@ -82,7 +82,6 @@ const BUILD_METHOD_OPTIONS: Array<FieldOption> = [
   { value: "auto", label: "Auto-detect" },
   { value: "dockerfile", label: "Dockerfile" },
   { value: "nixpacks", label: "Nixpacks" },
-  { value: "railpack", label: "Railpack" },
   { value: "static", label: "Static site" },
 ]
 
@@ -340,7 +339,7 @@ function buildFields(
       key: "buildMethod",
       label: "Build method",
       placeholder: placeholders.buildMethod,
-      hint: "auto · dockerfile · nixpacks · railpack · static",
+      hint: "auto · dockerfile · nixpacks · static",
       mono: true,
       options: BUILD_METHOD_OPTIONS,
     },
@@ -873,7 +872,10 @@ function RuntimeSelectField({
           </SelectContent>
         </Select>
       ) : (
-        <ReadOnlyValue value={selected?.label ?? value} placeholder={options[0]?.label ?? ""} />
+        <ReadOnlyValue
+          value={selected?.label ?? value}
+          placeholder={options[0]?.label ?? ""}
+        />
       )}
     </div>
   )
@@ -902,7 +904,10 @@ function BooleanField({
           <Switch id={inputId} checked={checked} onCheckedChange={onChange} />
         </div>
       ) : (
-        <ReadOnlyValue value={checked ? "Enabled" : "Disabled"} placeholder="Enabled" />
+        <ReadOnlyValue
+          value={checked ? "Enabled" : "Disabled"}
+          placeholder="Enabled"
+        />
       )}
       {hint ? <p className="text-xs text-muted-foreground">{hint}</p> : null}
     </div>

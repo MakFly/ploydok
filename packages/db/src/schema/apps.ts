@@ -47,6 +47,10 @@ export const apps = pgTable("apps", {
   branch: text("branch"),
   github_installation_id: text("github_installation_id"),
   gitlab_project_id: integer("gitlab_project_id"),
+  // Exact provider identity selected at creation time. Deploy workers must
+  // never infer it from a repository owner/name.
+  git_provider_installation_id: text("git_provider_installation_id"),
+  gitlab_credential_user_id: text("gitlab_credential_user_id"),
   root_dir: text("root_dir"),
   dockerfile_path: text("dockerfile_path"),
   nixpacks_config_path: text("nixpacks_config_path"),

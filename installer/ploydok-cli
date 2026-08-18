@@ -17,6 +17,63 @@ run() {
   if [[ "$DRY_RUN" == "1" ]]; then echo "[ploydok-cli] dry-run: $*"; else "$@"; fi
 }
 
+validate_agent_pki_bundle() {
+  local pki_dir="$1" warn_days="$2" failed=0 cert cert_path mode expiry expiry_epoch days_left
+  local cert_pub key_pub
+
+  for cert in ca.pem server.pem client.pem; do
+    cert_path="$pki_dir/$cert"
+    [[ -f "$cert_path" && ! -L "$cert_path" && -r "$cert_path" ]] || {
+      echo "missing PKI certificate: $cert_path" >&2; failed=1; continue
+    }
+    mode="$(stat -c '%a' "$cert_path")"
+    [[ "$mode" == "640" ]] || { echo "$cert_path must be mode 0640 (found $mode)" >&2; failed=1; }
+    if expiry="$(openssl x509 -in "$cert_path" -noout -enddate 2>/dev/null | cut -d= -f2-)" &&
+      expiry_epoch="$(date -u -d "$expiry" +%s 2>/dev/null)"; then
+      days_left=$(( (expiry_epoch - $(date -u +%s)) / 86400 ))
+      printf '%s: %s days remaining\n' "$cert" "$days_left"
+      (( days_left >= warn_days )) || { echo "$cert expires within ${warn_days} days" >&2; failed=1; }
+    else
+      echo "invalid PKI certificate: $cert_path" >&2; failed=1
+    fi
+  done
+
+  for cert in ca.key server.key client.key; do
+    cert_path="$pki_dir/$cert"
+    [[ -f "$cert_path" && ! -L "$cert_path" && -r "$cert_path" ]] || {
+      echo "missing PKI private key: $cert_path" >&2; failed=1; continue
+    }
+    mode="$(stat -c '%a' "$cert_path")"
+    [[ "$mode" == "600" ]] || { echo "$cert_path must be mode 0600 (found $mode)" >&2; failed=1; }
+    openssl pkey -in "$cert_path" -noout >/dev/null 2>&1 || {
+      echo "invalid PKI private key: $cert_path" >&2; failed=1
+    }
+  done
+
+  openssl verify -CAfile "$pki_dir/ca.pem" "$pki_dir/server.pem" "$pki_dir/client.pem" >/dev/null 2>&1 || {
+    echo "agent certificates do not chain to ca.pem" >&2; failed=1
+  }
+  cert_pub="$(openssl x509 -in "$pki_dir/ca.pem" -pubkey -noout 2>/dev/null | openssl pkey -pubin -outform DER 2>/dev/null | sha256sum | awk '{print $1}')"
+  key_pub="$(openssl pkey -in "$pki_dir/ca.key" -pubout -outform DER 2>/dev/null | sha256sum | awk '{print $1}')"
+  [[ -n "$cert_pub" && "$cert_pub" == "$key_pub" ]] || { echo "ca.key does not match ca.pem" >&2; failed=1; }
+  cert_pub="$(openssl x509 -in "$pki_dir/server.pem" -pubkey -noout 2>/dev/null | openssl pkey -pubin -outform DER 2>/dev/null | sha256sum | awk '{print $1}')"
+  key_pub="$(openssl pkey -in "$pki_dir/server.key" -pubout -outform DER 2>/dev/null | sha256sum | awk '{print $1}')"
+  [[ -n "$cert_pub" && "$cert_pub" == "$key_pub" ]] || { echo "server.key does not match server.pem" >&2; failed=1; }
+  cert_pub="$(openssl x509 -in "$pki_dir/client.pem" -pubkey -noout 2>/dev/null | openssl pkey -pubin -outform DER 2>/dev/null | sha256sum | awk '{print $1}')"
+  key_pub="$(openssl pkey -in "$pki_dir/client.key" -pubout -outform DER 2>/dev/null | sha256sum | awk '{print $1}')"
+  [[ -n "$cert_pub" && "$cert_pub" == "$key_pub" ]] || { echo "client.key does not match client.pem" >&2; failed=1; }
+
+  for cert in agent ploydok-agent localhost; do
+    openssl x509 -in "$pki_dir/server.pem" -noout -ext subjectAltName 2>/dev/null |
+      grep -Fq "DNS:$cert" || { echo "server.pem lacks DNS:$cert SAN" >&2; failed=1; }
+  done
+  openssl x509 -in "$pki_dir/server.pem" -noout -ext extendedKeyUsage 2>/dev/null |
+    grep -Fq 'TLS Web Server Authentication' || { echo "server.pem lacks serverAuth EKU" >&2; failed=1; }
+  openssl x509 -in "$pki_dir/client.pem" -noout -ext extendedKeyUsage 2>/dev/null |
+    grep -Fq 'TLS Web Client Authentication' || { echo "client.pem lacks clientAuth EKU" >&2; failed=1; }
+  [[ "$failed" == "0" ]]
+}
+
 verify_image() {
   local image="$1"
   local identity_regex='^https://github\.com/MakFly/ploydok/\.github/workflows/release-images\.yml@.*$'
@@ -33,15 +90,67 @@ verify_image() {
   fi
 }
 
+resolve_verified_image() {
+  local image="$1"
+  local repository
+  if [[ "$image" == *@sha256:* ]]; then
+    repository="${image%@sha256:*}"
+  else
+    repository="${image%:*}"
+  fi
+  local resolved
+
+  if [[ "$DRY_RUN" == "1" ]]; then
+    verify_image "$image" >&2
+    run docker pull "$image" >&2
+    printf '%s\n' "$image"
+    return
+  fi
+  if [[ "${PLOYDOK_SKIP_PULL:-0}" == "1" ]]; then
+    echo "PLOYDOK_SKIP_PULL is allowed only for dry-run upgrade tests" >&2
+    exit 3
+  fi
+
+  docker pull "$image" >&2
+  resolved="$(
+    docker image inspect --format '{{range .RepoDigests}}{{println .}}{{end}}' "$image" |
+      grep -F "${repository}@sha256:" | head -n1
+  )"
+  [[ "$resolved" =~ @sha256:[0-9a-f]{64}$ ]] || {
+    echo "could not resolve an immutable digest for $image" >&2
+    exit 5
+  }
+  verify_image "$resolved" >&2
+  printf '%s\n' "$resolved"
+}
+
 compose_healthcheck() {
   [[ "$DRY_RUN" == "1" ]] && return 0
   for _ in $(seq 1 60); do
     if curl -fsS "$HEALTH_URL" >/dev/null 2>&1; then
-      return 0
+      if compose_monitoring_healthcheck; then return 0; fi
     fi
     sleep 1
   done
   return 1
+}
+
+compose_monitoring_healthcheck() {
+  local descriptor env_file compose service port
+  descriptor="$(compose_file_path)"
+  env_file="$(real_path "$DATA_DIR/.env")"
+  compose=(docker compose --env-file "$env_file" -f "$descriptor")
+  for service in prometheus alertmanager; do
+    port=9090
+    [[ "$service" == "alertmanager" ]] && port=9093
+    "${compose[@]}" exec -T "$service" wget -qO- "http://127.0.0.1:${port}/-/ready" >/dev/null 2>&1 || return 1
+  done
+  "${compose[@]}" exec -T prometheus wget -qO- \
+    'http://127.0.0.1:9090/api/v1/query?query=up%7Bjob%3D%22ploydok-api%22%7D%20%3D%3D%201' |
+    grep -Fq '"result":[{' || return 1
+  "${compose[@]}" exec -T prometheus wget -qO- \
+    'http://127.0.0.1:9090/api/v1/alertmanagers' |
+    grep -Fq '"activeAlertmanagers":[{' || return 1
 }
 
 swarm_healthcheck() {
@@ -58,7 +167,7 @@ swarm_healthcheck() {
       [[ "$status" == "healthy" || "$status" == "running" ]] && healthy=$((healthy + 1))
     done <<<"$ids"
     if [[ "$desired" -gt 0 && "$running" -ge "$desired" && "$healthy" -ge "$desired" ]]; then
-      return 0
+      if swarm_monitoring_healthcheck; then return 0; fi
     fi
     sleep 1
   done
@@ -66,13 +175,98 @@ swarm_healthcheck() {
   return 1
 }
 
+swarm_monitoring_healthcheck() {
+  local service id status prometheus_id
+  for service in prometheus alertmanager; do
+    id="$(docker ps -q --filter "label=com.docker.swarm.service.name=ploydok_${service}" | head -n1)"
+    [[ -n "$id" ]] || return 1
+    status="$(docker inspect --format '{{if .State.Health}}{{.State.Health.Status}}{{else}}{{.State.Status}}{{end}}' "$id" 2>/dev/null || true)"
+    [[ "$status" == "healthy" ]] || return 1
+  done
+  prometheus_id="$(docker ps -q --filter "label=com.docker.swarm.service.name=ploydok_prometheus" | head -n1)"
+  docker exec "$prometheus_id" wget -qO- \
+    'http://127.0.0.1:9090/api/v1/query?query=up%7Bjob%3D%22ploydok-api%22%7D%20%3D%3D%201' |
+    grep -Fq '"result":[{' || return 1
+  docker exec "$prometheus_id" wget -qO- \
+    'http://127.0.0.1:9090/api/v1/alertmanagers' |
+    grep -Fq '"activeAlertmanagers":[{' || return 1
+}
+
+require_monitoring_assets() {
+  local descriptor="$1" asset
+  for asset in \
+    "$DATA_DIR/config/prometheus.yml" \
+    "$DATA_DIR/config/ploydok-alerts.yml" \
+    "$DATA_DIR/config/alertmanager.yml" \
+    "$DATA_DIR/secrets/metrics-token" \
+    "$DATA_DIR/secrets/alert-webhook-url"; do
+    [[ -f "$(real_path "$asset")" ]] || {
+      echo "monitoring runtime migration required: missing $asset; rerun the signed installer for this release before upgrade" >&2
+      exit 2
+    }
+  done
+  for asset in \
+    "$DATA_DIR/config/prometheus.yml" \
+    "$DATA_DIR/config/ploydok-alerts.yml" \
+    "$DATA_DIR/config/alertmanager.yml"; do
+    grep -Fq '# ploydok-monitoring-schema: 1' "$(real_path "$asset")" || {
+      echo "monitoring assets require schema migration; rerun the signed installer for this release before upgrade" >&2
+      exit 2
+    }
+  done
+  grep -Eq '^[[:space:]]+prometheus:$' "$descriptor" &&
+    grep -Eq '^[[:space:]]+alertmanager:$' "$descriptor" || {
+      echo "monitoring descriptor migration required; rerun the signed installer for this release before upgrade" >&2
+      exit 2
+    }
+}
+
+test_alert_receiver() {
+  local receiver_file payload api_payload runtime descriptor env_file compose alertmanager_id prometheus_id
+  receiver_file="$(real_path "$DATA_DIR/secrets/alert-webhook-url")"
+  [[ -f "$receiver_file" ]] || return 1
+  if [[ "$DRY_RUN" == "1" ]]; then
+    echo "[ploydok-cli] dry-run: send explicit test notification to the configured alert receiver"
+    return 0
+  fi
+  payload='{"version":"4","groupKey":"ploydok-upgrade-test","status":"firing","receiver":"operator-webhook","groupLabels":{"alertname":"PloydokUpgradeTest"},"commonLabels":{"alertname":"PloydokUpgradeTest","severity":"info"},"commonAnnotations":{"summary":"Ploydok alert receiver upgrade test"},"externalURL":"","alerts":[{"status":"firing","labels":{"alertname":"PloydokUpgradeTest","severity":"info"},"annotations":{"summary":"Ploydok alert receiver upgrade test"},"startsAt":"2026-01-01T00:00:00Z","endsAt":"0001-01-01T00:00:00Z","generatorURL":""}]}'
+  api_payload='[{"labels":{"alertname":"PloydokUpgradePipelineTest","severity":"info"},"annotations":{"summary":"Ploydok Alertmanager upgrade pipeline test"},"startsAt":"2026-01-01T00:00:00Z"}]'
+  runtime="$(runtime_kind)"
+  if [[ "$runtime" == "swarm" ]]; then
+    alertmanager_id="$(docker ps -q --filter label=com.docker.swarm.service.name=ploydok_alertmanager | head -n1)"
+    prometheus_id="$(docker ps -q --filter label=com.docker.swarm.service.name=ploydok_prometheus | head -n1)"
+    [[ -n "$alertmanager_id" ]] || return 1
+    [[ -n "$prometheus_id" ]] || return 1
+    docker exec "$prometheus_id" wget -qO- --header="Content-Type: application/json" \
+      --post-data="$api_payload" http://alertmanager:9093/api/v2/alerts >/dev/null || return 1
+    docker exec "$alertmanager_id" sh -ec \
+      'receiver="$(cat /run/ploydok-secrets/alert-webhook-url)"; wget -qO- --header="Content-Type: application/json" --post-data="$1" "$receiver"' \
+      sh "$payload" >/dev/null
+  else
+    descriptor="$(compose_file_path)"
+    env_file="$(real_path "$DATA_DIR/.env")"
+    compose=(docker compose --env-file "$env_file" -f "$descriptor")
+    "${compose[@]}" exec -T prometheus wget -qO- --header="Content-Type: application/json" \
+      --post-data="$api_payload" http://alertmanager:9093/api/v2/alerts >/dev/null || return 1
+    "${compose[@]}" exec -T alertmanager sh -ec \
+      'receiver="$(cat /run/ploydok-secrets/alert-webhook-url)"; wget -qO- --header="Content-Type: application/json" --post-data="$1" "$receiver"' \
+      sh "$payload" >/dev/null
+  fi
+}
+
 usage() {
   cat <<'USAGE'
 Usage: ploydok-cli <command> [options]
 
 Commands:
+  configure-control-plane-backups --destination=<remote-mount> --age-recipient=<recipient> --signing-key=<private-key> [--retention-days=30]
+  backup-control-plane --destination=<remote-mount> --age-recipient=<recipient> --signing-key=<private-key> [--retention-days=30] [--allow-local-destination]
+  verify-control-plane-backup --archive=<path.tar.gz.age> --age-identity=<identity-file> --signing-public-key=<public-key>
+  restore-control-plane --archive=<path.tar.gz.age> --age-identity=<identity-file> --signing-public-key=<public-key> --verify-command=<executable> --yes
   uninstall [--restore-previous-proxy] [--install-dir=/opt/ploydok] [--data-dir=/var/lib/ploydok] [--yes]
-  upgrade [--version=<tag>] [--image-registry=<registry>] [--install-dir=/opt/ploydok] [--data-dir=/var/lib/ploydok] [--include-data-plane] [--skip-migrations]
+  upgrade [--version=<tag>] [--image-registry=<registry>] [--image-manifest=<path>] [--install-dir=/opt/ploydok] [--data-dir=/var/lib/ploydok] [--include-data-plane] [--skip-migrations]
+  check-agent-pki [--data-dir=/var/lib/ploydok] [--warn-days=30]
+  rotate-agent-pki [--data-dir=/var/lib/ploydok] [--yes]
 USAGE
 }
 
@@ -105,6 +299,133 @@ cmd="${1:-}"
 shift || true
 
 case "$cmd" in
+  configure-control-plane-backups|backup-control-plane|verify-control-plane-backup|restore-control-plane)
+    helper="${PLOYDOK_DR_HELPER:-$(dirname -- "${BASH_SOURCE[0]}")/ploydok-dr}"
+    if [[ ! -f "$helper" ]]; then
+      helper="/usr/local/lib/ploydok/ploydok-dr"
+    fi
+    [[ -f "$helper" ]] || { echo "missing disaster-recovery helper: $helper" >&2; exit 1; }
+    exec bash "$helper" "$cmd" "$@"
+    ;;
+  check-agent-pki)
+    WARN_DAYS=30
+    for arg in "$@"; do
+      case "$arg" in
+        --data-dir=*) DATA_DIR="${arg#*=}" ;;
+        --warn-days=*) WARN_DAYS="${arg#*=}" ;;
+        *) echo "Unknown option: $arg" >&2; exit 1 ;;
+      esac
+    done
+    [[ "$WARN_DAYS" =~ ^[0-9]+$ ]] || { echo "--warn-days must be an integer" >&2; exit 1; }
+    pki_dir="$(real_path "$DATA_DIR/pki")"
+    validate_agent_pki_bundle "$pki_dir" "$WARN_DAYS"
+    ;;
+  rotate-agent-pki)
+    YES=0
+    for arg in "$@"; do
+      case "$arg" in
+        --data-dir=*) DATA_DIR="${arg#*=}" ;;
+        --yes) YES=1 ;;
+        *) echo "Unknown option: $arg" >&2; exit 1 ;;
+      esac
+    done
+    [[ "$YES" == "1" || "$DRY_RUN" == "1" ]] || {
+      echo "Rotation replaces the agent CA and briefly interrupts API-to-agent RPCs. Re-run with --yes." >&2
+      exit 2
+    }
+    [[ "${EUID:-$(id -u)}" -eq 0 || "$DRY_RUN" == "1" ]] || {
+      echo "rotate-agent-pki must run as root" >&2
+      exit 2
+    }
+    pki_dir="$(real_path "$DATA_DIR/pki")"
+    backup_dir="$(real_path "$DATA_DIR/backups")"
+    timestamp="$(date -u +%Y%m%dT%H%M%SZ)"
+    if [[ "$DRY_RUN" == "1" ]]; then
+      echo "[ploydok-cli] dry-run: rotate one-year agent/client certificates and CA under $pki_dir"
+      echo "[ploydok-cli] dry-run: force-recreate agent then API and require authenticated readiness"
+      exit 0
+    fi
+    [[ -d "$pki_dir" ]] || { echo "missing PKI directory: $pki_dir" >&2; exit 1; }
+    install -d -m 0750 "$backup_dir"
+    backup="$backup_dir/agent-pki-$timestamp.tar.gz"
+    tar -C "$pki_dir" -czf "$backup" .
+    chmod 0600 "$backup"
+    stage="$(mktemp -d)"
+    cleanup_stage() { rm -rf "$stage"; }
+    trap cleanup_stage EXIT
+    umask 077
+    cat >"$stage/server.ext" <<'EOF'
+basicConstraints=CA:FALSE
+keyUsage=digitalSignature,keyEncipherment
+extendedKeyUsage=serverAuth
+subjectAltName=DNS:agent,DNS:ploydok-agent,DNS:localhost
+EOF
+    cat >"$stage/client.ext" <<'EOF'
+basicConstraints=CA:FALSE
+keyUsage=digitalSignature
+extendedKeyUsage=clientAuth
+EOF
+    openssl req -x509 -newkey rsa:4096 -nodes -days 3650 \
+      -keyout "$stage/ca.key" -out "$stage/ca.crt" -subj "/CN=Ploydok agent CA" >/dev/null 2>&1
+    openssl req -newkey rsa:4096 -nodes -keyout "$stage/agent.key" \
+      -out "$stage/agent.csr" -subj "/CN=ploydok-agent" >/dev/null 2>&1
+    openssl x509 -req -in "$stage/agent.csr" -CA "$stage/ca.crt" -CAkey "$stage/ca.key" \
+      -CAcreateserial -out "$stage/agent.crt" -days 365 -extfile "$stage/server.ext" >/dev/null 2>&1
+    openssl req -newkey rsa:4096 -nodes -keyout "$stage/api-client.key" \
+      -out "$stage/api-client.csr" -subj "/CN=ploydok-api" >/dev/null 2>&1
+    openssl x509 -req -in "$stage/api-client.csr" -CA "$stage/ca.crt" -CAkey "$stage/ca.key" \
+      -CAcreateserial -out "$stage/api-client.crt" -days 365 -extfile "$stage/client.ext" >/dev/null 2>&1
+    install -m 0640 "$stage/ca.crt" "$stage/ca.pem"
+    install -m 0640 "$stage/agent.crt" "$stage/server.pem"
+    install -m 0600 "$stage/agent.key" "$stage/server.key"
+    install -m 0640 "$stage/api-client.crt" "$stage/client.pem"
+    install -m 0600 "$stage/api-client.key" "$stage/client.key"
+    validate_agent_pki_bundle "$stage" 30 || { echo "generated PKI bundle failed validation; live files unchanged" >&2; exit 1; }
+
+    runtime="$(runtime_kind)"
+    recreate_pki_services() {
+      if [[ "$runtime" == "swarm" ]]; then
+        docker service update --force ploydok_agent && docker service update --force ploydok_api
+      else
+        descriptor="$(compose_file_path)"
+        docker compose --env-file "$(real_path "$DATA_DIR/.env")" -f "$descriptor" \
+          up -d --no-deps --force-recreate agent api
+      fi
+    }
+    pki_readiness() {
+      if [[ "$runtime" == "swarm" ]]; then swarm_healthcheck; else compose_healthcheck; fi
+    }
+    restore_previous_pki() {
+      tar -C "$pki_dir" -xzf "$backup" || return 1
+      if id ploydok >/dev/null 2>&1; then chown -R ploydok:ploydok "$pki_dir" || return 1; fi
+      recreate_pki_services || return 1
+      pki_readiness
+    }
+    publish_staged_pki() {
+      install -m 0600 "$stage/ca.key" "$pki_dir/ca.key" || return 1
+      install -m 0600 "$stage/agent.key" "$pki_dir/agent.key" || return 1
+      install -m 0600 "$stage/api-client.key" "$pki_dir/api-client.key" || return 1
+      install -m 0640 "$stage/ca.crt" "$pki_dir/ca.crt" || return 1
+      install -m 0640 "$stage/agent.crt" "$pki_dir/agent.crt" || return 1
+      install -m 0640 "$stage/api-client.crt" "$pki_dir/api-client.crt" || return 1
+      install -m 0640 "$stage/ca.pem" "$pki_dir/ca.pem" || return 1
+      install -m 0640 "$stage/server.pem" "$pki_dir/server.pem" || return 1
+      install -m 0600 "$stage/server.key" "$pki_dir/server.key" || return 1
+      install -m 0640 "$stage/client.pem" "$pki_dir/client.pem" || return 1
+      install -m 0600 "$stage/client.key" "$pki_dir/client.key" || return 1
+      if id ploydok >/dev/null 2>&1; then chown -R ploydok:ploydok "$pki_dir" || return 1; fi
+    }
+    if ! publish_staged_pki || ! recreate_pki_services || ! pki_readiness; then
+      echo "PKI rotation failed; restoring previous bundle from $backup" >&2
+      restore_previous_pki || {
+        echo "CRITICAL: automatic PKI rollback failed; backup retained at $backup" >&2
+        exit 1
+      }
+      echo "Previous PKI restored and authenticated readiness recovered" >&2
+      exit 1
+    fi
+    echo "Agent PKI rotated; previous material retained at $backup"
+    ;;
   uninstall)
     YES=0
     for arg in "$@"; do
@@ -150,12 +471,14 @@ case "$cmd" in
   upgrade)
     VERSION=""
     REGISTRY=""
+    IMAGE_MANIFEST=""
     INCLUDE_DATA_PLANE=0
     SKIP_MIGRATIONS=0
     for arg in "$@"; do
       case "$arg" in
         --version=*) VERSION="${arg#*=}" ;;
         --image-registry=*) REGISTRY="${arg#*=}" ;;
+        --image-manifest=*) IMAGE_MANIFEST="${arg#*=}" ;;
         --install-dir=*) INSTALL_DIR="${arg#*=}" ;;
         --data-dir=*) DATA_DIR="${arg#*=}" ;;
         --include-data-plane) INCLUDE_DATA_PLANE=1 ;;
@@ -173,18 +496,62 @@ case "$cmd" in
     env_file="$(real_path "$DATA_DIR/.env")"
     [[ -f "$descriptor" ]] || { echo "missing $runtime descriptor: $descriptor" >&2; exit 1; }
     [[ -f "$env_file" ]] || { echo "missing env file: $env_file" >&2; exit 1; }
+    require_monitoring_assets "$descriptor"
+    run chmod 0400 \
+      "$(real_path "$DATA_DIR/secrets/metrics-token")" \
+      "$(real_path "$DATA_DIR/secrets/alert-webhook-url")"
+    run chown 65534:65534 \
+      "$(real_path "$DATA_DIR/secrets/metrics-token")" \
+      "$(real_path "$DATA_DIR/secrets/alert-webhook-url")"
 
-    if [[ -z "$REGISTRY" ]]; then
-      REGISTRY="$(grep -E 'image: .*/ploydok-api:' "$descriptor" | head -n1 | sed -E 's/^.*image: (.*)\/ploydok-api:.*$/\1/')"
+    if [[ -z "$REGISTRY" && -z "$IMAGE_MANIFEST" ]]; then
+      REGISTRY="$(grep -E 'image: .*/ploydok-api(:|@)' "$descriptor" | head -n1 | sed -E 's#^.*image: (.*)/ploydok-api(:|@).*$#\1#')"
     fi
-    [[ -n "$REGISTRY" ]] || { echo "could not infer image registry; pass --image-registry=<registry>" >&2; exit 1; }
 
-    verify_image "$REGISTRY/ploydok-api:$VERSION"
-    verify_image "$REGISTRY/ploydok-web:$VERSION"
-    verify_image "$REGISTRY/ploydok-agent:$VERSION"
-    verify_image "$REGISTRY/ploydok-adminer:$VERSION"
-    if [[ "$INCLUDE_DATA_PLANE" == "1" ]]; then
-      verify_image "$REGISTRY/ploydok-caddy:$VERSION"
+    services=(api web agent adminer)
+    if [[ "$INCLUDE_DATA_PLANE" == "1" ]]; then services+=(caddy); fi
+    declare -A resolved_images
+    if [[ -n "$IMAGE_MANIFEST" ]]; then
+      manifest_path="$(real_path "$IMAGE_MANIFEST")"
+      [[ -f "$manifest_path" ]] || { echo "missing image manifest: $manifest_path" >&2; exit 1; }
+      declare -A manifest_images
+      while IFS='=' read -r key value; do
+        [[ -n "$key" && -n "$value" && "$value" != *"="* ]] || {
+          echo "invalid image manifest entry" >&2
+          exit 1
+        }
+        case "$key" in
+          PLOYDOK_API_IMAGE) service=api ;;
+          PLOYDOK_WEB_IMAGE) service=web ;;
+          PLOYDOK_AGENT_IMAGE) service=agent ;;
+          PLOYDOK_ADMINER_IMAGE) service=adminer ;;
+          PLOYDOK_CADDY_IMAGE) service=caddy ;;
+          *) echo "unexpected image manifest key: $key" >&2; exit 1 ;;
+        esac
+        [[ -z "${manifest_images[$service]:-}" ]] || {
+          echo "duplicate image manifest key: $key" >&2
+          exit 1
+        }
+        [[ "$value" =~ ^[a-z0-9.-]+(:[0-9]+)?(/[a-z0-9._-]+)+/ploydok-${service}@sha256:[0-9a-f]{64}$ ]] || {
+          echo "image manifest must pin ploydok-$service by sha256 digest" >&2
+          exit 1
+        }
+        manifest_images[$service]="$value"
+      done <"$manifest_path"
+      for service in api web agent adminer caddy; do
+        [[ -n "${manifest_images[$service]:-}" ]] || {
+          echo "image manifest is missing ploydok-$service" >&2
+          exit 1
+        }
+      done
+      for service in "${services[@]}"; do
+        resolved_images[$service]="$(resolve_verified_image "${manifest_images[$service]}")"
+      done
+    else
+      [[ -n "$REGISTRY" ]] || { echo "could not infer image registry; pass --image-registry=<registry>" >&2; exit 1; }
+      for service in "${services[@]}"; do
+        resolved_images[$service]="$(resolve_verified_image "$REGISTRY/ploydok-$service:$VERSION")"
+      done
     fi
 
     backup_descriptor="$(real_path "$DATA_DIR/backups/$(basename "$descriptor").pre-upgrade-$VERSION.yml")"
@@ -217,47 +584,24 @@ case "$cmd" in
         echo "[ploydok-cli] dry-run: update $descriptor api/web/agent/adminer images to $VERSION"
       fi
     else
-      if [[ "$INCLUDE_DATA_PLANE" == "1" ]]; then
-        sed -E -i "s#(image: .*/ploydok-(api|web|agent|adminer|caddy):).*#\\1$VERSION#" "$descriptor"
-      else
-        sed -E -i "s#(image: .*/ploydok-(api|web|agent|adminer):).*#\\1$VERSION#" "$descriptor"
-      fi
-    fi
-
-    services=(api web agent adminer)
-    if [[ "$INCLUDE_DATA_PLANE" == "1" ]]; then
-      services+=(caddy)
-    fi
-
-    if [[ "${PLOYDOK_SKIP_PULL:-0}" == "1" ]]; then
-      echo "[ploydok-cli] WARN: image pull skipped by PLOYDOK_SKIP_PULL=1" >&2
-    else
-      if [[ "$runtime" == "swarm" ]]; then
-        for service in "${services[@]}"; do
-          if ! run docker pull "$REGISTRY/ploydok-$service:$VERSION"; then
-            echo "image pull failed; restoring previous stack descriptor" >&2
-            run cp "$backup_descriptor" "$descriptor"
-            exit 1
-          fi
-        done
-      elif ! run docker compose --env-file "$env_file" -f "$descriptor" pull "${services[@]}"; then
-        echo "image pull failed; restoring previous compose file" >&2
-        run cp "$backup_descriptor" "$descriptor"
-        exit 1
-      fi
+      for service in "${services[@]}"; do
+        sed -E -i \
+          "s#^([[:space:]]*image: ).*/ploydok-${service}[^[:space:]]*#\\1${resolved_images[$service]}#" \
+          "$descriptor"
+      done
     fi
 
     if [[ "$SKIP_MIGRATIONS" == "1" ]]; then
       echo "[ploydok-cli] WARN: migrations skipped by --skip-migrations" >&2
     elif [[ "$DRY_RUN" == "1" ]]; then
       if [[ "$runtime" == "swarm" ]]; then
-        echo "[ploydok-cli] dry-run: docker run --rm --env-file $env_file --network ploydok_ploydok $REGISTRY/ploydok-api:$VERSION bun run /app/packages/db/src/migrate.ts"
+        echo "[ploydok-cli] dry-run: docker run --rm --env-file $env_file --network ploydok_ploydok ${resolved_images[api]} bun run /app/packages/db/src/migrate.ts"
       else
         echo "[ploydok-cli] dry-run: docker compose --env-file $env_file -f $descriptor run --rm --no-deps api bun run /app/packages/db/src/migrate.ts"
       fi
     else
       if [[ "$runtime" == "swarm" ]]; then
-        migration_cmd=(docker run --rm --env-file "$env_file" --network ploydok_ploydok "$REGISTRY/ploydok-api:$VERSION" bun run /app/packages/db/src/migrate.ts)
+        migration_cmd=(docker run --rm --env-file "$env_file" --network ploydok_ploydok "${resolved_images[api]}" bun run /app/packages/db/src/migrate.ts)
       else
         migration_cmd=(docker compose --env-file "$env_file" -f "$descriptor" run --rm --no-deps api bun run /app/packages/db/src/migrate.ts)
       fi
@@ -275,6 +619,8 @@ case "$cmd" in
         run docker stack deploy --resolve-image always --with-registry-auth --prune -c "$descriptor" ploydok
         exit 1
       fi
+      run docker service update --force ploydok_prometheus
+      run docker service update --force ploydok_alertmanager
       if ! swarm_healthcheck; then
         echo "post-upgrade healthcheck failed; restoring previous stack descriptor" >&2
         run cp "$backup_descriptor" "$descriptor"
@@ -288,6 +634,8 @@ case "$cmd" in
         run docker compose --env-file "$env_file" -f "$descriptor" up -d --no-deps "${services[@]}"
         exit 1
       fi
+      run docker compose --env-file "$env_file" -f "$descriptor" \
+        up -d --no-deps --force-recreate prometheus alertmanager
       if ! compose_healthcheck; then
         echo "post-upgrade healthcheck failed; restoring previous compose file" >&2
         run cp "$backup_descriptor" "$descriptor"
@@ -295,6 +643,7 @@ case "$cmd" in
         exit 1
       fi
     fi
+    test_alert_receiver || { echo "alert receiver test notification failed" >&2; exit 1; }
     ;;
   *)
     usage >&2

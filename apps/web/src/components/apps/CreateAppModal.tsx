@@ -50,6 +50,10 @@ import {
 import { useGitHubBranches } from "../../lib/github"
 import { useGitLabBranches } from "../../lib/gitlab"
 import {
+  getGitLabSourceAvailability,
+  useGitProviderStatus,
+} from "../../lib/git-providers"
+import {
   detectedEnvFiles,
   importEnvFileVars,
   useStackClassification,
@@ -78,8 +82,10 @@ import type {
 
 interface CreateAppModalProps {
   open: boolean
+  initialSource?: SourceKind | undefined
   organizationId?: string
   onClose: () => void
+  onCreated?: (appId: string) => void | Promise<void>
 }
 
 type SourceKind = GitProviderKind
@@ -103,7 +109,7 @@ interface DatabaseSelection {
   envPrefix: string
 }
 
-interface FormState {
+export interface FormState {
   name: string
   source: SourceKind
   selectedRepo: GitRepo | null
@@ -166,6 +172,36 @@ const INITIAL_FORM: FormState = {
   plan: { plan: "small" },
   domainSuffix: "",
   createRequestId: "",
+}
+
+export function initialForm(source: SourceKind | undefined): FormState {
+  return {
+    ...INITIAL_FORM,
+    source: source ?? INITIAL_FORM.source,
+    initialEnvVars: [],
+    database: { ...INITIAL_FORM.database },
+    plan: { ...INITIAL_FORM.plan },
+  }
+}
+
+export function repoDerivedDefaults(): Partial<FormState> {
+  return {
+    buildMethod: "auto",
+    buildMethodTouched: false,
+    rootDir: "",
+    dockerfilePath: "",
+    installCommand: "",
+    buildCommand: "",
+    startCommand: "",
+    staticOutputDir: "dist",
+    staticSpaFallback: true,
+    watchPaths: "",
+    healthcheckPath: "/",
+    healthcheckPort: "",
+    laravelSeedOnFirstDeploy: false,
+    initialEnvVars: [],
+    database: { ...INITIAL_FORM.database },
+  }
 }
 
 function formatBranchOption(branch: GitBranch): string {
@@ -249,11 +285,15 @@ function buildGeneratedPublicUrl(
 
 export function CreateAppModal({
   open,
+  initialSource,
   organizationId,
   onClose,
+  onCreated,
 }: CreateAppModalProps): React.JSX.Element | null {
   const [stepIdx, setStepIdx] = React.useState(0)
-  const [form, setForm] = React.useState<FormState>(INITIAL_FORM)
+  const [form, setForm] = React.useState<FormState>(() =>
+    initialForm(initialSource)
+  )
   const [showAdvanced, setShowAdvanced] = React.useState(false)
   const [branchDialogOpen, setBranchDialogOpen] = React.useState(false)
   const [pendingBranch, setPendingBranch] = React.useState("")
@@ -264,6 +304,11 @@ export function CreateAppModal({
   const createDatabase = useCreateDatabase()
   const linkDatabase = useLinkDatabase()
   const defaultDomainConfig = useDefaultDomainConfig(open)
+  const providerStatus = useGitProviderStatus()
+  const gitLabAvailability = getGitLabSourceAvailability(providerStatus.data, {
+    loading: providerStatus.isLoading,
+    failed: providerStatus.isError,
+  })
 
   const steps: Array<{ id: StepId; label: string; hint: string }> =
     form.source === "image"
@@ -365,7 +410,7 @@ export function CreateAppModal({
   React.useEffect(() => {
     if (!open) {
       setStepIdx(0)
-      setForm(INITIAL_FORM)
+      setForm(initialForm(initialSource))
       setShowAdvanced(false)
       setBranchDialogOpen(false)
       setPendingBranch("")
@@ -373,7 +418,7 @@ export function CreateAppModal({
       setSubmitInFlight(false)
       submitInFlightRef.current = false
     }
-  }, [open])
+  }, [open, initialSource])
 
   React.useEffect(() => {
     if (!open) return
@@ -463,8 +508,7 @@ export function CreateAppModal({
       source,
       selectedRepo: null,
       branch: "",
-      buildMethod: "auto",
-      buildMethodTouched: false,
+      ...repoDerivedDefaults(),
       domainSuffix: prev.domainSuffix || randomDomainSuffix(),
     }))
     setBranchDialogOpen(false)
@@ -473,22 +517,16 @@ export function CreateAppModal({
   }
 
   const handleRepoSelect = (repo: GitRepo): void => {
+    const sameRepo = form.selectedRepo?.fullName === repo.fullName
     setForm((prev) => ({
       ...prev,
       selectedRepo: repo,
-      branch: prev.selectedRepo?.fullName === repo.fullName ? prev.branch : "",
+      branch: sameRepo ? prev.branch : "",
       name: prev.name || (repo.fullName.split("/").at(-1) ?? ""),
-      laravelSeedOnFirstDeploy: false,
-      ...(prev.selectedRepo?.fullName === repo.fullName
-        ? {}
-        : { buildMethod: "auto", buildMethodTouched: false }),
+      ...(sameRepo ? {} : repoDerivedDefaults()),
     }))
-    if (form.source === "github") {
-      setPendingBranch(
-        form.selectedRepo?.fullName === repo.fullName
-          ? form.branch
-          : repo.defaultBranch
-      )
+    if (form.source === "github" || form.source === "gitlab") {
+      setPendingBranch(sameRepo ? form.branch : repo.defaultBranch)
       setBranchDialogOpen(true)
     }
   }
@@ -503,9 +541,7 @@ export function CreateAppModal({
     setForm((prev) => ({
       ...prev,
       branch: pendingBranch,
-      ...(prev.branch === pendingBranch
-        ? {}
-        : { buildMethod: "auto", buildMethodTouched: false }),
+      ...(prev.branch === pendingBranch ? {} : repoDerivedDefaults()),
     }))
     setBranchDialogOpen(false)
   }
@@ -539,6 +575,18 @@ export function CreateAppModal({
     return true
   }
 
+  const handleRootDirChange = (rootDir: string): void => {
+    setForm((prev) =>
+      prev.rootDir === rootDir
+        ? prev
+        : {
+            ...prev,
+            ...repoDerivedDefaults(),
+            rootDir,
+          }
+    )
+  }
+
   const handleSubmit = async (): Promise<void> => {
     if (submitInFlightRef.current) return
     submitInFlightRef.current = true
@@ -568,6 +616,10 @@ export function CreateAppModal({
           databaseId,
           env_prefix: form.database.envPrefix,
         })
+      }
+      if (appId && onCreated) {
+        await onCreated(appId)
+        return
       }
       onClose()
     } catch (err) {
@@ -705,6 +757,7 @@ export function CreateAppModal({
                   branchesNeedInstall={branchesNeedInstall}
                   generatedPublicUrl={generatedPublicUrl}
                   onOpenBranchDialog={openBranchDialog}
+                  gitLabAvailability={gitLabAvailability}
                 />
               )}
               {currentStep === "build" && (
@@ -716,6 +769,7 @@ export function CreateAppModal({
                   hasDockerfile={hasDockerfile}
                   detectionLoading={detectionLoading}
                   classification={classification}
+                  onRootDirChange={handleRootDirChange}
                 />
               )}
               {currentStep === "resources" && (
@@ -806,7 +860,12 @@ export function CreateAppModal({
 
       <BranchSelectionDialog
         open={branchDialogOpen}
-        repo={form.source === "github" ? form.selectedRepo : null}
+        providerLabel={form.source === "gitlab" ? "GitLab" : "GitHub"}
+        repo={
+          form.source === "github" || form.source === "gitlab"
+            ? form.selectedRepo
+            : null
+        }
         branches={branches}
         value={pendingBranch}
         isLoading={branchesLoading}
@@ -822,6 +881,7 @@ export function CreateAppModal({
 
 interface BranchSelectionDialogProps {
   open: boolean
+  providerLabel: "GitHub" | "GitLab"
   repo: GitRepo | null
   branches: Array<GitBranch>
   value: string
@@ -835,6 +895,7 @@ interface BranchSelectionDialogProps {
 
 export function BranchSelectionDialog({
   open,
+  providerLabel,
   repo,
   branches,
   value,
@@ -877,7 +938,7 @@ export function BranchSelectionDialog({
                 .
               </>
             ) : (
-              "Sélectionne d'abord un dépôt GitHub."
+              `Sélectionne d'abord un projet ${providerLabel}.`
             )}
           </DialogDescription>
         </DialogHeader>
@@ -941,7 +1002,7 @@ export function BranchSelectionDialog({
             <ul
               className="scrollbar-thin max-h-[24rem] divide-y divide-border overflow-y-auto rounded-lg border border-border"
               role="listbox"
-              aria-label="Branches GitHub"
+              aria-label={`Branches ${providerLabel}`}
             >
               {visibleBranches.map((branch) => {
                 const selected = branch.name === value
@@ -1138,6 +1199,7 @@ interface SourceStepProps {
   branchesNeedInstall: boolean
   generatedPublicUrl: string
   onOpenBranchDialog: () => void
+  gitLabAvailability: { enabled: boolean; reason: string | null }
 }
 
 function SourceStep({
@@ -1151,6 +1213,7 @@ function SourceStep({
   branchesNeedInstall,
   generatedPublicUrl,
   onOpenBranchDialog,
+  gitLabAvailability,
 }: SourceStepProps): React.JSX.Element {
   const slug = form.name
     .trim()
@@ -1204,7 +1267,22 @@ function SourceStep({
 
       <section className="space-y-2">
         <p className="text-sm font-medium">Source du déploiement</p>
-        <ProviderTabs source={form.source} onChange={onSourceChange} />
+        <ProviderTabs
+          source={form.source}
+          onChange={onSourceChange}
+          gitLabAvailability={gitLabAvailability}
+        />
+        {!gitLabAvailability.enabled && gitLabAvailability.reason ? (
+          <p className="text-xs text-muted-foreground" role="status">
+            {gitLabAvailability.reason}{" "}
+            <a
+              className="text-primary underline-offset-4 hover:underline"
+              href="/settings/git-providers/gitlab"
+            >
+              Ouvrir les réglages GitLab
+            </a>
+          </p>
+        ) : null}
       </section>
 
       {form.source === "github" && (
@@ -1233,10 +1311,13 @@ function SourceStep({
           branchesLoading={branchesLoading}
           branchesError={branchesError}
           branchesNeedInstall={branchesNeedInstall}
+          onOpenBranchDialog={onOpenBranchDialog}
         >
           <GitLabRepoSelector
             selected={form.selectedRepo}
             onSelect={onRepoSelect}
+            enabled={gitLabAvailability.enabled}
+            unavailableReason={gitLabAvailability.reason}
           />
         </GitSection>
       )}
@@ -1262,14 +1343,17 @@ function SourceStep({
 function ProviderTabs({
   source,
   onChange,
+  gitLabAvailability,
 }: {
   source: SourceKind
   onChange: (s: SourceKind) => void
+  gitLabAvailability: { enabled: boolean; reason: string | null }
 }): React.JSX.Element {
   const tabs: Array<{
     id: SourceKind
     label: string
     hint: string
+    maturity: "Beta"
     icon: React.JSX.Element
     disabled?: boolean
   }> = [
@@ -1277,19 +1361,22 @@ function ProviderTabs({
       id: "github",
       label: "GitHub",
       hint: "Auto-deploy sur push",
+      maturity: "Beta",
       icon: <RiGithubFill className="size-5" />,
     },
     {
       id: "gitlab",
       label: "GitLab",
       hint: "Auto-deploy sur push",
+      maturity: "Beta",
       icon: <RiGitlabFill className="size-5 text-[#FC6D26]" />,
-      disabled: true,
+      disabled: !gitLabAvailability.enabled,
     },
     {
       id: "image",
       label: "Image",
       hint: "Docker / OCI",
+      maturity: "Beta",
       icon: <DockerIcon className="size-5 text-[#1D63ED]" />,
     },
   ]
@@ -1314,7 +1401,9 @@ function ProviderTabs({
             onClick={() => {
               if (!disabled) onChange(t.id)
             }}
-            title={disabled ? "Coming soon" : undefined}
+            title={
+              disabled ? (gitLabAvailability.reason ?? undefined) : undefined
+            }
             className={cn(
               "group relative flex items-center gap-3 rounded-lg border p-3 text-left transition-all",
               disabled
@@ -1342,12 +1431,11 @@ function ProviderTabs({
                 {t.hint}
               </span>
             </span>
-            {disabled ? (
-              <span className="ml-auto shrink-0 rounded-full border border-border bg-background px-1.5 py-0.5 font-mono text-[9px] tracking-wide text-muted-foreground uppercase">
-                Coming soon
-              </span>
-            ) : active ? (
-              <RiCheckLine className="ml-auto size-4 shrink-0 text-primary" />
+            <span className="ml-auto shrink-0 rounded-full border border-border bg-background px-1.5 py-0.5 font-mono text-[9px] tracking-wide text-muted-foreground uppercase">
+              {t.maturity}
+            </span>
+            {active ? (
+              <RiCheckLine className="size-4 shrink-0 text-primary" />
             ) : null}
           </button>
         )
@@ -1605,6 +1693,7 @@ interface BuildStepProps {
   hasDockerfile: boolean | null
   detectionLoading: boolean
   classification: StackClassification | null
+  onRootDirChange: (rootDir: string) => void
 }
 
 function BuildStep({
@@ -1615,6 +1704,7 @@ function BuildStep({
   hasDockerfile,
   detectionLoading,
   classification,
+  onRootDirChange,
 }: BuildStepProps): React.JSX.Element {
   const selectMethod = (method: BuildMethod): void => {
     setField("buildMethod", method)
@@ -1714,11 +1804,7 @@ function BuildStep({
           label="Répertoire racine"
           placeholder="./"
           value={form.rootDir}
-          onChange={(v) => {
-            setField("rootDir", v)
-            setField("buildMethod", "auto")
-            setField("buildMethodTouched", false)
-          }}
+          onChange={onRootDirChange}
         />
         <ConfigField
           id="dockerfile-path"
@@ -3093,7 +3179,7 @@ function DockerIcon({ className }: { className?: string }): React.JSX.Element {
 // Build POST /apps body from form state
 // ---------------------------------------------------------------------------
 
-function buildCreateAppBody(
+export function buildCreateAppBody(
   form: FormState,
   organizationId?: string,
   generatedDomain?: string

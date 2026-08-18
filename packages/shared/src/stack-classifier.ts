@@ -42,12 +42,7 @@ export type Stack =
   | "unknown"
 
 export type BuildMethodRecommendation =
-  | "auto"
-  | "dockerfile"
-  | "compose"
-  | "nixpacks"
-  | "railpack"
-  | "static"
+  "auto" | "dockerfile" | "compose" | "nixpacks" | "static"
 
 export type ProbeKey =
   // Docker / Compose
@@ -157,7 +152,7 @@ export interface StackClassification {
   warnings: string[]
   /**
    * Env vars Ploydok will auto-inject so the detected framework works out-of-the-box
-   * under Nixpacks/Railpack without any manual configuration from the user.
+   * under Nixpacks without any manual configuration from the user.
    * Empty for stacks that Nixpacks handles natively (e.g. Laravel).
    */
   suggestedEnvVars: Record<string, string>
@@ -271,7 +266,9 @@ function parseJsonObject(content: string | undefined): JsonObject | null {
   if (!content) return null
   try {
     const parsed = JSON.parse(content)
-    return typeof parsed === "object" && parsed !== null && !Array.isArray(parsed)
+    return typeof parsed === "object" &&
+      parsed !== null &&
+      !Array.isArray(parsed)
       ? (parsed as JsonObject)
       : null
   } catch {
@@ -334,7 +331,8 @@ function pythonManifestDeclaresPackage(
     "i"
   )
   if (
-    projectDependencies && quotedDependencyPattern.test(projectDependencies)
+    projectDependencies &&
+    quotedDependencyPattern.test(projectDependencies)
   ) {
     return true
   }
@@ -344,7 +342,7 @@ function pythonManifestDeclaresPackage(
   )?.[1]
   return Boolean(
     poetryDependencies &&
-      new RegExp(`^\\s*${escapedName}\\s*=`, "im").test(poetryDependencies)
+    new RegExp(`^\\s*${escapedName}\\s*=`, "im").test(poetryDependencies)
   )
 }
 
@@ -660,9 +658,7 @@ export function classifyStack(probes: ProbeResults): StackClassification {
           ]
         : [],
       suggestedEnvVars: {},
-      ...(missingGradleSettings
-        ? { requiresExplicitBuildChoice: true }
-        : {}),
+      ...(missingGradleSettings ? { requiresExplicitBuildChoice: true } : {}),
     }
   }
 
@@ -957,7 +953,10 @@ export function classifyStackWithManifests(
     })
   }
 
-  if (base.stack === "ruby" && manifestContains(manifests, ["Gemfile"], /\brails\b/)) {
+  if (
+    base.stack === "ruby" &&
+    manifestContains(manifests, ["Gemfile"], /\brails\b/)
+  ) {
     return {
       ...base,
       framework: "Rails",
@@ -970,7 +969,10 @@ export function classifyStackWithManifests(
     }
   }
 
-  if (base.stack === "elixir" && manifestContains(manifests, ["mix.exs"], /\bphoenix\b/)) {
+  if (
+    base.stack === "elixir" &&
+    manifestContains(manifests, ["mix.exs"], /\bphoenix\b/)
+  ) {
     return {
       ...base,
       framework: "Phoenix",
@@ -1051,7 +1053,9 @@ export function frameworkGuardrailDefaults(
     warnings,
     fatal,
     defaults: {
-      ...(runtimePort !== undefined ? { runtimePort, healthcheckPort: runtimePort } : {}),
+      ...(runtimePort !== undefined
+        ? { runtimePort, healthcheckPort: runtimePort }
+        : {}),
       healthcheckPath: "/",
       suggestedEnvVars,
     },

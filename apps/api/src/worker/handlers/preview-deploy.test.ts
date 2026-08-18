@@ -106,9 +106,6 @@ mock.module("../detect-port", () => ({
 mock.module("../nixpacks", () => ({
   nixpacksBuild: mock(async () => {}),
 }))
-mock.module("../railpack", () => ({
-  railpackBuild: mock(async () => {}),
-}))
 mock.module("../../env", () => ({
   env: {
     PLOYDOK_BUILD_DIR: "/tmp/ploydok-builds",

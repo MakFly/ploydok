@@ -5,21 +5,22 @@ labels: bug
 ---
 
 ## Summary
+
 <!-- one-line description -->
 
 ## Reproduction
-Steps:
-1.
-2.
-3.
+
+Steps: 1. 2. 3.
 
 Minimal repo / command if possible.
 
 ## Expected vs actual
+
 - Expected:
 - Actual:
 
 ## Environment
+
 - Ploydok version / commit:
 - OS + kernel:
 - Bun version:
@@ -27,6 +28,9 @@ Minimal repo / command if possible.
 - Browser (if UI bug):
 
 ## Logs / screenshots
+
 <!-- redact secrets before posting -->
+
 ```
+
 ```

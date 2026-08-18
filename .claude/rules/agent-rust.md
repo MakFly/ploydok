@@ -1,13 +1,16 @@
 # Agent Rust (`agent/`)
 
-Workspace Cargo. Deux binaires :
+Workspace Cargo (édition Rust 2021). Deux binaires :
 
 - `ploydok-agent` : daemon long-run. Unix socket (`/tmp/ploydok-agent.sock` en dev), protocole gRPC. Appelé par l'API pour opérations host (spawn container, refresh Caddy, etc.).
-- `ploydok-cli` : outil ops. Notable : `admin-recovery` (requiert root + path DB).
+- `ploydok-cli` : outil ops. Il expose actuellement `admin-recovery` et
+  `audit verify`. Vérifier le contrat réel du sous-commande avant de le citer
+  dans un runbook : le chemin historique `admin-recovery` cible encore SQLite
+  et n'est pas le mécanisme de récupération PostgreSQL de production.
 
 ## Conventions
 
-- Édition Rust 2024, toolchain stable ≥ 1.75.
+- Édition Rust 2021, toolchain stable telle que définie par le workflow CI.
 - SPDX header en tête de chaque `.rs` : `// SPDX-License-Identifier: AGPL-3.0-only`.
 - Pas de `unwrap()` dans les chemins de prod — `?` avec `anyhow::Result` ou un type d'erreur dédié via `thiserror`.
 - Logs : `tracing` (pas `println!`), niveaux explicites (`info!`, `warn!`, `error!`).
@@ -23,7 +26,7 @@ Workspace Cargo. Deux binaires :
 
 ```bash
 cd agent && cargo test              # tests unitaires + intégration
-cd agent && cargo clippy -- -D warnings
+cd agent && cargo clippy --workspace -- -D warnings
 cd agent && cargo fmt --check
 ```
 

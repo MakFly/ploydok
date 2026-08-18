@@ -2,7 +2,14 @@ name: ploydok
 
 services:
   api:
-    image: ${PLOYDOK_IMAGE_REGISTRY}/ploydok-api:${PLOYDOK_VERSION}
+    image: ${PLOYDOK_API_IMAGE}
+    user: "${PLOYDOK_RUNTIME_UID}:${PLOYDOK_RUNTIME_GID}"
+    read_only: true
+    cap_drop: ["ALL"]
+    security_opt:
+      - no-new-privileges:true
+    tmpfs:
+      - /tmp:rw,noexec,nosuid,size=256m
     restart: unless-stopped
     labels:
       ploydok.kind: app
@@ -17,17 +24,28 @@ services:
       - ${PLOYDOK_DATA_DIR}/logs:/var/log/ploydok
       - ${PLOYDOK_DATA_DIR}/builds:/var/lib/ploydok/builds
       - ${PLOYDOK_DATA_DIR}/static:/var/lib/ploydok/static
-      - ${PLOYDOK_DATA_DIR}/certs:/var/lib/ploydok/certs:ro
-      - ${PLOYDOK_DATA_DIR}/pki:/var/lib/ploydok/pki:ro
+      - ${PLOYDOK_DATA_DIR}/backups/control-plane.configured:/var/lib/ploydok/backups/control-plane.configured:ro
+      - ${PLOYDOK_DATA_DIR}/backups/control-plane.last-success:/var/lib/ploydok/backups/control-plane.last-success:ro
+      - ${PLOYDOK_DATA_DIR}/backups/control-plane.last-failure:/var/lib/ploydok/backups/control-plane.last-failure:ro
+      - ${PLOYDOK_DATA_DIR}/pki/ca.pem:/var/lib/ploydok/pki/ca.pem:ro
+      - ${PLOYDOK_DATA_DIR}/pki/client.pem:/var/lib/ploydok/pki/client.pem:ro
+      - ${PLOYDOK_DATA_DIR}/pki/client.key:/var/lib/ploydok/pki/client.key:ro
       - ${PLOYDOK_DATA_DIR}/agent:/run/ploydok
-      - /var/run/docker.sock:/var/run/docker.sock
     ports:
       - "127.0.0.1:3335:3335"
     networks:
       - ploydok
+      - ploydok-monitoring
 
   web:
-    image: ${PLOYDOK_IMAGE_REGISTRY}/ploydok-web:${PLOYDOK_VERSION}
+    image: ${PLOYDOK_WEB_IMAGE}
+    user: "1000:1000"
+    read_only: true
+    cap_drop: ["ALL"]
+    security_opt:
+      - no-new-privileges:true
+    tmpfs:
+      - /tmp:rw,noexec,nosuid,size=64m
     restart: unless-stopped
     labels:
       ploydok.kind: app
@@ -41,7 +59,7 @@ services:
       - ploydok
 
   agent:
-    image: ${PLOYDOK_IMAGE_REGISTRY}/ploydok-agent:${PLOYDOK_VERSION}
+    image: ${PLOYDOK_AGENT_IMAGE}
     restart: unless-stopped
     labels:
       ploydok.kind: app
@@ -53,6 +71,7 @@ services:
       PLOYDOK_AGENT_ADDR: 0.0.0.0:50051
       PLOYDOK_AGENT_PKI_DIR: /var/lib/ploydok/pki
       PLOYDOK_VALIDATOR_CONFIG: /etc/ploydok/validator.toml
+      PLOYDOK_HOST_STATS_PATH: /var/lib/ploydok/host-data
     volumes:
       - /var/run/docker.sock:/var/run/docker.sock
       - ${PLOYDOK_DATA_DIR}/agent:/run/ploydok
@@ -60,13 +79,16 @@ services:
       - ${PLOYDOK_DATA_DIR}/app-volumes:/var/lib/ploydok/app-volumes
       - ${PLOYDOK_DATA_DIR}/static:/var/lib/ploydok/static
       - ${PLOYDOK_DATA_DIR}/config:/etc/ploydok:ro
-      - ${PLOYDOK_DATA_DIR}/pki:/var/lib/ploydok/pki:ro
+      - ${PLOYDOK_DATA_DIR}/pki/ca.pem:/var/lib/ploydok/pki/ca.pem:ro
+      - ${PLOYDOK_DATA_DIR}/pki/server.pem:/var/lib/ploydok/pki/server.pem:ro
+      - ${PLOYDOK_DATA_DIR}/pki/server.key:/var/lib/ploydok/pki/server.key:ro
       - ${PLOYDOK_DATA_DIR}/keys:/var/lib/ploydok/keys
+      - ${PLOYDOK_DATA_DIR}/data:/var/lib/ploydok/host-data:ro
     networks:
       - ploydok
 
   caddy:
-    image: ${PLOYDOK_IMAGE_REGISTRY}/ploydok-caddy:${PLOYDOK_VERSION}
+    image: ${PLOYDOK_CADDY_IMAGE}
     restart: unless-stopped
     labels:
       ploydok.kind: infra
@@ -91,7 +113,7 @@ services:
       - ploydok-public
 
   adminer:
-    image: ${PLOYDOK_IMAGE_REGISTRY}/ploydok-adminer:${PLOYDOK_VERSION}
+    image: ${PLOYDOK_ADMINER_IMAGE}
     restart: unless-stopped
     labels:
       ploydok.kind: infra
@@ -101,7 +123,7 @@ services:
       - ploydok
 
   postgres:
-    image: postgres:16-alpine
+    image: postgres:16-alpine@sha256:cf78e76683b9ca8c5733cbbdce6c9262b45b6767934dd0a95e671f9a0fc20685
     restart: unless-stopped
     environment:
       POSTGRES_USER: ploydok
@@ -113,7 +135,7 @@ services:
       - ploydok
 
   redis:
-    image: redis:7-alpine
+    image: redis:7-alpine@sha256:e7723ff73d963f5cc6d9c4643ea3d989527a402a319239054e9472a7fb9219a2
     restart: unless-stopped
     command:
       [
@@ -129,7 +151,7 @@ services:
       - ploydok
 
   registry:
-    image: registry:2
+    image: registry:2@sha256:a3d8aaa63ed8681a604f1dea0aa03f100d5895b6a58ace528858a7b332415373
     restart: unless-stopped
     environment:
       REGISTRY_STORAGE_DELETE_ENABLED: "true"
@@ -141,7 +163,7 @@ services:
       - ploydok
 
   buildkitd:
-    image: moby/buildkit:v0.29.0-rootless
+    image: moby/buildkit:v0.29.0-rootless@sha256:93efd7f1c17f16cea080c34f68e19863b9fe541db550bf607221ce425c0ab9ef
     container_name: ploydok-buildkitd
     restart: unless-stopped
     security_opt:
@@ -160,11 +182,67 @@ services:
     networks:
       - ploydok
 
+  prometheus:
+    image: prom/prometheus:v3.13.1@sha256:3c42b892cf723fa54d2f262c37a0e1f80aa8c8ddb1da7b9b0df9455a35a7f893
+    user: "65534:65534"
+    read_only: true
+    cap_drop: ["ALL"]
+    security_opt:
+      - no-new-privileges:true
+    restart: unless-stopped
+    command:
+      - --config.file=/etc/prometheus/prometheus.yml
+      - --storage.tsdb.path=/prometheus
+      - --storage.tsdb.retention.time=30d
+    volumes:
+      - ${PLOYDOK_DATA_DIR}/config/prometheus.yml:/etc/prometheus/prometheus.yml:ro
+      - ${PLOYDOK_DATA_DIR}/config/ploydok-alerts.yml:/etc/prometheus/rules/ploydok-alerts.yml:ro
+      - ${PLOYDOK_DATA_DIR}/secrets/metrics-token:/run/ploydok-secrets/metrics-token:ro
+      - prometheus-data:/prometheus
+    networks:
+      - ploydok-monitoring
+    healthcheck:
+      test: ["CMD", "wget", "-qO-", "http://127.0.0.1:9090/-/ready"]
+      interval: 10s
+      timeout: 3s
+      retries: 6
+      start_period: 20s
+
+  alertmanager:
+    image: prom/alertmanager:v0.33.1@sha256:9e082985f56f4c8c9f724e18f2288c6708f472e56a5286b8863d080434ea065d
+    user: "65534:65534"
+    read_only: true
+    cap_drop: ["ALL"]
+    security_opt:
+      - no-new-privileges:true
+    restart: unless-stopped
+    command:
+      - --config.file=/etc/alertmanager/alertmanager.yml
+      - --storage.path=/alertmanager
+    volumes:
+      - ${PLOYDOK_DATA_DIR}/config/alertmanager.yml:/etc/alertmanager/alertmanager.yml:ro
+      - ${PLOYDOK_DATA_DIR}/secrets/alert-webhook-url:/run/ploydok-secrets/alert-webhook-url:ro
+      - alertmanager-data:/alertmanager
+    networks:
+      - ploydok-monitoring
+      - ploydok-alerting
+    healthcheck:
+      test: ["CMD", "wget", "-qO-", "http://127.0.0.1:9093/-/ready"]
+      interval: 10s
+      timeout: 3s
+      retries: 6
+      start_period: 20s
+
 networks:
   ploydok:
     driver: bridge
   ploydok-public:
     name: ploydok-public
+    driver: bridge
+  ploydok-monitoring:
+    driver: bridge
+    internal: true
+  ploydok-alerting:
     driver: bridge
 
 volumes:
@@ -174,3 +252,5 @@ volumes:
   redis-data:
   registry-data:
   buildkit-cache:
+  prometheus-data:
+  alertmanager-data:

@@ -18,6 +18,7 @@ import { childLogger } from "../../logger"
 import { getSharedAgent } from "../../debug/singletons"
 import { decryptField } from "../../github/app-credentials"
 import { deployQueue } from "../queues"
+import { enqueueWithDbRow } from "../queue-enqueue"
 
 const log = childLogger("cron.image-update-watch")
 
@@ -112,64 +113,48 @@ const triggerRedeploy: RedeployTrigger = async ({
   toDigest,
   previousStatus,
 }) => {
-  const reserved = await db
-    .update(apps)
-    .set({
-      pending_image_digest: toDigest,
-      status: "pending",
-      updated_at: new Date(),
-    })
-    .where(
-      and(
-        eq(apps.id, appId),
-        eq(apps.track_latest, true),
-        eq(apps.last_image_digest, fromDigest),
-        isNull(apps.pending_image_digest)
-      )
-    )
-    .returning({ id: apps.id })
-  if (!reserved[0]) {
-    throw new Error(
-      "image digest changed concurrently or deploy already pending"
-    )
-  }
-
-  const buildId = nanoid()
-  try {
-    await db.insert(builds).values({
-      id: buildId,
-      app_id: appId,
-      source: "system",
-    })
-    await deployQueue.add(
-      "deploy.requested",
-      {
-        buildId,
-        imageUpdate: { fromDigest, toDigest, previousStatus },
-      },
-      { jobId: `deploy_${buildId}` }
-    )
-  } catch (err) {
-    await db
-      .update(builds)
-      .set({
-        status: "failed",
-        error_message: "failed to enqueue image auto-update",
-        finished_at: new Date(),
-      })
-      .where(eq(builds.id, buildId))
-      .catch(() => undefined)
-    await db
-      .update(apps)
-      .set({
-        pending_image_digest: null,
-        status: previousStatus as typeof apps.$inferSelect.status,
-        updated_at: new Date(),
-      })
-      .where(and(eq(apps.id, appId), eq(apps.pending_image_digest, toDigest)))
-    throw err
-  }
-  return { jobId: buildId }
+  const accepted = await enqueueWithDbRow({
+    db,
+    queue: deployQueue,
+    jobName: "deploy.requested",
+    insertRow: async (tx) => {
+      const reserved = await tx
+        .update(apps)
+        .set({
+          pending_image_digest: toDigest,
+          status: "pending",
+          updated_at: new Date(),
+        })
+        .where(
+          and(
+            eq(apps.id, appId),
+            eq(apps.track_latest, true),
+            eq(apps.last_image_digest, fromDigest),
+            isNull(apps.pending_image_digest)
+          )
+        )
+        .returning({ id: apps.id })
+      if (!reserved[0]) {
+        throw new Error(
+          "image digest changed concurrently or deploy already pending"
+        )
+      }
+      return tx
+        .insert(builds)
+        .values({
+          id: nanoid(),
+          app_id: appId,
+          source: "system",
+          image_update_from_digest: fromDigest,
+          image_update_to_digest: toDigest,
+          image_update_previous_status: previousStatus as "running" | "serving",
+        })
+        .returning()
+        .then((rows: (typeof builds.$inferSelect)[]) => rows[0]!)
+    },
+    buildPayload: (row) => ({ buildId: row.id }),
+  })
+  return { jobId: accepted.jobId }
 }
 
 // ---------------------------------------------------------------------------

@@ -1,27 +1,9 @@
 // SPDX-License-Identifier: AGPL-3.0-only
 import { cleanup, fireEvent, render } from "@testing-library/react"
-import { afterEach, beforeEach, describe, expect, it } from "bun:test"
-import { Window } from "happy-dom"
+import { afterEach, describe, expect, it } from "bun:test"
 import { SessionHistoryPopover } from "../../../components/settings/SessionHistoryPopover"
 
-function installDom(): void {
-  const window = new Window()
-  Object.assign(globalThis, {
-    window,
-    document: window.document,
-    navigator: window.navigator,
-    HTMLElement: window.HTMLElement,
-    Element: window.Element,
-    Node: window.Node,
-    MutationObserver: window.MutationObserver,
-    getComputedStyle: window.getComputedStyle.bind(window),
-  })
-}
-
-beforeEach(installDom)
-afterEach(() => {
-  cleanup()
-})
+afterEach(cleanup)
 
 const session = {
   id: "session-current",

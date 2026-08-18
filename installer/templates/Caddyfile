@@ -1,5 +1,5 @@
 {
-	admin 0.0.0.0:2019
+	admin ${PLOYDOK_CADDY_ADMIN_ADDRESS}
 }
 
 # Route control-plane : sert le frontend web sur localhost (et le hostname

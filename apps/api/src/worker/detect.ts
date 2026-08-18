@@ -7,7 +7,7 @@ import path from "node:path"
 // ---------------------------------------------------------------------------
 
 export type DetectedMethod = {
-  method: "docker" | "nixpacks" | "railpack" | "static"
+  method: "docker" | "nixpacks" | "static"
   dockerfilePath?: string
 }
 
@@ -16,11 +16,9 @@ export interface DetectOptions {
   /** Sub-directory within the workspace to look in. Default: '.'. */
   rootDir?: string
   /** Force a build method (skip auto-detection). */
-  override?: "docker" | "nixpacks" | "railpack" | "static" | "auto"
+  override?: "docker" | "nixpacks" | "static" | "auto"
   /** Dockerfile path relative to rootDir. Default: 'Dockerfile'. */
   dockerfilePath?: string
-  /** Railpack config path relative to rootDir. Default: 'railpack.json'. */
-  railpackConfigPath?: string
 }
 
 // ---------------------------------------------------------------------------
@@ -28,31 +26,27 @@ export interface DetectOptions {
 // ---------------------------------------------------------------------------
 
 /**
- * Detect whether the project should be built with Docker, Railpack, or Nixpacks.
+ * Detect whether the project should be built with Docker or Nixpacks.
  *
  * Priority:
- *  1. Explicit `override` (docker | nixpacks | railpack).
+ *  1. Explicit `override` (docker | nixpacks | static).
  *  2. Dockerfile present at `<rootDir>/<dockerfilePath>` → docker (most explicit
  *     dev signal: "I took control, build exactly this").
- *  3. railpack.json present at `<rootDir>` → railpack (explicit Railway-style
- *     config; without it Railpack and Nixpacks overlap on the same languages,
- *     so this file is the only clean discriminator).
- *  4. Fallback → nixpacks (universal default, broadest language coverage).
+ *  3. Fallback → nixpacks (universal default, broadest language coverage).
+ *
+ * Railpack is deliberately not auto-detected: its current CLI needs a local
+ * Docker daemon, which is absent from the production API container.
  */
 export async function detectBuildMethod(
   opts: DetectOptions
 ): Promise<DetectedMethod> {
   const dockerfile = opts.dockerfilePath ?? "Dockerfile"
-  const railpackConfig = opts.railpackConfigPath ?? "railpack.json"
 
   if (opts.override === "docker") {
     return { method: "docker", dockerfilePath: dockerfile }
   }
   if (opts.override === "nixpacks") {
     return { method: "nixpacks" }
-  }
-  if (opts.override === "railpack") {
-    return { method: "railpack" }
   }
   if (opts.override === "static") {
     return { method: "static" }
@@ -63,13 +57,6 @@ export async function detectBuildMethod(
   try {
     await stat(path.join(root, dockerfile))
     return { method: "docker", dockerfilePath: dockerfile }
-  } catch {
-    // not found, continue
-  }
-
-  try {
-    await stat(path.join(root, railpackConfig))
-    return { method: "railpack" }
   } catch {
     // not found, continue
   }

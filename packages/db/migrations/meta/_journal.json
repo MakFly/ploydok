@@ -435,6 +435,90 @@
       "when": 1786920955591,
       "tag": "0062_database_cockpit_correlation_indexes",
       "breakpoints": true
+    },
+    {
+      "idx": 63,
+      "version": "7",
+      "when": 1787052600000,
+      "tag": "0063_stripe_webhook_replay_guard",
+      "breakpoints": true
+    },
+    {
+      "idx": 64,
+      "version": "7",
+      "when": 1787056200000,
+      "tag": "0064_invitation_identity_guards",
+      "breakpoints": true
+    },
+    {
+      "idx": 65,
+      "version": "7",
+      "when": 1787059800000,
+      "tag": "0065_transactional_outbox_and_invitation_drift",
+      "breakpoints": true
+    },
+    {
+      "idx": 66,
+      "version": "7",
+      "when": 1787063400000,
+      "tag": "0066_gitlab_provider_identity",
+      "breakpoints": true
+    },
+    {
+      "idx": 67,
+      "version": "7",
+      "when": 1787067000000,
+      "tag": "0067_outbox_invitation_delivery_fencing",
+      "breakpoints": true
+    },
+    {
+      "idx": 68,
+      "version": "7",
+      "when": 1787070600000,
+      "tag": "0068_queue_transactional_outbox",
+      "breakpoints": true
+    },
+    {
+      "idx": 69,
+      "version": "7",
+      "when": 1787074200000,
+      "tag": "0069_durable_app_deploy_leases",
+      "breakpoints": true
+    },
+    {
+      "idx": 70,
+      "version": "7",
+      "when": 1787077800000,
+      "tag": "0070_resource_creation_sagas",
+      "breakpoints": true
+    },
+    {
+      "idx": 71,
+      "version": "7",
+      "when": 1787081400000,
+      "tag": "0071_queue_transactional_outbox_drift",
+      "breakpoints": true
+    },
+    {
+      "idx": 72,
+      "version": "7",
+      "when": 1787085000000,
+      "tag": "0072_resource_creation_saga_drift",
+      "breakpoints": true
+    },
+    {
+      "idx": 73,
+      "version": "7",
+      "when": 1787088600000,
+      "tag": "0073_build_image_update_metadata",
+      "breakpoints": true
+    },
+    {
+      "idx": 74,
+      "version": "7",
+      "when": 1787092200000,
+      "tag": "0074_resource_creation_saga_requested_by_drift",
+      "breakpoints": true
     }
   ]
 }

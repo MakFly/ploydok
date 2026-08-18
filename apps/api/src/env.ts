@@ -13,6 +13,7 @@ const schema = z.object({
   REDIS_URL: z.string().default("redis://127.0.0.1:6379/0"),
   PLOYDOK_PG_PASSWORD: z.string().optional(),
   PLOYDOK_REDIS_PASSWORD: z.string().optional(),
+  PLOYDOK_METRICS_TOKEN: z.string().min(32).optional(),
   WEB_ORIGIN: z.string().url().default("http://localhost:5173"),
   SMTP_HOST: z.string().default("localhost"),
   SMTP_PORT: z.coerce.number().default(1025),
@@ -20,6 +21,10 @@ const schema = z.object({
   SMTP_PASS: z.string().optional(),
   SMTP_SECURE: z.coerce.boolean().default(false),
   SMTP_FROM: z.string().default("Ploydok <noreply@ploydok.local>"),
+  PLOYDOK_TRUST_PROXY_HEADERS: z
+    .string()
+    .optional()
+    .transform((value) => /^(1|true|yes|on)$/i.test(value ?? "")),
   GITHUB_APP_CALLBACK_URL: z
     .string()
     .url()
@@ -79,6 +84,7 @@ const raw = schema.parse({
   REDIS_URL: Bun.env["REDIS_URL"],
   PLOYDOK_PG_PASSWORD: Bun.env["PLOYDOK_PG_PASSWORD"],
   PLOYDOK_REDIS_PASSWORD: Bun.env["PLOYDOK_REDIS_PASSWORD"],
+  PLOYDOK_METRICS_TOKEN: Bun.env["PLOYDOK_METRICS_TOKEN"],
   WEB_ORIGIN: Bun.env["WEB_ORIGIN"],
   SMTP_HOST: Bun.env["SMTP_HOST"],
   SMTP_PORT: Bun.env["SMTP_PORT"],
@@ -86,6 +92,7 @@ const raw = schema.parse({
   SMTP_PASS: Bun.env["SMTP_PASS"],
   SMTP_SECURE: Bun.env["SMTP_SECURE"],
   SMTP_FROM: Bun.env["SMTP_FROM"],
+  PLOYDOK_TRUST_PROXY_HEADERS: Bun.env["PLOYDOK_TRUST_PROXY_HEADERS"],
   GITHUB_APP_CALLBACK_URL: Bun.env["GITHUB_APP_CALLBACK_URL"],
   GITLAB_OAUTH_CALLBACK_URL: Bun.env["GITLAB_OAUTH_CALLBACK_URL"],
   PLOYDOK_REGISTRY_URL: Bun.env["PLOYDOK_REGISTRY_URL"],
@@ -168,6 +175,7 @@ export const env = {
   REDIS_URL: raw.REDIS_URL,
   PLOYDOK_PG_PASSWORD: raw.PLOYDOK_PG_PASSWORD,
   PLOYDOK_REDIS_PASSWORD: raw.PLOYDOK_REDIS_PASSWORD,
+  PLOYDOK_METRICS_TOKEN: raw.PLOYDOK_METRICS_TOKEN,
   WEB_ORIGIN: raw.WEB_ORIGIN,
   SMTP_HOST: raw.SMTP_HOST,
   SMTP_PORT: raw.SMTP_PORT,
@@ -175,6 +183,7 @@ export const env = {
   SMTP_PASS: raw.SMTP_PASS,
   SMTP_SECURE: raw.SMTP_SECURE,
   SMTP_FROM: raw.SMTP_FROM,
+  PLOYDOK_TRUST_PROXY_HEADERS: raw.PLOYDOK_TRUST_PROXY_HEADERS,
   GITHUB_APP_CALLBACK_URL: raw.GITHUB_APP_CALLBACK_URL,
   GITLAB_OAUTH_CALLBACK_URL: raw.GITLAB_OAUTH_CALLBACK_URL,
   PLOYDOK_REGISTRY_URL: raw.PLOYDOK_REGISTRY_URL,

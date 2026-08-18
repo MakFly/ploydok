@@ -85,7 +85,7 @@ export function SegTabs<T extends string>({
   value,
   onChange,
 }: {
-  options: readonly T[]
+  options: ReadonlyArray<T>
   value: T
   onChange: (value: T) => void
 }) {
@@ -134,7 +134,7 @@ export function Menu({
   leading,
 }: {
   trigger: (open: boolean) => React.ReactNode
-  options: string[]
+  options: Array<string>
   value?: string
   onSelect: (value: string) => void
   align?: "start" | "end"

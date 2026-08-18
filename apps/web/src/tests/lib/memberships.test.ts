@@ -1,6 +1,13 @@
 // SPDX-License-Identifier: AGPL-3.0-only
 import { describe, expect, it } from "bun:test"
-import { mapMembersResponse } from "../../lib/memberships"
+import {
+  clearInvitationTokenOnTerminalError,
+  invitationLoginPath,
+  isTerminalInvitationError,
+  mapMembersResponse,
+  validateInvitationPasswords,
+} from "../../lib/memberships"
+import { ApiError } from "../../lib/api"
 
 describe("mapMembersResponse", () => {
   it("exposes pending invitations under the invitations key", () => {
@@ -40,5 +47,56 @@ describe("mapMembersResponse", () => {
     expect(response.invitations).toHaveLength(1)
     expect(response.invitations[0]?.email).toBe("invitee@example.com")
     expect(response.members[0]?.is_me).toBe(true)
+  })
+})
+
+describe("invitation account flow", () => {
+  it("keeps the bearer token out of the login redirect", () => {
+    const token = "opaque+token/with=symbols"
+    const loginUrl = new URL(invitationLoginPath(token), "https://ploydok.test")
+    const redirect = loginUrl.searchParams.get("redirect")
+
+    expect(redirect).toBe("/invitations/accept")
+    expect(redirect).not.toContain(token)
+  })
+
+  it("blocks account submission when password confirmation differs", () => {
+    expect(validateInvitationPasswords("password-123", "password-456")).toBe(
+      "Passwords do not match"
+    )
+    expect(validateInvitationPasswords("password-123", "password-123")).toBe(
+      null
+    )
+  })
+
+  it("identifies invalid and expired invitation errors as terminal", () => {
+    expect(
+      isTerminalInvitationError(new ApiError(404, "NOT_FOUND", "gone"))
+    ).toBe(true)
+    expect(
+      isTerminalInvitationError(new ApiError(410, "GONE", "expired"))
+    ).toBe(true)
+    expect(
+      isTerminalInvitationError(new ApiError(503, "UNAVAILABLE", "retry"))
+    ).toBe(false)
+  })
+
+  it("clears the stored bearer only for terminal invitation failures", () => {
+    const removed: Array<string> = []
+    const storage = { removeItem: (key: string) => removed.push(key) }
+    expect(
+      clearInvitationTokenOnTerminalError(
+        storage,
+        new ApiError(503, "UNAVAILABLE", "retry")
+      )
+    ).toBe(false)
+    expect(removed).toEqual([])
+    expect(
+      clearInvitationTokenOnTerminalError(
+        storage,
+        new ApiError(410, "GONE", "expired")
+      )
+    ).toBe(true)
+    expect(removed).toEqual(["ploydok.invitation-token"])
   })
 })

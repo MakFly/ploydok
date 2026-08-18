@@ -71,6 +71,8 @@ export interface StaticBuildOptions {
   buildCommand?: string | null
   env?: Record<string, string>
   onLog?: (line: string) => void
+  signal?: AbortSignal
+  beforePublish?: () => Promise<void>
 }
 
 export interface StaticBuildResult {
@@ -79,6 +81,7 @@ export interface StaticBuildResult {
   installedAt: string
   currentSymlink: string
   shaDir: string
+  previousSha: string | null
 }
 
 function appDir(appId: string): string {
@@ -94,11 +97,7 @@ function currentLink(appId: string): string {
 }
 
 function safeRelativePath(value: string, label: string): string {
-  if (
-    value.includes("\0") ||
-    value.includes("\\") ||
-    path.isAbsolute(value)
-  ) {
+  if (value.includes("\0") || value.includes("\\") || path.isAbsolute(value)) {
     throw new Error(`${label} must be a safe relative path`)
   }
   const segments = value.split("/")
@@ -113,6 +112,7 @@ async function runShellCommand(opts: {
   cwd: string
   env?: Record<string, string>
   onLog?: (line: string) => void
+  signal?: AbortSignal
 }): Promise<void> {
   opts.onLog?.(`[static] $ ${opts.command}`)
   const proc = Bun.spawn(["sh", "-lc", opts.command], {
@@ -120,6 +120,7 @@ async function runShellCommand(opts: {
     stdout: "pipe",
     stderr: "pipe",
     env: { ...process.env, ...opts.env },
+    ...(opts.signal ? { signal: opts.signal } : {}),
   })
   const [stdout, stderr, code] = await Promise.all([
     new Response(proc.stdout).text(),
@@ -210,9 +211,7 @@ export async function gcOldShas(appId: string, keepN: number): Promise<number> {
 export async function runStaticBuild(
   opts: StaticBuildOptions
 ): Promise<StaticBuildResult> {
-  const rootDir = opts.rootDir
-    ? safeRelativePath(opts.rootDir, "rootDir")
-    : "."
+  const rootDir = opts.rootDir ? safeRelativePath(opts.rootDir, "rootDir") : "."
   const workspaceRoot = path.resolve(opts.sourceDir, rootDir)
   const staticOutputDir = safeRelativePath(
     opts.staticOutputDir ?? "dist",
@@ -233,17 +232,20 @@ export async function runStaticBuild(
       cwd: workspaceRoot,
       ...(opts.env !== undefined && { env: opts.env }),
       ...(opts.onLog !== undefined && { onLog: opts.onLog }),
+      ...(opts.signal !== undefined && { signal: opts.signal }),
     })
   }
 
   const buildCommand =
-    opts.buildCommand?.trim() || (await detectDefaultBuildCommand(workspaceRoot))
+    opts.buildCommand?.trim() ||
+    (await detectDefaultBuildCommand(workspaceRoot))
   if (buildCommand) {
     await runShellCommand({
       command: buildCommand,
       cwd: workspaceRoot,
       ...(opts.env !== undefined && { env: opts.env }),
       ...(opts.onLog !== undefined && { onLog: opts.onLog }),
+      ...(opts.signal !== undefined && { signal: opts.signal }),
     })
   }
 
@@ -270,13 +272,21 @@ export async function runStaticBuild(
     { appId: opts.appId, sha: opts.sha, outputDir, target },
     "static.build.installed"
   )
-  await promoteSha(opts.appId, opts.sha)
+  const previousSha = await readlink(currentLink(opts.appId)).catch(() => null)
+  try {
+    await opts.beforePublish?.()
+    await promoteSha(opts.appId, opts.sha)
+  } catch (error) {
+    await rm(target, { recursive: true, force: true })
+    throw error
+  }
   return {
     appId: opts.appId,
     sha: opts.sha,
     installedAt: new Date().toISOString(),
     currentSymlink: currentLink(opts.appId),
     shaDir: target,
+    previousSha,
   }
 }
 
@@ -295,6 +305,8 @@ export async function dispatchStaticDeploy(
     buildCommand?: string | null
     env?: Record<string, string>
     onLog?: (line: string) => void
+    signal?: AbortSignal
+    beforePublish?: () => Promise<void>
   } = {}
 ): Promise<StaticBuildResult> {
   return runStaticBuild({
@@ -315,5 +327,9 @@ export async function dispatchStaticDeploy(
     ...(opts.buildCommand !== undefined && { buildCommand: opts.buildCommand }),
     ...(opts.env !== undefined && { env: opts.env }),
     ...(opts.onLog !== undefined && { onLog: opts.onLog }),
+    ...(opts.signal !== undefined && { signal: opts.signal }),
+    ...(opts.beforePublish !== undefined && {
+      beforePublish: opts.beforePublish,
+    }),
   })
 }

@@ -1,11 +1,11 @@
 // SPDX-License-Identifier: AGPL-3.0-only
-import { afterEach, describe, expect, it, spyOn } from "bun:test"
+import { afterEach, describe, expect, it, mock } from "bun:test"
 import { mkdtemp, mkdir, rm, stat, utimes, writeFile } from "node:fs/promises"
 import os from "node:os"
 import path from "node:path"
 import {
   cleanupBuildCaches,
-  pruneDockerBuildCache,
+  pruneBuildKitCache,
   stopCleanupBuildCachesCron,
 } from "./cleanup-build-caches"
 
@@ -69,53 +69,53 @@ describe("cleanupBuildCaches", () => {
     expect((await stat(cacheDir)).isDirectory()).toBe(true)
   })
 
-  it("prunes the host Docker cache reported by docker system df", async () => {
-    const spawnSpy = spyOn(Bun, "spawn").mockReturnValue({
-      stdout: new Response("ID RECLAIMABLE SIZE\n").body!,
+  it("prunes the dedicated BuildKit cache through its configured address", async () => {
+    const spawn = mock(() => ({
+      stdout: new Response("ID RECLAIMABLE SIZE\ncache-1 true 42B\n").body!,
       stderr: new Response("").body!,
       exited: Promise.resolve(0),
-    } as unknown as ReturnType<typeof Bun.spawn>)
+    }))
 
-    const result = await pruneDockerBuildCache({
+    const result = await pruneBuildKitCache({
       keepDuration: "24h",
       keepStorage: "5g",
+      address: "tcp://buildkitd:1234",
+      spawn,
     })
 
     expect(result.ok).toBe(true)
-    expect(spawnSpy).toHaveBeenCalledWith(
+    expect(spawn).toHaveBeenCalledWith(
       [
-        "docker",
-        "builder",
+        "buildctl",
+        "--addr",
+        "tcp://buildkitd:1234",
         "prune",
-        "--filter",
-        "until=24h",
-        "--reserved-space",
-        "5g",
-        "--force",
+        "--keep-duration",
+        "24h",
+        "--keep-storage",
+        "5GB",
       ],
       { stdout: "pipe", stderr: "pipe" }
     )
-    spawnSpy.mockRestore()
   })
 
-  it("returns Docker stderr as the actionable failure message", async () => {
-    const spawnSpy = spyOn(Bun, "spawn").mockReturnValue({
+  it("does not report success when dedicated BuildKit prune fails", async () => {
+    const spawn = mock(() => ({
       stdout: new Response("").body!,
-      stderr: new Response(
-        "ERROR: failed to connect to the Docker daemon"
-      ).body!,
+      stderr: new Response("failed to dial buildkitd").body!,
       exited: Promise.resolve(1),
-    } as unknown as ReturnType<typeof Bun.spawn>)
+    }))
 
-    const result = await pruneDockerBuildCache()
+    const result = await pruneBuildKitCache({
+      address: "tcp://buildkitd:1234",
+      spawn,
+    })
 
     expect(result).toEqual({
       ok: false,
       exitCode: 1,
-      output:
-        "ERROR: failed to connect to the Docker daemon",
-      error: "ERROR: failed to connect to the Docker daemon",
+      output: "failed to dial buildkitd",
+      error: "failed to dial buildkitd",
     })
-    spawnSpy.mockRestore()
   })
 })

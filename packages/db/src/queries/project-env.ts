@@ -48,6 +48,36 @@ export async function getProjectForUser(
   return rows[0]?.project ?? null
 }
 
+/**
+ * Returns the project only when the user is an accepted owner.
+ *
+ * Keep this as a single joined lookup so callers can answer unauthorized and
+ * unknown project identifiers identically, without first disclosing whether
+ * the project exists.
+ */
+export async function getProjectForOwner(
+  db: Db,
+  projectId: string,
+  userId: string
+): Promise<ProjectRow | null> {
+  const rows = await db
+    .select({ project: projects })
+    .from(projects)
+    .innerJoin(
+      memberships,
+      and(
+        eq(memberships.org_id, projects.id),
+        eq(memberships.user_id, userId),
+        eq(memberships.role, "owner"),
+        isNotNull(memberships.accepted_at)
+      )
+    )
+    .where(eq(projects.id, projectId))
+    .limit(1)
+
+  return rows[0]?.project ?? null
+}
+
 export interface ProjectEnvVarDecrypted {
   key: string
   value: string

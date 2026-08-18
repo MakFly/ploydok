@@ -6,6 +6,7 @@ import type { Db } from "@ploydok/db"
 import type { ParsedPushEvent } from "@ploydok/shared"
 import { childLogger } from "../logger"
 import { deployQueue } from "../worker/queues"
+import { enqueueWithDbRow } from "../worker/queue-enqueue"
 import { filterPushEvent, matchesTagPattern } from "../webhooks/filters"
 import { insertDelivery, markDeliveryCoalesced } from "../webhooks/deliveries"
 import { resolveCoalesceJobId } from "../webhooks/coalescing"
@@ -20,27 +21,6 @@ import {
  * webhook handler hands the worker a buildId instead of the legacy
  * `{appId, commitSha}` payload (which the worker drops as unauthorized).
  */
-async function createPendingBuild(
-  db: Db,
-  params: {
-    appId: string
-    commitSha: string | null
-    commitMessage: string | null
-    source: "webhook:github" | "webhook:gitlab"
-  }
-): Promise<string> {
-  const id = nanoid()
-  await db.insert(builds).values({
-    id,
-    app_id: params.appId,
-    status: "pending",
-    commit_sha: params.commitSha,
-    commit_message: params.commitMessage,
-    source: params.source,
-  })
-  return id
-}
-
 const log = childLogger("webhook.push")
 
 /**
@@ -53,8 +33,12 @@ const log = childLogger("webhook.push")
  */
 export async function handlePushGeneric(
   db: Db,
-  event: ParsedPushEvent & { changedFiles?: string[]; payloadHash?: string; rawBody?: Buffer },
-  deliveryId: string,
+  event: ParsedPushEvent & {
+    changedFiles?: string[]
+    payloadHash?: string
+    rawBody?: Buffer
+  },
+  deliveryId: string
 ): Promise<void> {
   log.info(
     {
@@ -64,7 +48,7 @@ export async function handlePushGeneric(
       commitSha: event.commitSha,
       deliveryId,
     },
-    "push event received",
+    "push event received"
   )
 
   const matchingApps = await db
@@ -81,14 +65,14 @@ export async function handlePushGeneric(
     .where(
       and(
         eq(apps.git_provider, event.provider),
-        eq(apps.repo_full_name, event.repoFullName),
-      ),
+        eq(apps.repo_full_name, event.repoFullName)
+      )
     )
 
   if (matchingApps.length === 0) {
     log.debug(
       { provider: event.provider, repoFullName: event.repoFullName },
-      "no apps matched — skipping",
+      "no apps matched — skipping"
     )
     if (event.payloadHash) {
       await insertDelivery(
@@ -104,7 +88,7 @@ export async function handlePushGeneric(
           decision_reason: "no app matched repo+provider",
           payload_hash: event.payloadHash,
         },
-        event.rawBody,
+        event.rawBody
       )
     }
     return
@@ -112,7 +96,9 @@ export async function handlePushGeneric(
 
   // Detect tag pushes (refs/tags/*) and route to tag-specific logic
   const isTagPush = event.ref?.startsWith("refs/tags/")
-  const tagName = isTagPush ? event.ref!.replace(/^refs\/tags\//, "") : undefined
+  const tagName = isTagPush
+    ? event.ref!.replace(/^refs\/tags\//, "")
+    : undefined
 
   for (const app of matchingApps) {
     const baseDeliveryRow = {
@@ -130,7 +116,10 @@ export async function handlePushGeneric(
     if (isTagPush && tagName !== undefined) {
       // Tag push path
       if (!app.deploy_on_tag) {
-        log.debug({ appId: app.id, tagName }, "tag push — deploy_on_tag=false, skipping")
+        log.debug(
+          { appId: app.id, tagName },
+          "tag push — deploy_on_tag=false, skipping"
+        )
         await insertDelivery(
           db,
           {
@@ -138,13 +127,16 @@ export async function handlePushGeneric(
             decision: "skipped_tag_disabled",
             decision_reason: "deploy_on_tag=false",
           },
-          event.rawBody,
+          event.rawBody
         )
         continue
       }
 
       if (!matchesTagPattern(tagName, app.tag_pattern)) {
-        log.debug({ appId: app.id, tagName, pattern: app.tag_pattern }, "tag push — pattern mismatch, skipping")
+        log.debug(
+          { appId: app.id, tagName, pattern: app.tag_pattern },
+          "tag push — pattern mismatch, skipping"
+        )
         await insertDelivery(
           db,
           {
@@ -152,48 +144,49 @@ export async function handlePushGeneric(
             decision: "skipped_tag_pattern",
             decision_reason: `tag "${tagName}" does not match pattern "${app.tag_pattern}"`,
           },
-          event.rawBody,
+          event.rawBody
         )
         continue
       }
 
-      // Tag push accepted — enqueue with kind=tag metadata
-      const newDeliveryId = await insertDelivery(
+      // Persist tag metadata on the build; the outbox carries only buildId.
+      const accepted = await enqueueWithDbRow({
         db,
-        {
-          ...baseDeliveryRow,
-          decision: "enqueued",
-          decision_reason: "tag push accepted",
+        queue: deployQueue,
+        jobName: "deploy.requested",
+        insertRow: async (tx) => {
+          await insertDelivery(
+            tx,
+            {
+              ...baseDeliveryRow,
+              decision: "enqueued",
+              decision_reason: "tag push accepted",
+            },
+            event.rawBody
+          )
+          return tx
+            .insert(builds)
+            .values({
+              id: nanoid(),
+              app_id: app.id,
+              status: "pending",
+              commit_sha: event.commitSha,
+              commit_message: event.commitMessage,
+              image_tag: tagName,
+              source: "auto:tag",
+            })
+            .returning()
+            .then((rows: (typeof builds.$inferSelect)[]) => rows[0]!)
         },
-        event.rawBody,
-      )
-
-      const { jobId } = resolveCoalesceJobId({ coalesce: false, appId: app.id, branch: event.branch })
-      const buildId = await createPendingBuild(db, {
-        appId: app.id,
-        commitSha: event.commitSha,
-        commitMessage: event.commitMessage,
-        source: event.provider === "github" ? "webhook:github" : "webhook:gitlab",
+        buildPayload: (row) => ({ buildId: row.id }),
       })
-      await deployQueue.add(
-        "deploy.requested",
-        {
-          buildId,
-          commitSha: event.commitSha,
-          commitMessage: event.commitMessage,
-          kind: "tag",
-          tag: tagName,
-        },
-        {
-          jobId,
-          attempts: 3,
-          backoff: { type: "exponential", delay: 5000 },
-          removeOnComplete: 100,
-          removeOnFail: 500,
-        },
-      )
+      const buildId = accepted.row.id
+      const jobId = accepted.jobId
 
-      log.info({ appId: app.id, buildId, tagName, commitSha: event.commitSha, jobId }, "tag deploy.requested enqueued")
+      log.info(
+        { appId: app.id, buildId, tagName, commitSha: event.commitSha, jobId },
+        "tag deploy.requested enqueued"
+      )
       continue
     }
 
@@ -207,8 +200,12 @@ export async function handlePushGeneric(
 
     if (filterResult.decision !== "enqueued") {
       log.debug(
-        { appId: app.id, decision: filterResult.decision, reason: filterResult.reason },
-        "push filtered",
+        {
+          appId: app.id,
+          decision: filterResult.decision,
+          reason: filterResult.reason,
+        },
+        "push filtered"
       )
       await insertDelivery(
         db,
@@ -217,7 +214,7 @@ export async function handlePushGeneric(
           decision: filterResult.decision,
           decision_reason: filterResult.reason,
         },
-        event.rawBody,
+        event.rawBody
       )
       continue
     }
@@ -227,13 +224,20 @@ export async function handlePushGeneric(
       ? await deployQueue.getJob(`deploy:${app.id}:${event.branch}`)
       : null
 
-    const existingJobState = existingJob ? await existingJob.getState() : undefined
-
-    const deliveryCount = app.coalesce_pushes && existingJobState === "active"
-      ? await countDeliveriesByApp(db, app.id)
+    const existingJobState = existingJob
+      ? await existingJob.getState()
       : undefined
 
-    const { jobId, shouldDropExisting, dropReason } = resolveCoalesceJobId({
+    const deliveryCount =
+      app.coalesce_pushes && existingJobState === "active"
+        ? await countDeliveriesByApp(db, app.id)
+        : undefined
+
+    const {
+      jobId: coalescedJobId,
+      shouldDropExisting,
+      dropReason,
+    } = resolveCoalesceJobId({
       coalesce: app.coalesce_pushes,
       appId: app.id,
       branch: event.branch,
@@ -250,7 +254,7 @@ export async function handlePushGeneric(
           {
             event: "webhook.coalesced",
             app_id: app.id,
-            dropped_job_id: jobId,
+            dropped_job_id: coalescedJobId,
             reason: "newer push supersedes",
           },
           "coalesced waiting deploy job"
@@ -268,7 +272,7 @@ export async function handlePushGeneric(
           {
             event: "webhook.stale_job_cleanup",
             app_id: app.id,
-            dropped_job_id: jobId,
+            dropped_job_id: coalescedJobId,
             dropReason,
             existingJobState,
           },
@@ -278,42 +282,48 @@ export async function handlePushGeneric(
     }
 
     // Insert the delivery record
-    const newDeliveryId = await insertDelivery(
+    const accepted = await enqueueWithDbRow({
       db,
-      {
-        ...baseDeliveryRow,
-        decision: "enqueued",
-        decision_reason: filterResult.reason,
+      queue: deployQueue,
+      jobName: "deploy.requested",
+      insertRow: async (tx) => {
+        await insertDelivery(
+          tx,
+          {
+            ...baseDeliveryRow,
+            decision: "enqueued",
+            decision_reason: filterResult.reason,
+          },
+          event.rawBody
+        )
+        return tx
+          .insert(builds)
+          .values({
+            id: nanoid(),
+            app_id: app.id,
+            status: "pending",
+            commit_sha: event.commitSha,
+            commit_message: event.commitMessage,
+            source:
+              event.provider === "github" ? "webhook:github" : "webhook:gitlab",
+          })
+          .returning()
+          .then((rows: (typeof builds.$inferSelect)[]) => rows[0]!)
       },
-      event.rawBody,
-    )
-
-    const buildId = await createPendingBuild(db, {
-      appId: app.id,
-      commitSha: event.commitSha,
-      commitMessage: event.commitMessage,
-      source: event.provider === "github" ? "webhook:github" : "webhook:gitlab",
+      buildPayload: (row) => ({ buildId: row.id }),
     })
-
-    await deployQueue.add(
-      "deploy.requested",
-      {
-        buildId,
-        commitSha: event.commitSha,
-        commitMessage: event.commitMessage,
-      },
-      {
-        jobId,
-        attempts: 3,
-        backoff: { type: "exponential", delay: 5000 },
-        removeOnComplete: 100,
-        removeOnFail: 500,
-      },
-    )
+    const buildId = accepted.row.id
+    const jobId = accepted.jobId
 
     log.info(
-      { appId: app.id, buildId, commitSha: event.commitSha, jobId, coalesced: app.coalesce_pushes },
-      "deploy.requested enqueued",
+      {
+        appId: app.id,
+        buildId,
+        commitSha: event.commitSha,
+        jobId,
+        coalesced: app.coalesce_pushes,
+      },
+      "deploy.requested enqueued"
     )
   }
 }

@@ -1,5 +1,7 @@
 # Framework guardrails génériques
 
+> Maturity: Beta — production-path framework coverage is still expanding.
+
 Ploydok applique maintenant des garde-fous framework avant le premier deploy, lors de l'import `.env`, et au moment des deploys prod/preview. L'objectif est simple : éviter les 502 causés par des defaults framework incomplets ou dangereux.
 
 ## Ce qui change

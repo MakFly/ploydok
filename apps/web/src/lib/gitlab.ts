@@ -115,10 +115,11 @@ interface GitLabReposPage {
 interface GitLabReposParams {
   search?: string
   perPage?: number
+  enabled?: boolean
 }
 
 export function useGitLabRepos(params: GitLabReposParams = {}) {
-  const { search, perPage = 30 } = params
+  const { search, perPage = 30, enabled = true } = params
 
   return useInfiniteQuery<GitLabReposPage, ApiError>({
     queryKey: ["gitlab", "repos", search ?? ""],
@@ -132,10 +133,25 @@ export function useGitLabRepos(params: GitLabReposParams = {}) {
     getNextPageParam: (last, pages) =>
       last.hasMore ? pages.length + 1 : undefined,
     initialPageParam: 1,
+    enabled,
     staleTime: 60_000,
     refetchOnWindowFocus: true,
     refetchOnMount: false,
   })
+}
+
+const GITLAB_OAUTH_ERRORS: Record<string, string> = {
+  access_denied: "Autorisation GitLab refusée. Aucun accès n'a été enregistré.",
+  missing_code: "GitLab n'a pas renvoyé de code d'autorisation.",
+  not_configured: "La configuration OAuth GitLab n'est plus disponible.",
+  exchange_failed: "La connexion GitLab a échoué pendant l'échange OAuth.",
+  oauth_error: "GitLab n'a pas pu autoriser la connexion.",
+}
+
+export function gitLabOAuthErrorMessage(search: string): string | null {
+  const code = new URLSearchParams(search).get("gitlab_error")
+  if (!code) return null
+  return GITLAB_OAUTH_ERRORS[code] ?? GITLAB_OAUTH_ERRORS.oauth_error
 }
 
 // Same shape as the GitHub hook so the create-app wizard reads both the same
@@ -197,15 +213,25 @@ export interface GitLabCacheStatusEntry {
 export interface GitLabCacheStatusResponse {
   installation: GitLabCacheStatusEntry | null
   staleThresholdMs: number
+  syncStatus: "pending" | "running" | "completed" | "failed" | null
 }
 
-export function useGitLabCacheStatus(opts: { autoRefresh?: boolean } = {}) {
+export function useGitLabCacheStatus(
+  opts: { autoRefresh?: boolean; enabled?: boolean } = {}
+) {
   return useQuery<GitLabCacheStatusResponse, ApiError>({
     queryKey: ["gitlab", "cache-status"],
     queryFn: () =>
       apiFetch<GitLabCacheStatusResponse>("/gitlab/installations/cache-status"),
+    enabled: opts.enabled ?? true,
     staleTime: 5_000,
-    refetchInterval: opts.autoRefresh ? 3_000 : false,
+    refetchInterval: (query) =>
+      opts.autoRefresh &&
+      (query.state.data?.syncStatus === "pending" ||
+        query.state.data?.syncStatus === "running" ||
+        query.state.data?.installation == null)
+        ? 3_000
+        : false,
   })
 }
 

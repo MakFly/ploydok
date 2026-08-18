@@ -2,6 +2,7 @@
 import { Queue } from "bullmq"
 import { createRedis } from "@ploydok/db"
 import { env } from "../env"
+import { assertTransactionalQueueRegistry } from "./queue-enqueue"
 
 const connection = createRedis(env.REDIS_URL)
 
@@ -92,6 +93,17 @@ export const logArchiveQueue = new Queue("logs.archive", {
     backoff: { type: "exponential" as const, delay: 5000 },
   },
 })
+
+/** Queues whose critical state transitions are projected through JOB-01. */
+export const transactionalOutboxQueues = [
+  deployQueue,
+  gcQueue,
+  gcImagesQueue,
+  gcBuildCacheQueue,
+  appDeleteQueue,
+] as const
+
+assertTransactionalQueueRegistry(transactionalOutboxQueues)
 
 export type QueueName =
   | "deploy"

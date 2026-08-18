@@ -3,6 +3,7 @@ import * as React from "react"
 import { createFileRoute, useRouter } from "@tanstack/react-router"
 import {
   RiArrowRightLine,
+  RiBox3Line,
   RiCheckLine,
   RiGithubFill,
   RiGitlabFill,
@@ -32,16 +33,19 @@ import {
 import { useCreateGitHubAppFlow } from "../lib/github"
 import { usePendingAction } from "../lib/hooks/use-pending-action"
 import {
+  gitLabOAuthErrorMessage,
   gitlabConnectUrl,
   useGitLabConfig,
   useSaveGitLabConfig,
 } from "../lib/gitlab"
+import { useRenameOrganization } from "../lib/organizations"
 import {
-  organizationDashboardPath,
-  useRenameOrganization,
-} from "../lib/organizations"
+  onboardingDashboardHref,
+  rememberOnboardingDeploymentSource,
+} from "../lib/onboarding"
 import { apiBaseUrl } from "../lib/api/base"
 import type { GitProviderStatus } from "../lib/git-providers"
+import type { OnboardingDeploymentSource } from "../lib/onboarding"
 import type { Me } from "@ploydok/shared"
 
 /** Every external round-trip started here is told to come back to this path. */
@@ -83,6 +87,16 @@ function OnboardingPage(): React.JSX.Element {
   const logout = useLogout()
   const statusQuery = useGitProviderStatus()
   const providers = statusQuery.data ?? initialProviders
+  const [deploymentSource, setDeploymentSource] =
+    React.useState<OnboardingDeploymentSource | null>(() => {
+      if (typeof window === "undefined") return null
+      const source = new URLSearchParams(window.location.search).get("source")
+      return source === "github" || source === "gitlab" ? source : null
+    })
+  const oauthError =
+    typeof window !== "undefined"
+      ? gitLabOAuthErrorMessage(window.location.search)
+      : null
 
   const connected = providers.github.connected || providers.gitlab.connected
 
@@ -92,8 +106,13 @@ function OnboardingPage(): React.JSX.Element {
     })
   }, [logout, router])
 
-  if (connected) {
-    return <ProjectStep me={me} onLogout={onLogout} />
+  if (connected || deploymentSource === "image") {
+    const source =
+      deploymentSource ??
+      (providers.gitlab.connected && !providers.github.connected
+        ? "gitlab"
+        : "github")
+    return <ProjectStep me={me} source={source} onLogout={onLogout} />
   }
   return (
     <ProviderStep
@@ -101,6 +120,8 @@ function OnboardingPage(): React.JSX.Element {
       providers={providers}
       onRefreshStatus={() => void statusQuery.refetch()}
       refreshing={statusQuery.isFetching}
+      oauthError={oauthError}
+      onUseImage={() => setDeploymentSource("image")}
       onLogout={onLogout}
     />
   )
@@ -115,12 +136,16 @@ function ProviderStep({
   providers,
   onRefreshStatus,
   refreshing,
+  oauthError,
+  onUseImage,
   onLogout,
 }: {
   me: Me
   providers: GitProviderStatus
   onRefreshStatus: () => void
   refreshing: boolean
+  oauthError: string | null
+  onUseImage: () => void
   onLogout: () => void
 }): React.JSX.Element {
   // Derived from the server on first render: when exactly one provider is
@@ -140,14 +165,22 @@ function ProviderStep({
     return (
       <OnboardingStepShell activeStep="provider" onLogout={onLogout}>
         <div className="flex flex-col gap-8">
+          {oauthError ? (
+            <div
+              role="alert"
+              className="rounded-lg border border-destructive/30 bg-destructive/5 p-3 text-sm text-destructive"
+            >
+              {oauthError}
+            </div>
+          ) : null}
           <StepHeading
             title={`Welcome, ${me.display_name}.`}
-            description="Ploydok needs access to one Git provider before it can import a repository or create a Git-backed application. You can connect the other one later."
+            description="Connect a Git provider to import a repository, or continue with an existing OCI image. You can configure another source later."
           />
 
           <fieldset>
             <legend className="text-sm font-medium">
-              Choose a Git provider
+              Choose a deployment source
             </legend>
             <p className="mt-1 text-sm text-muted-foreground">
               Everything happens here. You stay in this wizard through the whole
@@ -156,6 +189,7 @@ function ProviderStep({
             <div className="mt-3 flex flex-col gap-2">
               <ProviderChoice
                 name="GitHub"
+                maturity="Beta"
                 description="Install the Ploydok GitHub App on an account or organization."
                 icon={RiGithubFill}
                 configured={providers.github.configured}
@@ -163,17 +197,26 @@ function ProviderStep({
               />
               <ProviderChoice
                 name="GitLab"
+                maturity="Beta"
                 description="Authorize your GitLab account through the instance OAuth app."
                 icon={RiGitlabFill}
                 iconClassName="text-[#fc6d26]"
                 configured={providers.gitlab.configured}
                 onSelect={() => setSelected("gitlab")}
               />
+              <ProviderChoice
+                name="Docker / OCI image"
+                maturity="Beta"
+                description="Deploy an existing public or private container image without connecting Git."
+                icon={RiBox3Line}
+                status="No Git provider required"
+                onSelect={onUseImage}
+              />
             </div>
           </fieldset>
         </div>
 
-        <StepFooter hint="Pick one provider to continue. The other stays available in settings.">
+        <StepFooter hint="Pick one source to continue. Git providers stay available in settings.">
           <EncryptionNote />
         </StepFooter>
       </OnboardingStepShell>
@@ -191,6 +234,14 @@ function ProviderStep({
         onLogout={onLogout}
       >
         <div className="flex flex-col gap-8">
+          {oauthError ? (
+            <div
+              role="alert"
+              className="rounded-lg border border-destructive/30 bg-destructive/5 p-3 text-sm text-destructive"
+            >
+              {oauthError}
+            </div>
+          ) : null}
           <StepHeading
             title={
               selected === "github"
@@ -238,6 +289,14 @@ function ProviderStep({
       onLogout={onLogout}
     >
       <div className="flex flex-col gap-8">
+        {oauthError ? (
+          <div
+            role="alert"
+            className="rounded-lg border border-destructive/30 bg-destructive/5 p-3 text-sm text-destructive"
+          >
+            {oauthError}
+          </div>
+        ) : null}
         <StepHeading
           title={
             selected === "github"
@@ -363,17 +422,21 @@ function WaitingForAdmin({
 
 function ProviderChoice({
   name,
+  maturity,
   description,
   icon: Icon,
   iconClassName,
   configured,
+  status,
   onSelect,
 }: {
   name: string
+  maturity: "Beta"
   description: string
   icon: React.ComponentType<{ className?: string }>
   iconClassName?: string
-  configured: boolean
+  configured?: boolean
+  status?: string
   onSelect: () => void
 }): React.JSX.Element {
   return (
@@ -391,12 +454,18 @@ function ProviderChoice({
           )}
         />
         <span className="min-w-0 flex-1">
-          <span className="text-sm font-medium">{name}</span>
+          <span className="flex items-center gap-2 text-sm font-medium">
+            {name}
+            <span className="rounded-full border border-border px-1.5 py-0.5 font-mono text-[9px] tracking-wide text-muted-foreground uppercase">
+              {maturity}
+            </span>
+          </span>
           <span className="mt-0.5 block text-xs leading-5 text-muted-foreground">
             {description}
           </span>
           <span className="mt-1.5 block text-xs text-muted-foreground">
-            {configured ? "Ready to connect" : "Needs instance setup first"}
+            {status ??
+              (configured ? "Ready to connect" : "Needs instance setup first")}
           </span>
         </span>
         <RiArrowRightLine
@@ -426,9 +495,11 @@ function previewSlug(name: string): string {
 
 function ProjectStep({
   me,
+  source,
   onLogout,
 }: {
   me: Me
+  source: OnboardingDeploymentSource
   onLogout: () => void
 }): React.JSX.Element {
   const router = useRouter()
@@ -438,11 +509,12 @@ function ProjectStep({
 
   const goToDashboard = React.useCallback(
     async (slug: string | undefined): Promise<void> => {
+      rememberOnboardingDeploymentSource(me.id, source)
       await router.navigate({
-        href: slug ? organizationDashboardPath(slug) : "/dashboard",
+        href: onboardingDashboardHref(slug, source),
       })
     },
-    [router]
+    [me.id, router, source]
   )
 
   const trimmed = name.trim()
@@ -519,7 +591,9 @@ function ProjectStep({
 
           <p className="flex items-center gap-2 text-xs text-muted-foreground">
             <RiCheckLine aria-hidden className="size-3.5" />
-            Git provider connected.
+            {source === "image"
+              ? "OCI image deployment selected."
+              : `${source === "gitlab" ? "GitLab" : "GitHub"} connected.`}
           </p>
         </div>
 

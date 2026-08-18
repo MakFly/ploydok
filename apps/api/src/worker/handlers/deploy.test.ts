@@ -34,6 +34,38 @@ import * as eventBusMod from "../event-bus"
 import * as queueClaimMod from "../queue-claim"
 import * as queueAuditMod from "../queue-audit"
 import { imageRepoForApp } from "../../services/runtime-containers"
+import * as gitlabConnectionMod from "../../gitlab/connection"
+import { FatalDeployError } from "../errors"
+
+describe("immutable image-update build metadata", () => {
+  it("preserves serving as the exact pre-deploy state", async () => {
+    const { imageUpdateForBuild } = await import("./deploy")
+    expect(
+      imageUpdateForBuild({
+        id: "watch-build",
+        image_update_from_digest: "sha256:old",
+        image_update_to_digest: "sha256:new",
+        image_update_previous_status: "serving",
+      })
+    ).toEqual({
+      fromDigest: "sha256:old",
+      toDigest: "sha256:new",
+      previousStatus: "serving",
+    })
+  })
+
+  it("does not attach an app reservation to a competing build", async () => {
+    const { imageUpdateForBuild } = await import("./deploy")
+    expect(
+      imageUpdateForBuild({
+        id: "manual-build",
+        image_update_from_digest: null,
+        image_update_to_digest: null,
+        image_update_previous_status: null,
+      })
+    ).toBeUndefined()
+  })
+})
 
 // ---------------------------------------------------------------------------
 // Helpers
@@ -107,6 +139,112 @@ describe("pinImageReference", () => {
       )
     ).toBe("registry.example.com:5000/org/app@sha256:abc")
     expect(pinImageReference("nginx", "sha256:def")).toBe("nginx@sha256:def")
+  })
+})
+
+describe("deploymentOutcomeForError", () => {
+  it("separates permanent application input failures from platform failures", async () => {
+    const { deploymentOutcomeForError } = await import("./deploy")
+    expect(
+      deploymentOutcomeForError(new FatalDeployError("invalid Dockerfile"))
+    ).toBe("application_failed")
+    expect(deploymentOutcomeForError(new Error("agent unavailable"))).toBe(
+      "platform_failed"
+    )
+  })
+})
+
+describe("interrupted deployment app reconciliation", () => {
+  it("restores the exact pre-deploy runtime state", async () => {
+    let restored: Record<string, unknown> | undefined
+    const db = {
+      update: () => ({
+        set: (values: Record<string, unknown>) => {
+          restored = values
+          return { where: async () => [] }
+        },
+      }),
+    }
+    const { restoreInterruptedAppState } = await import("./deploy")
+    await restoreInterruptedAppState(
+      db as never,
+      {
+        ...MOCK_APP,
+        status: "running",
+        container_id: "ploydok-app-test-blue",
+        runtime_mode: "docker",
+        swarm_service_name: null,
+      } as never
+    )
+
+    expect(restored).toMatchObject({
+      status: "running",
+      container_id: "ploydok-app-test-blue",
+      runtime_mode: "docker",
+      swarm_service_name: null,
+    })
+  })
+})
+
+describe("resolveCloneSourceForApp", () => {
+  it("uses the exact GitLab credential and project bound to the app", async () => {
+    const selectionSpy = spyOn(
+      gitlabConnectionMod,
+      "assertGitLabProjectSelection"
+    ).mockResolvedValue({
+      installationId: "gitlab:user:user-42",
+      credentialUserId: "user-42",
+      instanceUrl: "https://gitlab.example.com",
+      accessToken: "gitlab-token",
+      provider: {
+        cloneUrlWithToken: (
+          _fullName: string,
+          token: string,
+          canonicalCloneUrl?: string
+        ) => canonicalCloneUrl!.replace("https://", `https://oauth2:${token}@`),
+      },
+      project: {
+        cloneUrl: "https://gitlab.example.com/group/subgroup/project.git",
+      },
+    } as never)
+    const { resolveCloneSourceForApp } = await import("./deploy")
+
+    const source = await resolveCloneSourceForApp(fakeDb, {
+      ...MOCK_APP,
+      git_provider: "gitlab",
+      repo_full_name: "group/subgroup/project",
+      branch: "release",
+      github_installation_id: null,
+      gitlab_project_id: 4242,
+      git_provider_installation_id: "gitlab:user:user-42",
+      gitlab_credential_user_id: "user-42",
+    } as never)
+
+    expect(selectionSpy).toHaveBeenCalledWith(fakeDb, {
+      credentialUserId: "user-42",
+      projectId: 4242,
+      fullName: "group/subgroup/project",
+      branch: "release",
+    })
+    expect(source).toEqual({
+      installationId: "gitlab:user:user-42",
+      cloneUrl:
+        "https://oauth2:gitlab-token@gitlab.example.com/group/subgroup/project.git",
+    })
+  })
+
+  it("refuses GitLab legacy rows instead of falling back to GitHub", async () => {
+    const { resolveCloneSourceForApp } = await import("./deploy")
+    await expect(
+      resolveCloneSourceForApp(fakeDb, {
+        ...MOCK_APP,
+        git_provider: "gitlab",
+        github_installation_id: "same-name-github-installation",
+        gitlab_project_id: 4242,
+        git_provider_installation_id: null,
+        gitlab_credential_user_id: null,
+      } as never)
+    ).rejects.toThrow(/no exact GitLab credential\/project binding/i)
   })
 })
 
@@ -328,6 +466,13 @@ describe.skipIf(skipIntegration)("handleDeploy — log archiving", () => {
         onLog?.("Step 1/3 : FROM node:22")
         onLog?.("Step 2/3 : COPY . .")
         onLog?.("Step 3/3 : RUN bun install")
+        return {
+          contextDir: path.join(env.PLOYDOK_BUILD_DIR, "generated-nixpacks"),
+          dockerfile: path.join(
+            env.PLOYDOK_BUILD_DIR,
+            "generated-nixpacks/.nixpacks/Dockerfile"
+          ),
+        }
       }
     )
     spyOn(registryMod, "gcKeepLast").mockResolvedValue([])
@@ -525,7 +670,13 @@ describe.skipIf(skipIntegration)("handleDeploy — blue-green", () => {
       method: "nixpacks",
     })
     spyOn(registryMod, "diskGuard").mockResolvedValue(undefined)
-    spyOn(nixpacksMod, "nixpacksBuild").mockResolvedValue(undefined)
+    spyOn(nixpacksMod, "nixpacksBuild").mockResolvedValue({
+      contextDir: path.join(env.PLOYDOK_BUILD_DIR, "generated-nixpacks-bg"),
+      dockerfile: path.join(
+        env.PLOYDOK_BUILD_DIR,
+        "generated-nixpacks-bg/.nixpacks/Dockerfile"
+      ),
+    })
     spyOn(registryMod, "gcKeepLast").mockResolvedValue([])
     spyOn(Bun, "spawn").mockImplementation(
       () =>

@@ -1,7 +1,8 @@
 // SPDX-License-Identifier: AGPL-3.0-only
 //
 // Host VPS monitoring (Sprint 6.6).
-// Reads /proc/{stat,meminfo,loadavg,uptime} et fait un statvfs sur /.
+// Reads /proc/{stat,meminfo,loadavg,uptime} and runs statvfs on the configured
+// host-data mount (falling back to / for development compatibility).
 // Aucun new dep lourd : libc::statvfs + lectures fichiers.
 
 use ploydok_proto::HostStatsResponse;
@@ -39,13 +40,15 @@ pub async fn read_host_stats() -> HostStatsResponse {
         (0.0, 0.0, 0.0)
     });
 
-    let (disk_total, disk_free, disk_used, inodes_total, inodes_used) = match statvfs_root() {
-        Ok(v) => v,
-        Err(e) => {
-            errs.push(format!("disk:{e}"));
-            (0, 0, 0, 0, 0)
-        }
-    };
+    let disk_path = std::env::var("PLOYDOK_HOST_STATS_PATH").unwrap_or_else(|_| "/".to_string());
+    let (disk_total, disk_free, disk_used, inodes_total, inodes_used) =
+        match statvfs_path(&disk_path) {
+            Ok(v) => v,
+            Err(e) => {
+                errs.push(format!("disk:{e}"));
+                (0, 0, 0, 0, 0)
+            }
+        };
 
     let cpu_count = num_cpus_from_proc().unwrap_or(0);
     let uptime_seconds = read_uptime().unwrap_or(0);
@@ -165,11 +168,11 @@ fn read_loadavg() -> Result<(f64, f64, f64), String> {
 }
 
 // ────────────────────────────────────────────────────────────────────────────
-// Disk usage / inodes (statvfs sur /)
+// Disk usage / inodes for the host-data bind mount.
 // ────────────────────────────────────────────────────────────────────────────
 
-fn statvfs_root() -> Result<(u64, u64, u64, u64, u64), String> {
-    let path = CString::new("/").map_err(|e| e.to_string())?;
+fn statvfs_path(path: &str) -> Result<(u64, u64, u64, u64, u64), String> {
+    let path = CString::new(path).map_err(|e| e.to_string())?;
     let mut stat: libc::statvfs = unsafe { std::mem::zeroed() };
     let ret = unsafe { libc::statvfs(path.as_ptr(), &mut stat) };
     if ret != 0 {

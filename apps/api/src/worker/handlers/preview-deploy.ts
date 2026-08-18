@@ -1,5 +1,6 @@
 // SPDX-License-Identifier: AGPL-3.0-only
 import path from "node:path"
+import { rm } from "node:fs/promises"
 import { eq } from "drizzle-orm"
 import { z } from "zod"
 import { apps, projects } from "@ploydok/db"
@@ -45,7 +46,6 @@ import { buildImage } from "../buildkit"
 import { cloneRepo, cleanupWorkspace } from "../git"
 import { workerLog } from "../logger"
 import { nixpacksBuild } from "../nixpacks"
-import { railpackBuild } from "../railpack"
 import { ensureProjectNetwork, networksForApp } from "../../services/projects"
 import { isNotFound, toAgentError } from "../../agent"
 import { isSymfonyFlexWorkspace } from "./symfony-detect"
@@ -282,19 +282,19 @@ async function classifyWorkspaceStack(params: {
 }
 
 function defaultRuntimePortForStack(
-  method: "docker" | "nixpacks" | "railpack" | "static",
+  method: "docker" | "nixpacks" | "static",
   classification: StackClassification
 ): number | null {
   if (method === "static") return null
   if (
-    (method === "nixpacks" || method === "railpack") &&
+    method === "nixpacks" &&
     (classification.stack === "laravel" ||
       classification.stack === "symfony" ||
       classification.stack === "php")
   ) {
     return 80
   }
-  if (method === "nixpacks" || method === "railpack") {
+  if (method === "nixpacks") {
     if (
       classification.stack === "django" ||
       classification.stack === "flask" ||
@@ -591,6 +591,11 @@ export async function handlePreviewDeploy(
   }
 
   try {
+    if (app.build_method === "railpack") {
+      throw new Error(
+        "Railpack previews are planned but not available in agent-only production"
+      )
+    }
     log.info({ appId, prNumber, headSha }, "starting preview deploy")
     await updatePreviewDeployment(db, previewId, {
       head_sha: headSha,
@@ -613,11 +618,9 @@ export async function handlePreviewDeploy(
         ? "docker"
         : app.build_method === "nixpacks"
           ? "nixpacks"
-          : app.build_method === "railpack"
-            ? "railpack"
-            : app.build_method === "static"
-              ? "static"
-              : "auto"
+          : app.build_method === "static"
+            ? "static"
+            : "auto"
 
     const detected = await detectBuildMethod({
       workspacePath,
@@ -740,22 +743,17 @@ export async function handlePreviewDeploy(
         buildSecrets: buildEnv,
         onLog,
       })
-    } else if (detected.method === "railpack") {
-      await railpackBuild({
-        workspacePath,
-        tag: imageRef,
-        cacheDir: path.join(env.PLOYDOK_BUILD_DIR, app.id, ".railpack-cache"),
-        ...(app.root_dir ? { rootDir: app.root_dir } : {}),
-        ...(Object.keys(buildEnv).length > 0 ? { buildEnv } : {}),
-        onLog,
-      })
-      await runLoggedCommand(["docker", "push", imageRef], { onLog })
     } else {
-      await nixpacksBuild({
+      const nixpacksCache = path.join(
+        env.PLOYDOK_BUILD_DIR,
+        app.id,
+        ".nixpacks-cache"
+      )
+      const generated = await nixpacksBuild({
         workspacePath,
-        tag: imageRef,
+        tag: pushRef,
         cacheKey: resourceId,
-        cacheDir: path.join(env.PLOYDOK_BUILD_DIR, app.id, ".nixpacks-cache"),
+        cacheDir: nixpacksCache,
         ...(app.root_dir ? { rootDir: app.root_dir } : {}),
         ...(app.nixpacks_config_path
           ? { configFile: app.nixpacks_config_path }
@@ -768,7 +766,17 @@ export async function handlePreviewDeploy(
         ...(Object.keys(runtimeEnv).length > 0 ? { runtimeEnv } : {}),
         onLog,
       })
-      await runLoggedCommand(["docker", "push", imageRef], { onLog })
+      try {
+        await buildImage({
+          contextDir: generated.contextDir,
+          dockerfile: generated.dockerfile,
+          imageRef: pushRef,
+          cacheDir: nixpacksCache,
+          onLog,
+        })
+      } finally {
+        await rm(generated.contextDir, { recursive: true, force: true })
+      }
     }
 
     const resolvedRuntimePort = runtimePort ?? 3000

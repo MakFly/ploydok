@@ -23,9 +23,11 @@ Scopes usuels : `api`, `web`, `db`, `ui`, `shared`, `agent`, `infra`, `auth`, `c
 ## SPDX
 
 Tout nouveau fichier `.ts|.tsx|.rs` commence par :
+
 ```
 // SPDX-License-Identifier: AGPL-3.0-only
 ```
+
 (voir `testing.md` § SPDX).
 
 ## Avant commit
@@ -46,5 +48,6 @@ bun run typecheck && bun run lint && bun test && bun run check:spdx
 
 - Titre = sujet du commit principal (≤ 70 chars).
 - Description : `## Summary` + `## Test plan` (checklist).
-- Référencer le sprint : `Refs project-docs/roadmap/sprint-N-*.md`.
+- Référencer l'item actif de `PRD-PLAN.md` ou l'issue correspondante quand le
+  changement appartient au chantier de production.
 - CI doit être verte avant review : lint + typecheck + test + spdx + dco.

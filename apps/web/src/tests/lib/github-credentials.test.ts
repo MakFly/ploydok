@@ -3,7 +3,6 @@ import { afterEach, describe, expect, it } from "bun:test"
 import * as React from "react"
 import { QueryClient, QueryClientProvider } from "@tanstack/react-query"
 import { act, cleanup, renderHook, waitFor } from "@testing-library/react"
-import { Window } from "happy-dom"
 import { invalidateGetCache } from "../../lib/api"
 import {
   useForgetLocalGitHubApp,
@@ -16,19 +15,6 @@ import type {
 
 const originalFetch = globalThis.fetch
 
-function installDom(): void {
-  const window = new Window()
-  Object.assign(globalThis, {
-    window,
-    document: window.document,
-    navigator: window.navigator,
-    HTMLElement: window.HTMLElement,
-    Node: window.Node,
-    MutationObserver: window.MutationObserver,
-    getComputedStyle: window.getComputedStyle.bind(window),
-  })
-}
-
 afterEach(() => {
   cleanup()
   invalidateGetCache()
@@ -37,7 +23,6 @@ afterEach(() => {
 
 describe("useGitHubAppCredentialsStatus", () => {
   it("does not call the status endpoint until enabled", async () => {
-    installDom()
     invalidateGetCache()
     const requests: Array<string> = []
     globalThis.fetch = ((input: string | URL | Request) => {
@@ -77,7 +62,6 @@ describe("useGitHubAppCredentialsStatus", () => {
   })
 
   it("forgets only the local App config and updates all GitHub caches", async () => {
-    installDom()
     invalidateGetCache()
     const requests: Array<{ url: string; method: string }> = []
     globalThis.fetch = ((input: string | URL | Request, init?: RequestInit) => {
@@ -114,15 +98,16 @@ describe("useGitHubAppCredentialsStatus", () => {
       configured: true,
       name: "Ploydok",
     })
-    queryClient.setQueryData<GitHubAppCredentialsStatus>(
+    const unreadableCredentials: GitHubAppCredentialsStatus = {
+      status: "unreadable",
+      error: {
+        code: "GITHUB_APP_CREDENTIALS_UNREADABLE",
+        message: "Unreadable",
+      },
+    }
+    queryClient.setQueryData(
       ["github", "app", "credentials", "status"],
-      {
-        status: "unreadable",
-        error: {
-          code: "GITHUB_APP_CREDENTIALS_UNREADABLE",
-          message: "Unreadable",
-        },
-      }
+      unreadableCredentials
     )
     queryClient.setQueryData(["github", "installations"], {
       installations: [],

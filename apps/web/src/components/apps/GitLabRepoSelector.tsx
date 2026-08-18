@@ -1,12 +1,14 @@
 // SPDX-License-Identifier: AGPL-3.0-only
 import * as React from "react"
 import { Button } from "@workspace/ui/components/button"
-import { useGitLabConfig, useGitLabRepos } from "../../lib/gitlab"
+import { useGitLabCacheStatus, useGitLabRepos } from "../../lib/gitlab"
 import type { GitRepo } from "@ploydok/shared"
 
 interface GitLabRepoSelectorProps {
   selected?: GitRepo | null
   onSelect: (repo: GitRepo) => void
+  enabled?: boolean
+  unavailableReason?: string | null
 }
 
 function useDebounce<T>(value: T, delayMs: number): T {
@@ -23,25 +25,43 @@ function useDebounce<T>(value: T, delayMs: number): T {
 export function GitLabRepoSelector({
   selected,
   onSelect,
+  enabled = true,
+  unavailableReason,
 }: GitLabRepoSelectorProps): React.JSX.Element {
   const [search, setSearch] = React.useState("")
   const debouncedSearch = useDebounce(search, 200)
+  const postOAuthSyncQueued =
+    typeof window !== "undefined" &&
+    new URLSearchParams(window.location.search).get("sync") === "queued"
+  const cacheStatus = useGitLabCacheStatus({
+    autoRefresh: enabled && postOAuthSyncQueued,
+    enabled,
+  })
 
-  const { data: config } = useGitLabConfig()
   const {
     data,
     isLoading,
     isFetchingNextPage,
     hasNextPage,
     fetchNextPage,
+    refetch,
     error,
-  } = useGitLabRepos({ search: debouncedSearch || undefined })
+  } = useGitLabRepos({
+    search: debouncedSearch || undefined,
+    enabled,
+  })
 
-  if (!config?.configured) {
+  React.useEffect(() => {
+    if (postOAuthSyncQueued && cacheStatus.data?.syncStatus === "completed") {
+      void refetch()
+    }
+  }, [cacheStatus.data?.syncStatus, postOAuthSyncQueued, refetch])
+
+  if (!enabled) {
     return (
       <div className="flex flex-col items-center gap-3 rounded-lg border border-border bg-muted/30 p-6 text-center">
         <p className="text-sm text-muted-foreground">
-          Configure GitLab d'abord pour lister les projets.
+          {unavailableReason ?? "GitLab n'est pas disponible pour ce compte."}
         </p>
         <Button
           size="sm"
@@ -124,7 +144,7 @@ interface RepoItemProps {
   onSelect: (repo: GitRepo) => void
 }
 
-function RepoItem({
+export function RepoItem({
   repo,
   isSelected,
   onSelect,

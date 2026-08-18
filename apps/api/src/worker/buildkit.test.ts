@@ -59,6 +59,7 @@ describe("buildImage", () => {
   });
 
   it("calls buildctl with correct flags on success", async () => {
+    const controller = new AbortController();
     spawnSpy = spyOn(Bun, "spawn").mockReturnValue(
       fakeBunProcess({
         stderrLines: [
@@ -76,6 +77,7 @@ describe("buildImage", () => {
       dockerfile: path.join(tmpDir, "Dockerfile"),
       imageRef: "127.0.0.1:5000/app-abc:sha",
       cacheDir: path.join(tmpDir, "cache"),
+      signal: controller.signal,
     });
 
     expect(spawnSpy).toHaveBeenCalledTimes(1);
@@ -83,6 +85,7 @@ describe("buildImage", () => {
     const firstCall = spawnMock.mock.calls[0];
     expect(firstCall).toBeDefined();
     const cmd = firstCall![0];
+    expect(firstCall![1]).toMatchObject({ signal: controller.signal });
     expect(cmd[0]).toBe("buildctl");
     expect(cmd).toContain("build");
     expect(cmd).toContain("--frontend");

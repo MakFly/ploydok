@@ -18,6 +18,7 @@ export { eventWebhooks } from "./event-webhooks"
 export { audit_log, audit_anchors } from "./audit-log"
 export { backup_codes } from "./backup-codes"
 export { builds } from "./builds"
+export { app_deploy_leases } from "./app-deploy-leases"
 export { github_app } from "./github_app"
 export { github_installation_users } from "./github-installation-users"
 export { gitlab_config } from "./gitlab_config"
@@ -100,9 +101,25 @@ export type {
 } from "./provider-credentials"
 export { system_jobs } from "./system-jobs"
 export type { SystemJobRow, SystemJobInsert } from "./system-jobs"
+export { stripe_webhook_events } from "./stripe-webhook-events"
+export type { StripeWebhookEventRow } from "./stripe-webhook-events"
+export { outbox_events } from "./outbox-events"
+export {
+  queue_outbox_events,
+  type QueueOutboxEventRow,
+  type QueueOutboxEventInsert,
+} from "./queue-outbox-events"
+export type { OutboxEventRow, OutboxEventInsert } from "./outbox-events"
 export { cve_advisories } from "./cve-advisories"
 export type { CveAdvisoryRow, CveAdvisoryInsert } from "./cve-advisories"
 export { cve_matches } from "./cve-matches"
 export type { CveMatchRow, CveMatchInsert } from "./cve-matches"
 export { build_scans } from "./build-scans"
 export type { BuildScanRow, BuildScanInsert } from "./build-scans"
+export {
+  resource_creation_sagas,
+  type ResourceCreationSagaRow,
+  type CreationSagaResourceType,
+  type CreationSagaState,
+  type CreationSagaOwnedResources,
+} from "./resource-creation-sagas"

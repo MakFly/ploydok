@@ -7,16 +7,21 @@
 [![Runtime: Docker Swarm](https://img.shields.io/badge/runtime-Docker%20Swarm-2496ED.svg)](https://docs.docker.com/engine/swarm/)
 [![Stack: Bun Hono React](https://img.shields.io/badge/stack-Bun%20%2B%20Hono%20%2B%20React-black.svg)](./package.json)
 
-Ploydok is an open-source, security-first, self-hosted PaaS for deploying web
+Ploydok is a pre-release, open-source, self-hosted PaaS for deploying web
 applications, APIs, background services and databases on your own VPS. It is
 designed as a pragmatic alternative to Dokploy, Coolify, CapRover, Heroku,
 Railway, Render and Vercel for teams that want Git-based deploys, Docker
 runtime control, blue/green rollouts, framework guardrails and clear operations
 without running Kubernetes.
 
-Ploydok focuses on the daily production workflow: connect a repository, deploy
+Ploydok is being hardened toward the daily production workflow: connect a repository, deploy
 an app, attach domains and databases, scale replicas, inspect logs, monitor
 runtime health, recover safely, and keep the host clean over time.
+
+> **Production readiness:** the current repository is suitable for development
+> and controlled staging evaluation. It is not yet approved for public
+> production workloads. The blocking security, recovery and release gates are
+> tracked in [PRD-PLAN.md](./PRD-PLAN.md).
 
 ## Table of Contents
 
@@ -36,18 +41,40 @@ runtime health, recover safely, and keep the host clean over time.
 Ploydok is built for operators who want a small, inspectable deployment
 platform instead of a large cluster stack.
 
-| Need                         | Ploydok approach                                                                   |
-| ---------------------------- | ---------------------------------------------------------------------------------- |
-| Deploy from GitHub or GitLab | Repository import, branch tracking, webhook deploys and preview flows              |
-| Run many frameworks          | Dockerfile, Nixpacks and framework-specific env guardrails                         |
-| Scale apps over time         | Docker Swarm services, replicas, service updates and runtime monitoring            |
-| Avoid downtime on deploy     | Blue/green runtime model and Swarm `start-first` updates                           |
-| Keep storage under control   | Runtime image cleanup, registry garbage collection and build cache hygiene         |
-| Operate from a VPS           | One-line installer, systemd supervision, Caddy ingress, Postgres and Redis         |
-| Keep accounts secure         | Password login, TOTP, backup codes, passkeys on HTTPS origins and session controls |
+| Need                       | Ploydok approach                                                                   |
+| -------------------------- | ---------------------------------------------------------------------------------- |
+| Deploy from GitHub         | Repository import, branch tracking and webhook deploys                             |
+| Evaluate GitLab            | Backend and provider connection exist; the complete browser journey remains beta   |
+| Deploy an OCI image        | Create an application directly from a public or authenticated image                |
+| Run many frameworks        | Dockerfile, Nixpacks and framework-specific env guardrails                         |
+| Scale apps over time       | Docker Swarm services, replicas, service updates and runtime monitoring            |
+| Avoid downtime on deploy   | Blue/green runtime model and Swarm `start-first` updates                           |
+| Keep storage under control | Runtime image cleanup, registry garbage collection and build cache hygiene         |
+| Operate from a VPS         | One-line installer, systemd supervision, Caddy ingress, Postgres and Redis         |
+| Keep accounts secure       | Password login, TOTP, backup codes, passkeys on HTTPS origins and session controls |
 
-Use Ploydok if you want a self-hosted PaaS for a single server or small fleet,
-with practical production defaults and no Kubernetes dependency.
+Ploydok currently targets one Docker Swarm node. Multi-node scheduling and
+stateful rescheduling are not supported for the first production milestone.
+
+## Feature maturity
+
+| Classification | Meaning                                                        |
+| -------------- | -------------------------------------------------------------- |
+| Stable         | Reachable and covered by production-path release tests         |
+| Beta           | Reachable with explicit limitations or incomplete release proof |
+| Planned        | Not presented as generally available                           |
+
+| Capability                                                              | Maturity | Current limitation                                           |
+| ----------------------------------------------------------------------- | -------- | ------------------------------------------------------------ |
+| GitHub application deploys                                              | Beta     | Mandatory release E2E still required                         |
+| OCI image deploys                                                       | Beta     | Fresh-onboarding E2E still required                          |
+| GitLab deploys                                                          | Beta     | Browser creation journey is not yet release-certified        |
+| Domains, logs, shell, environment and storage                           | Beta     | Production isolation journey still requires release proof    |
+| Managed databases and rollback                                          | Beta     | Restore and migration rollback evidence remains required     |
+| Preview deployments                                                     | Beta     | Pull-request lifecycle coverage is incomplete                |
+| Shared environment, scheduled jobs, event webhooks, API tokens and tags | Planned  | Backend/UI maturity varies; not part of the stable milestone |
+| Compose application deployment                                          | Planned  | No supported runtime contract yet                            |
+| Multi-node Swarm                                                        | Planned  | First release is explicitly single-node                      |
 
 ## Features
 
@@ -57,8 +84,9 @@ with practical production defaults and no Kubernetes dependency.
 - Dockerfile and Nixpacks build paths.
 - Framework detection from repository files and manifests.
 - Runtime env and secret handling for build-time and runtime phases.
-- Production deployments and preview deployments.
-- GitHub/GitLab provider integration and webhook-driven auto-deploy.
+- Production deployments and beta preview deployments.
+- GitHub provider integration and webhook-driven auto-deploy.
+- GitLab provider integration in beta while its browser journey is completed.
 
 ### Scaling and Rollouts
 
@@ -95,6 +123,8 @@ or repaired early.
 - Monitoring page for runtime status, CPU, memory, uptime, restarts and images.
 - Runtime logs and live status updates.
 - Health pings and stale/offline agent states.
+- Authenticated Prometheus collection, Alertmanager paging and measurable
+  deployment/queue/backup SLIs; see the [operations runbooks](./OPERATIONS.md).
 
 ### Security and Operations
 
@@ -102,8 +132,9 @@ or repaired early.
 - WebAuthn passkeys on trusted HTTPS origins.
 - HttpOnly access and refresh cookies.
 - mTLS between API and agent in production TCP mode.
-- Image signature verification in installer flows.
-- Host CLI for upgrade, uninstall and recovery operations.
+- Image signature verification in installer flows; immutable bootstrap and
+  digest promotion remain release blockers.
+- Host CLI for upgrade and uninstall. Fresh-host recovery is not yet certified.
 
 ## Supported Stacks
 
@@ -122,20 +153,48 @@ containerized workload and has extra guardrails for popular stacks.
 
 ## Install on a VPS
 
-Install Ploydok on a Debian or Ubuntu VPS with one command:
+Production releases publish a signed bootstrap bundle after every image and
+quality gate succeeds. Replace `1.2.3` below with an existing release:
 
 ```bash
-curl -fsSL https://raw.githubusercontent.com/MakFly/ploydok/main/installer/bootstrap.sh | sudo bash
+version=1.2.3
+alert_webhook_url="https://alerts.example.com/ploydok"
+asset="ploydok-bootstrap-${version}.tar.gz"
+base="https://github.com/MakFly/ploydok/releases/download/v${version}"
+curl -fSLO "${base}/${asset}"
+curl -fSLO "${base}/${asset}.sha256"
+curl -fSLO "${base}/${asset}.sigstore.json"
+sha256sum -c "${asset}.sha256"
+cosign verify-blob \
+  --bundle "${asset}.sigstore.json" \
+  --certificate-oidc-issuer https://token.actions.githubusercontent.com \
+  --certificate-identity-regexp '^https://github\.com/MakFly/ploydok/\.github/workflows/release-images\.yml@refs/tags/v.*$' \
+  "${asset}"
+tmp_dir="$(mktemp -d)"
+tar -C "$tmp_dir" -xzf "$asset"
+commit="$(cat "$tmp_dir/COMMIT")"
+sudo env PLOYDOK_REF="v${version}" PLOYDOK_EXPECTED_COMMIT="$commit" \
+  PLOYDOK_VERSION="$version" PLOYDOK_ALERT_WEBHOOK_URL="$alert_webhook_url" \
+  bash "$tmp_dir/bootstrap.sh"
 ```
+
+Do not pipe a mutable branch directly into a root shell. `edge` remains
+available only for controlled development evaluation through the explicit
+`PLOYDOK_ALLOW_EDGE=1` opt-in.
 
 Install in coexist mode when another proxy already owns ports 80 and 443:
 
 ```bash
-curl -fsSL https://raw.githubusercontent.com/MakFly/ploydok/main/installer/bootstrap.sh \
-  | sudo bash -s -- --mode=coexist --yes
+sudo env PLOYDOK_REF="v${version}" PLOYDOK_EXPECTED_COMMIT="$commit" \
+  PLOYDOK_VERSION="$version" PLOYDOK_ALERT_WEBHOOK_URL="$alert_webhook_url" \
+  bash "$tmp_dir/bootstrap.sh" --mode=coexist --yes
 ```
 
-The installer deploys the production control plane as a single-node Docker
+The webhook must be an HTTPS endpoint that accepts the standard Alertmanager
+webhook payload. The installer refuses a production setup without an explicit
+receiver, because silent alerts do not satisfy the production gate.
+
+The installer deploys the control plane as a single-node Docker
 Swarm stack by default. Docker Compose remains available only for explicit
 local and test workflows (`--runtime=compose`).
 
@@ -147,10 +206,17 @@ The installer:
 - writes runtime descriptors under `/opt/ploydok`;
 - stores mutable data under `/var/lib/ploydok`;
 - generates platform secrets and mTLS material;
+- configures authenticated Prometheus collection and Alertmanager paging;
+- verifies the authenticated API scrape, Prometheus-to-Alertmanager discovery
+  and receiver reachability from Alertmanager's egress network;
 - pulls and verifies platform images;
 - renders Docker Compose and systemd units;
 - starts the platform and waits for health checks;
 - installs `ploydok-cli` on the host.
+
+The disaster-recovery candidate is documented in [OPERATIONS.md](./OPERATIONS.md):
+signed and encrypted off-host backups, checksum verification, 30-day retention
+and a mandatory fresh-host restore drill before production approval.
 
 ### Install Modes
 
@@ -181,7 +247,7 @@ For production, use a real HTTPS domain. Browser passkeys require a secure
 WebAuthn-compatible origin. Raw HTTP on an IP address is only suitable for
 temporary bootstrap access.
 
-## Zero-Downtime Updates
+## Upgrade workflow (pre-release)
 
 Run upgrades from the host with the installed CLI:
 
@@ -189,7 +255,9 @@ Run upgrades from the host with the installed CLI:
 sudo ploydok-cli upgrade --version=1.2.3
 ```
 
-Default upgrades roll the control plane and keep the data plane stable.
+Default upgrades aim to roll the control plane while keeping the data plane
+stable. Database rollback compatibility and fresh-host restore remain required
+release gates; take an independently stored backup before testing an upgrade.
 
 | Component                                                        | During `upgrade`                       | Notes                                            |
 | ---------------------------------------------------------------- | -------------------------------------- | ------------------------------------------------ |
@@ -277,6 +345,7 @@ bun test
 bun run typecheck
 bun run lint
 bun run check:spdx
+bun run audit:dependencies
 bun run db:migrate
 bun run db:generate
 ```
@@ -320,7 +389,8 @@ Browser
 
 ## Security Model
 
-Ploydok is designed for production self-hosting, not only local demos.
+Ploydok is designed for production self-hosting, but the current pre-release
+does not yet satisfy every production gate.
 
 - Access token: 10 minutes.
 - Refresh token: 7 days, rotating.
@@ -331,6 +401,7 @@ Ploydok is designed for production self-hosting, not only local demos.
 - Secrets encrypted at rest with the configured master key.
 - SPDX `AGPL-3.0-only` headers enforced in CI.
 - Responsible disclosure: see [SECURITY.md](./SECURITY.md).
+- Production SLOs and paging runbooks: see [OPERATIONS.md](./OPERATIONS.md).
 
 ## SEO Keywords
 

@@ -35,6 +35,8 @@ export interface BuildImageOptions {
   buildSecrets?: Record<string, string>;
   /** Called for every log line emitted by buildctl on stdout/stderr. */
   onLog?: (line: string) => void;
+  /** Cancels the active buildctl process on deploy cancellation/lease loss. */
+  signal?: AbortSignal;
 }
 
 export interface BuildImageResult {
@@ -58,7 +60,9 @@ export interface BuildImageResult {
  * BuildKit socket: `PLOYDOK_BUILDKIT_ADDR` env var (default:
  * `docker-container://ploydok-buildkitd`).
  */
-export async function buildImage(opts: BuildImageOptions): Promise<BuildImageResult> {
+export async function buildImage(
+  opts: BuildImageOptions
+): Promise<BuildImageResult> {
   await mkdir(opts.cacheDir, { recursive: true });
 
   const addr = env.PLOYDOK_BUILDKIT_ADDR;
@@ -68,16 +72,25 @@ export async function buildImage(opts: BuildImageOptions): Promise<BuildImageRes
   const dockerfileName = path.basename(opts.dockerfile);
 
   const args = [
-    "--addr", addr,
+    "--addr",
+    addr,
     "build",
-    "--frontend", "dockerfile.v0",
-    "--opt", `filename=${dockerfileName}`,
-    "--local", `context=${opts.contextDir}`,
-    "--local", `dockerfile=${dockerfileDir}`,
-    "--output", `type=image,name=${opts.imageRef},push=true`,
-    "--export-cache", `type=local,dest=${opts.cacheDir},mode=max`,
-    "--import-cache", `type=local,src=${opts.cacheDir}`,
-    "--progress", "plain",
+    "--frontend",
+    "dockerfile.v0",
+    "--opt",
+    `filename=${dockerfileName}`,
+    "--local",
+    `context=${opts.contextDir}`,
+    "--local",
+    `dockerfile=${dockerfileDir}`,
+    "--output",
+    `type=image,name=${opts.imageRef},push=true`,
+    "--export-cache",
+    `type=local,dest=${opts.cacheDir},mode=max`,
+    "--import-cache",
+    `type=local,src=${opts.cacheDir}`,
+    "--progress",
+    "plain",
   ];
 
   for (const [key, value] of Object.entries(opts.buildArgs ?? {})) {
@@ -87,7 +100,9 @@ export async function buildImage(opts: BuildImageOptions): Promise<BuildImageRes
   let secretDir: string | null = null;
   try {
     if (opts.buildSecrets && Object.keys(opts.buildSecrets).length > 0) {
-      secretDir = await mkdtemp(path.join(os.tmpdir(), "ploydok-buildkit-secrets-"));
+      secretDir = await mkdtemp(
+        path.join(os.tmpdir(), "ploydok-buildkit-secrets-")
+      );
       for (const [key, value] of Object.entries(opts.buildSecrets)) {
         const secretPath = path.join(secretDir, key);
         await writeFile(secretPath, value, { mode: 0o600 });
@@ -100,12 +115,15 @@ export async function buildImage(opts: BuildImageOptions): Promise<BuildImageRes
     const proc = Bun.spawn(["buildctl", ...args], {
       stdout: "pipe",
       stderr: "pipe",
+      ...(opts.signal ? { signal: opts.signal } : {}),
     });
 
-  // Collect digest from output while streaming logs.
+    // Collect digest from output while streaming logs.
     let imageDigest = "";
 
-    async function pipeLines(stream: ReadableStream<Uint8Array>): Promise<void> {
+    async function pipeLines(
+      stream: ReadableStream<Uint8Array>
+    ): Promise<void> {
       const reader = stream.getReader();
       const dec = new TextDecoder();
       let buf = "";
@@ -143,7 +161,7 @@ export async function buildImage(opts: BuildImageOptions): Promise<BuildImageRes
 
     if (code !== 0) {
       throw new Error(
-        `buildctl failed (exit ${code}) for image ${opts.imageRef}`,
+        `buildctl failed (exit ${code}) for image ${opts.imageRef}`
       );
     }
 

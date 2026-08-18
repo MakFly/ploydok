@@ -5,6 +5,7 @@ set -Eeuo pipefail
 ROOT="$(cd -- "$(dirname -- "${BASH_SOURCE[0]}")/../.." && pwd)"
 TMP="$(mktemp -d)"
 trap 'rm -rf "$TMP"' EXIT
+export PLOYDOK_ALERT_WEBHOOK_URL="https://alerts.example.test/ploydok"
 
 assert_file() {
   [[ -f "$1" ]] || { echo "missing file: $1" >&2; exit 1; }
@@ -46,9 +47,17 @@ assert_file "$TMP/root/opt/ploydok/docker-compose.yml"
 assert_file "$TMP/root/opt/ploydok/Caddyfile"
 assert_file "$TMP/root/var/lib/ploydok/.env"
 assert_file "$TMP/root/var/lib/ploydok/config/buildkitd.toml"
+assert_file "$TMP/root/var/lib/ploydok/config/prometheus.yml"
+assert_file "$TMP/root/var/lib/ploydok/config/ploydok-alerts.yml"
+assert_file "$TMP/root/var/lib/ploydok/config/alertmanager.yml"
+assert_file "$TMP/root/var/lib/ploydok/secrets/metrics-token"
+assert_file "$TMP/root/var/lib/ploydok/secrets/alert-webhook-url"
 assert_file "$TMP/root/etc/nginx/snippets/ploydok.conf"
 assert_file "$TMP/root/etc/apache2/conf-available/ploydok.conf"
 assert_file "$TMP/root/etc/systemd/system/ploydok.service"
+assert_file "$TMP/root/usr/local/bin/ploydok-cli"
+assert_file "$TMP/root/usr/local/lib/ploydok/ploydok-dr"
+assert_file "$TMP/root/usr/local/lib/ploydok/verify-restored-platform"
 assert_not_exists "$TMP/root/var/lib/ploydok/docker-compose.yml"
 assert_not_exists "$TMP/root/var/lib/ploydok/postgres"
 assert_not_exists "$TMP/root/var/lib/ploydok/redis"
@@ -63,6 +72,21 @@ assert_contains "$TMP/root/opt/ploydok/docker-compose.yml" "registry-data:/var/l
 assert_contains "$TMP/root/opt/ploydok/docker-compose.yml" "moby/buildkit:v0.29.0-rootless"
 assert_contains "$TMP/root/opt/ploydok/docker-compose.yml" "buildkit-cache:/home/user/.local/share/buildkit"
 assert_contains "$TMP/root/opt/ploydok/docker-compose.yml" "/var/run/docker.sock:/var/run/docker.sock"
+compose_api_block="$(sed -n '/^  api:/,/^  web:/p' "$TMP/root/opt/ploydok/docker-compose.yml")"
+compose_agent_block="$(sed -n '/^  agent:/,/^  caddy:/p' "$TMP/root/opt/ploydok/docker-compose.yml")"
+assert_text_not_contains "$compose_api_block" "/var/run/docker.sock"
+assert_text_contains "$compose_agent_block" "/var/run/docker.sock"
+assert_text_contains "$compose_api_block" 'user: "${PLOYDOK_RUNTIME_UID}:${PLOYDOK_RUNTIME_GID}"'
+assert_text_contains "$compose_api_block" "read_only: true"
+assert_text_contains "$compose_api_block" 'cap_drop: ["ALL"]'
+assert_text_contains "$compose_api_block" "no-new-privileges:true"
+assert_text_not_contains "$compose_api_block" "/certs:/var/lib/ploydok/certs"
+assert_text_not_contains "$compose_api_block" "/pki:/var/lib/ploydok/pki"
+assert_text_not_contains "$compose_api_block" "/server.key:"
+assert_text_not_contains "$compose_api_block" "/ca.key:"
+assert_text_contains "$compose_agent_block" "/pki/server.key:/var/lib/ploydok/pki/server.key:ro"
+assert_text_not_contains "$compose_agent_block" "/client.key:"
+assert_text_not_contains "$compose_agent_block" "/ca.key:"
 assert_contains "$TMP/root/opt/ploydok/docker-compose.yml" "ploydok.kind: infra"
 assert_contains "$TMP/root/opt/ploydok/docker-compose.yml" "ploydok.component: caddy"
 assert_contains "$TMP/root/opt/ploydok/docker-compose.yml" "caddy-data:/data"
@@ -78,6 +102,7 @@ assert_contains "$TMP/root/var/lib/ploydok/.env" "GITLAB_OAUTH_CALLBACK_URL=http
 assert_contains "$TMP/root/var/lib/ploydok/.env" "PLOYDOK_DOMAIN_BASE=apps.ploydok.test"
 assert_contains "$TMP/root/var/lib/ploydok/.env" "PLOYDOK_SETUP_TOKEN_REQUIRED=1"
 assert_contains "$TMP/root/var/lib/ploydok/.env" "PLOYDOK_COOKIE_SECURE=auto"
+assert_contains "$TMP/root/var/lib/ploydok/.env" "PLOYDOK_TRUST_PROXY_HEADERS=true"
 assert_contains "$TMP/root/var/lib/ploydok/.env" "PLOYDOK_REGISTRY_URL=127.0.0.1:5000"
 assert_contains "$TMP/root/var/lib/ploydok/.env" "PLOYDOK_REGISTRY_API_URL=registry:5000"
 assert_contains "$TMP/root/var/lib/ploydok/.env" "PLOYDOK_BUILDKIT_ADDR=tcp://buildkitd:1234"
@@ -88,17 +113,37 @@ assert_contains "$TMP/root/var/lib/ploydok/config/validator.toml" '"registry:500
 assert_contains "$TMP/root/var/lib/ploydok/config/validator.toml" 'volume_prefix = "/var/lib/ploydok/volumes"'
 assert_contains "$TMP/root/var/lib/ploydok/config/validator.toml" 'app_volume_prefix = "/var/lib/ploydok/app-volumes"'
 assert_contains "$TMP/root/var/lib/ploydok/.env" "PLOYDOK_AGENT_CLIENT_CERT=/var/lib/ploydok/pki/client.pem"
+assert_contains "$TMP/root/var/lib/ploydok/.env" "PLOYDOK_RUNTIME_UID=1000"
+assert_contains "$TMP/root/var/lib/ploydok/.env" "PLOYDOK_RUNTIME_GID=1000"
+assert_contains "$TMP/root/var/lib/ploydok/.env" "PLOYDOK_METRICS_TOKEN="
+assert_contains "$TMP/root/var/lib/ploydok/config/prometheus.yml" "credentials_file: /run/ploydok-secrets/metrics-token"
+assert_contains "$TMP/root/var/lib/ploydok/config/prometheus.yml" "# ploydok-monitoring-schema: 1"
+assert_contains "$TMP/root/var/lib/ploydok/config/ploydok-alerts.yml" "# ploydok-monitoring-schema: 1"
+assert_contains "$TMP/root/var/lib/ploydok/config/alertmanager.yml" "# ploydok-monitoring-schema: 1"
+assert_contains "$TMP/root/var/lib/ploydok/config/ploydok-alerts.yml" "alert: ControlPlaneNotReady"
+assert_contains "$TMP/root/var/lib/ploydok/config/ploydok-alerts.yml" "runbook_url: https://github.com/MakFly/ploydok/blob/main/OPERATIONS.md"
+assert_contains "$TMP/root/var/lib/ploydok/config/alertmanager.yml" "url_file: /run/ploydok-secrets/alert-webhook-url"
+assert_contains "$TMP/root/var/lib/ploydok/secrets/alert-webhook-url" "https://alerts.example.test/ploydok"
+assert_contains "$TMP/root/opt/ploydok/docker-compose.yml" "prom/prometheus:v3.13.1@sha256:"
+assert_contains "$TMP/root/opt/ploydok/docker-compose.yml" "prom/alertmanager:v0.33.1@sha256:"
 assert_contains "$TMP/root/etc/nginx/snippets/ploydok.conf" "proxy_pass http://127.0.0.1:18080;"
 assert_contains "$TMP/root/opt/ploydok/docker-compose.yml" 'POSTGRES_PASSWORD: ${PLOYDOK_PG_PASSWORD}'
 assert_contains "$TMP/root/opt/ploydok/docker-compose.yml" '"${PLOYDOK_REDIS_PASSWORD}"'
 
 master_key_before="$(cat "$TMP/root/var/lib/ploydok/master.key")"
 env_before="$(cat "$TMP/root/var/lib/ploydok/.env")"
+touch -d '2026-08-18T12:00:00Z' "$TMP/root/var/lib/ploydok/backups/control-plane.configured"
+chmod u+w "$TMP/root/var/lib/ploydok/backups/control-plane.last-success"
+printf '%s\n' '2026-08-18T12:05:00Z' >"$TMP/root/var/lib/ploydok/backups/control-plane.last-success"
+chmod 0444 "$TMP/root/var/lib/ploydok/backups/control-plane.last-success"
+configured_mtime_before="$(stat -c %Y "$TMP/root/var/lib/ploydok/backups/control-plane.configured")"
+success_stamp_before="$(cat "$TMP/root/var/lib/ploydok/backups/control-plane.last-success")"
 
-PLOYDOK_INSTALL_DRY_RUN=1 \
-PLOYDOK_INSTALL_ROOT="$TMP/root" \
-PLOYDOK_PUBLIC_HOST="ploydok.test" \
-bash "$ROOT/installer/install.sh" \
+env -u PLOYDOK_ALERT_WEBHOOK_URL \
+  PLOYDOK_INSTALL_DRY_RUN=1 \
+  PLOYDOK_INSTALL_ROOT="$TMP/root" \
+  PLOYDOK_PUBLIC_HOST="ploydok.test" \
+  bash "$ROOT/installer/install.sh" \
   --mode=coexist \
   --runtime=compose \
   --http-port=18080 \
@@ -116,16 +161,64 @@ bash "$ROOT/installer/install.sh" \
   echo ".env changed on idempotent install" >&2
   exit 1
 }
+assert_contains "$TMP/root/var/lib/ploydok/secrets/alert-webhook-url" "https://alerts.example.test/ploydok"
+[[ "$(stat -c %Y "$TMP/root/var/lib/ploydok/backups/control-plane.configured")" == "$configured_mtime_before" ]] || {
+  echo "control-plane configured stamp changed on idempotent install" >&2
+  exit 1
+}
+[[ "$(cat "$TMP/root/var/lib/ploydok/backups/control-plane.last-success")" == "$success_stamp_before" ]] || {
+  echo "control-plane success stamp changed on idempotent install" >&2
+  exit 1
+}
 
 upgrade_output="$(
   PLOYDOK_INSTALL_DRY_RUN=1 PLOYDOK_INSTALL_ROOT="$TMP/root" PLOYDOK_INSTALL_SKIP_COSIGN=1 \
     bash "$ROOT/installer/ploydok-cli" upgrade --data-dir=/var/lib/ploydok --version=test2 2>&1
 )"
 assert_text_contains "$upgrade_output" "update $TMP/root/opt/ploydok/docker-compose.yml api/web/agent/adminer images to test2"
-assert_text_contains "$upgrade_output" "pull api web agent adminer"
+assert_text_contains "$upgrade_output" "docker pull ghcr.io/makfly/ploydok-api:test2"
+assert_text_contains "$upgrade_output" "docker pull ghcr.io/makfly/ploydok-web:test2"
+assert_text_contains "$upgrade_output" "docker pull ghcr.io/makfly/ploydok-agent:test2"
+assert_text_contains "$upgrade_output" "docker pull ghcr.io/makfly/ploydok-adminer:test2"
 assert_text_contains "$upgrade_output" "up -d --no-deps api web agent adminer"
 assert_text_contains "$upgrade_output" "run --rm --no-deps api bun run /app/packages/db/src/migrate.ts"
+assert_text_contains "$upgrade_output" "chmod 0400"
+assert_text_contains "$upgrade_output" "chown 65534:65534"
+assert_text_contains "$upgrade_output" "--force-recreate prometheus alertmanager"
+assert_text_contains "$upgrade_output" "send explicit test notification"
 assert_text_not_contains "$upgrade_output" "ploydok-caddy:test2"
+
+pki_rotation_output="$(
+  PLOYDOK_INSTALL_DRY_RUN=1 PLOYDOK_INSTALL_ROOT="$TMP/root" \
+    bash "$ROOT/installer/ploydok-cli" rotate-agent-pki --data-dir=/var/lib/ploydok --yes
+)"
+assert_text_contains "$pki_rotation_output" "force-recreate agent then API"
+
+release_digest="sha256:$(printf 'a%.0s' {1..64})"
+release_manifest="$TMP/root/var/lib/ploydok/release-images.env"
+cat >"$release_manifest" <<EOF
+PLOYDOK_API_IMAGE=ghcr.io/makfly/ploydok-api@$release_digest
+PLOYDOK_WEB_IMAGE=ghcr.io/makfly/ploydok-web@$release_digest
+PLOYDOK_AGENT_IMAGE=ghcr.io/makfly/ploydok-agent@$release_digest
+PLOYDOK_ADMINER_IMAGE=ghcr.io/makfly/ploydok-adminer@$release_digest
+PLOYDOK_CADDY_IMAGE=ghcr.io/makfly/ploydok-caddy@$release_digest
+EOF
+release_upgrade_output="$(
+  PLOYDOK_INSTALL_DRY_RUN=1 PLOYDOK_INSTALL_ROOT="$TMP/root" PLOYDOK_INSTALL_SKIP_COSIGN=1 \
+    bash "$ROOT/installer/ploydok-cli" upgrade --data-dir=/var/lib/ploydok \
+      --version=candidate-test --image-manifest=/var/lib/ploydok/release-images.env \
+      --include-data-plane 2>&1
+)"
+assert_text_contains "$release_upgrade_output" "docker pull ghcr.io/makfly/ploydok-api@$release_digest"
+assert_text_contains "$release_upgrade_output" "docker pull ghcr.io/makfly/ploydok-caddy@$release_digest"
+
+printf '%s\n' 'PLOYDOK_API_IMAGE=ghcr.io/makfly/ploydok-api:mutable' >"$release_manifest"
+if PLOYDOK_INSTALL_DRY_RUN=1 PLOYDOK_INSTALL_ROOT="$TMP/root" PLOYDOK_INSTALL_SKIP_COSIGN=1 \
+  bash "$ROOT/installer/ploydok-cli" upgrade --data-dir=/var/lib/ploydok \
+    --version=invalid --image-manifest=/var/lib/ploydok/release-images.env >/dev/null 2>&1; then
+  echo "mutable release image manifest was accepted" >&2
+  exit 1
+fi
 
 upgrade_data_plane_output="$(
   PLOYDOK_INSTALL_DRY_RUN=1 PLOYDOK_INSTALL_ROOT="$TMP/root" PLOYDOK_INSTALL_SKIP_COSIGN=1 \
@@ -133,8 +226,41 @@ upgrade_data_plane_output="$(
 )"
 assert_text_contains "$upgrade_data_plane_output" "ploydok-caddy:test3"
 assert_text_contains "$upgrade_data_plane_output" "update $TMP/root/opt/ploydok/docker-compose.yml api/web/agent/adminer/caddy images to test3"
-assert_text_contains "$upgrade_data_plane_output" "pull api web agent adminer caddy"
+assert_text_contains "$upgrade_data_plane_output" "docker pull ghcr.io/makfly/ploydok-caddy:test3"
 assert_text_contains "$upgrade_data_plane_output" "up -d --no-deps api web agent adminer caddy"
+
+backup_output="$(
+  PLOYDOK_INSTALL_DRY_RUN=1 PLOYDOK_DR_HELPER="$ROOT/installer/ploydok-dr" \
+    bash "$ROOT/installer/ploydok-cli" backup-control-plane \
+      --destination=/mnt/off-host/ploydok \
+      --age-recipient=age1testrecipient \
+      --signing-key=/run/secrets/ploydok-backup-signing-key \
+      --retention-days=30 2>&1
+)"
+assert_text_contains "$backup_output" "create encrypted, checksummed backup"
+assert_text_contains "$backup_output" "retain backups for 30 days"
+
+backup_timer_output="$(
+  PLOYDOK_INSTALL_DRY_RUN=1 PLOYDOK_DR_HELPER="$ROOT/installer/ploydok-dr" \
+    bash "$ROOT/installer/ploydok-cli" configure-control-plane-backups \
+      --destination=/mnt/off-host/ploydok \
+      --age-recipient=age1testrecipient \
+      --signing-key=/run/secrets/ploydok-backup-signing-key \
+      --retention-days=30 2>&1
+)"
+assert_text_contains "$backup_timer_output" "install a persistent daily backup timer"
+
+restore_output="$(
+  PLOYDOK_INSTALL_DRY_RUN=1 PLOYDOK_DR_HELPER="$ROOT/installer/ploydok-dr" \
+    bash "$ROOT/installer/ploydok-cli" restore-control-plane \
+      --archive=/mnt/off-host/ploydok/ploydok-control-plane-test.tar.gz.age \
+      --age-identity=/run/secrets/ploydok-backup-identity \
+      --signing-public-key=/run/secrets/ploydok-backup-signing-public-key \
+      --verify-command=/usr/local/lib/ploydok/verify-restored-platform \
+      --yes 2>&1
+)"
+assert_text_contains "$restore_output" "restore Postgres, Redis, registry, Caddy, monitoring, app volumes, keys, certificates and config"
+assert_text_contains "$restore_output" "require readiness then run /usr/local/lib/ploydok/verify-restored-platform"
 
 PLOYDOK_INSTALL_DRY_RUN=1 PLOYDOK_INSTALL_ROOT="$TMP/root" \
 bash "$ROOT/installer/ploydok-cli" uninstall --data-dir=/var/lib/ploydok --yes --restore-previous-proxy
@@ -174,6 +300,7 @@ assert_contains "$TMP/bootstrap-root/var/lib/ploydok/.env" "PLOYDOK_PUBLIC_PORT=
 assert_contains "$TMP/bootstrap-root/var/lib/ploydok/.env" "PLOYDOK_DOMAIN_BASE=212-47-249-36.sslip.io"
 assert_contains "$TMP/bootstrap-root/var/lib/ploydok/.env" "PLOYDOK_SETUP_TOKEN_REQUIRED=0"
 assert_contains "$TMP/bootstrap-root/var/lib/ploydok/.env" "PLOYDOK_COOKIE_SECURE=auto"
+assert_contains "$TMP/bootstrap-root/var/lib/ploydok/.env" "PLOYDOK_TRUST_PROXY_HEADERS=true"
 
 PLOYDOK_INSTALL_DRY_RUN=1 \
 PLOYDOK_INSTALL_ROOT="$TMP/swarm-root" \
@@ -186,6 +313,7 @@ bash "$ROOT/installer/install.sh" \
   --version=test
 
 assert_file "$TMP/swarm-root/opt/ploydok/docker-stack.yml"
+assert_file "$TMP/swarm-root/opt/ploydok/CaddyAdminProxyfile"
 assert_file "$TMP/swarm-root/usr/local/lib/ploydok/port-isolation.sh"
 assert_file "$TMP/swarm-root/usr/local/lib/ploydok/update-stack.sh"
 assert_file "$TMP/swarm-root/etc/systemd/system/ploydok-port-isolation.service"
@@ -194,12 +322,82 @@ assert_contains "$TMP/swarm-root/etc/systemd/system/ploydok.service" "docker sta
 assert_contains "$TMP/swarm-root/opt/ploydok/docker-stack.yml" "published: 80"
 assert_contains "$TMP/swarm-root/opt/ploydok/docker-stack.yml" "published: 443"
 assert_contains "$TMP/swarm-root/opt/ploydok/docker-stack.yml" "/var/lib/ploydok/keys:/var/lib/ploydok/keys"
+assert_contains "$TMP/swarm-root/opt/ploydok/docker-stack.yml" "moby/buildkit:v0.29.0"
+assert_contains "$TMP/swarm-root/opt/ploydok/docker-stack.yml" "buildkit-cache:/var/lib/buildkit"
+assert_text_not_contains "$(sed -n '/^  buildkitd:/,/^networks:/p' "$TMP/swarm-root/opt/ploydok/docker-stack.yml")" "buildkit-cache:/home/user/.local/share/buildkit"
+assert_contains "$TMP/swarm-root/opt/ploydok/Caddyfile" "admin unix//run/caddy-admin/admin.sock|0660"
+assert_text_not_contains "$(cat "$TMP/swarm-root/opt/ploydok/Caddyfile")" "admin 0.0.0.0:2019"
+assert_contains "$TMP/swarm-root/opt/ploydok/CaddyAdminProxyfile" "reverse_proxy unix//run/caddy-admin/admin.sock"
+assert_contains "$TMP/swarm-root/var/lib/ploydok/.env" "CADDY_ADMIN_URL=http://caddy-admin:2019"
+assert_contains "$TMP/swarm-root/opt/ploydok/docker-stack.yml" "prom/prometheus:v3.13.1@sha256:"
+assert_contains "$TMP/swarm-root/opt/ploydok/docker-stack.yml" "prom/alertmanager:v0.33.1@sha256:"
+[[ "$(stat -c %a "$TMP/swarm-root/var/lib/ploydok/secrets/metrics-token")" == "400" ]] || { echo "metrics token must be mode 0400" >&2; exit 1; }
+[[ "$(stat -c %a "$TMP/swarm-root/var/lib/ploydok/secrets/alert-webhook-url")" == "400" ]] || { echo "alert webhook secret must be mode 0400" >&2; exit 1; }
+[[ "$(stat -c %a "$TMP/swarm-root/var/lib/ploydok/backups/control-plane.configured")" == "444" ]] || { echo "control-plane configured stamp must be readable by API" >&2; exit 1; }
+[[ "$(stat -c %a "$TMP/swarm-root/var/lib/ploydok/backups/control-plane.last-success")" == "444" ]] || { echo "control-plane success stamp must be readable by API" >&2; exit 1; }
+[[ "$(stat -c %a "$TMP/swarm-root/var/lib/ploydok/backups/control-plane.last-failure")" == "444" ]] || { echo "control-plane failure stamp must be readable by API" >&2; exit 1; }
+api_block="$(sed -n '/^  api:/,/^  web:/p' "$TMP/swarm-root/opt/ploydok/docker-stack.yml")"
+web_block="$(sed -n '/^  web:/,/^  postgres:/p' "$TMP/swarm-root/opt/ploydok/docker-stack.yml")"
+agent_block="$(sed -n '/^  agent:/,/^  caddy:/p' "$TMP/swarm-root/opt/ploydok/docker-stack.yml")"
+registry_block="$(sed -n '/^  registry:/,/^  buildkitd:/p' "$TMP/swarm-root/opt/ploydok/docker-stack.yml")"
+buildkit_block="$(sed -n '/^  buildkitd:/,/^networks:/p' "$TMP/swarm-root/opt/ploydok/docker-stack.yml")"
+caddy_block="$(sed -n '/^  caddy:$/,/^  caddy-admin:$/p' "$TMP/swarm-root/opt/ploydok/docker-stack.yml")"
+caddy_admin_block="$(sed -n '/^  caddy-admin:/,/^  adminer:/p' "$TMP/swarm-root/opt/ploydok/docker-stack.yml")"
+management_block="$(sed -n '/^  ploydok-management:/,/^volumes:/p' "$TMP/swarm-root/opt/ploydok/docker-stack.yml")"
+assert_text_contains "$api_block" "- ploydok-management"
+assert_text_contains "$api_block" "- ploydok-build"
+assert_text_contains "$api_block" "- ploydok-monitoring"
+assert_text_contains "$registry_block" "- ploydok-build"
+assert_text_contains "$buildkit_block" "- ploydok-build"
+! grep -Fxq -- "      - ploydok" <<<"$buildkit_block" || { echo "buildkitd must not join the general ploydok network" >&2; exit 1; }
+assert_text_not_contains "$web_block" "- ploydok-build"
+assert_text_not_contains "$agent_block" "- ploydok-build"
+assert_text_not_contains "$api_block" "/var/run/docker.sock"
+assert_text_contains "$agent_block" "/var/run/docker.sock"
+assert_text_contains "$api_block" 'user: "${PLOYDOK_RUNTIME_UID}:${PLOYDOK_RUNTIME_GID}"'
+assert_text_contains "$api_block" "read_only: true"
+assert_text_contains "$api_block" 'cap_drop: ["ALL"]'
+assert_text_contains "$api_block" "no-new-privileges:true"
+assert_text_not_contains "$api_block" "/certs:/var/lib/ploydok/certs"
+assert_text_contains "$api_block" "backups/control-plane.last-success:/var/lib/ploydok/backups/control-plane.last-success:ro"
+assert_text_contains "$api_block" "backups/control-plane.last-failure:/var/lib/ploydok/backups/control-plane.last-failure:ro"
+assert_text_contains "$api_block" "backups/control-plane.configured:/var/lib/ploydok/backups/control-plane.configured:ro"
+assert_text_not_contains "$api_block" "backups:/var/lib/ploydok/backups:ro"
+assert_text_not_contains "$api_block" "/pki:/var/lib/ploydok/pki"
+assert_text_not_contains "$api_block" "/server.key:"
+assert_text_not_contains "$api_block" "/ca.key:"
+assert_text_contains "$agent_block" "/pki/server.key:/var/lib/ploydok/pki/server.key:ro"
+assert_text_not_contains "$agent_block" "/client.key:"
+assert_text_not_contains "$agent_block" "/ca.key:"
+assert_text_contains "$caddy_block" "- ploydok-public"
+assert_text_not_contains "$caddy_block" "- ploydok-management"
+assert_text_contains "$caddy_admin_block" "- ploydok-management"
+assert_text_not_contains "$caddy_admin_block" "- ploydok-public"
+assert_text_contains "$caddy_admin_block" "- caddy"
+assert_text_contains "$caddy_admin_block" "- run"
+assert_text_contains "$management_block" "internal: true"
+assert_text_contains "$management_block" "attachable: false"
+assert_contains "$TMP/swarm-root/opt/ploydok/docker-stack.yml" "ploydok-build:"
+build_network_block="$(sed -n '/^  ploydok-build:/,/^volumes:/p' "$TMP/swarm-root/opt/ploydok/docker-stack.yml")"
+assert_text_contains "$build_network_block" "internal: false"
+assert_text_contains "$build_network_block" "attachable: false"
+[[ "$(grep -Fc -- "- ploydok-build" "$TMP/swarm-root/opt/ploydok/docker-stack.yml")" -eq 3 ]] || { echo "ploydok-build must be attached only to api, registry and buildkitd" >&2; exit 1; }
+monitoring_network_block="$(sed -n '/^  ploydok-monitoring:/,/^volumes:/p' "$TMP/swarm-root/opt/ploydok/docker-stack.yml")"
+assert_text_contains "$monitoring_network_block" "internal: true"
+assert_text_contains "$monitoring_network_block" "attachable: false"
+[[ "$(grep -Fc -- "- ploydok-monitoring" "$TMP/swarm-root/opt/ploydok/docker-stack.yml")" -eq 3 ]] || { echo "ploydok-monitoring must be attached only to api, prometheus and alertmanager" >&2; exit 1; }
+alerting_network_block="$(sed -n '/^  ploydok-alerting:/,/^volumes:/p' "$TMP/swarm-root/opt/ploydok/docker-stack.yml")"
+assert_text_contains "$alerting_network_block" "internal: false"
+assert_text_contains "$alerting_network_block" "attachable: false"
+[[ "$(grep -Fc -- "- ploydok-alerting" "$TMP/swarm-root/opt/ploydok/docker-stack.yml")" -eq 1 ]] || { echo "ploydok-alerting must be attached only to alertmanager" >&2; exit 1; }
 assert_text_not_contains "$(cat "$TMP/swarm-root/opt/ploydok/docker-stack.yml")" "host_ip:"
 assert_contains "$TMP/swarm-root/usr/local/lib/ploydok/port-isolation.sh" 'MODE="takeover"'
 assert_contains "$TMP/swarm-root/usr/local/lib/ploydok/port-isolation.sh" 'ports=(5000)'
 assert_contains "$TMP/swarm-root/usr/local/lib/ploydok/port-isolation.sh" 'DOCKER-USER'
 assert_contains "$TMP/swarm-root/usr/local/lib/ploydok/port-isolation.sh" 'apply_input_rules'
 assert_contains "$TMP/swarm-root/usr/local/lib/ploydok/update-stack.sh" 'cosign verify'
+assert_contains "$TMP/swarm-root/usr/local/lib/ploydok/update-stack.sh" 'PLOYDOK_ENABLE_AUTO_UPDATES'
+assert_contains "$TMP/swarm-root/usr/local/lib/ploydok/update-stack.sh" 'IMAGE_PREFIX'
 assert_contains "$TMP/swarm-root/etc/systemd/system/ploydok-update.service" '/usr/local/lib/ploydok/update-stack.sh'
 
 swarm_upgrade_output="$(
@@ -258,5 +456,28 @@ abort_status=$?
 set -e
 [[ "$abort_status" -eq 2 ]] || { echo "abort mode returned $abort_status, expected 2" >&2; exit 1; }
 assert_not_exists "$TMP/abort-root/opt/ploydok/docker-compose.yml"
+
+set +e
+env -u PLOYDOK_ALERT_WEBHOOK_URL \
+  PLOYDOK_INSTALL_DRY_RUN=1 \
+  PLOYDOK_INSTALL_ROOT="$TMP/no-alert-root" \
+  bash "$ROOT/installer/install.sh" \
+    --mode=coexist \
+    --runtime=compose \
+    --public-host=ploydok.test \
+    --skip-docker-install \
+    --yes \
+    --version=test >/dev/null 2>&1
+missing_alert_status=$?
+set -e
+[[ "$missing_alert_status" -eq 2 ]] || {
+  echo "missing alert receiver returned $missing_alert_status, expected 2" >&2
+  exit 1
+}
+assert_not_exists "$TMP/no-alert-root/opt/ploydok/docker-compose.yml"
+
+bash "$ROOT/installer/tests/bootstrap.sh"
+bash "$ROOT/installer/tests/disaster-recovery.sh"
+bash "$ROOT/installer/tests/release-images.sh"
 
 echo "installer tests OK"

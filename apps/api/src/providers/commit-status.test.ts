@@ -32,10 +32,12 @@ beforeEach(() => {
   redisMock.set.mockClear()
   ;(globalThis as unknown as Record<string, unknown>)["fetch"] = mock(
     async (url: string, init?: RequestInit) => {
-      const body: FetchBody = init?.body ? (JSON.parse(init.body as string) as FetchBody) : null
+      const body: FetchBody = init?.body
+        ? (JSON.parse(init.body as string) as FetchBody)
+        : null
       fetchCalls.push({ url, method: init?.method ?? "GET", body })
       return new Response(JSON.stringify({ id: 1 }), { status: fetchStatus })
-    },
+    }
   )
 })
 
@@ -55,10 +57,30 @@ mock.module("../github/app-credentials", () => ({
   }),
 }))
 
+mock.module("../gitlab/connection", () => ({
+  resolveGitLabConnection: mock(async () => ({
+    accessToken: "gl-access-token",
+    provider: {
+      postCommitStatus: async (input: {
+        owner: string
+        repo: string
+        sha: string
+        state: string
+      }) => {
+        const state = input.state === "failure" ? "failed" : input.state
+        await fetch(
+          `https://gitlab.example.com/api/v4/projects/${encodeURIComponent(`${input.owner}/${input.repo}`)}/statuses/${input.sha}?state=${state}`,
+          { method: "POST" }
+        )
+      },
+    },
+  })),
+}))
+
 mock.module("./index", () => ({
   getProvider: (
     kind: "github" | "gitlab",
-    ctx: { gitlabInstanceUrl?: string } = {},
+    ctx: { gitlabInstanceUrl?: string } = {}
   ) => ({
     postCommitStatus: mock(
       async (input: {
@@ -82,7 +104,7 @@ mock.module("./index", () => ({
                   description: input.description,
                 }),
               }),
-            },
+            }
           )
           return
         }
@@ -91,9 +113,9 @@ mock.module("./index", () => ({
         const baseUrl = ctx.gitlabInstanceUrl ?? "https://gitlab.com"
         await fetch(
           `${baseUrl}/api/v4/projects/${encodeURIComponent(`${input.owner}/${input.repo}`)}/statuses/${input.sha}?state=${state}`,
-          { method: "POST" },
+          { method: "POST" }
         )
-      },
+      }
     ),
   }),
 }))
@@ -127,7 +149,9 @@ type RedisLike = { set: (...args: unknown[]) => Promise<string | null> }
 describe("postCommitStatusForApp", () => {
   const shaFixture = "abc123def456"
 
-  function makeGitHubApp(overrides: Partial<AppForCommitStatus> = {}): AppForCommitStatus {
+  function makeGitHubApp(
+    overrides: Partial<AppForCommitStatus> = {}
+  ): AppForCommitStatus {
     return {
       id: "app1",
       git_provider: "github",
@@ -139,12 +163,15 @@ describe("postCommitStatusForApp", () => {
     }
   }
 
-  function makeGitLabApp(overrides: Partial<AppForCommitStatus> = {}): AppForCommitStatus {
+  function makeGitLabApp(
+    overrides: Partial<AppForCommitStatus> = {}
+  ): AppForCommitStatus {
     return {
       id: "app2",
       git_provider: "gitlab",
       repo_full_name: "myorg/myrepo",
       github_installation_id: null,
+      gitlab_credential_user_id: "user1",
       owner_id: "user1",
       post_commit_status: true,
       ...overrides,
@@ -153,27 +180,40 @@ describe("postCommitStatusForApp", () => {
 
   it("posts pending status to GitHub", async () => {
     const { postCommitStatusForApp } = await import("./commit-status")
-    await postCommitStatusForApp(dbMock, redisMock as unknown as import("@ploydok/db").Redis, makeGitHubApp(), {
-      sha: shaFixture,
-      state: "pending",
-      description: "Build started",
-    })
+    await postCommitStatusForApp(
+      dbMock,
+      redisMock as unknown as import("@ploydok/db").Redis,
+      makeGitHubApp(),
+      {
+        sha: shaFixture,
+        state: "pending",
+        description: "Build started",
+      }
+    )
 
     const call = fetchCalls.find((c) => c.url.includes("/statuses/"))
     expect(call).toBeDefined()
     expect(call?.url).toContain(`/repos/myorg/myrepo/statuses/${shaFixture}`)
-    expect(call?.body).toMatchObject({ state: "pending", context: "ploydok/build" })
+    expect(call?.body).toMatchObject({
+      state: "pending",
+      context: "ploydok/build",
+    })
     expect(redisMock.set).toHaveBeenCalledTimes(1)
   })
 
   it("posts success status to GitHub with correct state", async () => {
     const { postCommitStatusForApp } = await import("./commit-status")
-    await postCommitStatusForApp(dbMock, redisMock as unknown as import("@ploydok/db").Redis, makeGitHubApp(), {
-      sha: shaFixture,
-      state: "success",
-      buildNumber: 5,
-      durationMs: 12345,
-    })
+    await postCommitStatusForApp(
+      dbMock,
+      redisMock as unknown as import("@ploydok/db").Redis,
+      makeGitHubApp(),
+      {
+        sha: shaFixture,
+        state: "success",
+        buildNumber: 5,
+        durationMs: 12345,
+      }
+    )
 
     const call = fetchCalls.find((c) => c.url.includes("/statuses/"))
     expect(call?.body).toMatchObject({ state: "success" })
@@ -182,10 +222,15 @@ describe("postCommitStatusForApp", () => {
 
   it("posts failure status to GitHub with correct state", async () => {
     const { postCommitStatusForApp } = await import("./commit-status")
-    await postCommitStatusForApp(dbMock, redisMock as unknown as import("@ploydok/db").Redis, makeGitHubApp(), {
-      sha: shaFixture,
-      state: "failure",
-    })
+    await postCommitStatusForApp(
+      dbMock,
+      redisMock as unknown as import("@ploydok/db").Redis,
+      makeGitHubApp(),
+      {
+        sha: shaFixture,
+        state: "failure",
+      }
+    )
 
     const call = fetchCalls.find((c) => c.url.includes("/statuses/"))
     expect(call?.body?.state).toBe("failure")
@@ -197,7 +242,7 @@ describe("postCommitStatusForApp", () => {
       dbMock,
       redisMock as unknown as import("@ploydok/db").Redis,
       makeGitHubApp({ post_commit_status: false }),
-      { sha: shaFixture, state: "pending" },
+      { sha: shaFixture, state: "pending" }
     )
 
     expect(fetchCalls).toHaveLength(0)
@@ -206,10 +251,15 @@ describe("postCommitStatusForApp", () => {
 
   it("posts to GitLab statuses endpoint with mapped state", async () => {
     const { postCommitStatusForApp } = await import("./commit-status")
-    await postCommitStatusForApp(dbMock, redisMock as unknown as import("@ploydok/db").Redis, makeGitLabApp(), {
-      sha: shaFixture,
-      state: "failure",
-    })
+    await postCommitStatusForApp(
+      dbMock,
+      redisMock as unknown as import("@ploydok/db").Redis,
+      makeGitLabApp(),
+      {
+        sha: shaFixture,
+        state: "failure",
+      }
+    )
 
     const call = fetchCalls.find((c) => c.url.includes("/statuses/"))
     expect(call).toBeDefined()
@@ -218,26 +268,70 @@ describe("postCommitStatusForApp", () => {
     expect(call?.url).toContain("state=failed")
   })
 
+  it("preserves nested GitLab namespaces in commit status paths", async () => {
+    const { postCommitStatusForApp } = await import("./commit-status")
+    await postCommitStatusForApp(
+      dbMock,
+      redisMock as unknown as import("@ploydok/db").Redis,
+      makeGitLabApp({ repo_full_name: "platform/services/api" }),
+      { sha: shaFixture, state: "success" }
+    )
+
+    const call = fetchCalls.find((entry) => entry.url.includes("/statuses/"))
+    expect(call?.url).toContain(
+      `/projects/${encodeURIComponent("platform/services/api")}/statuses/`
+    )
+  })
+
   it("skips second identical call within 60s (dedup)", async () => {
     const { postCommitStatusForApp } = await import("./commit-status")
     const app = makeGitHubApp()
 
     // First call: Redis SETNX returns "OK" (new key)
     redisSetReturn = "OK"
-    await postCommitStatusForApp(dbMock, redisMock as unknown as import("@ploydok/db").Redis, app, {
-      sha: shaFixture,
-      state: "pending",
-    })
+    await postCommitStatusForApp(
+      dbMock,
+      redisMock as unknown as import("@ploydok/db").Redis,
+      app,
+      {
+        sha: shaFixture,
+        state: "pending",
+      }
+    )
     const firstCount = fetchCalls.length
 
     // Second call: Redis SETNX returns null (key already exists)
     redisSetReturn = null
-    await postCommitStatusForApp(dbMock, redisMock as unknown as import("@ploydok/db").Redis, app, {
-      sha: shaFixture,
-      state: "pending",
-    })
+    await postCommitStatusForApp(
+      dbMock,
+      redisMock as unknown as import("@ploydok/db").Redis,
+      app,
+      {
+        sha: shaFixture,
+        state: "pending",
+      }
+    )
 
     // No additional fetch calls
     expect(fetchCalls.length).toBe(firstCount)
+  })
+
+  it("does not contact the provider when the deploy fence rejects", async () => {
+    const { postCommitStatusForApp } = await import("./commit-status")
+    await expect(
+      postCommitStatusForApp(
+        dbMock,
+        redisMock as unknown as import("@ploydok/db").Redis,
+        makeGitHubApp(),
+        {
+          sha: shaFixture,
+          state: "success",
+          beforeSend: async () => {
+            throw new Error("lease lost")
+          },
+        }
+      )
+    ).rejects.toThrow("lease lost")
+    expect(fetchCalls).toHaveLength(0)
   })
 })

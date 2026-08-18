@@ -27,8 +27,19 @@ import { env } from "../env"
 import { makeTestDb, TEST_PG_URL } from "../test/db-helpers"
 import { claimQueuedRow } from "./queue-claim"
 import { GcRegistryOptionsSchema, runRegistryGc } from "./handlers/gc-registry"
+import type { RegistryClient } from "./handlers/gc-registry"
 
 const TEST_REDIS_URL = Bun.env["PLOYDOK_TEST_REDIS_URL"] ?? env.REDIS_URL
+
+// This suite asserts queue trust, not registry behaviour: the gate must not
+// depend on a reachable registry.
+const stubRegistryClient: RegistryClient = {
+  listTags: async () => [],
+  getManifest: async () => null,
+  deleteDigest: async () => {},
+  diskUsagePct: async () => 0,
+  garbageCollect: async () => ({ ok: true, output: "" }),
+}
 
 interface WorkerHarness {
   queue: Queue
@@ -71,9 +82,14 @@ async function createGcRegistryHarness(db: Db): Promise<WorkerHarness> {
           db,
           appFilter: opts.appId,
           keepPerRepo: opts.keepPerRepo,
+          registryClient: stubRegistryClient,
         })
       } else {
-        await runRegistryGc({ db, keepPerRepo: opts.keepPerRepo })
+        await runRegistryGc({
+          db,
+          keepPerRepo: opts.keepPerRepo,
+          registryClient: stubRegistryClient,
+        })
       }
 
       await db

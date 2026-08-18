@@ -1,9 +1,14 @@
 // SPDX-License-Identifier: AGPL-3.0-only
-import { and, desc, eq, sql } from "drizzle-orm"
+import { and, desc, eq, ilike, sql } from "drizzle-orm"
 import { audit_log } from "../schema"
 import type { Db } from "../client"
 
 export type AuditLogRow = typeof audit_log.$inferSelect
+
+// LIKE wildcards coming from a caller-supplied prefix must stay literal.
+function escapeLikePrefix(prefix: string): string {
+  return prefix.replace(/([\\%_])/g, "\\$1")
+}
 
 /**
  * Lists audit events for a given organization, ordered by created_at descending.
@@ -27,7 +32,7 @@ export async function listAuditEventsForOrg(
   const conditions = [eq(audit_log.org_id, orgId)]
 
   if (actionPrefix) {
-    conditions.push(sql`${audit_log.action} ILIKE ${actionPrefix}%`)
+    conditions.push(ilike(audit_log.action, `${escapeLikePrefix(actionPrefix)}%`))
   }
 
   if (targetType) {
@@ -73,7 +78,7 @@ export async function listAuditEventsForUser(
   const conditions = [eq(audit_log.user_id, userId)]
 
   if (actionPrefix) {
-    conditions.push(sql`${audit_log.action} ILIKE ${actionPrefix}%`)
+    conditions.push(ilike(audit_log.action, `${escapeLikePrefix(actionPrefix)}%`))
   }
 
   if (targetType) {

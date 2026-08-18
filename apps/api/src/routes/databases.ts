@@ -22,6 +22,7 @@ import {
   getConnectionString,
   getConnectionPassword,
   recreateDatabaseContainer,
+  resumeDatabaseCreation,
   removeDatabasePublicProxy,
   startDatabaseContainer,
   stopDatabaseContainer,
@@ -345,7 +346,26 @@ export function createDatabasesRouter(db: Db): Hono<any, any, any> {
         creationKey
       )
       if (existing) {
-        return c.json({ id: existing.id }, 200)
+        try {
+          if (existing.status !== "running") {
+            await resumeDatabaseCreation(db, existing, user.id)
+          }
+          return c.json({ id: existing.id }, 200)
+        } catch (err) {
+          log.error(
+            { err, databaseId: existing.id },
+            "database creation resume failed"
+          )
+          return c.json(
+            {
+              error: {
+                code: "SPAWN_ERROR",
+                message: "Failed to resume database creation",
+              },
+            },
+            500
+          )
+        }
       }
     }
 
@@ -374,7 +394,10 @@ export function createDatabasesRouter(db: Db): Hono<any, any, any> {
           projectId,
           creationKey
         )
-        if (existing) return c.json({ id: existing.id }, 200)
+        if (existing) {
+          await resumeDatabaseCreation(db, existing, user.id)
+          return c.json({ id: existing.id }, 200)
+        }
       }
       log.error({ err, projectId, kind, name }, "database spawn failed")
       return c.json(
@@ -818,9 +841,7 @@ export function createDatabasesRouter(db: Db): Hono<any, any, any> {
     try {
       await recreateDatabaseContainer(db, row, {
         exposureMode: row.exposure_mode as
-          | "internal"
-          | "direct_port"
-          | "public_proxy",
+          "internal" | "direct_port" | "public_proxy",
         publicEnabled: row.public_enabled,
         ownerId: user.id,
       })

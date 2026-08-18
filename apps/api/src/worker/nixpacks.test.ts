@@ -71,26 +71,39 @@ describe("nixpacksBuild", () => {
   })
 
   it("calls nixpacks with --cache-key when cacheKey is provided", async () => {
+    const controller = new AbortController()
     spawnSpy = spyOn(Bun, "spawn").mockReturnValue(
       fakeBunProcess({
         stdoutLines: ["[nixpacks] Building..."],
       }) as ReturnType<typeof Bun.spawn>
     )
 
-    await nixpacksMod.nixpacksBuild({
+    const generated = await nixpacksMod.nixpacksBuild({
       workspacePath: tmpDir,
       tag: "127.0.0.1:5000/app-abc:sha123",
       cacheKey: "app-abc",
       cacheDir: path.join(tmpDir, ".nixpacks-cache"),
+      signal: controller.signal,
     })
 
     const spawnMock = spawnSpy as unknown as {
       mock: { calls: Array<[unknown[], unknown]> }
     }
     expect(spawnMock.mock.calls.length).toBeGreaterThanOrEqual(1)
+    expect(
+      spawnMock.mock.calls.some(
+        (call) =>
+          (call[1] as { signal?: AbortSignal } | undefined)?.signal ===
+          controller.signal
+      )
+    ).toBe(true)
     const buildCall = spawnMock.mock.calls[0]
     const cmd = buildCall![0] as string[]
     expect(cmd).toContain("build")
+    expect(cmd).toContain("--out")
+    expect(generated.dockerfile).toBe(
+      path.join(generated.contextDir, ".nixpacks", "Dockerfile")
+    )
     expect(cmd).toContain("--cache-key")
     const cacheKeyIdx = cmd.indexOf("--cache-key")
     expect(cmd[cacheKeyIdx + 1]).toBe("app-abc")
@@ -111,6 +124,25 @@ describe("nixpacksBuild", () => {
     })
 
     expect(existsSync(cacheDir)).toBe(true)
+  })
+
+  it("creates the generated context on the writable build mount", async () => {
+    spawnSpy = spyOn(Bun, "spawn").mockReturnValue(
+      fakeBunProcess({}) as ReturnType<typeof Bun.spawn>
+    )
+
+    const appBuildDir = path.join(tmpDir, "builds", "app-123")
+    const cacheDir = path.join(appBuildDir, ".nixpacks-cache")
+    const generated = await nixpacksMod.nixpacksBuild({
+      workspacePath: tmpDir,
+      tag: "127.0.0.1:5000/app-123:sha123",
+      cacheDir,
+    })
+
+    expect(path.dirname(generated.contextDir)).toBe(appBuildDir)
+    expect(path.basename(generated.contextDir)).toStartWith(
+      ".ploydok-nixpacks-context-"
+    )
   })
 
   it("falls back to basename of cacheDir as cache key when cacheKey is omitted", async () => {

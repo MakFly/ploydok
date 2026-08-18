@@ -9,9 +9,19 @@ const addMock = mock(async () => undefined)
 
 mock.module("../worker/queues", () => ({
   deployQueue: {
+    name: "deploy",
     add: addMock,
     getJob: mock(async () => null),
   },
+}))
+
+mock.module("../worker/queue-enqueue", () => ({
+  enqueueWithDbRow: mock(async (opts: any) => {
+    const row = await opts.insertRow(opts.db)
+    const payload = opts.buildPayload(row)
+    await opts.queue.add(opts.jobName, payload, { jobId: row.id })
+    return { row, jobId: row.id }
+  }),
 }))
 
 const insertDeliveryMock = mock(async () => "delivery-id-123")
@@ -40,7 +50,9 @@ function makeDb(apps: unknown[]) {
       }),
     })),
     insert: mock(() => ({
-      values: () => Promise.resolve(),
+      values: (values: Record<string, unknown>) => ({
+        returning: () => Promise.resolve([values]),
+      }),
     })),
   } as unknown as Parameters<typeof handlePushGeneric>[0]
 }
@@ -66,7 +78,7 @@ describe("handlePushGeneric — tag push", () => {
     markDeliveryCoalescedMock.mockClear()
   })
 
-  it("enqueues a deploy job with kind=tag when tag matches pattern", async () => {
+  it("persists a tag build and enqueues only its reference", async () => {
     const db = makeDb([baseApp])
     await handlePushGeneric(
       db,
@@ -80,19 +92,24 @@ describe("handlePushGeneric — tag push", () => {
         authRef: "inst-42",
         payloadHash: "hash123",
       },
-      "delivery-external-1",
+      "delivery-external-1"
     )
 
     expect(addMock).toHaveBeenCalledTimes(1)
-    const addCall = addMock.mock.calls[0] as unknown as [string, Record<string, unknown>]
+    const addCall = addMock.mock.calls[0] as unknown as [
+      string,
+      Record<string, unknown>,
+    ]
     const jobData = addCall[1]
-    expect(jobData.kind).toBe("tag")
-    expect(jobData.tag).toBe("v1.2.0")
+    expect(Object.keys(jobData)).toEqual(["buildId"])
     // Wave-2 contract: payload references a pre-created build row, not appId.
     expect(typeof jobData.buildId).toBe("string")
     expect(jobData.buildId).not.toBe("")
     expect(insertDeliveryMock).toHaveBeenCalledTimes(1)
-    const insertCall = insertDeliveryMock.mock.calls[0] as unknown as [unknown, Record<string, unknown>]
+    const insertCall = insertDeliveryMock.mock.calls[0] as unknown as [
+      unknown,
+      Record<string, unknown>,
+    ]
     const deliveryRow = insertCall[1]
     expect(deliveryRow.decision).toBe("enqueued")
   })
@@ -111,11 +128,14 @@ describe("handlePushGeneric — tag push", () => {
         authRef: "inst-42",
         payloadHash: "hash123",
       },
-      "delivery-external-2",
+      "delivery-external-2"
     )
 
     expect(addMock).toHaveBeenCalledTimes(0)
-    const insertCall2 = insertDeliveryMock.mock.calls[0] as unknown as [unknown, Record<string, unknown>]
+    const insertCall2 = insertDeliveryMock.mock.calls[0] as unknown as [
+      unknown,
+      Record<string, unknown>,
+    ]
     expect(insertCall2[1].decision).toBe("skipped_tag_disabled")
   })
 
@@ -133,11 +153,14 @@ describe("handlePushGeneric — tag push", () => {
         authRef: "inst-42",
         payloadHash: "hash456",
       },
-      "delivery-external-3",
+      "delivery-external-3"
     )
 
     expect(addMock).toHaveBeenCalledTimes(0)
-    const insertCall3 = insertDeliveryMock.mock.calls[0] as unknown as [unknown, Record<string, unknown>]
+    const insertCall3 = insertDeliveryMock.mock.calls[0] as unknown as [
+      unknown,
+      Record<string, unknown>,
+    ]
     expect(insertCall3[1].decision).toBe("skipped_tag_pattern")
   })
 
@@ -155,11 +178,14 @@ describe("handlePushGeneric — tag push", () => {
         authRef: "inst-42",
         payloadHash: "hashbranch",
       },
-      "delivery-external-4",
+      "delivery-external-4"
     )
 
     expect(addMock).toHaveBeenCalledTimes(1)
-    const addCall4 = addMock.mock.calls[0] as unknown as [string, Record<string, unknown>]
+    const addCall4 = addMock.mock.calls[0] as unknown as [
+      string,
+      Record<string, unknown>,
+    ]
     expect(addCall4[1].kind).toBeUndefined()
     expect(addCall4[1].tag).toBeUndefined()
   })

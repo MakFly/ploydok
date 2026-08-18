@@ -1,5 +1,6 @@
 // SPDX-License-Identifier: AGPL-3.0-only
-import { pgTable, text, timestamp, index, unique } from "drizzle-orm/pg-core"
+import { pgTable, text, timestamp, index, uniqueIndex } from "drizzle-orm/pg-core"
+import { sql } from "drizzle-orm"
 import { projects } from "./projects"
 import { users } from "./users"
 
@@ -26,9 +27,11 @@ export const membership_invitations = pgTable(
       .defaultNow(),
   },
   (table) => [
-    unique().on(table.org_id, table.email, table.accepted_at), // prevent duplicate pending invites
+    uniqueIndex("membership_invitations_pending_org_email_unique")
+      .on(table.org_id, sql`lower(btrim(${table.email}))`)
+      .where(sql`${table.accepted_at} is null`),
     index("membership_invitations_org_id_idx").on(table.org_id),
-    index("membership_invitations_token_hash_idx").on(table.token_hash),
+    uniqueIndex("membership_invitations_token_hash_unique").on(table.token_hash),
   ]
 )
 

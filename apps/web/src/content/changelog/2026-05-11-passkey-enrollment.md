@@ -1,5 +1,7 @@
 # Enrôlement passkey depuis les settings
 
+> Maturity: Beta — the browser release matrix is not yet certified.
+
 La page Security > Passkeys permet maintenant d'ajouter une passkey depuis l'application.
 
 ## Ce qui change

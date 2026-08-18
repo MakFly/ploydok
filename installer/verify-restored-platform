@@ -1,0 +1,56 @@
+#!/usr/bin/env bash
+# SPDX-License-Identifier: AGPL-3.0-only
+set -Eeuo pipefail
+
+: "${PLOYDOK_DR_API_ORIGIN:?set the restored control-plane API origin}"
+: "${PLOYDOK_DR_TOKEN:?set a restored personal access token}"
+: "${PLOYDOK_DR_ORGANIZATION_ID:?set the expected organization id}"
+: "${PLOYDOK_DR_APP_ID:?set the expected application id}"
+: "${PLOYDOK_DR_DATABASE_ID:?set the expected database id}"
+: "${PLOYDOK_DR_APP_URL:?set the previously deployed application URL}"
+: "${PLOYDOK_DR_APP_EXPECTED_BODY_SHA256:?set the expected application response checksum}"
+: "${PLOYDOK_DR_EXPECTED_APP_IP:?set the recovery host IP expected in application DNS}"
+: "${PLOYDOK_DR_DATABASE_VERIFY_COMMAND:?set an executable managed-database sentinel check}"
+
+command -v jq >/dev/null 2>&1 || { echo "jq is required for restore verification" >&2; exit 1; }
+[[ -x "$PLOYDOK_DR_DATABASE_VERIFY_COMMAND" ]] || {
+  echo "managed-database sentinel verifier is not executable" >&2
+  exit 1
+}
+
+auth_header="Authorization: Bearer ${PLOYDOK_DR_TOKEN}"
+me="$(curl -fsS -H "$auth_header" "$PLOYDOK_DR_API_ORIGIN/me")"
+apps="$(curl -fsS -H "$auth_header" \
+  "$PLOYDOK_DR_API_ORIGIN/apps?organizationId=$PLOYDOK_DR_ORGANIZATION_ID")"
+databases="$(curl -fsS -H "$auth_header" \
+  "$PLOYDOK_DR_API_ORIGIN/databases?organizationId=$PLOYDOK_DR_ORGANIZATION_ID")"
+
+jq -e '.id | strings | length > 0' <<<"$me" >/dev/null || {
+  echo "restored authentication did not return a user" >&2
+  exit 1
+}
+jq -e --arg id "$PLOYDOK_DR_APP_ID" '.apps | any(.id == $id)' <<<"$apps" >/dev/null || {
+  echo "expected application is absent after restore" >&2
+  exit 1
+}
+jq -e --arg id "$PLOYDOK_DR_DATABASE_ID" '.databases | any(.id == $id)' <<<"$databases" >/dev/null || {
+  echo "expected database is absent after restore" >&2
+  exit 1
+}
+app_host="${PLOYDOK_DR_APP_URL#*://}"
+app_host="${app_host%%/*}"
+app_host="${app_host%%:*}"
+getent ahostsv4 "$app_host" | awk '{print $1}' | grep -Fxq "$PLOYDOK_DR_EXPECTED_APP_IP" || {
+  echo "application DNS does not resolve to the recovery host" >&2
+  exit 1
+}
+app_body="$(mktemp)"
+trap 'rm -f -- "$app_body"' EXIT
+curl -fsS "$PLOYDOK_DR_APP_URL" -o "$app_body"
+actual_body_sha="$(sha256sum "$app_body" | awk '{print $1}')"
+[[ "$actual_body_sha" == "$PLOYDOK_DR_APP_EXPECTED_BODY_SHA256" ]] || {
+  echo "restored application response does not match the recorded sentinel" >&2
+  exit 1
+}
+"$PLOYDOK_DR_DATABASE_VERIFY_COMMAND"
+echo "Restored authentication, resources and deployed application verified"

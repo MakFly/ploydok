@@ -16,6 +16,7 @@ import { reconcileIngressOnce } from "./services/ingress-reconcile.js"
 import { bootstrapSetupToken } from "./auth/setup-token"
 import { reconcileRuntimeAppsOnBoot } from "./services/app-runtime-reconciler.js"
 import { reconcileSwarmProjectNetworks } from "./services/projects.js"
+import { reconcileResourceCreations } from "./services/resource-creation-reconciler.js"
 import { migrateDockerAppsToSwarmOnBoot } from "./services/swarm-migration.js"
 
 const log = childLogger("boot")
@@ -112,6 +113,13 @@ async function bootInfra(db: Db): Promise<void> {
     log.info(result, "runtime app reconcile complete")
   } catch (err) {
     log.warn({ err }, "runtime app reconcile failed (non-fatal)")
+  }
+
+  try {
+    const result = await reconcileResourceCreations(db)
+    log.info(result, "resource creation reconcile complete")
+  } catch (err) {
+    log.warn({ err }, "resource creation reconcile failed (non-fatal)")
   }
 
   try {
@@ -216,7 +224,10 @@ if (import.meta.main) {
   // heartbeat. Per-request sockets are still closed on client abort.
   const server = Bun.serve({
     port: env.PORT,
-    fetch: app.fetch,
+    fetch: (request, server) =>
+      app.fetch(request, {
+        remoteAddress: server.requestIP(request)?.address,
+      } as never),
     websocket: wsHandler,
     idleTimeout: 0,
   })

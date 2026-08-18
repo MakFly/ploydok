@@ -28,7 +28,7 @@ import {
 } from "./handlers/gc-registry"
 import { claimQueuedRow } from "./queue-claim"
 import { auditClaimed, auditUnauthorized } from "./queue-audit"
-import { gcQueue } from "./queues"
+import { gcQueue, transactionalOutboxQueues } from "./queues"
 import { handleGcImagesJob } from "./handlers/gc-images"
 import { handleGcBuildcacheJob } from "./handlers/gc-buildcache"
 import {
@@ -98,8 +98,20 @@ import {
 } from "./jobs/image-update-watch"
 import { handleArchiveBuildLog } from "./handlers/archive-build-log"
 import type { ArchiveBuildLogPayload } from "./handlers/archive-build-log"
-import { withAppDeployLock } from "./app-deploy-lock"
+import { DeployCancelledError, withAppDeployLease } from "./app-deploy-lock"
 import { handleImageScan } from "./handlers/scan-image"
+import {
+  startOutboxDispatcher,
+  stopOutboxDispatcher,
+} from "./outbox-dispatcher"
+import {
+  startQueueOutboxDispatcher,
+  stopQueueOutboxDispatcher,
+} from "./queue-outbox-dispatcher"
+import {
+  startResourceCreationReconciler,
+  stopResourceCreationReconciler,
+} from "../services/resource-creation-reconciler"
 
 // ---------------------------------------------------------------------------
 // Types
@@ -262,12 +274,18 @@ export function startWorker(
               max_attempts: maxAttempts,
             })
           const appId = await resolveDeployJobAppId(db, job.data)
-          if (appId) {
-            await withAppDeployLock(appId, runDeploy)
+          const buildId =
+            typeof job.data?.buildId === "string" ? job.data.buildId : null
+          if (appId && buildId) {
+            await withAppDeployLease(db, appId, buildId, runDeploy)
           } else {
             await runDeploy()
           }
         } catch (err) {
+          if (err instanceof DeployCancelledError) {
+            logger.info({ jobId: job.id }, "deploy cancelled")
+            throw new UnrecoverableError(err.message)
+          }
           if (err instanceof FatalDeployError) {
             logger.error(
               { jobId: job.id, err, kind: "fatal", attempt, maxAttempts },
@@ -504,6 +522,9 @@ export function startWorker(
   startCleanupBuildCachesCron()
   startAutoHealCron(db)
   startImageUpdateWatchCron(db)
+  startOutboxDispatcher(db)
+  startQueueOutboxDispatcher(db, transactionalOutboxQueues)
+  startResourceCreationReconciler(db)
 
   const abortHandler = () => stop()
   opts?.signal?.addEventListener("abort", abortHandler)
@@ -526,6 +547,9 @@ export function startWorker(
     stopCleanupBuildCachesCron()
     stopAutoHealCron()
     stopImageUpdateWatchCron()
+    stopOutboxDispatcher()
+    await stopQueueOutboxDispatcher()
+    await stopResourceCreationReconciler()
     await Promise.all(workers.map((w) => w.close())).catch((err) => {
       logger.error({ err }, "error closing BullMQ workers")
     })

@@ -162,7 +162,9 @@ describe.skipIf(skip)("audit-log queries", () => {
     expect(lines[5]).toBe("test-type") // target_type
     expect(lines[6]).toBe("test-id-123") // target_id
     expect(lines[7]).toMatch(/^[a-f0-9]{64}$/) // sha256 metadata hash
-    expect(lines[8]).toBe("->") // prev_hash (first entry)
+    // prev_hash is "-" only for the very first chain entry; earlier tests in
+    // this file already extended the chain.
+    expect(lines[8]).toMatch(/^(-|[a-f0-9]{64})$/)
     expect(lines[9]).toMatch(/^[a-f0-9]{64}$/) // hash
   })
 })

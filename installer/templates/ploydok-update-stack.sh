@@ -4,13 +4,25 @@ set -Eeuo pipefail
 
 STACK_FILE="${PLOYDOK_INSTALL_DIR}/docker-stack.yml"
 IDENTITY_REGEX='^https://github\.com/MakFly/ploydok/\.github/workflows/release-images\.yml@.*$'
+IMAGE_PREFIX="${PLOYDOK_IMAGE_REGISTRY:-ghcr.io/makfly}/ploydok-"
+
+[[ "${PLOYDOK_ENABLE_AUTO_UPDATES:-0}" == "1" && "${PLOYDOK_ALLOW_EDGE:-0}" == "1" ]] || {
+  echo "ploydok update refused: automatic updates require explicit edge opt-in" >&2
+  exit 2
+}
 
 command -v cosign >/dev/null 2>&1 || {
   echo "ploydok update refused: cosign is required" >&2
   exit 3
 }
 
-mapfile -t images < <(awk '$1 == "image:" { print $2 }' "$STACK_FILE" | sort -u)
+mapfile -t images < <(
+  awk '$1 == "image:" { print $2 }' "$STACK_FILE" |
+    while IFS= read -r image; do
+      [[ "$image" == "$IMAGE_PREFIX"* ]] && printf '%s\n' "$image"
+    done |
+    sort -u
+)
 [[ "${#images[@]}" -gt 0 ]] || {
   echo "ploydok update refused: no images found in $STACK_FILE" >&2
   exit 2

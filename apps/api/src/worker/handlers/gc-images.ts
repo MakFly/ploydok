@@ -63,7 +63,7 @@ export async function handleGcImagesJob(
     const agent = getSharedAgent()
     const result = await agent.imagePrune({
       all: false,
-      untilUnix: 0,
+      untilUnix: Math.floor(Date.now() / 1000) - 7 * 24 * 60 * 60,
       keepRepoTags: [],
     })
     await db

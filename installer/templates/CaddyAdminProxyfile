@@ -1,0 +1,11 @@
+{
+	admin off
+	auto_https off
+}
+
+# This listener is reachable only on the internal, non-attachable
+# ploydok-management network. It forwards to the public Caddy process through
+# a Unix socket, so port 2019 is never open on ploydok-public.
+:2019 {
+	reverse_proxy unix//run/caddy-admin/admin.sock
+}

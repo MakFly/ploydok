@@ -11,6 +11,8 @@ interface DocumentLike {
 
 let fakeDoc: DocumentLike;
 let visListener: (() => void) | null;
+const originalWindow = globalThis.window;
+const originalDocument = globalThis.document;
 
 beforeEach(() => {
   visListener = null;
@@ -33,10 +35,8 @@ beforeEach(() => {
 });
 
 afterEach(() => {
-   
-  delete (globalThis as any).window;
-   
-  delete (globalThis as any).document;
+  (globalThis as any).window = originalWindow;
+  (globalThis as any).document = originalDocument;
 });
 
 describe("scheduler — proactive refresh", () => {

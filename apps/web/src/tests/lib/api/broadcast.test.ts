@@ -40,6 +40,9 @@ class FakeBroadcastChannel {
   }
 }
 
+const originalWindow = globalThis.window;
+const originalBroadcastChannel = globalThis.BroadcastChannel;
+
 beforeEach(() => {
   FakeBroadcastChannel.instances = [];
 
@@ -51,10 +54,8 @@ beforeEach(() => {
 
 afterEach(() => {
   broadcastMod.__resetChannelForTests();
-   
-  delete (globalThis as any).BroadcastChannel;
-   
-  delete (globalThis as any).window;
+  (globalThis as any).BroadcastChannel = originalBroadcastChannel;
+  (globalThis as any).window = originalWindow;
 });
 
 describe("broadcast — multi-tab auth events", () => {

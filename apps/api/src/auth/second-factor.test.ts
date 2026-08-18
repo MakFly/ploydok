@@ -2,7 +2,7 @@
 import { describe, it, expect, beforeEach } from "bun:test"
 import { Hono } from "hono"
 import { nanoid } from "nanoid"
-import { users, totp_secrets } from "@ploydok/db"
+import { sessions, users, totp_secrets } from "@ploydok/db"
 import type { Db } from "@ploydok/db"
 import { makeTestDb, TEST_PG_URL } from "../test/db-helpers"
 import { requireAuth } from "./middleware"
@@ -41,10 +41,23 @@ async function makeUser(db: Db): Promise<{ userId: string; token: string }> {
     recovery_token_hash: null,
     recovery_expires_at: null,
   })
+  // requireAuth rejects a token whose session row is missing or revoked.
+  const sessionId = `sess-${nanoid(6)}`
+  await db.insert(sessions).values({
+    id: sessionId,
+    user_id: userId,
+    refresh_token_hash: `hash-${sessionId}`,
+    user_agent: "test",
+    ip: "127.0.0.1",
+    created_at: now,
+    last_seen_at: now,
+    revoked_at: null,
+    expires_at: new Date(now.getTime() + 60_000),
+  })
   const token = await signAccessToken({
     userId,
     email: `user-${userId}@test.com`,
-    sessionId: `sess-${nanoid(6)}`,
+    sessionId,
   })
   return { userId, token }
 }

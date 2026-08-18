@@ -7,7 +7,9 @@ import {
   RiLoopRightLine,
 } from "@remixicon/react"
 import { Button } from "@workspace/ui/components/button"
+import { cn } from "@workspace/ui/lib/utils"
 import {
+  gitLabOAuthErrorMessage,
   gitlabConnectUrl,
   useDeleteGitLabConfig,
   useDisconnectGitLab,
@@ -34,11 +36,16 @@ export function GitLabPanel(): React.JSX.Element {
   const justConnected =
     typeof window !== "undefined" &&
     new URLSearchParams(window.location.search).get("connected") === "1"
+  const oauthError =
+    typeof window !== "undefined"
+      ? gitLabOAuthErrorMessage(window.location.search)
+      : null
 
   const configured = Boolean(
     providerStatus.data?.gitlab.configured ?? config?.configured
   )
   const connected = Boolean(providerStatus.data?.gitlab.connected)
+  const connectionState = providerStatus.data?.gitlab.state
   const isAdmin = me?.is_instance_admin === true
 
   return (
@@ -49,6 +56,15 @@ export function GitLabPanel(): React.JSX.Element {
           <span>
             Connexion GitLab réussie. Tu peux maintenant lister tes projets.
           </span>
+        </div>
+      ) : null}
+
+      {oauthError ? (
+        <div
+          role="alert"
+          className="rounded-lg border border-destructive/30 bg-destructive/5 p-3 text-xs text-destructive"
+        >
+          {oauthError}
         </div>
       ) : null}
 
@@ -64,6 +80,7 @@ export function GitLabPanel(): React.JSX.Element {
           resetPending={del.isPending}
           disconnectPending={disconnect.isPending}
           connected={connected}
+          connectionState={connectionState}
           isAdmin={isAdmin}
         />
       ) : isAdmin ? (
@@ -82,14 +99,18 @@ export function GitLabPanel(): React.JSX.Element {
 
       {isAdmin ? <GitLabSetupHelp callbackUrl={config?.callback_url} /> : null}
 
-      {connected ? <GitLabCacheSection /> : null}
+      {connected ? <GitLabCacheSection autoRefresh={justConnected} /> : null}
     </div>
   )
 }
 
-function GitLabCacheSection(): React.JSX.Element {
+function GitLabCacheSection({
+  autoRefresh,
+}: {
+  autoRefresh: boolean
+}): React.JSX.Element {
   const sync = useSyncGitLabInstallations()
-  const cache = useGitLabCacheStatus({})
+  const cache = useGitLabCacheStatus({ autoRefresh })
   const entries = cache.data?.installation ? [cache.data.installation] : []
   const progress = useSyncWithProgress()
 
@@ -148,6 +169,7 @@ function ConfiguredState({
   resetPending,
   disconnectPending,
   connected,
+  connectionState,
   isAdmin,
 }: {
   config: { instance_url?: string; client_id?: string }
@@ -156,6 +178,13 @@ function ConfiguredState({
   resetPending: boolean
   disconnectPending: boolean
   connected: boolean
+  connectionState:
+    | "not_configured"
+    | "disconnected"
+    | "expired"
+    | "unavailable"
+    | "connected"
+    | undefined
   isAdmin: boolean
 }): React.JSX.Element {
   return (
@@ -169,9 +198,22 @@ function ConfiguredState({
             <h2 className="font-heading text-base font-medium">
               GitLab configuré
             </h2>
-            <span className="inline-flex items-center gap-1 font-mono text-[10px] tracking-wide text-emerald-600 uppercase dark:text-emerald-400">
+            <span
+              className={cn(
+                "inline-flex items-center gap-1 font-mono text-[10px] tracking-wide uppercase",
+                connectionState === "unavailable"
+                  ? "text-amber-600 dark:text-amber-400"
+                  : "text-emerald-600 dark:text-emerald-400"
+              )}
+            >
               <RiCheckboxCircleFill className="size-3" />
-              {connected ? "Connected" : "Configured"}
+              {connected
+                ? "Connected"
+                : connectionState === "unavailable"
+                  ? "Unavailable"
+                  : connectionState === "expired"
+                    ? "Expired"
+                    : "Configured"}
             </span>
           </div>
           <p className="truncate font-mono text-[10px] tracking-wide text-muted-foreground">
@@ -179,6 +221,16 @@ function ConfiguredState({
           </p>
         </div>
       </header>
+
+      {connectionState === "unavailable" ? (
+        <p
+          className="rounded-md border border-amber-500/30 bg-amber-500/10 px-3 py-2 text-xs text-foreground"
+          role="alert"
+        >
+          GitLab est temporairement indisponible. La connexion enregistrée n’a
+          pas été supprimée ; réessaie plus tard.
+        </p>
+      ) : null}
 
       <dl className="grid gap-3 text-xs sm:grid-cols-2">
         <div>

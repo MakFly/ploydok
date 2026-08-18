@@ -1,0 +1,65 @@
+#!/usr/bin/env bash
+# SPDX-License-Identifier: AGPL-3.0-only
+set -Eeuo pipefail
+
+manifest="${1:-}"
+install_dir="${2:-/opt/ploydok}"
+data_dir="${3:-/var/lib/ploydok}"
+[[ -f "$manifest" ]] || { echo "missing release image manifest: $manifest" >&2; exit 2; }
+
+declare -A expected
+while IFS='=' read -r key value; do
+  case "$key" in
+    PLOYDOK_API_IMAGE) service=api ;;
+    PLOYDOK_WEB_IMAGE) service=web ;;
+    PLOYDOK_AGENT_IMAGE) service=agent ;;
+    PLOYDOK_ADMINER_IMAGE) service=adminer ;;
+    PLOYDOK_CADDY_IMAGE) service=caddy ;;
+    *) echo "unexpected release image manifest key: $key" >&2; exit 2 ;;
+  esac
+  [[ "$value" =~ @sha256:[0-9a-f]{64}$ ]] || {
+    echo "release image is not digest-pinned: $value" >&2
+    exit 2
+  }
+  [[ -z "${expected[$service]:-}" ]] || {
+    echo "duplicate release image for $service" >&2
+    exit 2
+  }
+  expected[$service]="$value"
+done <"$manifest"
+
+for service in api web agent adminer caddy; do
+  [[ -n "${expected[$service]:-}" ]] || {
+    echo "release image manifest is missing $service" >&2
+    exit 2
+  }
+done
+
+if [[ -f "$install_dir/docker-stack.yml" ]]; then
+  for service in api web agent adminer caddy; do
+    active="$(docker service inspect --format '{{.Spec.TaskTemplate.ContainerSpec.Image}}' "ploydok_$service")"
+    [[ "$active" == "${expected[$service]}" ]] || {
+      echo "$service runs $active, expected ${expected[$service]}" >&2
+      exit 1
+    }
+  done
+else
+  descriptor="$install_dir/docker-compose.yml"
+  [[ -f "$descriptor" ]] || descriptor="$data_dir/docker-compose.yml"
+  [[ -f "$descriptor" && -f "$data_dir/.env" ]] || {
+    echo "compose descriptor or environment is missing" >&2
+    exit 2
+  }
+  compose=(docker compose --env-file "$data_dir/.env" -f "$descriptor")
+  for service in api web agent adminer caddy; do
+    container_id="$("${compose[@]}" ps -q "$service")"
+    [[ -n "$container_id" ]] || { echo "$service has no active container" >&2; exit 1; }
+    active="$(docker inspect --format '{{.Config.Image}}' "$container_id")"
+    [[ "$active" == "${expected[$service]}" ]] || {
+      echo "$service runs $active, expected ${expected[$service]}" >&2
+      exit 1
+    }
+  done
+fi
+
+echo "all release fixture services run the manifest digests"

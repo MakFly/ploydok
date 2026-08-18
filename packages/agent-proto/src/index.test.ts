@@ -1,11 +1,12 @@
 // SPDX-License-Identifier: AGPL-3.0-only
 
-import { describe, expect, it } from 'bun:test';
+import { describe, expect, it } from "bun:test"
+import { ContainerCreateRequest, protobufPackage } from "./index"
 
-describe('AgentClient', () => {
-  it('can be used as a type (module loads)', () => {
-    // If the import fails, this test will fail.
-    // AgentClient is an interface, so we just verify the module loads.
-    expect(true).toBe(true);
-  });
-});
+describe("agent proto exports", () => {
+  it("exposes generated package metadata and message codecs", () => {
+    expect(protobufPackage).toBe("ploydok.agent.v1")
+    expect(ContainerCreateRequest.encode).toBeFunction()
+    expect(ContainerCreateRequest.decode).toBeFunction()
+  })
+})

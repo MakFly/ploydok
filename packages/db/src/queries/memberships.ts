@@ -74,7 +74,7 @@ export async function hasRole(
 }
 
 export async function insertMembership(
-  db: Db,
+  db: Pick<Db, "insert">,
   values: {
     id: string
     org_id: string
@@ -99,6 +99,18 @@ export async function insertMembership(
     .returning()
 
   return rows[0]!
+}
+
+export async function insertMembershipIfAbsent(
+  db: Pick<Db, "insert">,
+  values: Parameters<typeof insertMembership>[1]
+): Promise<void> {
+  await db
+    .insert(memberships)
+    .values(values)
+    .onConflictDoNothing({
+      target: [memberships.org_id, memberships.user_id],
+    })
 }
 
 export async function removeMembership(

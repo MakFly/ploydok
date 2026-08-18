@@ -73,21 +73,12 @@ export const Route = createRootRoute({
     meta: [
       { charSet: "utf-8" },
       { name: "viewport", content: "width=device-width, initial-scale=1" },
+      { name: "referrer", content: "no-referrer" },
       { title: "Ploydok" },
     ],
-    links: [
-      { rel: "stylesheet", href: appCss },
-      { rel: "preconnect", href: "https://fonts.googleapis.com" },
-      {
-        rel: "preconnect",
-        href: "https://fonts.gstatic.com",
-        crossOrigin: "anonymous",
-      },
-      {
-        rel: "stylesheet",
-        href: "https://fonts.googleapis.com/css2?family=Inter:wght@100..900&family=JetBrains+Mono:wght@100..800&display=swap",
-      },
-    ],
+    // The self-hosted control plane must render without leaking page visits to
+    // a third-party font CDN. The design system uses its local/system fallbacks.
+    links: [{ rel: "stylesheet", href: appCss }],
   }),
   shellComponent: RootDocument,
   errorComponent: RootErrorComponent,

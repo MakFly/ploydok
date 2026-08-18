@@ -31,5 +31,20 @@ export default defineConfig({
       name: "chromium",
       use: { ...devices["Desktop Chrome"] },
     },
+    {
+      name: "firefox-critical",
+      testMatch: /accessibility\/.*\.spec\.ts/,
+      use: { ...devices["Desktop Firefox"] },
+    },
+    {
+      name: "webkit-critical",
+      testMatch: /accessibility\/.*\.spec\.ts/,
+      use: { ...devices["Desktop Safari"] },
+    },
+    {
+      name: "mobile-critical",
+      testMatch: /accessibility\/.*\.spec\.ts/,
+      use: { ...devices["Pixel 7"] },
+    },
   ],
 });

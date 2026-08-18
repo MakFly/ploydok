@@ -90,15 +90,17 @@ describe("purgeOldAuditEntries", () => {
 describe("startAuditRetentionCron", () => {
   test("démarre + stoppe sans crash", () => {
     const db = fakeDb([])
-    // eslint-disable-next-line @typescript-eslint/no-explicit-any
-    startAuditRetentionCron({ db: db as any, intervalMs: 999_999_999 })
-    stopAuditRetentionCron()
-    expect(true).toBe(true)
+    expect(() => {
+      // eslint-disable-next-line @typescript-eslint/no-explicit-any
+      startAuditRetentionCron({ db: db as any, intervalMs: 999_999_999 })
+      stopAuditRetentionCron()
+    }).not.toThrow()
   })
 
   test("stop est idempotent", () => {
-    stopAuditRetentionCron()
-    stopAuditRetentionCron()
-    expect(true).toBe(true)
+    expect(() => {
+      stopAuditRetentionCron()
+      stopAuditRetentionCron()
+    }).not.toThrow()
   })
 })

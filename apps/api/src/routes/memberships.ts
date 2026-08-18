@@ -1,9 +1,9 @@
 // SPDX-License-Identifier: AGPL-3.0-only
 import { nanoid } from "nanoid"
 import { Hono } from "hono"
-import { and, eq } from "drizzle-orm"
+import { eq } from "drizzle-orm"
 import type { Db } from "@ploydok/db"
-import { membership_invitations, projects } from "@ploydok/db"
+import { projects } from "@ploydok/db"
 import {
   listMembershipsForOrg,
   getMembership,
@@ -18,15 +18,23 @@ import {
 } from "@ploydok/shared"
 import type { AuthUser } from "../auth/middleware"
 import { requireRole } from "../auth/require-role"
-import { sendMail } from "../mailer"
 import { renderInvitationEmail } from "../mailer"
 import { env } from "../env"
 import {
   createInvitation,
+  deleteInvitationUnlessDeliveryActive,
+  deleteExpiredInvitations,
   findPendingInvitationByEmail,
+  getOutboxEvent,
+  insertOutboxEvent,
   listPendingInvitationsForOrg,
+  makeOutboxEventAvailable,
 } from "@ploydok/db/queries"
 import { createHash } from "crypto"
+import { encryptSecret } from "../secrets/crypto"
+
+class InvitationAlreadyPendingError extends Error {}
+class InvitationDeliveryDeadLetterError extends Error {}
 
 function getUser(c: { get: (key: string) => unknown }): AuthUser {
   return c.get("user") as AuthUser
@@ -84,23 +92,7 @@ export function createMembershipsRouter(db: Db): Hono {
         )
       }
 
-      // Check if invitation already pending for this email
-      const existing = await findPendingInvitationByEmail(
-        db,
-        orgId,
-        parsed.data.email
-      )
-      if (existing) {
-        return c.json(
-          {
-            error: {
-              code: "CONFLICT",
-              message: "Invitation already pending for this email",
-            },
-          },
-          409
-        )
-      }
+      const invitationEmail = parsed.data.email.trim().toLowerCase()
 
       // Generate token and hash
       const token = await import("crypto").then((m) =>
@@ -108,44 +100,139 @@ export function createMembershipsRouter(db: Db): Hono {
       )
       const tokenHash = hashToken(token)
 
-      // Create invitation
+      // Expired rows are removed before insertion because PostgreSQL partial
+      // index predicates cannot safely depend on the current clock.
       const expiresAt = new Date()
       expiresAt.setDate(expiresAt.getDate() + 7)
-
-      const invitation = await createInvitation(db, {
-        id: nanoid(),
-        org_id: orgId,
-        email: parsed.data.email,
-        role: parsed.data.role,
-        token_hash: tokenHash,
-        invited_by: user.id,
-        expires_at: expiresAt,
-      })
-
-      // Get org details for email
       const orgRows = await db
         .select()
         .from(projects)
         .where(eq(projects.id, orgId))
         .limit(1)
       const org = orgRows[0]
+      if (!org) {
+        return c.json(
+          { error: { code: "NOT_FOUND", message: "Organization not found" } },
+          404
+        )
+      }
 
-      // Send invitation email
+      const invitationId = nanoid()
+      const outboxEventId = `invitation-email:${invitationId}`
       const acceptUrl = `${env.WEB_ORIGIN}/invitations/accept?token=${token}`
       const emailContent = renderInvitationEmail({
-        orgName: org?.name ?? "Ploydok",
+        orgName: org.name,
         inviterName: user.display_name,
         acceptUrl,
         expiresAt,
       })
+      const encryptedPayload = await encryptSecret(
+        JSON.stringify({
+          kind: "mail",
+          invitationId,
+          to: invitationEmail,
+          subject: emailContent.subject,
+          text: emailContent.text,
+          html: emailContent.html,
+          messageId: `<invitation-${invitationId}@ploydok.local>`,
+        })
+      )
 
-      await sendMail({
-        to: parsed.data.email,
-        subject: emailContent.subject,
-        text: emailContent.text,
-        html: emailContent.html,
-      })
+      let result: {
+        invitation: Awaited<ReturnType<typeof createInvitation>>
+        deliveryStatus: "queued" | "delivered"
+        created: boolean
+      }
+      try {
+        result = await db.transaction(async (tx) => {
+          await deleteExpiredInvitations(tx, {
+            now: new Date(),
+            orgId,
+            email: invitationEmail,
+          })
+          const existing = await findPendingInvitationByEmail(
+            tx,
+            orgId,
+            invitationEmail
+          )
+          if (existing) {
+            const existingEventId = `invitation-email:${existing.id}`
+            const existingEvent = await getOutboxEvent(tx, existingEventId)
+            if (!existingEvent) throw new InvitationAlreadyPendingError()
+            if (existingEvent.dead_lettered_at) {
+              throw new InvitationDeliveryDeadLetterError()
+            }
+            if (existingEvent.delivered_at) {
+              return {
+                invitation: existing,
+                deliveryStatus: "delivered" as const,
+                created: false,
+              }
+            }
+            await makeOutboxEventAvailable(tx, existingEventId)
+            return {
+              invitation: existing,
+              deliveryStatus: "queued" as const,
+              created: false,
+            }
+          }
 
+          const created = await createInvitation(tx, {
+            id: invitationId,
+            org_id: orgId,
+            email: invitationEmail,
+            role: parsed.data.role,
+            token_hash: tokenHash,
+            invited_by: user.id,
+            expires_at: expiresAt,
+          })
+          await insertOutboxEvent(tx, {
+            id: outboxEventId,
+            invitation_id: invitationId,
+            topic: "mail.invitation",
+            payload_ciphertext: encryptedPayload.enc,
+            payload_nonce: encryptedPayload.nonce,
+          })
+          return {
+            invitation: created,
+            deliveryStatus: "queued" as const,
+            created: true,
+          }
+        })
+      } catch (error) {
+        const code =
+          typeof error === "object" && error !== null && "code" in error
+            ? String(error.code)
+            : null
+        if (
+          error instanceof InvitationAlreadyPendingError ||
+          code === "23505"
+        ) {
+          return c.json(
+            {
+              error: {
+                code: "CONFLICT",
+                message: "Invitation already pending for this email",
+              },
+            },
+            409
+          )
+        }
+        if (error instanceof InvitationDeliveryDeadLetterError) {
+          return c.json(
+            {
+              error: {
+                code: "INVITATION_DELIVERY_FAILED",
+                message: "Revoke this invitation before sending a new one",
+              },
+            },
+            409
+          )
+        }
+        throw error
+      }
+
+      const { invitation, deliveryStatus, created } = result
       return c.json(
         {
           invitation: {
@@ -154,8 +241,9 @@ export function createMembershipsRouter(db: Db): Hono {
             role: invitation.role,
             expires_at: invitation.expires_at.toISOString(),
           },
+          delivery_status: deliveryStatus,
         },
-        201
+        created ? 202 : 200
       )
     }
   )
@@ -244,17 +332,25 @@ export function createMembershipsRouter(db: Db): Hono {
       const orgId = getOrgId(c)
       const invitationId = c.req.param("invitationId")!
 
-      const deleted = await db
-        .delete(membership_invitations)
-        .where(
-          and(
-            eq(membership_invitations.id, invitationId),
-            eq(membership_invitations.org_id, orgId)
-          )
-        )
-        .returning({ id: membership_invitations.id })
+      // The conditional delete and outbox cascade share one transaction. A
+      // 409 means SMTP may still be in flight, so a later retry is safe.
+      const deletion = await db.transaction((tx) =>
+        deleteInvitationUnlessDeliveryActive(tx, invitationId, orgId)
+      )
 
-      if (deleted.length === 0) {
+      if (deletion === "busy") {
+        c.header("Retry-After", "5")
+        return c.json(
+          {
+            error: {
+              code: "INVITATION_DELIVERY_ACTIVE",
+              message: "Invitation delivery is active; retry revocation",
+            },
+          },
+          409
+        )
+      }
+      if (deletion === "not-found") {
         return c.json(
           { error: { code: "NOT_FOUND", message: "Invitation not found" } },
           404

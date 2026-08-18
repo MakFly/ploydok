@@ -14,6 +14,9 @@ import {
   app_delete_jobs,
   github_installation_users,
   gitlab_tokens,
+  provider_installations,
+  provider_repos,
+  resource_creation_sagas,
 } from "@ploydok/db"
 import type { Db } from "@ploydok/db"
 import { makeTestDb as makePgTestDb, TEST_PG_URL } from "../test/db-helpers"
@@ -23,11 +26,14 @@ import {
   deriveDefaultAppDomainBase,
   deriveCurrentBuildMetadata,
   enqueueAppDeleteJob,
+  removeQueuedDeployBuild,
 } from "./apps"
 import type { AuthUser } from "../auth/middleware"
 import * as singletons from "../debug/singletons"
 import * as githubModule from "./github"
+import * as gitlabConnectionModule from "../gitlab/connection"
 import { decryptSecret } from "../secrets/crypto"
+import { deployQueue } from "../worker/queues"
 
 // ---------------------------------------------------------------------------
 // Test DB helper — in-memory SQLite with all required tables
@@ -43,6 +49,7 @@ async function makeTestDb() {
 
 type TestDb = Db
 let nextGitHubInstallationId = 1_000_000
+let gitLabConnectionReady = false
 
 describe("deriveCurrentBuildMetadata", () => {
   it("uses the latest successful build commit as the current deployed commit", () => {
@@ -106,6 +113,25 @@ describe("default app domains", () => {
         publicHost: "212.47.249.36",
       })
     ).toBe("fixture-hello-fvwqccec.212-47-249-36.sslip.io")
+  })
+})
+
+describe("cancel deployment queue scoping", () => {
+  it("removes only the targeted build and preserves same-app successors", async () => {
+    const removed: string[] = []
+    const jobs = ["build-target", "build-successor", "build-other"].map(
+      (buildId) => ({
+        data: { buildId, appId: "app-1" },
+        remove: mock(async () => {
+          removed.push(buildId)
+        }),
+      })
+    )
+    await removeQueuedDeployBuild(
+      { getJobs: mock(async () => jobs) } as never,
+      "build-target"
+    )
+    expect(removed).toEqual(["build-target"])
   })
 })
 
@@ -266,11 +292,11 @@ describe("enqueueAppDeleteJob", () => {
         })),
       })),
       insert: mock((_table: unknown) => ({
-        values: mock(async (values: unknown) => {
+        values: mock((values: unknown) => {
           calls.push(
             `tx${phase}:insert:${(values as { id?: string }).id ?? "unknown"}`
           )
-          return []
+          return { returning: mock(async () => [values]) }
         }),
       })),
       delete: mock((_table: unknown) => ({
@@ -297,6 +323,7 @@ describe("enqueueAppDeleteJob", () => {
     } as unknown as Db
 
     const queue = {
+      name: "app.delete",
       add: mock(
         async (
           _name: string,
@@ -305,7 +332,6 @@ describe("enqueueAppDeleteJob", () => {
         ) => {
           calls.push(`queue:add:${activeTransactions}`)
           const jobId = opts?.jobId ?? "missing-job-id"
-          expect(payload.jobId).toBe(jobId)
           return { id: jobId }
         }
       ),
@@ -315,7 +341,6 @@ describe("enqueueAppDeleteJob", () => {
       db,
       appId: "app-1",
       requestedByUserId: "user-1",
-      previousStatus: "running",
       flags: {
         deleteImages: true,
         dockerCleanup: true,
@@ -323,17 +348,26 @@ describe("enqueueAppDeleteJob", () => {
         deleteCaddyRoutes: true,
       },
       queue,
+      dispatchAfterCommit: async (_db, _queue, _eventId) => {
+        await queue.add(
+          "app.delete.requested",
+          { jobId: "source-row" },
+          { jobId: "durable-job" }
+        )
+        return "dispatched"
+      },
     })
 
     expect(result.jobId).toBeString()
     expect(calls[0]).toBe("tx1:start")
     expect(calls[1]).toBe("tx1:update:deleting")
     expect(calls[2]?.startsWith("tx1:insert:")).toBe(true)
-    expect(calls[3]).toBe("tx1:commit")
-    expect(calls[4]).toBe("queue:add:0")
+    expect(calls[3]?.startsWith("tx1:insert:queue:")).toBe(true)
+    expect(calls[4]).toBe("tx1:commit")
+    expect(calls[5]).toBe("queue:add:0")
   })
 
-  it("restores the app row when queue.add fails after commit", async () => {
+  it("keeps the durable app deletion request when Redis is unavailable", async () => {
     const calls: string[] = []
     const appUpdates: Array<{
       phase: number
@@ -353,11 +387,11 @@ describe("enqueueAppDeleteJob", () => {
         })),
       })),
       insert: mock((_table: unknown) => ({
-        values: mock(async (values: unknown) => {
+        values: mock((values: unknown) => {
           calls.push(
             `tx${phase}:insert:${(values as { id?: string }).id ?? "unknown"}`
           )
-          return []
+          return { returning: mock(async () => [values]) }
         }),
       })),
       delete: mock((_table: unknown) => ({
@@ -379,6 +413,7 @@ describe("enqueueAppDeleteJob", () => {
     } as unknown as Db
 
     const queue = {
+      name: "app.delete",
       add: mock(async () => {
         calls.push("queue:add")
         throw new Error("queue down")
@@ -390,7 +425,6 @@ describe("enqueueAppDeleteJob", () => {
         db,
         appId: "app-1",
         requestedByUserId: "user-1",
-        previousStatus: "running",
         flags: {
           deleteImages: true,
           dockerCleanup: true,
@@ -398,19 +432,19 @@ describe("enqueueAppDeleteJob", () => {
           deleteCaddyRoutes: true,
         },
         queue,
+        dispatchAfterCommit: async () => {
+          await queue.add()
+          return "dispatched"
+        },
       })
-    ).rejects.toThrow("queue down")
+    ).resolves.toEqual({ jobId: expect.any(String) })
 
-    expect(calls).toContain("tx2:delete")
-    expect(calls).toContain("tx2:update:running")
+    expect(calls).not.toContain("tx2:delete")
+    expect(calls).not.toContain("tx2:update:running")
     expect(appUpdates).toEqual([
       expect.objectContaining({
         phase: 1,
         values: expect.objectContaining({ status: "deleting" }),
-      }),
-      expect.objectContaining({
-        phase: 2,
-        values: expect.objectContaining({ status: "running" }),
       }),
     ])
   })
@@ -427,6 +461,7 @@ describe.skipIf(skip)("POST /apps", () => {
   let githubInstallationId: string
 
   beforeEach(async () => {
+    gitLabConnectionReady = false
     db = await makeTestDb()
     const user = await createTestUser(db)
     userId = user.id
@@ -438,6 +473,36 @@ describe.skipIf(skip)("POST /apps", () => {
       user_id: userId,
       created_at: new Date(),
       updated_at: new Date(),
+    })
+    spyOn(gitlabConnectionModule, "resolveGitLabConnection").mockImplementation(
+      async () => {
+        if (!gitLabConnectionReady) throw new Error("not connected")
+        return {
+          accessToken: "gitlab-token",
+          installationId: `gitlab:user:${userId}`,
+          credentialUserId: userId,
+          instanceUrl: "https://gitlab.example.test",
+          provider: {} as never,
+        }
+      }
+    )
+    spyOn(
+      gitlabConnectionModule,
+      "assertGitLabProjectSelection"
+    ).mockResolvedValue({
+      accessToken: "gitlab-token",
+      installationId: `gitlab:user:${userId}`,
+      credentialUserId: userId,
+      instanceUrl: "https://gitlab.example.test",
+      provider: {} as never,
+      project: {
+        id: 42,
+        fullName: "group/platform/repo",
+        description: null,
+        private: true,
+        defaultBranch: "main",
+        cloneUrl: "https://gitlab.example.test/group/platform/repo.git",
+      },
     })
   })
 
@@ -541,6 +606,17 @@ describe.skipIf(skip)("POST /apps", () => {
 
   it("accepts GitLab and image sources after their respective gate", async () => {
     const app = buildTestApp(db, fakeUser(userId, `u@t.com`))
+    const missingProjectId = await app.request("/apps", {
+      method: "POST",
+      headers: { "content-type": "application/json" },
+      body: JSON.stringify({
+        name: "Incomplete GitLab App",
+        projectId,
+        gitProvider: "gitlab",
+        repoFullName: "group/platform/repo",
+        branch: "main",
+      }),
+    })
     const blockedGitLab = await app.request("/apps", {
       method: "POST",
       headers: { "content-type": "application/json" },
@@ -549,7 +625,7 @@ describe.skipIf(skip)("POST /apps", () => {
         projectId,
         gitProvider: "gitlab",
         gitlabProjectId: 1,
-        repoFullName: "group/repo",
+        repoFullName: "group/platform/repo",
         branch: "main",
       }),
     })
@@ -563,6 +639,31 @@ describe.skipIf(skip)("POST /apps", () => {
       created_at: new Date(),
       updated_at: new Date(),
     })
+    await db.insert(provider_installations).values({
+      id: `gitlab:user:${userId}`,
+      provider: "gitlab",
+      external_id: userId,
+      account_login: "test-user",
+      account_type: "User",
+      repository_selection: "all",
+      repository_count: 1,
+      last_synced_at: new Date(),
+    })
+    await db.insert(provider_repos).values({
+      id: "gitlab:1",
+      installation_id: `gitlab:user:${userId}`,
+      provider: "gitlab",
+      full_name: "group/platform/repo",
+      name: "repo",
+      description: null,
+      default_branch: "main",
+      private: true,
+      html_url: "https://gitlab.example.test/group/platform/repo",
+      pushed_at: null,
+      updated_at: null,
+      last_synced_at: new Date(),
+    })
+    gitLabConnectionReady = true
     const gitlabRes = await app.request("/apps", {
       method: "POST",
       headers: { "content-type": "application/json" },
@@ -571,7 +672,7 @@ describe.skipIf(skip)("POST /apps", () => {
         projectId,
         gitProvider: "gitlab",
         gitlabProjectId: 1,
-        repoFullName: "group/repo",
+        repoFullName: "group/platform/repo",
         branch: "main",
       }),
     })
@@ -586,12 +687,64 @@ describe.skipIf(skip)("POST /apps", () => {
       }),
     })
 
+    expect(missingProjectId.status).toBe(400)
     expect(blockedGitLab.status).toBe(412)
     expect(await blockedGitLab.json()).toMatchObject({
       error: { code: "GIT_PROVIDER_NOT_CONNECTED" },
     })
     expect(gitlabRes.status).toBe(201)
+    const gitlabBody = (await gitlabRes.json()) as { app: { id: string } }
+    const [persistedGitLabApp] = await db
+      .select({
+        installationId: apps.git_provider_installation_id,
+        credentialUserId: apps.gitlab_credential_user_id,
+        projectId: apps.gitlab_project_id,
+      })
+      .from(apps)
+      .where(eq(apps.id, gitlabBody.app.id))
+    expect(persistedGitLabApp).toEqual({
+      installationId: `gitlab:user:${userId}`,
+      credentialUserId: userId,
+      projectId: 1,
+    })
     expect(imageRes.status).toBe(201)
+  })
+
+  it("rejects a GitLab project id that does not match the accessible repository", async () => {
+    await db.insert(gitlab_tokens).values({
+      user_id: userId,
+      access_token_enc: Buffer.from("token"),
+      access_token_nonce: Buffer.from("nonce"),
+      refresh_token_enc: null,
+      refresh_token_nonce: null,
+      expires_at: null,
+      created_at: new Date(),
+      updated_at: new Date(),
+    })
+    gitLabConnectionReady = true
+    const app = buildTestApp(db, fakeUser(userId, `u@t.com`))
+    spyOn(
+      gitlabConnectionModule,
+      "assertGitLabProjectSelection"
+    ).mockRejectedValue(new Error("project mismatch"))
+
+    const res = await app.request("/apps", {
+      method: "POST",
+      headers: { "content-type": "application/json" },
+      body: JSON.stringify({
+        name: "Mismatched GitLab App",
+        projectId,
+        gitProvider: "gitlab",
+        gitlabProjectId: 999,
+        repoFullName: "group/platform/repo",
+        branch: "main",
+      }),
+    })
+
+    expect(res.status).toBe(412)
+    expect(await res.json()).toMatchObject({
+      error: { code: "GITLAB_PROJECT_NOT_ACCESSIBLE" },
+    })
   })
 
   it("replays POST /apps by idempotency key without creating duplicates", async () => {
@@ -628,6 +781,14 @@ describe.skipIf(skip)("POST /apps", () => {
       .from(apps)
       .where(eq(apps.creation_idempotency_key, payload.idempotencyKey))
     expect(rows).toHaveLength(1)
+    const sagaRows = await db
+      .select()
+      .from(resource_creation_sagas)
+      .where(eq(resource_creation_sagas.resource_id, firstBody.app.id))
+    expect(sagaRows).toHaveLength(1)
+    expect(sagaRows[0]?.state).toBe("complete")
+    expect(sagaRows[0]?.input_ciphertext).toBeInstanceOf(Buffer)
+    expect(sagaRows[0]?.input_digest).toMatch(/^[a-f0-9]{64}$/)
   })
 
   it("creates an app with an explicit restart policy", async () => {
@@ -1132,6 +1293,23 @@ describe.skipIf(skip)("PATCH /apps/:id", () => {
     expect(body.app.branch).toBe("main") // unchanged
   })
 
+  it("rejects Railpack while agent-only production support is planned", async () => {
+    const { id: appId } = await createTestApp(db, {
+      userId,
+      projectId,
+      branch: "main",
+    })
+
+    const honoApp = buildTestApp(db, fakeUser(userId, `u@t.com`))
+    const res = await honoApp.request(`/apps/${appId}`, {
+      method: "PATCH",
+      headers: { "content-type": "application/json" },
+      body: JSON.stringify({ buildMethod: "railpack" }),
+    })
+
+    expect(res.status).toBe(400)
+  })
+
   it("rejects dockerfilePath traversal on patch", async () => {
     const { id: appId } = await createTestApp(db, {
       userId,
@@ -1350,6 +1528,59 @@ describe.skipIf(skip)("GET /apps/:id/builds", () => {
     }
     expect(body.builds[0]!.requestedByUserId).toBe(userId)
     expect(body.builds[0]!.source).toBe("webhook:github")
+  })
+})
+
+describe.skipIf(skip)("POST /apps/:id/builds/:buildId/cancel", () => {
+  it("cancels only the requested BullMQ job and leaves its successor queued", async () => {
+    const db = await makeTestDb()
+    const user = await createTestUser(db)
+    const project = await createTestProject(db, user.id)
+    const { id: appId } = await createTestApp(db, {
+      userId: user.id,
+      projectId: project.id,
+    })
+    const target = await createTestBuild(db, appId, "pending")
+    const successor = await createTestBuild(db, appId, "pending")
+    const removed: string[] = []
+    const queueSpy = spyOn(deployQueue, "getJobs").mockResolvedValue([
+      {
+        data: { buildId: target.id, appId },
+        remove: async () => {
+          removed.push(target.id)
+        },
+      },
+      {
+        data: { buildId: successor.id, appId },
+        remove: async () => {
+          removed.push(successor.id)
+        },
+      },
+    ] as never)
+
+    try {
+      const honoApp = buildTestApp(
+        db,
+        fakeUser(user.id, `cancel-${user.id}@test.com`)
+      )
+      const res = await honoApp.request(
+        `/apps/${appId}/builds/${target.id}/cancel`,
+        { method: "POST" }
+      )
+
+      expect(res.status).toBe(200)
+      expect(removed).toEqual([target.id])
+      const rows = await db
+        .select({ id: builds.id, status: builds.status })
+        .from(builds)
+        .where(eq(builds.app_id, appId))
+      expect(rows.find((row) => row.id === target.id)?.status).toBe("cancelled")
+      expect(rows.find((row) => row.id === successor.id)?.status).toBe(
+        "pending"
+      )
+    } finally {
+      queueSpy.mockRestore()
+    }
   })
 })
 

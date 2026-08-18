@@ -126,7 +126,7 @@ describe("deleteRepos", () => {
     const deleteSpy = mock(() => ({ where: mock(() => Promise.resolve()) }))
     const db = { delete: deleteSpy } as unknown as Db
 
-    await deleteRepos(db, [])
+    await deleteRepos(db, "github:install:1", [])
 
     expect(deleteSpy).not.toHaveBeenCalled()
   })
@@ -136,7 +136,7 @@ describe("deleteRepos", () => {
     const deleteSpy = mock(() => ({ where: whereSpy }))
     const db = { delete: deleteSpy } as unknown as Db
 
-    await deleteRepos(db, ["github:123"])
+    await deleteRepos(db, "github:install:1", ["github:123"])
 
     expect(deleteSpy).toHaveBeenCalledTimes(1)
     expect(whereSpy).toHaveBeenCalledTimes(1)

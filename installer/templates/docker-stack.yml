@@ -23,18 +23,31 @@ version: "3.8"
 
 services:
   api:
-    image: ${PLOYDOK_IMAGE_REGISTRY}/ploydok-api:${PLOYDOK_VERSION}
+    image: ${PLOYDOK_API_IMAGE}
+    user: "${PLOYDOK_RUNTIME_UID}:${PLOYDOK_RUNTIME_GID}"
+    read_only: true
+    cap_drop: ["ALL"]
+    security_opt:
+      - no-new-privileges:true
+    tmpfs:
+      - /tmp:rw,noexec,nosuid,size=256m
     env_file: ${PLOYDOK_DATA_DIR}/.env
     volumes:
       - ${PLOYDOK_DATA_DIR}/logs:/var/log/ploydok
       - ${PLOYDOK_DATA_DIR}/builds:/var/lib/ploydok/builds
       - ${PLOYDOK_DATA_DIR}/static:/var/lib/ploydok/static
-      - ${PLOYDOK_DATA_DIR}/certs:/var/lib/ploydok/certs:ro
-      - ${PLOYDOK_DATA_DIR}/pki:/var/lib/ploydok/pki:ro
+      - ${PLOYDOK_DATA_DIR}/backups/control-plane.configured:/var/lib/ploydok/backups/control-plane.configured:ro
+      - ${PLOYDOK_DATA_DIR}/backups/control-plane.last-success:/var/lib/ploydok/backups/control-plane.last-success:ro
+      - ${PLOYDOK_DATA_DIR}/backups/control-plane.last-failure:/var/lib/ploydok/backups/control-plane.last-failure:ro
+      - ${PLOYDOK_DATA_DIR}/pki/ca.pem:/var/lib/ploydok/pki/ca.pem:ro
+      - ${PLOYDOK_DATA_DIR}/pki/client.pem:/var/lib/ploydok/pki/client.pem:ro
+      - ${PLOYDOK_DATA_DIR}/pki/client.key:/var/lib/ploydok/pki/client.key:ro
       - ${PLOYDOK_DATA_DIR}/agent:/run/ploydok
-      - /var/run/docker.sock:/var/run/docker.sock
     networks:
       - ploydok
+      - ploydok-management
+      - ploydok-build
+      - ploydok-monitoring
     healthcheck:
       test:
         [
@@ -70,7 +83,14 @@ services:
         ploydok.component: api
 
   web:
-    image: ${PLOYDOK_IMAGE_REGISTRY}/ploydok-web:${PLOYDOK_VERSION}
+    image: ${PLOYDOK_WEB_IMAGE}
+    user: "1000:1000"
+    read_only: true
+    cap_drop: ["ALL"]
+    security_opt:
+      - no-new-privileges:true
+    tmpfs:
+      - /tmp:rw,noexec,nosuid,size=64m
     environment:
       PLOYDOK_API_URL: http://api:3335
     networks:
@@ -102,11 +122,12 @@ services:
         ploydok.component: web
 
   agent:
-    image: ${PLOYDOK_IMAGE_REGISTRY}/ploydok-agent:${PLOYDOK_VERSION}
+    image: ${PLOYDOK_AGENT_IMAGE}
     environment:
       PLOYDOK_AGENT_ADDR: 0.0.0.0:50051
       PLOYDOK_AGENT_PKI_DIR: /var/lib/ploydok/pki
       PLOYDOK_VALIDATOR_CONFIG: /etc/ploydok/validator.toml
+      PLOYDOK_HOST_STATS_PATH: /var/lib/ploydok/host-data
     volumes:
       - /var/run/docker.sock:/var/run/docker.sock
       - ${PLOYDOK_DATA_DIR}/agent:/run/ploydok
@@ -114,8 +135,11 @@ services:
       - ${PLOYDOK_DATA_DIR}/app-volumes:/var/lib/ploydok/app-volumes
       - ${PLOYDOK_DATA_DIR}/static:/var/lib/ploydok/static
       - ${PLOYDOK_DATA_DIR}/config:/etc/ploydok:ro
-      - ${PLOYDOK_DATA_DIR}/pki:/var/lib/ploydok/pki:ro
+      - ${PLOYDOK_DATA_DIR}/pki/ca.pem:/var/lib/ploydok/pki/ca.pem:ro
+      - ${PLOYDOK_DATA_DIR}/pki/server.pem:/var/lib/ploydok/pki/server.pem:ro
+      - ${PLOYDOK_DATA_DIR}/pki/server.key:/var/lib/ploydok/pki/server.key:ro
       - ${PLOYDOK_DATA_DIR}/keys:/var/lib/ploydok/keys
+      - ${PLOYDOK_DATA_DIR}/data:/var/lib/ploydok/host-data:ro
     networks:
       - ploydok
     deploy:
@@ -131,9 +155,10 @@ services:
         ploydok.component: agent
 
   caddy:
-    image: ${PLOYDOK_IMAGE_REGISTRY}/ploydok-caddy:${PLOYDOK_VERSION}
+    image: ${PLOYDOK_CADDY_IMAGE}
     volumes:
       - ${PLOYDOK_INSTALL_DIR}/Caddyfile:/etc/caddy/Caddyfile:ro
+      - caddy-admin-socket:/run/caddy-admin
       - caddy-data:/data
       - caddy-config:/config
       - ${PLOYDOK_DATA_DIR}/static:/var/lib/ploydok/static:ro
@@ -161,8 +186,37 @@ services:
         ploydok.kind: infra
         ploydok.component: caddy
 
+  # The public Caddy process exposes its admin API only through a Unix socket.
+  # This bridge is the sole TCP entrypoint and is deliberately absent from
+  # ploydok-public, so managed workloads cannot mutate global ingress state.
+  caddy-admin:
+    image: ${PLOYDOK_CADDY_IMAGE}
+    command:
+      - caddy
+      - run
+      - --config
+      - /etc/caddy/CaddyAdminProxyfile
+      - --adapter
+      - caddyfile
+    volumes:
+      - ${PLOYDOK_INSTALL_DIR}/CaddyAdminProxyfile:/etc/caddy/CaddyAdminProxyfile:ro
+      - caddy-admin-socket:/run/caddy-admin
+    networks:
+      - ploydok-management
+    deploy:
+      replicas: 1
+      update_config:
+        parallelism: 1
+        order: stop-first
+        failure_action: rollback
+      restart_policy:
+        condition: on-failure
+      labels:
+        ploydok.kind: infra
+        ploydok.component: caddy-admin
+
   adminer:
-    image: ${PLOYDOK_IMAGE_REGISTRY}/ploydok-adminer:${PLOYDOK_VERSION}
+    image: ${PLOYDOK_ADMINER_IMAGE}
     networks:
       - ploydok
     deploy:
@@ -178,7 +232,7 @@ services:
         ploydok.component: adminer
 
   postgres:
-    image: postgres:16-alpine
+    image: postgres:16-alpine@sha256:cf78e76683b9ca8c5733cbbdce6c9262b45b6767934dd0a95e671f9a0fc20685
     environment:
       POSTGRES_USER: ploydok
       POSTGRES_PASSWORD: ${PLOYDOK_PG_PASSWORD}
@@ -199,7 +253,7 @@ services:
         ploydok.component: postgres
 
   redis:
-    image: redis:7-alpine
+    image: redis:7-alpine@sha256:e7723ff73d963f5cc6d9c4643ea3d989527a402a319239054e9472a7fb9219a2
     command:
       - "redis-server"
       - "--requirepass"
@@ -222,7 +276,7 @@ services:
         ploydok.component: redis
 
   registry:
-    image: registry:2
+    image: registry:2@sha256:a3d8aaa63ed8681a604f1dea0aa03f100d5895b6a58ace528858a7b332415373
     environment:
       REGISTRY_STORAGE_DELETE_ENABLED: "true"
     volumes:
@@ -234,6 +288,7 @@ services:
         mode: host
     networks:
       - ploydok
+      - ploydok-build
     deploy:
       replicas: 1
       restart_policy:
@@ -247,18 +302,19 @@ services:
     # image can't get its seccomp relaxations and crashes. The non-rootless
     # image runs as root inside the container and works under Swarm without
     # any extra security flags. Acceptable trade-off here since the entire
-    # control-plane already shares the host's docker.sock.
-    image: moby/buildkit:v0.29.0
+    # BuildKit is isolated on a non-attachable API/Registry-only overlay below.
+    # The overlay keeps egress enabled so BuildKit can pull public base images.
+    image: moby/buildkit:v0.29.0@sha256:0039c1d47e8748b5afea56f4e85f14febaf34452bd99d9552d2daa82262b5cc5
     command:
       - --addr
       - tcp://0.0.0.0:1234
       - --config
       - /etc/buildkit/buildkitd.toml
     volumes:
-      - buildkit-cache:/home/user/.local/share/buildkit
+      - buildkit-cache:/var/lib/buildkit
       - ${PLOYDOK_DATA_DIR}/config/buildkitd.toml:/etc/buildkit/buildkitd.toml:ro
     networks:
-      - ploydok
+      - ploydok-build
     deploy:
       replicas: 1
       restart_policy:
@@ -266,6 +322,69 @@ services:
       labels:
         ploydok.kind: infra
         ploydok.component: buildkitd
+
+  prometheus:
+    image: prom/prometheus:v3.13.1@sha256:3c42b892cf723fa54d2f262c37a0e1f80aa8c8ddb1da7b9b0df9455a35a7f893
+    user: "65534:65534"
+    read_only: true
+    cap_drop: ["ALL"]
+    security_opt:
+      - no-new-privileges:true
+    command:
+      - --config.file=/etc/prometheus/prometheus.yml
+      - --storage.tsdb.path=/prometheus
+      - --storage.tsdb.retention.time=30d
+    volumes:
+      - ${PLOYDOK_DATA_DIR}/config/prometheus.yml:/etc/prometheus/prometheus.yml:ro
+      - ${PLOYDOK_DATA_DIR}/config/ploydok-alerts.yml:/etc/prometheus/rules/ploydok-alerts.yml:ro
+      - ${PLOYDOK_DATA_DIR}/secrets/metrics-token:/run/ploydok-secrets/metrics-token:ro
+      - prometheus-data:/prometheus
+    networks:
+      - ploydok-monitoring
+    healthcheck:
+      test: ["CMD", "wget", "-qO-", "http://127.0.0.1:9090/-/ready"]
+      interval: 10s
+      timeout: 3s
+      retries: 6
+      start_period: 20s
+    deploy:
+      replicas: 1
+      restart_policy:
+        condition: on-failure
+      labels:
+        ploydok.kind: infra
+        ploydok.component: prometheus
+
+  alertmanager:
+    image: prom/alertmanager:v0.33.1@sha256:9e082985f56f4c8c9f724e18f2288c6708f472e56a5286b8863d080434ea065d
+    user: "65534:65534"
+    read_only: true
+    cap_drop: ["ALL"]
+    security_opt:
+      - no-new-privileges:true
+    command:
+      - --config.file=/etc/alertmanager/alertmanager.yml
+      - --storage.path=/alertmanager
+    volumes:
+      - ${PLOYDOK_DATA_DIR}/config/alertmanager.yml:/etc/alertmanager/alertmanager.yml:ro
+      - ${PLOYDOK_DATA_DIR}/secrets/alert-webhook-url:/run/ploydok-secrets/alert-webhook-url:ro
+      - alertmanager-data:/alertmanager
+    networks:
+      - ploydok-monitoring
+      - ploydok-alerting
+    healthcheck:
+      test: ["CMD", "wget", "-qO-", "http://127.0.0.1:9093/-/ready"]
+      interval: 10s
+      timeout: 3s
+      retries: 6
+      start_period: 20s
+    deploy:
+      replicas: 1
+      restart_policy:
+        condition: on-failure
+      labels:
+        ploydok.kind: infra
+        ploydok.component: alertmanager
 
 networks:
   ploydok:
@@ -275,11 +394,30 @@ networks:
     name: ploydok-public
     driver: overlay
     attachable: true
+  ploydok-management:
+    driver: overlay
+    internal: true
+    attachable: false
+  ploydok-build:
+    driver: overlay
+    internal: false
+    attachable: false
+  ploydok-monitoring:
+    driver: overlay
+    internal: true
+    attachable: false
+  ploydok-alerting:
+    driver: overlay
+    internal: false
+    attachable: false
 
 volumes:
   caddy-data:
   caddy-config:
+  caddy-admin-socket:
   postgres-data:
   redis-data:
   registry-data:
   buildkit-cache:
+  prometheus-data:
+  alertmanager-data:

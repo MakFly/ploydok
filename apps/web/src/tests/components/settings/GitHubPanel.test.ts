@@ -16,7 +16,6 @@ import {
   render,
   waitFor,
 } from "@testing-library/react"
-import { Window } from "happy-dom"
 import { invalidateGetCache, resetCsrfToken } from "../../../lib/api"
 
 type CredentialsStatus =
@@ -44,23 +43,8 @@ let shouldOpenGitHubCredentialsDialog: (
 
 const originalFetch = globalThis.fetch
 
-function installDom(): void {
-  const window = new Window()
-  Object.assign(globalThis, {
-    window,
-    document: window.document,
-    navigator: window.navigator,
-    HTMLElement: window.HTMLElement,
-    Element: window.Element,
-    Node: window.Node,
-    MutationObserver: window.MutationObserver,
-    getComputedStyle: window.getComputedStyle.bind(window),
-  })
-}
-
 describe("GitHubPanel credentials guard", () => {
   beforeAll(async () => {
-    installDom()
     const module =
       await import("../../../components/settings/providers/GitHubPanel")
     GitHubCredentialsRecovery = module.GitHubCredentialsRecovery
@@ -69,7 +53,6 @@ describe("GitHubPanel credentials guard", () => {
     shouldOpenGitHubCredentialsDialog = module.shouldOpenGitHubCredentialsDialog
   })
   beforeEach(() => {
-    installDom()
     invalidateGetCache()
     resetCsrfToken()
   })

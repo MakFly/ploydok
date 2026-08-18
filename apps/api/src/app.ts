@@ -65,8 +65,14 @@ import {
   httpRequestsTotal,
   renderMetrics,
 } from "./observability/metrics"
+import { collectOperationalMetrics } from "./observability/operational-metrics"
 import { buildHealthReport, buildPublicStatus } from "./observability/health"
 import { createOpenApiDocument } from "./openapi"
+import { isStripeWebhookRequest } from "./security/csrf-exemptions"
+import {
+  invitationOwnerRateLimit,
+  invitationRegisterRateLimit,
+} from "./security/invitations-rate-limit"
 
 const httpLog = childLogger("http")
 const errorLog = childLogger("error")
@@ -203,6 +209,13 @@ app.use("*", async (c, next) => {
     return next()
   }
 
+  // Stripe signs the raw request body and cannot attach the browser-only
+  // double-submit token. Keep this exemption exact; the route independently
+  // rejects missing or invalid Stripe signatures.
+  if (isStripeWebhookRequest(c.req.method, c.req.path)) {
+    return next()
+  }
+
   // /gitlab/webhook est authentifié par `X-Gitlab-Token` (shared secret) et
   // /gitlab/callback est un redirect OAuth (depuis gitlab.com) — aucun des
   // deux ne peut attacher le double-submit token.
@@ -310,25 +323,27 @@ app.notFound((c) => {
 // Routes
 // ---------------------------------------------------------------------------
 
+const PLATFORM_VERSION = Bun.env["PLOYDOK_BUILD_VERSION"] ?? "0.0.1"
+
 // Liveness — répond 200 dès que le process est up. Convention K8s.
-app.get("/health", (c) => c.json({ ok: true, version: "0.0.1" }))
+app.get("/health", (c) => c.json({ ok: true, version: PLATFORM_VERSION }))
 
 // Readiness — DB + agent socket + Caddy admin. 200 si OK, 503 si dégradé.
 app.get("/health/ready", async (c) => {
-  const report = await buildHealthReport(db, "0.0.1")
+  const report = await buildHealthReport(db, PLATFORM_VERSION)
   return c.json(report, report.ok ? 200 : 503)
 })
 
 // Status page minimaliste publique (pas d'auth) — agrégé up/down.
 app.get("/status", async (c) => {
-  const report = await buildPublicStatus(db, "0.0.1")
+  const report = await buildPublicStatus(db, PLATFORM_VERSION)
   return c.json(report)
 })
 
 // Endpoint Prometheus — gated par token admin (PLOYDOK_METRICS_TOKEN).
 // Si la var n'est pas définie, l'endpoint est inaccessible (403 systématique)
 // pour éviter une fuite de métriques en environnement non-configuré.
-app.get("/metrics", (c) => {
+app.get("/metrics", async (c) => {
   const expected = Bun.env["PLOYDOK_METRICS_TOKEN"]
   if (!expected) {
     return c.json(
@@ -341,6 +356,7 @@ app.get("/metrics", (c) => {
     return c.json({ error: "Unauthorized" }, 401)
   }
   collectProcessMetrics()
+  await collectOperationalMetrics(db)
   c.header("Content-Type", "text/plain; version=0.0.4; charset=utf-8")
   return c.body(renderMetrics())
 })
@@ -491,11 +507,14 @@ app.route("/organizations", createOrganizationsRouter(db))
 
 // Memberships — all endpoints require auth.
 app.use("/orgs/*", requireAuth(db))
+app.use("/orgs/:orgId/members/invite", invitationOwnerRateLimit)
 app.route("/orgs", createMembershipsRouter(db))
 
-// Invitations — /invitations/preview is public, /invitations/accept requires auth.
-app.route("/invitations", createInvitationsRouter(db))
+// Invitations — preview/register are public; acceptance requires the session
+// whose verified account email matches the invitation.
+app.use("/invitations/register", invitationRegisterRateLimit)
 app.use("/invitations/accept", requireAuth(db))
+app.route("/invitations", createInvitationsRouter(db))
 
 // Services (marketplace) — all endpoints require auth.
 app.use("/services/*", requireAuth(db))

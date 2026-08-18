@@ -24,5 +24,7 @@ const report = await auditApp({ rootDir: "/tmp/app-checkout" })
 CLI:
 
 ```bash
-bunx ploydok-app-audit /tmp/app-checkout
+bun run packages/app-auditor/src/cli.ts /tmp/app-checkout
 ```
+
+The workspace package is private and is not published as a `bunx` package.

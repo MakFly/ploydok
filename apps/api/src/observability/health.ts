@@ -2,9 +2,9 @@
 import { sql } from "drizzle-orm"
 import { and, inArray, isNotNull, eq } from "drizzle-orm"
 import { existsSync } from "node:fs"
-import { connect } from "node:net"
 import { apps, databases, services, type Db } from "@ploydok/db"
 import type { CaddyConfig } from "../caddy/types.js"
+import { getSharedAgent } from "../debug/singletons.js"
 
 export type ComponentStatus = "ok" | "degraded" | "down" | "unknown"
 
@@ -58,63 +58,26 @@ async function checkDb(db: Db): Promise<HealthReport["components"]["db"]> {
   }
 }
 
-function checkTcpAgent(
-  address: string
-): Promise<HealthReport["components"]["agent"]> {
-  const idx = address.lastIndexOf(":")
-  if (idx <= 0 || idx === address.length - 1) {
-    return Promise.resolve({
-      status: "unknown",
-      address,
-      error: "invalid PLOYDOK_AGENT_ADDR, expected host:port",
-    })
-  }
-
-  const host = address.slice(0, idx)
-  const port = Number(address.slice(idx + 1))
-  if (!Number.isInteger(port) || port <= 0 || port > 65535) {
-    return Promise.resolve({
-      status: "unknown",
-      address,
-      error: "invalid PLOYDOK_AGENT_ADDR port",
-    })
-  }
-
-  return new Promise((resolve) => {
-    const socket = connect({ host, port })
-    const timer = setTimeout(() => {
-      socket.destroy()
-      resolve({ status: "down", address, error: "TCP connect timed out" })
-    }, 1000)
-
-    socket.once("connect", () => {
-      clearTimeout(timer)
-      socket.destroy()
-      resolve({ status: "ok", address })
-    })
-    socket.once("error", (err) => {
-      clearTimeout(timer)
-      resolve({ status: "down", address, error: err.message })
-    })
-  })
-}
-
 async function checkAgent(): Promise<HealthReport["components"]["agent"]> {
   const address = defaultAgentAddress()
-  if (address) return checkTcpAgent(address)
-
   const socketPath = defaultAgentSocketPath()
+  if (!address && !existsSync(socketPath)) {
+    return { status: "down", socket: socketPath, error: "socket file not found" }
+  }
   try {
-    if (existsSync(socketPath)) {
-      return { status: "ok", socket: socketPath }
-    }
+    // This is a real gRPC round-trip. In production getSharedAgent builds an
+    // mTLS channel from the API client certificate, so a listening TCP socket
+    // without a valid agent identity can never make readiness green.
+    await getSharedAgent().hostStats({}, 1_000)
+    return address
+      ? { status: "ok", address }
+      : { status: "ok", socket: socketPath }
+  } catch (err) {
     return {
       status: "down",
-      socket: socketPath,
-      error: "socket file not found",
+      ...(address ? { address } : { socket: socketPath }),
+      error: (err as Error).message,
     }
-  } catch (err) {
-    return { status: "unknown", error: (err as Error).message }
   }
 }
 

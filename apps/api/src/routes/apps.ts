@@ -1,9 +1,10 @@
 // SPDX-License-Identifier: AGPL-3.0-only
 import { readFile } from "node:fs/promises"
 import * as nodePath from "node:path"
-import { randomBytes } from "node:crypto"
+import { createHash, randomBytes } from "node:crypto"
 import { Hono } from "hono"
 import type { MiddlewareHandler } from "hono"
+import type { Queue } from "bullmq"
 import { z } from "zod"
 import { and, eq, isNotNull } from "drizzle-orm"
 import { nanoid } from "nanoid"
@@ -40,6 +41,7 @@ import {
   getBuildForApp,
   getBuildLogPath,
   updateBuildStatus,
+  requestBuildCancellation,
   insertAuditLog,
   insertApp,
   listAppsForUser,
@@ -48,12 +50,21 @@ import {
   uniqueSlug,
   updateApp,
   type AppRow,
+  completeClaimedCreationSaga,
+  createCreationSaga,
+  claimCreationSaga,
+  getCreationSaga,
+  fenceCreationSaga,
+  recordClaimedCreationSagaStep,
 } from "@ploydok/db/queries"
 import {
-  getGitLabTokens,
   hasGitHubInstallationForUser,
   userOwnsGitHubInstallation,
 } from "@ploydok/db/queries"
+import {
+  assertGitLabProjectSelection,
+  resolveGitLabConnection,
+} from "../gitlab/connection"
 import { listDeliveriesByApp, getDeliveryById } from "@ploydok/db/queries"
 import { decompressLog } from "../services/build-log-archive"
 import {
@@ -64,7 +75,6 @@ import {
 import { env } from "../env"
 import { deployQueue, appDeleteQueue, gcQueue } from "../worker/queues"
 import { enqueueWithDbRow } from "../worker/queue-enqueue"
-import { auditEnqueued } from "../worker/queue-audit"
 import { eventBus } from "../worker/event-bus"
 import { childLogger } from "../logger"
 import type { Db } from "@ploydok/db"
@@ -72,6 +82,7 @@ import type { AuthUser } from "../auth/middleware"
 import { requireSecondFactor } from "../auth/middleware"
 import { requireTotpVerified } from "../auth/second-factor"
 import { requireScope } from "../auth/require-scope"
+import { resumeApplicationConfiguration } from "../services/application-creation-saga"
 import { encryptField, decryptField } from "../github/app-credentials"
 import { ghProvider } from "./github"
 import { getSharedAgent } from "../debug/singletons"
@@ -129,72 +140,45 @@ export async function enqueueAppDeleteJob(opts: {
   db: Db
   appId: string
   requestedByUserId: string
-  previousStatus: string
   flags: {
     deleteImages: boolean
     dockerCleanup: boolean
     deleteBuildArtifacts: boolean
     deleteCaddyRoutes: boolean
   }
-  queue?: {
-    add(
-      name: string,
-      payload: { jobId: string },
-      opts?: { jobId?: string }
-    ): Promise<{ id?: string | null }>
-  }
+  queue?: import("../worker/queue-enqueue").QueuePublisher
+  dispatchAfterCommit?: Parameters<
+    typeof enqueueWithDbRow
+  >[0]["dispatchAfterCommit"]
 }) {
-  const rowId = nanoid()
-
-  await opts.db.transaction(async (tx) => {
-    await tx
-      .update(apps)
-      .set({ status: "deleting", updated_at: new Date() })
-      .where(eq(apps.id, opts.appId))
-
-    await tx.insert(app_delete_jobs).values({
-      id: rowId,
-      app_id: opts.appId,
-      requested_by_user_id: opts.requestedByUserId,
-      source: "api",
-      options: opts.flags,
-    })
-  })
-
   const queue = opts.queue ?? appDeleteQueue
-
-  try {
-    const job = await queue.add(
-      "app.delete.requested",
-      { jobId: rowId },
-      { jobId: rowId }
-    )
-    const jobId = job.id
-    if (!jobId) {
-      throw new Error(
-        "Failed to get job ID from queue.add(app.delete.requested)"
-      )
-    }
-
-    auditEnqueued({
-      jobName: "app.delete.requested",
-      jobId,
-      rowId,
-      actor: opts.requestedByUserId,
-      source: "api",
-    })
-
-    return { jobId }
-  } catch (err) {
-    await opts.db.transaction(async (tx) => {
-      await tx.delete(app_delete_jobs).where(eq(app_delete_jobs.id, rowId))
+  const { jobId } = await enqueueWithDbRow({
+    db: opts.db,
+    queue,
+    jobName: "app.delete.requested",
+    insertRow: async (tx) => {
       await tx
         .update(apps)
-        .set({ status: opts.previousStatus as any, updated_at: new Date() })
+        .set({ status: "deleting", updated_at: new Date() })
         .where(eq(apps.id, opts.appId))
-    })
-    throw err
-  }
+      return tx
+        .insert(app_delete_jobs)
+        .values({
+          id: nanoid(),
+          app_id: opts.appId,
+          requested_by_user_id: opts.requestedByUserId,
+          source: "api",
+          options: opts.flags,
+        })
+        .returning()
+        .then((rows: (typeof app_delete_jobs.$inferSelect)[]) => rows[0]!)
+    },
+    buildPayload: (row) => ({ jobId: row.id }),
+    ...(opts.dispatchAfterCommit
+      ? { dispatchAfterCommit: opts.dispatchAfterCommit }
+      : {}),
+  })
+  return { jobId }
 }
 
 // nixpacks_config_path is joined with workspacePath at build time and fed to
@@ -246,6 +230,11 @@ const IdempotencyKeySchema = z
   .max(160)
   .regex(/^[A-Za-z0-9._:-]+$/, "Invalid idempotency key")
 
+const DeployableBuildMethodSchema = BuildMethodSchema.refine(
+  (method) => method !== "railpack",
+  { message: "Railpack is planned but not available in agent-only production" }
+)
+
 // Base object schema (no .refine so it stays composable with .omit/.extend).
 const CreateAppBodyBase = z.object({
   name: z.string().min(1).max(64),
@@ -255,7 +244,7 @@ const CreateAppBodyBase = z.object({
   // repoFullName + branch are only required for git sources (github / gitlab).
   repoFullName: z
     .string()
-    .regex(/^[^/]+\/[^/]+$/)
+    .regex(/^[^/]+(?:\/[^/]+)+$/)
     .optional(),
   branch: z.string().min(1).optional(),
   installationId: z.string().regex(/^\d+$/).optional(),
@@ -280,7 +269,7 @@ const CreateAppBodyBase = z.object({
   buildCommand: z.string().optional(),
   startCommand: z.string().optional(),
   watchPaths: z.array(z.string()).optional(),
-  buildMethod: BuildMethodSchema.optional(),
+  buildMethod: DeployableBuildMethodSchema.optional(),
   staticOutputDir: StaticOutputDirSchema.optional(),
   staticSpaFallback: z.boolean().optional(),
   runtimePort: z.number().int().positive().optional(),
@@ -375,6 +364,30 @@ export function slugify(name: string): string {
     .replace(/[^a-z0-9]+/g, "-")
     .replace(/^-+|-+$/g, "")
     .slice(0, 32)
+}
+
+export async function removeQueuedDeployBuild(
+  queue: Pick<Queue, "getJobs">,
+  buildId: string
+): Promise<void> {
+  const jobs = await queue.getJobs([
+    "waiting",
+    "delayed",
+    "active",
+    "paused",
+    "prioritized",
+  ])
+  for (const job of jobs) {
+    const data = job.data
+    if (
+      typeof data === "object" &&
+      data !== null &&
+      "buildId" in data &&
+      (data as { buildId?: unknown }).buildId === buildId
+    ) {
+      await job.remove().catch(() => undefined)
+    }
+  }
 }
 
 function normalizeHostname(value: string | null | undefined): string {
@@ -584,6 +597,8 @@ function serializeApp(
     repoFullName: row.repo_full_name,
     branch: row.branch,
     githubInstallationId: row.github_installation_id,
+    gitlabProjectId: row.gitlab_project_id,
+    providerInstallationId: row.git_provider_installation_id,
     rootDir: nullToUndefined(row.root_dir),
     dockerfilePath: nullToUndefined(row.dockerfile_path),
     nixpacksConfigPath: nullToUndefined(row.nixpacks_config_path),
@@ -841,6 +856,17 @@ export function createAppsRouter(db: Db): Hono {
         400
       )
     }
+    if (body.gitProvider === "gitlab" && !body.gitlabProjectId) {
+      return c.json(
+        {
+          error: {
+            code: "VALIDATION_ERROR",
+            message: "gitlabProjectId is required for GitLab sources",
+          },
+        },
+        400
+      )
+    }
     if (body.trackLatest && body.gitProvider !== "image") {
       return c.json(
         {
@@ -853,22 +879,25 @@ export function createAppsRouter(db: Db): Hono {
       )
     }
 
-    const [hasGitHubConnection, gitLabTokens] = await Promise.all([
+    const [hasGitHubConnection, gitLabConnected] = await Promise.all([
       hasGitHubInstallationForUser(db, user.id),
-      getGitLabTokens(db, user.id),
+      resolveGitLabConnection(db, user.id).then(
+        () => true,
+        () => false
+      ),
     ])
-    if (!hasGitHubConnection && !gitLabTokens) {
-      return c.json(
-        {
-          error: {
-            code: "GIT_PROVIDER_NOT_CONNECTED",
-            message: "Connect GitHub or GitLab before creating an app",
-          },
-        },
-        412
-      )
-    }
     if (body.gitProvider === "github") {
+      if (!hasGitHubConnection) {
+        return c.json(
+          {
+            error: {
+              code: "GIT_PROVIDER_NOT_CONNECTED",
+              message: "Connect GitHub before creating a GitHub app",
+            },
+          },
+          412
+        )
+      }
       if (
         !body.installationId ||
         !(await userOwnsGitHubInstallation(db, user.id, body.installationId))
@@ -885,7 +914,7 @@ export function createAppsRouter(db: Db): Hono {
         )
       }
     }
-    if (body.gitProvider === "gitlab" && !gitLabTokens) {
+    if (body.gitProvider === "gitlab" && !gitLabConnected) {
       return c.json(
         {
           error: {
@@ -895,6 +924,31 @@ export function createAppsRouter(db: Db): Hono {
         },
         412
       )
+    }
+    if (
+      body.gitProvider === "gitlab" &&
+      body.gitlabProjectId &&
+      body.repoFullName
+    ) {
+      try {
+        await assertGitLabProjectSelection(db, {
+          credentialUserId: user.id,
+          projectId: body.gitlabProjectId,
+          fullName: body.repoFullName,
+          branch: body.branch!,
+        })
+      } catch {
+        return c.json(
+          {
+            error: {
+              code: "GITLAB_PROJECT_NOT_ACCESSIBLE",
+              message:
+                "The selected GitLab project is not accessible to this user",
+            },
+          },
+          412
+        )
+      }
     }
 
     const now = new Date()
@@ -935,10 +989,11 @@ export function createAppsRouter(db: Db): Hono {
     }
 
     const creationKey = body.idempotencyKey ?? null
+    let existingCreationApp: AppRow | null = null
     if (creationKey) {
       const existing = await findAppByCreationKey(db, projectId, creationKey)
       if (existing) {
-        return c.json({ app: serializeApp(existing) }, 200)
+        existingCreationApp = existing
       }
     }
 
@@ -996,12 +1051,7 @@ export function createAppsRouter(db: Db): Hono {
 
       initialDatabaseVars = parseConnectionString(
         dbRow.kind as
-          | "postgres"
-          | "mysql"
-          | "mariadb"
-          | "redis"
-          | "mongo"
-          | "libsql",
+          "postgres" | "mysql" | "mariadb" | "redis" | "mongo" | "libsql",
         connString,
         body.initialDatabaseLink.envPrefix
       )
@@ -1010,77 +1060,129 @@ export function createAppsRouter(db: Db): Hono {
     }
 
     // 2. Generate id + slug (unique within project)
-    const id = nanoid()
+    const id = existingCreationApp?.id ?? nanoid()
     const baseSlug = slugify(body.name) || "app"
-    const slug = await uniqueSlug(db, projectId, baseSlug)
+    const slug =
+      existingCreationApp?.slug ?? (await uniqueSlug(db, projectId, baseSlug))
 
     // 3. Compute a directly reachable preview domain if absent.
-    const domain = body.domain ?? defaultAppDomain(slug, id)
+    const domain =
+      existingCreationApp?.domain ?? body.domain ?? defaultAppDomain(slug, id)
 
     // 4. Build healthcheck fields
     const hc = body.healthcheck ?? {}
 
     const resolvedRuntimePort: number | null = body.runtimePort ?? null
+    const initialSecretRows = initialDatabaseVars
+      ? (body.initialSecrets ?? []).filter(
+          (item) => !Object.hasOwn(initialDatabaseVars!, item.key)
+        )
+      : (body.initialSecrets ?? [])
+    const creationInput = JSON.stringify({
+      initialSecrets: initialSecretRows,
+      databaseVars: initialDatabaseVars,
+      databaseId: initialDatabaseId,
+      databaseEnvPrefix: initialDatabaseEnvPrefix,
+    })
+    const creationInputDigest = createHash("sha256")
+      .update(creationInput)
+      .digest("hex")
+    const creationInputEncrypted = await encryptSecret(creationInput)
+    let creationSaga = existingCreationApp
+      ? await getCreationSaga(db, "application", id)
+      : null
+    if (existingCreationApp && !creationSaga) {
+      return c.json({ app: serializeApp(existingCreationApp) }, 200)
+    }
 
     // 5. INSERT
     let newApp: AppRow
     try {
-      newApp = await insertApp(db, {
-        id,
-        project_id: projectId,
-        name: body.name,
-        slug,
-        status: "created",
-        created_at: now,
-        updated_at: now,
-        git_provider: body.gitProvider,
-        repo_full_name: body.repoFullName ?? null,
-        branch: body.branch ?? null,
-        github_installation_id: body.installationId ?? null,
-        gitlab_project_id: body.gitlabProjectId ?? null,
-        image_ref: body.imageRef ?? null,
-        image_pull_policy: body.imagePullPolicy ?? null,
-        registry_credential_id: body.registryCredentialId ?? null,
-        track_latest: body.trackLatest ?? false,
-        icon_url: body.iconUrl ?? null,
-        quick_links: body.quickLinks ? JSON.stringify(body.quickLinks) : null,
-        plan: body.plan ?? "custom",
-        cpu_limit: body.cpuLimit ?? null,
-        mem_limit_bytes: body.memLimitMB ? body.memLimitMB * 1024 * 1024 : null,
-        pids_limit: body.pidsLimit ?? null,
-        root_dir: body.rootDir ?? null,
-        dockerfile_path: body.dockerfilePath ?? null,
-        nixpacks_config_path: body.nixpacksConfigPath ?? null,
-        node_version: body.nodeVersion ?? null,
-        install_command: body.installCommand ?? null,
-        build_command: body.buildCommand ?? null,
-        start_command: body.startCommand ?? null,
-        watch_paths: body.watchPaths ? JSON.stringify(body.watchPaths) : null,
-        build_method:
-          body.buildMethod === "docker"
-            ? "dockerfile"
-            : (body.buildMethod ?? "auto"),
-        static_output_dir: body.staticOutputDir ?? "dist",
-        static_spa_fallback: body.staticSpaFallback ?? true,
-        runtime_mode: body.runtime?.runtimeMode ?? "swarm",
-        replicas: body.runtime?.replicas ?? 1,
-        update_order: body.runtime?.updateOrder ?? "start-first",
-        update_parallelism: body.runtime?.updateParallelism ?? 1,
-        update_delay_s: body.runtime?.updateDelayS ?? 10,
-        update_monitor_s: body.runtime?.updateMonitorS ?? 30,
-        failure_action: body.runtime?.failureAction ?? "rollback",
-        stop_grace_period_s: body.runtime?.stopGracePeriodS ?? 10,
-        runtime_port: resolvedRuntimePort,
-        restart_policy: body.restartPolicy ?? "unless-stopped",
-        domain,
-        healthcheck_path: hc.path ?? "/",
-        healthcheck_port: hc.port ?? resolvedRuntimePort ?? null,
-        healthcheck_interval_s: hc.intervalS ?? 5,
-        healthcheck_timeout_s: hc.timeoutS ?? 3,
-        healthcheck_retries: hc.retries ?? 6,
-        healthcheck_start_period_s: hc.startPeriodS ?? 0,
-        creation_idempotency_key: creationKey,
-      })
+      newApp =
+        existingCreationApp ??
+        (await db.transaction(async (tx) => {
+          const inserted = await insertApp(tx as unknown as Db, {
+            id,
+            project_id: projectId,
+            name: body.name,
+            slug,
+            status: "created",
+            created_at: now,
+            updated_at: now,
+            git_provider: body.gitProvider,
+            repo_full_name: body.repoFullName ?? null,
+            branch: body.branch ?? null,
+            github_installation_id: body.installationId ?? null,
+            gitlab_project_id: body.gitlabProjectId ?? null,
+            git_provider_installation_id:
+              body.gitProvider === "github" && body.installationId
+                ? `github:${body.installationId}`
+                : body.gitProvider === "gitlab"
+                  ? `gitlab:user:${user.id}`
+                  : null,
+            gitlab_credential_user_id:
+              body.gitProvider === "gitlab" ? user.id : null,
+            image_ref: body.imageRef ?? null,
+            image_pull_policy: body.imagePullPolicy ?? null,
+            registry_credential_id: body.registryCredentialId ?? null,
+            track_latest: body.trackLatest ?? false,
+            icon_url: body.iconUrl ?? null,
+            quick_links: body.quickLinks
+              ? JSON.stringify(body.quickLinks)
+              : null,
+            plan: body.plan ?? "custom",
+            cpu_limit: body.cpuLimit ?? null,
+            mem_limit_bytes: body.memLimitMB
+              ? body.memLimitMB * 1024 * 1024
+              : null,
+            pids_limit: body.pidsLimit ?? null,
+            root_dir: body.rootDir ?? null,
+            dockerfile_path: body.dockerfilePath ?? null,
+            nixpacks_config_path: body.nixpacksConfigPath ?? null,
+            node_version: body.nodeVersion ?? null,
+            install_command: body.installCommand ?? null,
+            build_command: body.buildCommand ?? null,
+            start_command: body.startCommand ?? null,
+            watch_paths: body.watchPaths
+              ? JSON.stringify(body.watchPaths)
+              : null,
+            build_method:
+              body.buildMethod === "docker"
+                ? "dockerfile"
+                : (body.buildMethod ?? "auto"),
+            static_output_dir: body.staticOutputDir ?? "dist",
+            static_spa_fallback: body.staticSpaFallback ?? true,
+            runtime_mode: body.runtime?.runtimeMode ?? "swarm",
+            replicas: body.runtime?.replicas ?? 1,
+            update_order: body.runtime?.updateOrder ?? "start-first",
+            update_parallelism: body.runtime?.updateParallelism ?? 1,
+            update_delay_s: body.runtime?.updateDelayS ?? 10,
+            update_monitor_s: body.runtime?.updateMonitorS ?? 30,
+            failure_action: body.runtime?.failureAction ?? "rollback",
+            stop_grace_period_s: body.runtime?.stopGracePeriodS ?? 10,
+            runtime_port: resolvedRuntimePort,
+            restart_policy: body.restartPolicy ?? "unless-stopped",
+            domain,
+            healthcheck_path: hc.path ?? "/",
+            healthcheck_port: hc.port ?? resolvedRuntimePort ?? null,
+            healthcheck_interval_s: hc.intervalS ?? 5,
+            healthcheck_timeout_s: hc.timeoutS ?? 3,
+            healthcheck_retries: hc.retries ?? 6,
+            healthcheck_start_period_s: hc.startPeriodS ?? 0,
+            creation_idempotency_key: creationKey,
+          })
+          await createCreationSaga(tx, {
+            resourceType: "application",
+            resourceId: id,
+            projectId,
+            requestedByUserId: user.id,
+            completedSteps: ["row_persisted"],
+            inputCiphertext: creationInputEncrypted.enc,
+            inputNonce: creationInputEncrypted.nonce,
+            inputDigest: creationInputDigest,
+          })
+          return inserted
+        }))
     } catch (err) {
       if (
         creationKey &&
@@ -1097,57 +1199,40 @@ export function createAppsRouter(db: Db): Hono {
       throw err
     }
 
-    const initialSecretRows = initialDatabaseVars
-      ? (body.initialSecrets ?? []).filter(
-          (item) => !Object.hasOwn(initialDatabaseVars!, item.key)
-        )
-      : (body.initialSecrets ?? [])
-
-    if (initialSecretRows.length) {
-      const nowForSecrets = new Date()
-      for (const item of initialSecretRows) {
-        const { enc, nonce } = await encryptSecret(item.value)
-        await db.insert(secrets).values({
-          id: nanoid(),
-          app_id: id,
-          project_id: projectId,
-          scope: item.scope,
-          phase: item.phase,
-          key: item.key,
-          value_ciphertext: enc,
-          nonce,
-          created_at: nowForSecrets,
-        })
-      }
+    await createCreationSaga(db, {
+      resourceType: "application",
+      resourceId: id,
+      projectId,
+      requestedByUserId: user.id,
+      completedSteps: ["row_persisted"],
+      inputCiphertext: creationInputEncrypted.enc,
+      inputNonce: creationInputEncrypted.nonce,
+      inputDigest: creationInputDigest,
+    })
+    creationSaga = await getCreationSaga(db, "application", id)
+    if (existingCreationApp && creationSaga?.state === "complete") {
+      return c.json({ app: serializeApp(existingCreationApp) }, 200)
     }
-
-    if (initialDatabaseVars && initialDatabaseId && initialDatabaseEnvPrefix) {
-      const nowForDatabaseLink = new Date()
-      for (const [key, value] of Object.entries(initialDatabaseVars)) {
-        const { enc, nonce } = await encryptSecret(value)
-        await db.insert(secrets).values({
-          id: nanoid(),
-          app_id: id,
-          project_id: projectId,
-          scope: "shared",
-          phase: "runtime",
-          key,
-          value_ciphertext: enc,
-          nonce,
-          linked_database_id: initialDatabaseId,
-          created_at: nowForDatabaseLink,
-        })
-      }
-      await db.insert(app_db_links).values({
-        id: nanoid(),
-        app_id: id,
-        database_id: initialDatabaseId,
-        env_prefix: initialDatabaseEnvPrefix,
-        created_at: nowForDatabaseLink,
-      })
+    const creationClaim = await claimCreationSaga(db, "application", id)
+    if (!creationClaim) {
+      return c.json(
+        {
+          error: {
+            code: "CREATION_IN_PROGRESS",
+            message: "Application creation is already being resumed",
+          },
+        },
+        409
+      )
     }
+    await resumeApplicationConfiguration(
+      db,
+      creationClaim.saga,
+      creationClaim.token
+    )
+    creationSaga = await getCreationSaga(db, "application", id)
 
-    // Auto-inject framework-aware env vars (Nixpacks/Railpack only, git sources only).
+    // Auto-inject framework-aware env vars (Nixpacks only, git sources only).
     // Runs best-effort — failure must never block app creation.
     const resolvedBuildMethod =
       body.buildMethod === "docker"
@@ -1158,9 +1243,7 @@ export function createAppsRouter(db: Db): Hono {
       body.installationId &&
       body.repoFullName &&
       body.branch &&
-      (resolvedBuildMethod === "nixpacks" ||
-        resolvedBuildMethod === "railpack" ||
-        resolvedBuildMethod === "auto")
+      (resolvedBuildMethod === "nixpacks" || resolvedBuildMethod === "auto")
     if (shouldAutoInject) {
       try {
         const probeResults: Record<string, boolean> = {}
@@ -1202,8 +1285,7 @@ export function createAppsRouter(db: Db): Hono {
           manifests
         )
         const classification =
-          resolvedBuildMethod === "nixpacks" ||
-          resolvedBuildMethod === "railpack"
+          resolvedBuildMethod === "nixpacks"
             ? frameworkEnvClassificationForExplicitNixpacks(
                 baseClassification,
                 probeResults
@@ -1235,40 +1317,82 @@ export function createAppsRouter(db: Db): Hono {
       }
     }
 
+    const existingBuildRows = existingCreationApp
+      ? await db
+          .select({ id: builds.id })
+          .from(builds)
+          .where(eq(builds.app_id, id))
+          .limit(1)
+      : []
     const queuedAt = new Date()
-    await enqueueWithDbRow({
-      db,
-      queue: deployQueue,
-      jobName: "deploy.requested",
-      insertRow: async (tx) => {
-        await tx
-          .update(apps)
-          .set({ status: "pending", updated_at: queuedAt })
-          .where(eq(apps.id, id))
+    if (
+      !(await fenceCreationSaga(db, "application", id, creationClaim.token))
+    ) {
+      return c.json(
+        {
+          error: {
+            code: "CREATION_LEASE_LOST",
+            message: "Application creation will be retried",
+          },
+        },
+        409
+      )
+    }
+    const accepted = existingBuildRows[0]
+      ? { jobId: existingBuildRows[0].id }
+      : await enqueueWithDbRow({
+          db,
+          queue: deployQueue,
+          jobName: "deploy.requested",
+          insertRow: async (tx) => {
+            await tx
+              .update(apps)
+              .set({ status: "pending", updated_at: queuedAt })
+              .where(eq(apps.id, id))
 
-        return tx
-          .insert(builds)
-          .values({
-            id: nanoid(),
-            app_id: id,
-            requested_by_user_id: user.id,
-            source: "api",
-          })
-          .returning()
-          .then((r: any[]) => r[0])
-      },
-      buildPayload: (row) => ({ buildId: row.id }),
-      jobOptions: { attempts: 1 },
-      onQueueAddError: async (row) => {
-        await db.transaction(async (tx) => {
-          await tx.delete(builds).where(eq(builds.id, row.id))
-          await tx
-            .update(apps)
-            .set({ status: "created", updated_at: new Date() })
-            .where(eq(apps.id, id))
+            return tx
+              .insert(builds)
+              .values({
+                id: nanoid(),
+                app_id: id,
+                requested_by_user_id: user.id,
+                source: "api",
+              })
+              .returning()
+              .then((r: any[]) => r[0])
+          },
+          buildPayload: (row) => ({ buildId: row.id }),
+          jobOptions: { attempts: 1 },
         })
-      },
-    })
+    const jobRecorded = await recordClaimedCreationSagaStep(
+      db,
+      "application",
+      id,
+      creationClaim.token,
+      "deploy_job_persisted",
+      {
+        jobId: accepted.jobId,
+      }
+    )
+    if (
+      !jobRecorded ||
+      !(await completeClaimedCreationSaga(
+        db,
+        "application",
+        id,
+        creationClaim.token
+      ))
+    ) {
+      return c.json(
+        {
+          error: {
+            code: "CREATION_LEASE_LOST",
+            message: "Application creation will be reconciled",
+          },
+        },
+        409
+      )
+    }
 
     return c.json(
       {
@@ -1278,7 +1402,7 @@ export function createAppsRouter(db: Db): Hono {
           updated_at: queuedAt,
         }),
       },
-      201
+      existingCreationApp ? 200 : 201
     )
   })
 
@@ -1361,6 +1485,69 @@ export function createAppsRouter(db: Db): Hono {
       )
     }
 
+    const effectiveProvider = body.gitProvider ?? existing.git_provider
+    const sourceSelectionChanged =
+      body.gitProvider !== undefined ||
+      body.repoFullName !== undefined ||
+      body.branch !== undefined ||
+      body.installationId !== undefined ||
+      body.gitlabProjectId !== undefined
+    const githubBindingChanged =
+      body.gitProvider !== undefined || body.installationId !== undefined
+    if (githubBindingChanged && effectiveProvider === "github") {
+      const installationId =
+        body.installationId ?? existing.github_installation_id
+      if (
+        !installationId ||
+        !(await userOwnsGitHubInstallation(db, user.id, installationId))
+      ) {
+        return c.json(
+          {
+            error: {
+              code: "GITHUB_INSTALLATION_NOT_ACCESSIBLE",
+              message: "The selected GitHub installation is not accessible",
+            },
+          },
+          412
+        )
+      }
+    }
+    if (sourceSelectionChanged && effectiveProvider === "gitlab") {
+      const projectId = body.gitlabProjectId ?? existing.gitlab_project_id
+      const fullName = body.repoFullName ?? existing.repo_full_name
+      const branch = body.branch ?? existing.branch
+      if (!projectId || !fullName || !branch) {
+        return c.json(
+          {
+            error: {
+              code: "VALIDATION_ERROR",
+              message: "GitLab project, repository and branch are required",
+            },
+          },
+          400
+        )
+      }
+      try {
+        await assertGitLabProjectSelection(db, {
+          credentialUserId: user.id,
+          projectId,
+          fullName,
+          branch,
+        })
+      } catch {
+        return c.json(
+          {
+            error: {
+              code: "GITLAB_PROJECT_NOT_ACCESSIBLE",
+              message:
+                "The selected GitLab project or branch is not accessible",
+            },
+          },
+          412
+        )
+      }
+    }
+
     // Build update set — only provided fields
     const patch: Record<string, unknown> = { updated_at: new Date() }
     const restartPolicyChanged =
@@ -1385,6 +1572,26 @@ export function createAppsRouter(db: Db): Hono {
       patch.quick_links = JSON.stringify(body.quickLinks)
     if (body.installationId !== undefined)
       patch.github_installation_id = body.installationId
+    if (body.gitlabProjectId !== undefined)
+      patch.gitlab_project_id = body.gitlabProjectId
+    if (sourceSelectionChanged && effectiveProvider === "gitlab") {
+      patch.git_provider_installation_id = `gitlab:user:${user.id}`
+      patch.gitlab_credential_user_id = user.id
+      patch.github_installation_id = null
+    } else if (
+      sourceSelectionChanged &&
+      effectiveProvider === "github" &&
+      (body.installationId ?? existing.github_installation_id)
+    ) {
+      patch.git_provider_installation_id = `github:${body.installationId ?? existing.github_installation_id}`
+      patch.gitlab_credential_user_id = null
+      patch.gitlab_project_id = null
+    } else if (sourceSelectionChanged && effectiveProvider === "image") {
+      patch.git_provider_installation_id = null
+      patch.gitlab_credential_user_id = null
+      patch.gitlab_project_id = null
+      patch.github_installation_id = null
+    }
     if (body.rootDir !== undefined) patch.root_dir = body.rootDir
     if (body.dockerfilePath !== undefined)
       patch.dockerfile_path = body.dockerfilePath
@@ -1545,7 +1752,6 @@ export function createAppsRouter(db: Db): Hono {
       db,
       appId,
       requestedByUserId: user.id,
-      previousStatus: existing.status,
       flags: normalizedFlags,
     })
 
@@ -1842,11 +2048,8 @@ export function createAppsRouter(db: Db): Hono {
   })
 
   // POST /:id/builds/:buildId/cancel — cancel a running build.
-  // Marks the build status=cancelled in DB, removes its BullMQ job if
-  // still queued. Does NOT abort a build that's mid-BuildKit-push — the
-  // worker will finish that phase and its final updateBuildStatus(succeeded)
-  // will lose the race with our cancel write (the build row will flip
-  // back to succeeded). For mid-flight builds, this is best-effort.
+  // Persists cancellation intent, removes only this build's queued job, and
+  // lets the lease heartbeat abort supported active child processes.
   router.post(
     "/:id/builds/:buildId/cancel",
     appsDeploy,
@@ -1890,32 +2093,36 @@ export function createAppsRouter(db: Db): Hono {
         )
       }
 
-      // Remove queued BullMQ jobs for this app (best-effort).
+      // Persist intent before touching BullMQ. An active worker observes this
+      // through its heartbeat/fence and aborts cancellable child processes.
+      const cancellation = await requestBuildCancellation(db, {
+        buildId,
+        appId,
+        requestedByUserId: user.id,
+        reason: `Cancelled by user ${user.email ?? user.id}`,
+      })
+      if (!cancellation) {
+        return c.json(
+          {
+            error: {
+              code: "INVALID_STATE",
+              message: "Build reached a terminal state before cancellation",
+            },
+          },
+          409
+        )
+      }
+
+      // Remove only this build's BullMQ job. A later deployment for the same
+      // app is a legitimate successor and must remain queued.
       try {
-        const jobs = await deployQueue.getJobs([
-          "waiting",
-          "delayed",
-          "active",
-          "paused",
-          "prioritized",
-        ])
-        for (const j of jobs) {
-          const jobAppId = await resolveDeployJobAppIdFromPayload(db, j.data)
-          if (jobAppId === appId) {
-            await j.remove().catch(() => {})
-          }
-        }
+        await removeQueuedDeployBuild(deployQueue, buildId)
       } catch (err) {
         childLogger("apps-cancel-build").warn(
           { err, appId, buildId },
           "failed to remove BullMQ jobs (non-fatal)"
         )
       }
-
-      await updateBuildStatus(db, buildId, "cancelled", {
-        finishedAt: new Date(),
-        errorMessage: `Cancelled by user ${user.email ?? user.id}`,
-      })
 
       try {
         eventBus.publish(`user:${user.id}`, {

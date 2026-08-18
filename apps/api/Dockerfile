@@ -22,9 +22,27 @@ COPY packages ./packages
 RUN bun install --frozen-lockfile
 
 FROM moby/buildkit:v0.29.0-rootless AS buildkit
-FROM docker:28-cli AS docker-cli
+
+FROM debian:bookworm-slim AS nixpacks
+ARG TARGETARCH
+ARG NIXPACKS_VERSION=1.41.0
+RUN apt-get update \
+ && apt-get install -y --no-install-recommends ca-certificates curl \
+ && rm -rf /var/lib/apt/lists/* \
+ && case "$TARGETARCH" in \
+      amd64) artifact="nixpacks-v${NIXPACKS_VERSION}-x86_64-unknown-linux-gnu.tar.gz"; checksum="194bcad8c379f78a309eee1a88b2e6b2abc59f354efe7ecd7b4bbaf21de99a06" ;; \
+      arm64) artifact="nixpacks-v${NIXPACKS_VERSION}-aarch64-unknown-linux-musl.tar.gz"; checksum="912bd02dd2bb6f9c3a9ed965fe8a68b4aa318dc7a2546e2eca6f2806a894ba39" ;; \
+      *) echo "unsupported Nixpacks architecture: $TARGETARCH" >&2; exit 2 ;; \
+    esac \
+ && curl -fsSL --retry 3 \
+      "https://github.com/railwayapp/nixpacks/releases/download/v${NIXPACKS_VERSION}/${artifact}" \
+      -o /tmp/nixpacks.tar.gz \
+ && echo "${checksum}  /tmp/nixpacks.tar.gz" | sha256sum -c - \
+ && tar -xzf /tmp/nixpacks.tar.gz -C /usr/local/bin nixpacks \
+ && chmod 0755 /usr/local/bin/nixpacks
 
 FROM oven/bun:1.3-debian AS runtime
+ARG PLOYDOK_BUILD_VERSION=dev
 WORKDIR /app
 
 RUN apt-get update \
@@ -36,15 +54,16 @@ RUN apt-get update \
  && rm -rf /var/lib/apt/lists/*
 
 ENV NODE_ENV=prod \
-    PORT=3335
+    PORT=3335 \
+    PLOYDOK_BUILD_VERSION=${PLOYDOK_BUILD_VERSION}
 
 COPY --from=buildkit /usr/bin/buildctl /usr/local/bin/buildctl
-COPY --from=docker-cli /usr/local/bin/docker /usr/local/bin/docker
-COPY --from=docker-cli /usr/local/libexec/docker/cli-plugins/docker-buildx /usr/local/libexec/docker/cli-plugins/docker-buildx
+COPY --from=nixpacks /usr/local/bin/nixpacks /usr/local/bin/nixpacks
 COPY --from=builder /app /app
 
 EXPOSE 3335
 
 WORKDIR /app/apps/api
+USER bun
 ENTRYPOINT ["/usr/bin/tini", "--"]
 CMD ["bun", "run", "src/index.ts"]

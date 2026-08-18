@@ -1,5 +1,5 @@
 [Unit]
-Description=Ploydok control-plane image refresher
+Description=Ploydok development edge image refresher
 Requires=docker.service
 After=docker.service ploydok.service
 Wants=network-online.target
@@ -8,7 +8,8 @@ Wants=network-online.target
 Type=oneshot
 WorkingDirectory=${PLOYDOK_INSTALL_DIR}
 EnvironmentFile=${PLOYDOK_DATA_DIR}/.env
-# The helper verifies every image against the pinned GitHub Actions identity
-# before pulling or asking Swarm to resolve a moving tag such as :edge.
+# The helper updates only Ploydok-owned images and verifies each one against the
+# pinned GitHub Actions identity. Third-party services are never verified with
+# the Ploydok identity or implicitly refreshed by this unit.
 ExecStart=/usr/local/lib/ploydok/update-stack.sh
 TimeoutStartSec=300

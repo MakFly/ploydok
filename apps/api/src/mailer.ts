@@ -5,14 +5,34 @@ import { childLogger } from "./logger"
 
 const log = childLogger("mailer")
 
-let _transporter: Transporter | null = null
+interface ActivePoolResource {
+  close(): void
+}
 
-function getTransporter(): Transporter {
-  if (_transporter) return _transporter
-  _transporter = nodemailer.createTransport({
+interface SmtpPoolInternals {
+  _connections?: ActivePoolResource[]
+}
+
+export interface AbortableMailTransport {
+  sendMail: Transporter["sendMail"]
+  close(): void
+  abortActive(): void
+}
+
+function createDedicatedTransporter(): AbortableMailTransport {
+  const transporter = nodemailer.createTransport({
+    // SMTPTransport.close() does not close its active socket. A one-message
+    // pool exposes its active PoolResource, whose close() closes SMTPConnection
+    // and therefore interrupts an in-flight DATA exchange.
+    pool: true,
+    maxConnections: 1,
+    maxMessages: 1,
     host: env.SMTP_HOST,
     port: env.SMTP_PORT,
     secure: env.SMTP_SECURE,
+    connectionTimeout: 10_000,
+    greetingTimeout: 10_000,
+    socketTimeout: 20_000,
     auth:
       env.SMTP_USER && env.SMTP_PASS
         ? { user: env.SMTP_USER, pass: env.SMTP_PASS }
@@ -22,7 +42,17 @@ function getTransporter(): Transporter {
     { host: env.SMTP_HOST, port: env.SMTP_PORT, secure: env.SMTP_SECURE },
     "SMTP transport initialisé"
   )
-  return _transporter
+  const pool = (
+    transporter as unknown as { transporter: SmtpPoolInternals }
+  ).transporter
+  return {
+    sendMail: transporter.sendMail.bind(transporter),
+    close: () => transporter.close(),
+    abortActive: () => {
+      transporter.close()
+      for (const resource of [...(pool._connections ?? [])]) resource.close()
+    },
+  }
 }
 
 export interface SendMailInput {
@@ -30,25 +60,63 @@ export interface SendMailInput {
   subject: string
   text: string
   html?: string
+  messageId?: string
 }
 
-export async function sendMail(input: SendMailInput): Promise<void> {
-  if (env.NODE_ENV === "test") {
-    log.debug({ to: input.to, subject: input.subject }, "mail skippé (test)")
-    return
-  }
+export async function sendMailWithTransport(
+  transporter: AbortableMailTransport,
+  input: SendMailInput,
+  options: { signal?: AbortSignal } = {}
+): Promise<{ messageId?: string }> {
+  const abort = () => transporter.abortActive()
+  options.signal?.addEventListener("abort", abort, { once: true })
   try {
-    const info = await getTransporter().sendMail({
+    if (options.signal?.aborted) {
+      abort()
+      throw options.signal.reason ?? new Error("SMTP delivery aborted")
+    }
+    const delivery = transporter.sendMail({
       from: env.SMTP_FROM,
       to: input.to,
       subject: input.subject,
       text: input.text,
       html: input.html,
+      messageId: input.messageId,
     })
-    log.info(
-      { to: input.to, subject: input.subject, messageId: info.messageId },
-      "mail envoyé"
-    )
+    const aborted = new Promise<never>((_, reject) => {
+      options.signal?.addEventListener(
+        "abort",
+        () =>
+          reject(options.signal?.reason ?? new Error("SMTP delivery aborted")),
+        { once: true }
+      )
+    })
+    return await Promise.race([delivery, aborted])
+  } finally {
+    options.signal?.removeEventListener("abort", abort)
+    transporter.close()
+  }
+}
+
+export async function sendMailOrThrow(
+  input: SendMailInput,
+  options: { signal?: AbortSignal } = {}
+): Promise<void> {
+  if (env.NODE_ENV === "test") {
+    log.debug({ to: input.to, subject: input.subject }, "mail skippé (test)")
+    return
+  }
+  const transporter = createDedicatedTransporter()
+  const info = await sendMailWithTransport(transporter, input, options)
+  log.info(
+    { to: input.to, subject: input.subject, messageId: info.messageId },
+    "mail envoyé"
+  )
+}
+
+export async function sendMail(input: SendMailInput): Promise<void> {
+  try {
+    await sendMailOrThrow(input)
   } catch (err) {
     // Never fail a business flow on a mail delivery issue.
     log.warn(

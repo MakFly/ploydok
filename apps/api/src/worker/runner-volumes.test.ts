@@ -196,7 +196,11 @@ describe("runBlueGreen volumes wiring", () => {
           set() {
             return {
               where() {
-                return Promise.resolve()
+                return {
+                  returning() {
+                    return Promise.resolve([{ id: "app-1" }])
+                  },
+                }
               },
             }
           },
@@ -212,13 +216,15 @@ describe("runBlueGreen volumes wiring", () => {
       runtimePort: 3000,
     })
 
-    expect(listRuntimeAppVolumeMounts).toHaveBeenCalledWith(
-      db,
-      "app-1",
-      { ensureDirectories: true }
-    )
+    expect(listRuntimeAppVolumeMounts).toHaveBeenCalledWith(db, "app-1", {
+      ensureDirectories: true,
+    })
     const req = containerCreateCalls[0] as {
-      volumes?: Array<{ hostPath: string; containerPath: string; readOnly: boolean }>
+      volumes?: Array<{
+        hostPath: string
+        containerPath: string
+        readOnly: boolean
+      }>
     }
     expect(req.volumes).toEqual([
       {

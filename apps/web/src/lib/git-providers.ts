@@ -13,8 +13,60 @@ export interface GitProviderStatus {
   gitlab: {
     configured: boolean
     connected: boolean
+    state?:
+      | "not_configured"
+      | "disconnected"
+      | "expired"
+      | "unavailable"
+      | "connected"
     connect_url?: string | null
   }
+}
+
+export interface GitLabSourceAvailability {
+  enabled: boolean
+  reason: string | null
+}
+
+export function getGitLabSourceAvailability(
+  status: GitProviderStatus | undefined,
+  options: { loading?: boolean; failed?: boolean } = {}
+): GitLabSourceAvailability {
+  if (options.loading && !status) {
+    return { enabled: false, reason: "Vérification de GitLab…" }
+  }
+  if (options.failed && !status) {
+    return {
+      enabled: false,
+      reason: "Impossible de vérifier la disponibilité de GitLab.",
+    }
+  }
+  if (!status?.gitlab.configured) {
+    return {
+      enabled: false,
+      reason: "GitLab doit d'abord être configuré par un administrateur.",
+    }
+  }
+  if (status.gitlab.state === "unavailable") {
+    return {
+      enabled: false,
+      reason:
+        "GitLab est temporairement indisponible. Réessaie sans déconnecter ton compte.",
+    }
+  }
+  if (status.gitlab.state === "expired") {
+    return {
+      enabled: false,
+      reason: "La connexion GitLab a expiré. Reconnecte ton compte.",
+    }
+  }
+  if (!status.gitlab.connected) {
+    return {
+      enabled: false,
+      reason: "Connecte ton compte GitLab dans les réglages des providers.",
+    }
+  }
+  return { enabled: true, reason: null }
 }
 
 export function getGitProviderStatus(): Promise<GitProviderStatus> {

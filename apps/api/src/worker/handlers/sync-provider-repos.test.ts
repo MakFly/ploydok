@@ -33,7 +33,10 @@ function makeSelectChain(rows: unknown[]): SelectChain {
   const chain: SelectChain = {
     from: () => chain,
     where: () => chain,
-    limit: () => Promise.resolve(rows),
+    limit: () =>
+      Object.assign(Promise.resolve(rows), {
+        for: (_mode: "update") => Promise.resolve(rows),
+      }),
     orderBy: () => chain,
     then: (resolve, reject) => {
       try {
@@ -48,7 +51,9 @@ function makeSelectChain(rows: unknown[]): SelectChain {
   return chain
 }
 
-function mockDb(opts: { gitlabTokenRows?: unknown[]; updateRow?: unknown } = {}) {
+function mockDb(
+  opts: { gitlabTokenRows?: unknown[]; updateRow?: unknown } = {}
+) {
   const db = {
     select: (_fields?: unknown) => ({
       from: (_table: unknown) => makeSelectChain(opts.gitlabTokenRows ?? []),
@@ -94,7 +99,6 @@ const mockEnqueue = mock(
 
 describe("handleSyncProviderRepos — GitHub fan-out", () => {
   let upsertInstallationSpy: ReturnType<typeof spyOn>
-  let enqueueReposSyncSpy: ReturnType<typeof spyOn>
   let listInstallationsSpy: ReturnType<typeof spyOn>
   let getConfigSpy: ReturnType<typeof spyOn>
   let lockConfigSpy: ReturnType<typeof spyOn>
@@ -165,7 +169,9 @@ describe("handleSyncProviderRepos — GitHub fan-out", () => {
     await handleSyncProviderRepos(db as never, { provider: "github" })
 
     expect(listInstallationsSpy).toHaveBeenCalledTimes(1)
-    expect(upsertInstallationSpy).toHaveBeenCalledTimes(2)
+    // Installation freshness is not advanced by fan-out; only a complete
+    // per-installation snapshot may publish it.
+    expect(upsertInstallationSpy).not.toHaveBeenCalled()
     // Two child jobs enqueued (one per installation)
     expect(mockEnqueue.mock.calls.length).toBe(2)
     const payloads = mockEnqueue.mock.calls.map((c) => (c as unknown[])[1])
@@ -205,7 +211,6 @@ describe("handleSyncProviderRepos — GitHub fan-out", () => {
     await handleSyncProviderRepos(db as never, { provider: "github" })
 
     expect(listInstallationsSpy).toHaveBeenCalledTimes(1)
-    expect(upsertInstallationSpy).not.toHaveBeenCalled()
     expect(mockEnqueue).not.toHaveBeenCalled()
   })
 
@@ -222,7 +227,6 @@ describe("handleSyncProviderRepos — GitHub fan-out", () => {
     await handleSyncProviderRepos(db as never, { provider: "github" })
 
     expect(listInstallationsSpy).toHaveBeenCalledTimes(1)
-    expect(upsertInstallationSpy).not.toHaveBeenCalled()
     expect(mockEnqueue).not.toHaveBeenCalled()
   })
 })
@@ -233,10 +237,26 @@ describe("handleSyncProviderRepos — GitHub fan-out", () => {
 
 describe("handleSyncProviderRepos — GitHub per-installation", () => {
   let listReposSpy: ReturnType<typeof spyOn>
-  let replaceReposSpy: ReturnType<typeof spyOn>
+  let listInstallationsSpy: ReturnType<typeof spyOn>
+  let replaceSnapshotSpy: ReturnType<typeof spyOn>
 
   beforeEach(async () => {
     const { ghProvider } = await import("../../routes/github")
+
+    listInstallationsSpy = spyOn(
+      installTokensMod,
+      "listAppInstallations"
+    ).mockResolvedValue([
+      {
+        id: 999,
+        accountLogin: "org",
+        accountType: "Organization",
+        repositorySelection: "all",
+        suspendedAt: null,
+        htmlUrl: "https://github.com/orgs/org",
+        avatarUrl: "https://avatars.githubusercontent.com/org",
+      },
+    ])
 
     // Page 1 returns 2 repos with hasMore=true, page 2 returns 1 repo with hasMore=false
     let callCount = 0
@@ -282,18 +302,19 @@ describe("handleSyncProviderRepos — GitHub per-installation", () => {
       }
     )
 
-    replaceReposSpy = spyOn(
+    replaceSnapshotSpy = spyOn(
       providerReposQueries,
-      "replaceInstallationRepos"
+      "replaceInstallationSnapshot"
     ).mockResolvedValue(undefined)
   })
 
   afterEach(() => {
     listReposSpy.mockRestore()
-    replaceReposSpy.mockRestore()
+    listInstallationsSpy.mockRestore()
+    replaceSnapshotSpy.mockRestore()
   })
 
-  it("walks pages until hasMore=false and calls replaceInstallationRepos once with merged list", async () => {
+  it("publishes installation freshness and all pages as one snapshot", async () => {
     const { handleSyncProviderRepos } = await import("./sync-provider-repos")
     const db = mockDb()
 
@@ -303,18 +324,19 @@ describe("handleSyncProviderRepos — GitHub per-installation", () => {
     })
 
     expect(listReposSpy).toHaveBeenCalledTimes(2)
-    expect(replaceReposSpy).toHaveBeenCalledTimes(1)
+    expect(replaceSnapshotSpy).toHaveBeenCalledTimes(1)
 
-    const [, installId, rows] = replaceReposSpy.mock.calls[0] as [
+    const [, installation, rows] = replaceSnapshotSpy.mock.calls[0] as [
       unknown,
-      string,
+      { id: string; account_login: string },
       unknown[],
     ]
-    expect(installId).toBe("github:999")
+    expect(installation.id).toBe("github:999")
+    expect(installation.account_login).toBe("org")
     expect(rows).toHaveLength(3)
   })
 
-  it("logs error and does not throw when an installation fails", async () => {
+  it("keeps the previous cache when a GitHub page fails", async () => {
     const { handleSyncProviderRepos } = await import("./sync-provider-repos")
     const db = mockDb()
 
@@ -325,10 +347,38 @@ describe("handleSyncProviderRepos — GitHub per-installation", () => {
         provider: "github",
         installationId: "999",
       })
-    ).resolves.toBeUndefined()
+    ).rejects.toThrow("GitHub API down")
 
-    // replaceInstallationRepos called with empty array (no rows accumulated)
-    expect(replaceReposSpy).toHaveBeenCalledWith(db, "github:999", [])
+    expect(replaceSnapshotSpy).not.toHaveBeenCalled()
+  })
+
+  it("does not publish freshness or repos when a later GitHub page fails", async () => {
+    const { handleSyncProviderRepos } = await import("./sync-provider-repos")
+    const db = mockDb()
+    listReposSpy
+      .mockResolvedValueOnce({
+        repos: [
+          {
+            id: 1,
+            fullName: "org/repo-a",
+            description: null,
+            defaultBranch: "main",
+            private: false,
+            cloneUrl: "",
+          },
+        ],
+        hasMore: true,
+      })
+      .mockRejectedValueOnce(new Error("GitHub page 2 unavailable"))
+
+    await expect(
+      handleSyncProviderRepos(db as never, {
+        provider: "github",
+        installationId: "999",
+      })
+    ).rejects.toThrow("GitHub page 2 unavailable")
+
+    expect(replaceSnapshotSpy).not.toHaveBeenCalled()
   })
 
   it("rejects an unclaimable GitHub credential (missing trust source)", async () => {
@@ -390,10 +440,10 @@ describe("handleSyncProviderRepos — GitLab per-user", () => {
       "upsertInstallation"
     ).mockResolvedValue(undefined)
 
-    // Mock replaceInstallationRepos
+    // Mock the atomic installation + repository cache publication.
     const replaceSpy = spyOn(
       providerReposQueries,
-      "replaceInstallationRepos"
+      "replaceInstallationSnapshot"
     ).mockResolvedValue(undefined)
 
     // Mock GitLabProvider.listRepos
@@ -438,16 +488,89 @@ describe("handleSyncProviderRepos — GitLab per-user", () => {
     expect(listReposSpy).toHaveBeenCalled()
     expect(replaceSpy).toHaveBeenCalledTimes(1)
 
-    const [, installId, rows] = replaceSpy.mock.calls[0] as [
+    const [, installation, rows] = replaceSpy.mock.calls[0] as [
       unknown,
-      string,
+      { id: string },
       { id: string; full_name: string; provider: string }[],
     ]
-    expect(installId).toBe("gitlab:user:user-1")
+    expect(installation.id).toBe("gitlab:user:user-1")
     expect(rows).toHaveLength(1)
     expect(rows[0]?.id).toBe("gitlab:42")
     expect(rows[0]?.full_name).toBe("group/project")
     expect(rows[0]?.provider).toBe("gitlab")
+
+    getGitLabConfigSpy.mockRestore()
+    decryptSpy.mockRestore()
+    upsertInstSpy.mockRestore()
+    replaceSpy.mockRestore()
+    listReposSpy.mockRestore()
+  })
+
+  it("keeps the previous cache when a later GitLab page fails", async () => {
+    const { handleSyncProviderRepos } = await import("./sync-provider-repos")
+    const getGitLabConfigSpy = spyOn(
+      providerReposQueries,
+      "getGitLabConfig"
+    ).mockResolvedValue({
+      id: "singleton",
+      instance_url: "https://gitlab.example.com",
+      client_id: "cid",
+      client_secret_enc: Buffer.from("enc"),
+      client_secret_nonce: Buffer.from("nonce"),
+      webhook_secret_enc: Buffer.from("wenc"),
+      webhook_secret_nonce: Buffer.from("wnonce"),
+    } as never)
+    const appCredMod = await import("../../github/app-credentials")
+    const decryptSpy = spyOn(appCredMod, "decryptField").mockResolvedValue(
+      "fake-token"
+    )
+    const upsertInstSpy = spyOn(
+      providerReposQueries,
+      "upsertInstallation"
+    ).mockResolvedValue(undefined)
+    const replaceSpy = spyOn(
+      providerReposQueries,
+      "replaceInstallationSnapshot"
+    ).mockResolvedValue(undefined)
+    const { GitLabProvider } = await import("../../gitlab/client")
+    const listReposSpy = spyOn(GitLabProvider.prototype, "listRepos")
+      .mockResolvedValueOnce({
+        repos: [
+          {
+            id: 42,
+            fullName: "group/project",
+            description: null,
+            defaultBranch: "main",
+            private: true,
+            cloneUrl: "https://gitlab.example.com/group/project.git",
+          },
+        ],
+        hasMore: true,
+      })
+      .mockRejectedValueOnce(new Error("GitLab page 2 unavailable"))
+    const db = mockDb({
+      gitlabTokenRows: [
+        {
+          user_id: "user-1",
+          access_token_enc: Buffer.from("enc"),
+          access_token_nonce: Buffer.from("nonce"),
+          refresh_token_enc: null,
+          refresh_token_nonce: null,
+          expires_at: null,
+          created_at: new Date(),
+          updated_at: new Date(),
+        },
+      ],
+    })
+
+    await expect(
+      handleSyncProviderRepos(db as never, {
+        provider: "gitlab",
+        userId: "user-1",
+      })
+    ).rejects.toThrow("GitLab page 2 unavailable")
+    expect(replaceSpy).not.toHaveBeenCalled()
+    expect(upsertInstSpy).not.toHaveBeenCalled()
 
     getGitLabConfigSpy.mockRestore()
     decryptSpy.mockRestore()

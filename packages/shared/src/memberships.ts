@@ -57,6 +57,32 @@ export const AcceptInvitationBodySchema = z.object({
 })
 export type AcceptInvitationBody = z.infer<typeof AcceptInvitationBodySchema>
 
+export const RegisterFromInvitationBodySchema = z.object({
+  token: z.string().min(1),
+  display_name: z.string().trim().min(1).max(120),
+  password: z.string().min(1),
+})
+export type RegisterFromInvitationBody = z.infer<
+  typeof RegisterFromInvitationBodySchema
+>
+
+export const RegisterFromInvitationResponseSchema = z.object({
+  user: z.object({
+    id: z.string(),
+    email: z.string().email(),
+    display_name: z.string(),
+  }),
+  accessExpiresAt: z.number(),
+  organization: z.object({
+    id: z.string(),
+    slug: z.string(),
+    name: z.string(),
+  }),
+})
+export type RegisterFromInvitationResponse = z.infer<
+  typeof RegisterFromInvitationResponseSchema
+>
+
 export const InvitationPreviewSchema = z.object({
   org_name: z.string(),
   inviter_email: z.string(),
@@ -90,6 +116,7 @@ export const CreateInvitationResponseSchema = z.object({
     role: z.string(),
     expires_at: z.string().datetime(),
   }),
+  delivery_status: z.enum(["queued", "delivered"]),
 })
 export type CreateInvitationResponse = z.infer<
   typeof CreateInvitationResponseSchema

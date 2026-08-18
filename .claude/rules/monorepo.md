@@ -11,10 +11,11 @@ apps/
 │       ├── mailer.ts         # nodemailer (smtp dev = mailpit 1025)
 │       ├── keyring.ts        # keytar / MASTER_KEY
 │       ├── auth/             # webauthn, jwt, sessions, middleware, backup-codes
-│       ├── routes/           # auth, apps, github, ws
-│       ├── queries/          # drizzle queries app-level
+│       ├── routes/           # HTTP auth, apps, orgs, providers, billing, ops
 │       ├── caddy/            # client admin Caddy
 │       ├── github/           # GitHub App (installs, webhooks)
+│       ├── gitlab/           # client et synchronisation GitLab
+│       ├── observability/    # santé, readiness et métriques
 │       ├── agent/            # client gRPC → agent Rust
 │       └── worker/           # jobs async (build/deploy)
 └── web/            # React 19 + TanStack Start (SSR) + Vite + shadcn + Tailwind v4
@@ -33,83 +34,76 @@ packages/
 
 agent/              # workspace Cargo
 ├── ploydok-agent/  # daemon long-run (unix socket, gRPC)
-├── ploydok-cli/    # CLI ops (admin-recovery, etc.)
+├── ploydok-cli/    # CLI Rust audit + récupération historique (SQLite)
 └── crates/         # code partagé
 
 infra/
-├── docker-compose.yml     # caddy + buildkitd + registry
+├── docker-compose.yml     # control-plane local complet
+├── adminer/               # image Adminer durcie
 ├── caddy/                 # Caddyfile + data volumes
 ├── buildkit/              # config buildkitd
+├── garage/                # stockage S3 compatible pour le dev
 └── registry/              # config registry v2
 
-docs/
-├── PRD.md
-├── adr/           # Architecture Decision Records
-├── sprints/       # sprint-N-*.md (roadmap)
-├── plans/         # PLAN-sprint-N.md (plans d'implémentation)
-└── runbooks/      # ops runbooks
+installer/                   # bootstrap, CLI shell et descriptors VPS
+PRD-PLAN.md                  # scope et gates de production actifs
+PRODUCT.md                   # contexte produit et principes UX
 ```
 
 ## Règles de placement
 
 - Type/schema Zod utilisé des deux côtés → `packages/shared/src/`.
 - Composant shadcn réutilisé → `packages/ui/`. Composant spécifique à une page → `apps/web/src/components/<feature>/`.
-- Query Drizzle utilisée par plusieurs routes → `packages/db/src/queries/`. Spécifique à l'API → `apps/api/src/queries/`.
+- Query Drizzle réutilisable → `packages/db/src/queries/`. Une lecture propre à
+  un handler peut rester dans son module de route ; ne pas recréer une couche
+  `apps/api/src/queries/` parallèle.
 - Jamais de dépendance cross `apps/*` — passer par `packages/*`.
 - `routeTree.gen.ts` est généré par `@tanstack/router-plugin` — ne pas toucher. Régénération manuelle : `bunx --bun @tanstack/router-cli generate` (cwd `apps/web`).
 
 ## Routes (`apps/web/src/routes/`)
 
-Arbo TanStack Router — deux layouts pathless centralisent l'auth, toutes les pages vivent dessous :
+Arbo TanStack Router — deux layouts pathless centralisent l'auth. Les pages
+métier sont principalement scopées par organisation :
 
 ```
 routes/
 ├── __root.tsx                   # HTML shell + providers globaux
 ├── _public.tsx                  # layout pathless — beforeLoad: redirectIfAuthenticated()
 ├── _public/
-│   ├── index.tsx                # /             → redirect /login (les users loggés partent /dashboard via le layout)
+│   ├── index.tsx                # /
 │   ├── login.tsx                # /login
-│   └── register.tsx             # /register
+│   ├── setup.tsx                # /setup
+│   └── invitations/accept.tsx   # /invitations/accept
+├── onboarding.tsx               # /onboarding, garde dédiée au parcours initial
 ├── _authed.tsx                  # layout pathless — beforeLoad: requireMe() → { me }
 └── _authed/
-    ├── dashboard.tsx            # /dashboard
-    ├── apps.tsx                 # /apps          (grille)
-    ├── apps/
-    │   └── $id.tsx              # /apps/$id      (layout header + tabs + Outlet)
-    │   └── $id/
-    │       ├── index.tsx        # /apps/$id      (redirect → overview)
-    │       ├── overview.tsx     # /apps/$id/overview
-    │       ├── logs.tsx         # /apps/$id/logs
-    │       ├── builds.tsx       # /apps/$id/builds
-    │       ├── settings.tsx     # /apps/$id/settings  (layout sub-tabs + Outlet)
-    │       ├── settings/
-    │       │   ├── index.tsx          # /apps/$id/settings/    (General — tous les champs build/deploy)
-    │       │   ├── webhooks.tsx       # /apps/$id/settings/webhooks
-    │       │   └── webhook-secret.tsx # /apps/$id/settings/webhook-secret
-    │       ├── env.tsx          # /apps/$id/env
-    │       └── domains.tsx      # /apps/$id/domains
+    ├── dashboard.tsx            # redirect vers le workspace par défaut
+    ├── admin/                    # surfaces réservées à l'admin de l'instance
+    ├── orgs/$orgSlug.tsx        # layout du workspace
+    ├── orgs/$orgSlug/           # apps, DB, services, membres, settings, ops
     └── settings/
-        ├── github.tsx           # /settings/github
-        ├── security.tsx         # /settings/security  (layout sub-tabs + Outlet)
-        └── security/
-            ├── passkeys.tsx     # /settings/security/passkeys
-            └── sessions.tsx     # /settings/security/sessions
+        ├── git-providers/       # connexions GitHub et GitLab personnelles
+        ├── notifications.tsx
+        ├── registry.tsx
+        └── security/            # passkeys, TOTP, sessions et posture
 ```
 
 ### Conventions routing
 
-| Pattern                  | Sens                                                                                 |
-|--------------------------|--------------------------------------------------------------------------------------|
-| `__root.tsx`             | racine spéciale (HTML doc, providers globaux)                                        |
+| Pattern                      | Sens                                                                               |
+| ---------------------------- | ---------------------------------------------------------------------------------- |
+| `__root.tsx`                 | racine spéciale (HTML doc, providers globaux)                                      |
 | `_xxx.tsx` + dossier `_xxx/` | layout **pathless** — pas de segment URL, wrap les enfants (auth, providers, tabs) |
-| `apps.tsx` + dossier `apps/` | layout/page `/apps` + children rendus via folder nesting                         |
-| `$id`                    | segment dynamique                                                                    |
-| `index.tsx`              | route racine de son dossier                                                          |
-| `-xxx.test.ts`           | préfixe `-` → ignoré par le router (OK pour tests/helpers)                           |
+| `apps.tsx` + dossier `apps/` | layout/page `/apps` + children rendus via folder nesting                           |
+| `$id`                        | segment dynamique                                                                  |
+| `index.tsx`                  | route racine de son dossier                                                        |
+| `-xxx.test.ts`               | préfixe `-` → ignoré par le router (OK pour tests/helpers)                         |
 
 ### Règles
 
-- **Nouvelle route authed** → créer sous `_authed/...`. Ne PAS remettre de `beforeLoad: requireMe` — le layout s'en charge. Pour lire `me` : `Route.useRouteContext()`.
+- **Nouvelle route authed** → créer sous `_authed/...`, et sous
+  `_authed/orgs/$orgSlug/...` si la ressource appartient à un workspace. Ne PAS
+  remettre de `beforeLoad: requireMe` — le layout s'en charge.
 - **Nouvelle route publique** (visible anonyme) → créer sous `_public/...`. Ne PAS appeler `redirectIfAuthenticated` — layout parent.
 - Le `createFileRoute(...)` **doit inclure** le préfixe pathless : `"/_authed/dashboard"`, `"/_public/login"`, etc. TanStack enlève les `_xxx` à l'URL finale.
 - Composant route-local → `apps/web/src/components/<feature>/`. Composant réutilisable → `packages/ui/`.

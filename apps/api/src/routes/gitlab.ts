@@ -2,24 +2,26 @@
 import { Hono } from "hono"
 import { nanoid } from "nanoid"
 import { createHash, createHmac, randomBytes } from "node:crypto"
+import { eq } from "drizzle-orm"
 import { ENV_FILE_PROBE_KEYS, MANIFEST_FILE_PROBE_KEYS } from "@ploydok/shared"
-import { createDb } from "@ploydok/db"
+import { createDb, createRedis } from "@ploydok/db"
+import type { Redis } from "@ploydok/db"
 import {
   deleteGitLabConfig,
   deleteGitLabTokens,
   getCacheStatus,
   getGitLabConfig,
-  getGitLabTokens,
   getInstallationStaleness,
   listInstallations,
   listRepos,
   saveGitLabConfig,
   upsertGitLabTokens,
 } from "@ploydok/db/queries"
+import type { ProviderRepoRow } from "@ploydok/db/queries"
 import { provider_credentials } from "@ploydok/db"
 import { enqueueProviderReposSync } from "../worker/handlers/sync-provider-repos"
 import { decryptField, encryptField } from "../github/app-credentials"
-import { GitLabProvider } from "../gitlab/client"
+import { resolveGitLabConnection } from "../gitlab/connection"
 import { handleGitLabWebhook, verifyGitLabToken } from "../gitlab/webhook"
 import { findRecentByPayloadHash } from "../webhooks/deliveries"
 import { gitlabWebhookRateLimit } from "../webhooks/rate-limiters"
@@ -43,6 +45,7 @@ export const gitlabRouter = new Hono<GitLabRouterEnv>()
 
 // Per-router DB singleton (same pattern as routes/github.ts).
 const db = createDb(env.DATABASE_URL)
+const redis = createRedis(env.REDIS_URL)
 const gitlabConfigAdmin = requireInstanceAdmin(db)
 
 function readFileProbeQuery(
@@ -67,12 +70,68 @@ function isAllowedManifestFilePath(path: string): boolean {
   return isAllowedNestedProviderFilePath(path, MANIFEST_FILE_PROBE_KEYS)
 }
 
+export function gitLabDbRowToWire(row: ProviderRepoRow) {
+  const numericId = Number(row.id.replace(/^gitlab:/, ""))
+  return {
+    id: Number.isSafeInteger(numericId) && numericId > 0 ? numericId : row.id,
+    fullName: row.full_name,
+    description: row.description ?? null,
+    private: row.private,
+    defaultBranch: row.default_branch ?? "main",
+    cloneUrl: row.html_url ? row.html_url.replace(/\.git$|\/?$/, ".git") : "",
+  }
+}
+
 // ---------------------------------------------------------------------------
 // State cookie helpers (OAuth anti-CSRF + redirect-after-connect)
 // ---------------------------------------------------------------------------
 
 const OAUTH_STATE_COOKIE = "gl_oauth_state"
 const OAUTH_STATE_TTL_SECONDS = 10 * 60
+const OAUTH_NONCE_PREFIX = "oauth:gitlab:nonce:"
+
+function oauthNonceKey(nonce: string): string {
+  return `${OAUTH_NONCE_PREFIX}${nonce}`
+}
+
+async function storeOAuthNonce(
+  nonceStore: Redis,
+  nonce: string,
+  expiresAt: number,
+  userId: string,
+  sessionId: string
+): Promise<boolean> {
+  const result = await nonceStore.set(
+    oauthNonceKey(nonce),
+    JSON.stringify([expiresAt, userId, sessionId]),
+    "EX",
+    OAUTH_STATE_TTL_SECONDS,
+    "NX"
+  )
+  return result === "OK"
+}
+
+async function consumeOAuthNonce(
+  nonceStore: Redis,
+  nonce: string,
+  expiresAt: number,
+  userId: string,
+  sessionId: string
+): Promise<boolean> {
+  const expected = JSON.stringify([expiresAt, userId, sessionId])
+  const consumed = await nonceStore.eval(
+    `local current = redis.call("GET", KEYS[1])
+     if current == ARGV[1] then
+       redis.call("DEL", KEYS[1])
+       return 1
+     end
+     return 0`,
+    1,
+    oauthNonceKey(nonce),
+    expected
+  )
+  return consumed === 1
+}
 
 /** Constant-time check that the cookie's prefix carries a valid MAC. */
 function verifySignedPrefix(cookieValue: string): string | null {
@@ -93,38 +152,68 @@ function verifySignedPrefix(cookieValue: string): string | null {
 
 function signState(
   state: string,
-  returnTo: ProviderReturnPath = GITLAB_RETURN_FALLBACK
+  userId: string,
+  sessionId: string,
+  returnTo: ProviderReturnPath,
+  issuedAtSeconds: number,
+  expiresAtSeconds: number
 ): string {
-  const payload = Buffer.from(JSON.stringify({ state, returnTo })).toString(
-    "base64url"
-  )
+  const payload = Buffer.from(
+    JSON.stringify({
+      state,
+      nonce: state,
+      userId,
+      sessionId,
+      returnTo,
+      iat: issuedAtSeconds,
+      exp: expiresAtSeconds,
+    })
+  ).toString("base64url")
   const mac = createHmac("sha256", env.SESSION_SECRET)
     .update(payload)
     .digest("hex")
   return `${payload}.${mac}`
 }
 
-/**
- * Accepts the JSON payload format and the legacy bare-state format still held
- * by cookies minted before this shipped. A legacy state is 16 random hex bytes,
- * never valid base64url JSON, so the branches cannot collide.
- */
 function verifyState(
   cookieValue: string,
   state: string
-): { returnTo: ProviderReturnPath } | null {
+): {
+  userId: string
+  sessionId: string
+  returnTo: ProviderReturnPath
+  exp: number
+} | null {
   const payload = verifySignedPrefix(cookieValue)
   if (payload === null) return null
-  if (payload === state) return { returnTo: GITLAB_RETURN_FALLBACK }
 
   try {
     const parsed = JSON.parse(Buffer.from(payload, "base64url").toString()) as {
       state?: unknown
+      userId?: unknown
+      sessionId?: unknown
       returnTo?: unknown
+      nonce?: unknown
+      iat?: unknown
+      exp?: unknown
     }
-    if (parsed.state !== state) return null
+    const now = Math.floor(Date.now() / 1000)
+    if (
+      parsed.state !== state ||
+      parsed.nonce !== state ||
+      typeof parsed.userId !== "string" ||
+      typeof parsed.sessionId !== "string" ||
+      typeof parsed.iat !== "number" ||
+      typeof parsed.exp !== "number" ||
+      parsed.iat > now + 30 ||
+      parsed.exp < now
+    )
+      return null
     return {
+      userId: parsed.userId,
+      sessionId: parsed.sessionId,
       returnTo: sanitizeReturnTo(parsed.returnTo, GITLAB_RETURN_FALLBACK),
+      exp: parsed.exp,
     }
   } catch {
     return null
@@ -254,7 +343,25 @@ gitlabRouter.get("/connect", async (c) => {
     c.req.query("return_to"),
     GITLAB_RETURN_FALLBACK
   )
-  const state = randomBytes(16).toString("hex")
+  const nowSeconds = Math.floor(Date.now() / 1000)
+  const expiresAtSeconds = nowSeconds + OAUTH_STATE_TTL_SECONDS
+  let state = ""
+  for (let attempt = 0; attempt < 3; attempt++) {
+    const candidate = randomBytes(16).toString("hex")
+    if (
+      await storeOAuthNonce(
+        redis,
+        candidate,
+        expiresAtSeconds,
+        user.id,
+        user.session_id
+      )
+    ) {
+      state = candidate
+      break
+    }
+  }
+  if (!state) return c.json({ error: "oauth_state_unavailable" }, 503)
   const authorizeUrl = new URL(`${cfg.instance_url}/oauth/authorize`)
   authorizeUrl.searchParams.set("client_id", cfg.client_id)
   authorizeUrl.searchParams.set("redirect_uri", env.GITLAB_OAUTH_CALLBACK_URL)
@@ -268,7 +375,14 @@ gitlabRouter.get("/connect", async (c) => {
     "Set-Cookie",
     buildCookie(
       OAUTH_STATE_COOKIE,
-      signState(state, returnTo),
+      signState(
+        state,
+        user.id,
+        user.session_id,
+        returnTo,
+        nowSeconds,
+        expiresAtSeconds
+      ),
       OAUTH_STATE_TTL_SECONDS,
       true
     )
@@ -281,9 +395,11 @@ gitlabRouter.get("/connect", async (c) => {
 // ---------------------------------------------------------------------------
 
 gitlabRouter.get("/callback", async (c) => {
-  const code = c.req.query("code")
   const state = c.req.query("state")
-  if (!code || !state) return c.json({ error: "missing_code_or_state" }, 400)
+  if (!state) return c.json({ error: "missing_state" }, 400)
+
+  const user = c.get("user") ?? null
+  if (!user) return c.json({ error: "unauthenticated" }, 401)
 
   const cookieVal = parseCookie(
     c.req.header("cookie") ?? "",
@@ -297,11 +413,52 @@ gitlabRouter.get("/callback", async (c) => {
   const returnTo = sanitizeReturnTo(oauthState.returnTo, GITLAB_RETURN_FALLBACK)
   c.header("Set-Cookie", clearCookie(OAUTH_STATE_COOKIE))
 
-  const user = c.get("user") ?? null
-  if (!user) return c.json({ error: "unauthenticated" }, 401)
+  if (
+    oauthState.userId !== user.id ||
+    oauthState.sessionId !== user.session_id
+  ) {
+    return c.json({ error: "oauth_user_mismatch" }, 403)
+  }
+  if (
+    !(await consumeOAuthNonce(
+      redis,
+      state,
+      oauthState.exp,
+      user.id,
+      user.session_id
+    ))
+  ) {
+    return c.json({ error: "invalid_state" }, 400)
+  }
+
+  const providerError = c.req.query("error")
+  if (providerError) {
+    const errorCode =
+      providerError === "access_denied" ? "access_denied" : "oauth_error"
+    return c.redirect(
+      buildReturnUrl(returnTo, new URLSearchParams({ gitlab_error: errorCode }))
+    )
+  }
+
+  const code = c.req.query("code")
+  if (!code) {
+    return c.redirect(
+      buildReturnUrl(
+        returnTo,
+        new URLSearchParams({ gitlab_error: "missing_code" })
+      )
+    )
+  }
 
   const cfg = await getGitLabConfig(db)
-  if (!cfg) return c.json({ error: "gitlab_not_configured" }, 503)
+  if (!cfg) {
+    return c.redirect(
+      buildReturnUrl(
+        returnTo,
+        new URLSearchParams({ gitlab_error: "not_configured" })
+      )
+    )
+  }
 
   const clientSecret = await decryptField(
     cfg.client_secret_enc as Buffer,
@@ -324,9 +481,11 @@ gitlabRouter.get("/callback", async (c) => {
   if (!tokenRes.ok) {
     const body = await tokenRes.text()
     log.warn({ status: tokenRes.status, body }, "gitlab token exchange failed")
-    return c.json(
-      { error: "oauth_exchange_failed", status: tokenRes.status },
-      502
+    return c.redirect(
+      buildReturnUrl(
+        returnTo,
+        new URLSearchParams({ gitlab_error: "exchange_failed" })
+      )
     )
   }
 
@@ -357,9 +516,43 @@ gitlabRouter.get("/callback", async (c) => {
     expires_at: expiresAt,
   })
 
+  const credentialId = `gitlab:user:${user.id}`
+  await db
+    .insert(provider_credentials)
+    .values({
+      id: credentialId,
+      provider: "gitlab",
+      credential_type: "user",
+      last_sync_status: "pending",
+      last_sync_actor_user_id: user.id,
+      last_sync_source: "api",
+    })
+    .onConflictDoUpdate({
+      target: provider_credentials.id,
+      set: {
+        last_sync_status: "pending",
+        last_sync_actor_user_id: user.id,
+        last_sync_source: "api",
+        updated_at: new Date(),
+      },
+    })
+  await enqueueProviderReposSync({
+    provider: "gitlab",
+    userId: user.id,
+    requestedBy: user.id,
+    syncId: nanoid(),
+  })
+
   // Back to whichever surface started the flow: onboarding wizard or settings.
   return c.redirect(
-    buildReturnUrl(returnTo, new URLSearchParams({ connected: "1" }))
+    buildReturnUrl(
+      returnTo,
+      new URLSearchParams({
+        connected: "1",
+        sync: "queued",
+        source: "gitlab",
+      })
+    )
   )
 })
 
@@ -425,7 +618,14 @@ gitlabRouter.get("/installations/cache-status", async (c) => {
   if (!user) return c.json({ error: "unauthenticated" }, 401)
 
   const installationId = `gitlab:user:${user.id}`
-  const rows = await getCacheStatus(db, "gitlab", installationId)
+  const [rows, credentialRows] = await Promise.all([
+    getCacheStatus(db, "gitlab", installationId),
+    db
+      .select({ status: provider_credentials.last_sync_status })
+      .from(provider_credentials)
+      .where(eq(provider_credentials.id, installationId))
+      .limit(1),
+  ])
   const now = Date.now()
 
   return c.json({
@@ -447,6 +647,7 @@ gitlabRouter.get("/installations/cache-status", async (c) => {
           }
         : null,
     staleThresholdMs: STALE_THRESHOLD_MS,
+    syncStatus: credentialRows[0]?.status ?? null,
   })
 })
 
@@ -454,18 +655,17 @@ gitlabRouter.get("/installations/cache-status", async (c) => {
 // Repos / branches (per-user OAuth token)
 // ---------------------------------------------------------------------------
 
-async function getProviderAndTokenForUser(
-  userId: string
-): Promise<{ provider: GitLabProvider; accessToken: string } | null> {
-  const cfg = await getGitLabConfig(db)
-  if (!cfg) return null
-  const tokens = await getGitLabTokens(db, userId)
-  if (!tokens) return null
-  const accessToken = await decryptField(
-    tokens.access_token_enc as Buffer,
-    tokens.access_token_nonce as Buffer
-  )
-  return { provider: new GitLabProvider(cfg.instance_url), accessToken }
+async function getProviderAndTokenForUser(userId: string) {
+  try {
+    return await resolveGitLabConnection(db, userId)
+  } catch (error) {
+    const code =
+      error && typeof error === "object" && "code" in error
+        ? String(error.code)
+        : null
+    if (code === "not_connected" || code === "expired") return null
+    throw error
+  }
 }
 
 const STALE_THRESHOLD_MS = 10 * 60 * 1000
@@ -482,7 +682,11 @@ gitlabRouter.get("/repos", async (c) => {
   const search = c.req.query("search") ?? undefined
 
   const installationId = `gitlab:user:${user.id}`
-  const installations = await listInstallations(db, "gitlab")
+  const ctx = await getProviderAndTokenForUser(user.id)
+  if (!ctx) {
+    return c.json({ error: "gitlab_not_connected", needsConnect: true }, 412)
+  }
+  const installations = await listInstallations(db, "gitlab", [installationId])
   const userInstall = installations.find((i) => i.id === installationId)
 
   if (!userInstall) {
@@ -519,7 +723,9 @@ gitlabRouter.get("/repos", async (c) => {
     })
   }
 
-  const staleness = await getInstallationStaleness(db, "gitlab")
+  const staleness = await getInstallationStaleness(db, "gitlab", [
+    installationId,
+  ])
   if (
     staleness.mostStaleAt !== null &&
     Date.now() - staleness.mostStaleAt.getTime() > STALE_THRESHOLD_MS
@@ -553,12 +759,13 @@ gitlabRouter.get("/repos", async (c) => {
   const { rows, total } = await listRepos(db, {
     provider: "gitlab",
     ...(search !== undefined && { search }),
+    installationIds: [installationId],
     limit: perPage,
     offset: (page - 1) * perPage,
   })
 
   return c.json({
-    repos: rows,
+    repos: rows.map(gitLabDbRowToWire),
     page,
     perPage,
     hasMore: (page - 1) * perPage + rows.length < total,
@@ -573,8 +780,15 @@ gitlabRouter.get("/repos/:fullName{.+}/branches", async (c) => {
   if (!ctx) return c.json({ error: "gitlab_not_connected" }, 412)
 
   const fullName = c.req.param("fullName")
+  const search = c.req.query("search")?.trim() || undefined
   try {
-    const branches = await ctx.provider.listBranches(ctx.accessToken, fullName)
+    const branches = await ctx.provider.listBranches(
+      ctx.accessToken,
+      fullName,
+      {
+        ...(search ? { search } : {}),
+      }
+    )
     return c.json({ branches })
   } catch (err) {
     log.error({ err, fullName }, "listBranches failed")

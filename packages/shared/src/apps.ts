@@ -1,7 +1,7 @@
 // SPDX-License-Identifier: AGPL-3.0-only
 import { z } from "zod"
 
-import type { GitProviderKind } from "./git-providers"
+import { GitProviderKindSchema } from "./git-providers"
 
 // ---------------------------------------------------------------------------
 // Status enums
@@ -177,7 +177,7 @@ export const AppConfigSchema = z
     slug: z.string().min(1),
     organizationId: z.string().optional(),
     projectId: z.string().optional(),
-    gitProvider: z.custom<GitProviderKind>((v) => v === "github"),
+    gitProvider: GitProviderKindSchema,
     repoFullName: z.string(), // 'owner/repo'
     branch: z.string(),
     installationId: z.string().regex(/^\d+$/).optional(),

@@ -2,7 +2,7 @@
 # SPDX-License-Identifier: AGPL-3.0-only
 set -Eeuo pipefail
 
-VERSION="${PLOYDOK_VERSION:-edge}"
+VERSION="${PLOYDOK_VERSION:-}"
 MODE=""
 RUNTIME="${PLOYDOK_RUNTIME:-swarm}"
 HTTP_PORT="8080"
@@ -17,6 +17,7 @@ PUBLIC_PORT="${PLOYDOK_PUBLIC_PORT:-}"
 DOMAIN_BASE="${PLOYDOK_DOMAIN_BASE:-}"
 PUBLIC_ORIGIN=""
 SETUP_TOKEN_REQUIRED="${PLOYDOK_SETUP_TOKEN_REQUIRED:-}"
+ALERT_WEBHOOK_URL="${PLOYDOK_ALERT_WEBHOOK_URL:-}"
 SKIP_DOCKER_INSTALL=0
 MANAGE_FIREWALL=0
 YES=0
@@ -27,6 +28,11 @@ LOG_DIR="/var/log/ploydok-install"
 BACKUP_DIR="/var/backups/ploydok-install"
 TIMESTAMP="$(date -u +%Y%m%dT%H%M%SZ)"
 PREFLIGHT_LOG=""
+PLOYDOK_API_IMAGE=""
+PLOYDOK_WEB_IMAGE=""
+PLOYDOK_AGENT_IMAGE=""
+PLOYDOK_ADMINER_IMAGE=""
+PLOYDOK_CADDY_IMAGE=""
 
 usage() {
   cat <<'USAGE'
@@ -42,11 +48,13 @@ Options:
   --public-scheme=http|https
   --public-port=<port>
   --domain-base=<default-app-domain-suffix>
+  --alert-webhook-url=<https-url> (required alert receiver for production)
   --skip-docker-install
   --manage-firewall
   --yes
   --unattended
   --version=<tag>
+  --allow-edge                  (development only; permits the mutable edge channel)
   --image-registry=<registry>
   --runtime=swarm|compose      (default: swarm for production; compose is local/test only)
   --help
@@ -70,11 +78,16 @@ for arg in "$@"; do
     --public-scheme=*) PUBLIC_SCHEME="${arg#*=}" ;;
     --public-port=*) PUBLIC_PORT="${arg#*=}" ;;
     --domain-base=*) DOMAIN_BASE="${arg#*=}" ;;
+    --alert-webhook-url=*) ALERT_WEBHOOK_URL="${arg#*=}" ;;
     --skip-docker-install) SKIP_DOCKER_INSTALL=1 ;;
     --manage-firewall) MANAGE_FIREWALL=1 ;;
     --yes) YES=1 ;;
     --unattended) UNATTENDED=1; YES=1; MODE="coexist" ;;
     --version=*) VERSION="${arg#*=}" ;;
+    --allow-edge)
+      [[ -z "$VERSION" ]] && VERSION="edge"
+      export PLOYDOK_ALLOW_EDGE=1
+      ;;
     --image-registry=*) IMAGE_REGISTRY="${arg#*=}" ;;
     --runtime=*) RUNTIME="${arg#*=}" ;;
     --help) usage; exit 0 ;;
@@ -103,6 +116,22 @@ real_path() {
     printf '%s%s\n' "$ROOT_PREFIX" "$p"
   else
     printf '%s\n' "$p"
+  fi
+}
+
+validate_alerting() {
+  [[ "$ALERT_WEBHOOK_URL" =~ ^https://[^[:space:]]+$ ]] ||
+    die "--alert-webhook-url (or PLOYDOK_ALERT_WEBHOOK_URL) must be an HTTPS Alertmanager-compatible receiver" 2
+  [[ "$ALERT_WEBHOOK_URL" != *$'\n'* && "$ALERT_WEBHOOK_URL" != *$'\r'* ]] ||
+    die "alert webhook URL contains an invalid newline" 2
+}
+
+load_existing_alerting() {
+  local existing
+  [[ -z "$ALERT_WEBHOOK_URL" ]] || return 0
+  existing="$(real_path "$DATA_DIR/secrets/alert-webhook-url")"
+  if [[ -f "$existing" ]]; then
+    ALERT_WEBHOOK_URL="$(<"$existing")"
   fi
 }
 
@@ -139,8 +168,12 @@ write_file() {
 render_template() {
   local template="$1"
   local public_host="${PUBLIC_HOST:-localhost}"
+  local caddy_admin_address="0.0.0.0:2019"
   local control_plane_hosts="localhost ploydok.local"
   local control_plane_site
+  if [[ "$RUNTIME" == "swarm" ]]; then
+    caddy_admin_address="unix//run/caddy-admin/admin.sock|0660"
+  fi
   case "$public_host" in
     localhost) control_plane_hosts="ploydok.local" ;;
     ploydok.local) control_plane_hosts="localhost" ;;
@@ -160,9 +193,15 @@ render_template() {
   PLOYDOK_HTTPS_BIND="$HTTPS_BIND" \
   PLOYDOK_PUBLIC_HOST="$public_host" \
   PLOYDOK_PUBLIC_SCHEME="${PUBLIC_SCHEME:-https}" \
+  PLOYDOK_CADDY_ADMIN_ADDRESS="$caddy_admin_address" \
+  PLOYDOK_API_IMAGE="${PLOYDOK_API_IMAGE:-$IMAGE_REGISTRY/ploydok-api:$VERSION}" \
+  PLOYDOK_WEB_IMAGE="${PLOYDOK_WEB_IMAGE:-$IMAGE_REGISTRY/ploydok-web:$VERSION}" \
+  PLOYDOK_AGENT_IMAGE="${PLOYDOK_AGENT_IMAGE:-$IMAGE_REGISTRY/ploydok-agent:$VERSION}" \
+  PLOYDOK_ADMINER_IMAGE="${PLOYDOK_ADMINER_IMAGE:-$IMAGE_REGISTRY/ploydok-adminer:$VERSION}" \
+  PLOYDOK_CADDY_IMAGE="${PLOYDOK_CADDY_IMAGE:-$IMAGE_REGISTRY/ploydok-caddy:$VERSION}" \
   PLOYDOK_CONTROL_PLANE_SITE="$control_plane_site" \
   PLOYDOK_CONTROL_PLANE_HOSTS="$control_plane_hosts" \
-  envsubst '$PLOYDOK_VERSION $PLOYDOK_MODE $PLOYDOK_IMAGE_REGISTRY $PLOYDOK_INSTALL_DIR $PLOYDOK_DATA_DIR $PLOYDOK_HTTP_PORT $PLOYDOK_HTTPS_PORT $PLOYDOK_HTTP_PUBLISHED_PORT $PLOYDOK_HTTPS_PUBLISHED_PORT $PLOYDOK_HTTP_BIND $PLOYDOK_HTTPS_BIND $PLOYDOK_PUBLIC_HOST $PLOYDOK_PUBLIC_SCHEME $PLOYDOK_CONTROL_PLANE_SITE $PLOYDOK_CONTROL_PLANE_HOSTS' <"$(install_dir)/templates/$template"
+  envsubst '$PLOYDOK_VERSION $PLOYDOK_MODE $PLOYDOK_IMAGE_REGISTRY $PLOYDOK_API_IMAGE $PLOYDOK_WEB_IMAGE $PLOYDOK_AGENT_IMAGE $PLOYDOK_ADMINER_IMAGE $PLOYDOK_CADDY_IMAGE $PLOYDOK_INSTALL_DIR $PLOYDOK_DATA_DIR $PLOYDOK_HTTP_PORT $PLOYDOK_HTTPS_PORT $PLOYDOK_HTTP_PUBLISHED_PORT $PLOYDOK_HTTPS_PUBLISHED_PORT $PLOYDOK_HTTP_BIND $PLOYDOK_HTTPS_BIND $PLOYDOK_PUBLIC_HOST $PLOYDOK_PUBLIC_SCHEME $PLOYDOK_CADDY_ADMIN_ADDRESS $PLOYDOK_CONTROL_PLANE_SITE $PLOYDOK_CONTROL_PLANE_HOSTS' <"$(install_dir)/templates/$template"
 }
 
 detect_public_host() {
@@ -368,6 +407,14 @@ choose_mode() {
   esac
 }
 
+validate_release_channel() {
+  [[ -n "$VERSION" ]] ||
+    die "--version is required; use --allow-edge only for development evaluation" 2
+  if [[ "$VERSION" == "edge" && "${PLOYDOK_ALLOW_EDGE:-0}" != "1" ]]; then
+    die "the mutable edge channel requires PLOYDOK_ALLOW_EDGE=1" 2
+  fi
+}
+
 configure_binds() {
   if [[ "$MODE" == "coexist" ]]; then
     HTTP_BIND="127.0.0.1:${HTTP_PORT}"
@@ -414,10 +461,17 @@ create_system_user() {
 }
 
 create_directories() {
-  local dir
+  local dir stamp stamp_path
   install -d -m 0750 "$(real_path "$INSTALL_DIR")"
-  for dir in data builds backups volumes app-volumes certs pki keys logs agent config static caddy-ip-cert; do
+  for dir in data builds backups volumes app-volumes certs pki keys logs agent config secrets static caddy-ip-cert; do
     install -d -m 0750 "$(real_path "$DATA_DIR/$dir")"
+  done
+  for stamp in control-plane.configured control-plane.last-success control-plane.last-failure; do
+    stamp_path="$(real_path "$DATA_DIR/backups/$stamp")"
+    if [[ ! -e "$stamp_path" ]]; then
+      install -m 0444 /dev/null "$stamp_path"
+      touch -d @0 "$stamp_path"
+    fi
   done
   if [[ "$DRY_RUN" != "1" && -z "$ROOT_PREFIX" ]]; then
     chown "$INSTALL_OWNER:$INSTALL_OWNER" "$INSTALL_DIR"
@@ -426,7 +480,8 @@ create_directories() {
 }
 
 generate_secrets() {
-  local master_key pg_pass redis_pass session_secret public_scheme public_host public_port domain_base
+  local master_key pg_pass redis_pass session_secret metrics_token public_scheme public_host public_port domain_base
+  local runtime_uid=1000 runtime_gid=1000
   local public_origin public_port_line master_path env_path
   master_path="$(real_path "$DATA_DIR/master.key")"
   env_path="$(real_path "$DATA_DIR/.env")"
@@ -435,6 +490,10 @@ generate_secrets() {
   public_port="$PUBLIC_PORT"
   domain_base="$DOMAIN_BASE"
   public_origin="$PUBLIC_ORIGIN"
+  if id ploydok >/dev/null 2>&1; then
+    runtime_uid="$(id -u ploydok)"
+    runtime_gid="$(id -g ploydok)"
+  fi
   public_port_line=""
   [[ -n "$public_port" ]] && public_port_line="PLOYDOK_PUBLIC_PORT=${public_port}"
 
@@ -454,16 +513,34 @@ generate_secrets() {
     fi
     append_env_if_missing "$env_path" PLOYDOK_SETUP_TOKEN_REQUIRED "$SETUP_TOKEN_REQUIRED"
     append_env_if_missing "$env_path" PLOYDOK_COOKIE_SECURE "auto"
+    append_env_if_missing "$env_path" PLOYDOK_TRUST_PROXY_HEADERS "true"
     append_env_if_missing "$env_path" PLOYDOK_REGISTRY_URL "127.0.0.1:5000"
     append_env_if_missing "$env_path" PLOYDOK_REGISTRY_API_URL "registry:5000"
     append_env_if_missing "$env_path" PLOYDOK_REGISTRY_PUSH_URL "registry:5000"
+    append_env_if_missing "$env_path" PLOYDOK_IMAGE_REGISTRY "$IMAGE_REGISTRY"
+    append_env_if_missing "$env_path" PLOYDOK_ALLOW_EDGE "${PLOYDOK_ALLOW_EDGE:-0}"
+    append_env_if_missing "$env_path" PLOYDOK_ENABLE_AUTO_UPDATES "${PLOYDOK_ENABLE_AUTO_UPDATES:-0}"
     replace_env_if_equals "$env_path" PLOYDOK_REGISTRY_URL "registry:5000" "127.0.0.1:5000"
     append_env_if_missing "$env_path" PLOYDOK_BUILDKIT_ADDR "tcp://buildkitd:1234"
-    append_env_if_missing "$env_path" CADDY_ADMIN_URL "http://caddy:2019"
+    if [[ "$RUNTIME" == "swarm" ]]; then
+      append_env_if_missing "$env_path" CADDY_ADMIN_URL "http://caddy-admin:2019"
+      replace_env_if_equals "$env_path" CADDY_ADMIN_URL "http://caddy:2019" "http://caddy-admin:2019"
+    else
+      append_env_if_missing "$env_path" CADDY_ADMIN_URL "http://caddy:2019"
+    fi
     append_env_if_missing "$env_path" PLOYDOK_AGENT_ADDR "agent:50051"
     append_env_if_missing "$env_path" PLOYDOK_AGENT_CA "/var/lib/ploydok/pki/ca.pem"
     append_env_if_missing "$env_path" PLOYDOK_AGENT_CLIENT_CERT "/var/lib/ploydok/pki/client.pem"
     append_env_if_missing "$env_path" PLOYDOK_AGENT_CLIENT_KEY "/var/lib/ploydok/pki/client.key"
+    append_env_if_missing "$env_path" PLOYDOK_RUNTIME_UID "$runtime_uid"
+    append_env_if_missing "$env_path" PLOYDOK_RUNTIME_GID "$runtime_gid"
+    metrics_token="$(read_env_value "$env_path" PLOYDOK_METRICS_TOKEN)"
+    if [[ -z "$metrics_token" ]]; then
+      metrics_token="$(openssl rand -hex 32)"
+      append_env_if_missing "$env_path" PLOYDOK_METRICS_TOKEN "$metrics_token"
+    fi
+    write_file "$DATA_DIR/secrets/metrics-token" 0400 65534:65534 <<<"$metrics_token"
+    write_file "$DATA_DIR/secrets/alert-webhook-url" 0400 65534:65534 <<<"$ALERT_WEBHOOK_URL"
     log "existing $DATA_DIR/.env preserved"
     return
   fi
@@ -478,6 +555,7 @@ generate_secrets() {
   pg_pass="$(openssl rand -hex 32)"
   redis_pass="$(openssl rand -hex 32)"
   session_secret="$(openssl rand -hex 32)"
+  metrics_token="$(openssl rand -hex 32)"
   write_file "$DATA_DIR/.env" 0600 ploydok:ploydok <<EOF
 NODE_ENV=prod
 PORT=3335
@@ -487,6 +565,7 @@ PLOYDOK_PG_PASSWORD=${pg_pass}
 PLOYDOK_REDIS_PASSWORD=${redis_pass}
 SESSION_SECRET=${session_secret}
 MASTER_KEY=${master_key}
+PLOYDOK_METRICS_TOKEN=${metrics_token}
 WEB_ORIGIN=${public_origin}
 GITHUB_APP_CALLBACK_URL=${public_origin}/github/app/callback
 GITLAB_OAUTH_CALLBACK_URL=${public_origin}/gitlab/callback
@@ -496,16 +575,24 @@ PLOYDOK_DOMAIN_BASE=${domain_base}
 ${public_port_line}
 PLOYDOK_SETUP_TOKEN_REQUIRED=${SETUP_TOKEN_REQUIRED}
 PLOYDOK_COOKIE_SECURE=auto
+PLOYDOK_TRUST_PROXY_HEADERS=true
 PLOYDOK_REGISTRY_URL=127.0.0.1:5000
 PLOYDOK_REGISTRY_API_URL=registry:5000
 PLOYDOK_REGISTRY_PUSH_URL=registry:5000
+PLOYDOK_IMAGE_REGISTRY=$IMAGE_REGISTRY
+PLOYDOK_ALLOW_EDGE=${PLOYDOK_ALLOW_EDGE:-0}
+PLOYDOK_ENABLE_AUTO_UPDATES=${PLOYDOK_ENABLE_AUTO_UPDATES:-0}
 PLOYDOK_BUILDKIT_ADDR=tcp://buildkitd:1234
-CADDY_ADMIN_URL=http://caddy:2019
+CADDY_ADMIN_URL=$([[ "$RUNTIME" == "swarm" ]] && printf 'http://caddy-admin:2019' || printf 'http://caddy:2019')
 PLOYDOK_AGENT_ADDR=agent:50051
 PLOYDOK_AGENT_CA=/var/lib/ploydok/pki/ca.pem
 PLOYDOK_AGENT_CLIENT_CERT=/var/lib/ploydok/pki/client.pem
 PLOYDOK_AGENT_CLIENT_KEY=/var/lib/ploydok/pki/client.key
+PLOYDOK_RUNTIME_UID=${runtime_uid}
+PLOYDOK_RUNTIME_GID=${runtime_gid}
 EOF
+  write_file "$DATA_DIR/secrets/metrics-token" 0400 65534:65534 <<<"$metrics_token"
+  write_file "$DATA_DIR/secrets/alert-webhook-url" 0400 65534:65534 <<<"$ALERT_WEBHOOK_URL"
 }
 
 generate_mtls() {
@@ -578,7 +665,7 @@ EOF
     -subj "/CN=ploydok-agent" >/dev/null 2>&1
   openssl x509 -req -in "$pki_dir/agent.csr" \
     -CA "$pki_dir/ca.crt" -CAkey "$pki_dir/ca.key" -CAcreateserial \
-    -out "$pki_dir/agent.crt" -days 3650 \
+    -out "$pki_dir/agent.crt" -days 365 \
     -extensions v3_req -extfile "$tmp_ext" >/dev/null 2>&1
   rm -f "$pki_dir/agent.csr"
 
@@ -588,7 +675,7 @@ EOF
     -subj "/CN=ploydok-api" >/dev/null 2>&1
   openssl x509 -req -in "$pki_dir/api-client.csr" \
     -CA "$pki_dir/ca.crt" -CAkey "$pki_dir/ca.key" -CAcreateserial \
-    -out "$pki_dir/api-client.crt" -days 3650 \
+    -out "$pki_dir/api-client.crt" -days 365 \
     -extensions v3_client -extfile "$tmp_client_ext" >/dev/null 2>&1
   rm -f "$pki_dir/api-client.csr"
 
@@ -647,7 +734,11 @@ ensure_swarm() {
   local state
   state="$(docker info --format '{{ .Swarm.LocalNodeState }}' 2>/dev/null || echo inactive)"
   if [[ "$state" == "active" ]]; then
-    log "Docker Swarm already active (node state: $state)"
+    local node_count
+    node_count="$(docker node ls --format '{{.ID}}' 2>/dev/null | grep -c . || true)"
+    [[ "$node_count" -eq 1 ]] ||
+      die "Ploydok currently supports exactly one Swarm node; detected ${node_count:-an unverifiable topology}" 3
+    log "Docker Swarm already active with the supported single-node topology"
     return 0
   fi
   if [[ "$DRY_RUN" == "1" ]]; then
@@ -671,6 +762,14 @@ install_cli() {
   if [[ -f "$src" ]]; then
     install -D -m 0755 "$src" "$(real_path /usr/local/bin/ploydok-cli)"
   fi
+  src="$(install_dir)/ploydok-dr"
+  if [[ -f "$src" ]]; then
+    install -D -m 0755 "$src" "$(real_path /usr/local/lib/ploydok/ploydok-dr)"
+  fi
+  src="$(install_dir)/verify-restored-platform"
+  if [[ -f "$src" ]]; then
+    install -D -m 0755 "$src" "$(real_path /usr/local/lib/ploydok/verify-restored-platform)"
+  fi
 }
 
 # Vérifie la signature keyless OIDC des images publiées par
@@ -679,33 +778,43 @@ install_cli() {
 #   identity : https://github.com/MakFly/ploydok/.github/workflows/release-images.yml@<ref>
 # Bypass (CI / dry-run / image registry custom non signé) : PLOYDOK_INSTALL_SKIP_COSIGN=1.
 verify_or_pull_images() {
-  local images=(
-    "$IMAGE_REGISTRY/ploydok-api:$VERSION"
-    "$IMAGE_REGISTRY/ploydok-web:$VERSION"
-    "$IMAGE_REGISTRY/ploydok-agent:$VERSION"
-    "$IMAGE_REGISTRY/ploydok-adminer:$VERSION"
-    "$IMAGE_REGISTRY/ploydok-caddy:$VERSION"
-  )
+  local components=(api web agent adminer caddy)
   local cosign_identity_regex='^https://github\.com/MakFly/ploydok/\.github/workflows/release-images\.yml@.*$'
-  local image
-  for image in "${images[@]}"; do
+  local component image resolved
+  for component in "${components[@]}"; do
+    image="$IMAGE_REGISTRY/ploydok-${component}:$VERSION"
     if [[ "$DRY_RUN" == "1" || "${PLOYDOK_INSTALL_SKIP_COSIGN:-0}" == "1" ]]; then
       warn "image signature verification skipped for $image (PLOYDOK_INSTALL_SKIP_COSIGN=1 or dry-run)"
+      run docker pull "$image"
+      resolved="$image"
     elif command -v cosign >/dev/null 2>&1; then
+      run docker pull "$image"
+      resolved="$(docker image inspect --format '{{range .RepoDigests}}{{println .}}{{end}}' "$image" | grep -F "${IMAGE_REGISTRY}/ploydok-${component}@sha256:" | head -n1)"
+      [[ "$resolved" =~ @sha256:[0-9a-f]{64}$ ]] ||
+        die "could not resolve an immutable digest for $image" 5
       run cosign verify \
         --certificate-oidc-issuer https://token.actions.githubusercontent.com \
         --certificate-identity-regexp "$cosign_identity_regex" \
-        "$image"
+        "$resolved"
     else
       die "cosign is required to verify $image (set PLOYDOK_INSTALL_SKIP_COSIGN=1 only for controlled test installs)" 3
     fi
-    run docker pull "$image"
+
+    case "$component" in
+      api) PLOYDOK_API_IMAGE="$resolved" ;;
+      web) PLOYDOK_WEB_IMAGE="$resolved" ;;
+      agent) PLOYDOK_AGENT_IMAGE="$resolved" ;;
+      adminer) PLOYDOK_ADMINER_IMAGE="$resolved" ;;
+      caddy) PLOYDOK_CADDY_IMAGE="$resolved" ;;
+    esac
   done
 }
 
 write_templates() {
   if [[ "$RUNTIME" == "swarm" ]]; then
     render_template docker-stack.yml | write_file "$INSTALL_DIR/docker-stack.yml" 0640 "$INSTALL_OWNER:$INSTALL_OWNER"
+    render_template Caddyfile | write_file "$INSTALL_DIR/Caddyfile" 0644 "$INSTALL_OWNER:$INSTALL_OWNER"
+    render_template CaddyAdminProxyfile | write_file "$INSTALL_DIR/CaddyAdminProxyfile" 0644 "$INSTALL_OWNER:$INSTALL_OWNER"
     render_template ploydok-port-isolation.sh | write_file "/usr/local/lib/ploydok/port-isolation.sh" 0755
     render_template ploydok-update-stack.sh | write_file "/usr/local/lib/ploydok/update-stack.sh" 0755
     render_template ploydok-port-isolation.service | write_file "/etc/systemd/system/ploydok-port-isolation.service" 0644
@@ -714,11 +823,14 @@ write_templates() {
     render_template ploydok-update.timer | write_file "/etc/systemd/system/ploydok-update.timer" 0644
   else
     render_template docker-compose.yml | write_file "$INSTALL_DIR/docker-compose.yml" 0640 "$INSTALL_OWNER:$INSTALL_OWNER"
+    render_template Caddyfile | write_file "$INSTALL_DIR/Caddyfile" 0644 "$INSTALL_OWNER:$INSTALL_OWNER"
     render_template ploydok-compose.service | write_file "/etc/systemd/system/ploydok.service" 0644
   fi
   render_template validator.toml | write_file "$DATA_DIR/config/validator.toml" 0640 ploydok:ploydok
   render_template buildkitd.toml | write_file "$DATA_DIR/config/buildkitd.toml" 0644 ploydok:ploydok
-  render_template Caddyfile | write_file "$INSTALL_DIR/Caddyfile" 0644 "$INSTALL_OWNER:$INSTALL_OWNER"
+  render_template prometheus.yml | write_file "$DATA_DIR/config/prometheus.yml" 0644 ploydok:ploydok
+  render_template ploydok-alerts.yml | write_file "$DATA_DIR/config/ploydok-alerts.yml" 0644 ploydok:ploydok
+  render_template alertmanager.yml | write_file "$DATA_DIR/config/alertmanager.yml" 0644 ploydok:ploydok
   render_template ploydok.target | write_file "/etc/systemd/system/ploydok.target" 0644
   if [[ "$MODE" == "coexist" ]]; then
     render_template nginx-ploydok.conf | write_file "/etc/nginx/snippets/ploydok.conf" 0644
@@ -769,7 +881,23 @@ start_services() {
   # run — `systemctl start` is a no-op on an already-active oneshot.
   run systemctl restart ploydok.service
   if [[ "$RUNTIME" == "swarm" ]]; then
-    if [[ "${PLOYDOK_INSTALL_SKIP_COSIGN:-0}" == "1" ]]; then
+    run docker service update --force ploydok_prometheus
+    run docker service update --force ploydok_alertmanager
+  else
+    run docker compose --env-file "$DATA_DIR/.env" -f "$INSTALL_DIR/docker-compose.yml" \
+      up -d --no-deps --force-recreate prometheus alertmanager
+  fi
+  if [[ "$RUNTIME" == "swarm" ]]; then
+    if [[ "${PLOYDOK_ENABLE_AUTO_UPDATES:-0}" != "1" ]]; then
+      log "automatic Swarm updates disabled by default; use ploydok-cli upgrade with a pinned version"
+      if [[ "$DRY_RUN" == "1" ]]; then
+        log "dry-run: systemctl disable --now ploydok-update.timer"
+      else
+        systemctl disable --now ploydok-update.timer >/dev/null 2>&1 || true
+      fi
+    elif [[ "${PLOYDOK_ALLOW_EDGE:-0}" != "1" ]]; then
+      die "automatic updates are only available for the explicit development edge channel" 2
+    elif [[ "${PLOYDOK_INSTALL_SKIP_COSIGN:-0}" == "1" ]]; then
       warn "automatic Swarm updates disabled because signature verification was explicitly skipped"
       if [[ "$DRY_RUN" == "1" ]]; then
         log "dry-run: systemctl disable --now ploydok-update.timer"
@@ -792,11 +920,65 @@ wait_health() {
   for _ in $(seq 1 60); do
     if curl -fsS "$url" >/dev/null 2>&1; then
       log "healthcheck OK"
+      wait_monitoring_compose
       return
     fi
     sleep 1
   done
   die "healthcheck timed out: $url" 1
+}
+
+wait_monitoring_compose() {
+  local compose=(docker compose --env-file "$DATA_DIR/.env" -f "$INSTALL_DIR/docker-compose.yml")
+  local service port
+  for service in prometheus alertmanager; do
+    port=9090
+    [[ "$service" == "alertmanager" ]] && port=9093
+    for _ in $(seq 1 60); do
+      if "${compose[@]}" exec -T "$service" wget -qO- "http://127.0.0.1:${port}/-/ready" >/dev/null 2>&1; then
+        log "$service readiness OK"
+        break
+      fi
+      sleep 1
+    done
+    "${compose[@]}" exec -T "$service" wget -qO- "http://127.0.0.1:${port}/-/ready" >/dev/null 2>&1 ||
+      die "$service readiness timed out" 1
+  done
+  for _ in $(seq 1 60); do
+    if "${compose[@]}" exec -T prometheus wget -qO- \
+      'http://127.0.0.1:9090/api/v1/query?query=up%7Bjob%3D%22ploydok-api%22%7D%20%3D%3D%201' |
+        grep -Fq '"result":[{' &&
+      "${compose[@]}" exec -T prometheus wget -qO- \
+        'http://127.0.0.1:9090/api/v1/alertmanagers' |
+        grep -Fq '"activeAlertmanagers":[{'; then
+      log "Prometheus authenticated scrape and Alertmanager discovery OK"
+      return
+    fi
+    sleep 1
+  done
+  die "Prometheus pipeline validation timed out" 1
+}
+
+wait_swarm_service_healthy() {
+  local service="$1" desired running healthy ids id status
+  desired="$(docker service inspect --format '{{.Spec.Mode.Replicated.Replicas}}' "ploydok_${service}" 2>/dev/null || echo 0)"
+  for _ in $(seq 1 90); do
+    ids="$(docker ps -q --filter "label=com.docker.swarm.service.name=ploydok_${service}")"
+    running="$(grep -c . <<<"$ids" || true)"
+    healthy=0
+    while IFS= read -r id; do
+      [[ -n "$id" ]] || continue
+      status="$(docker inspect --format '{{if .State.Health}}{{.State.Health.Status}}{{else}}{{.State.Status}}{{end}}' "$id" 2>/dev/null || true)"
+      [[ "$status" == "healthy" ]] && healthy=$((healthy + 1))
+    done <<<"$ids"
+    if [[ "$desired" -gt 0 && "$running" -ge "$desired" && "$healthy" -ge "$desired" ]]; then
+      log "Swarm $service readiness OK ($healthy/$desired tasks)"
+      return
+    fi
+    sleep 1
+  done
+  docker service ps --no-trunc "ploydok_${service}" >&2 || true
+  die "Swarm $service readiness timed out" 1
 }
 
 wait_health_swarm() {
@@ -813,12 +995,66 @@ wait_health_swarm() {
     done <<<"$ids"
     if [[ "$desired" -gt 0 && "$running" -ge "$desired" && "$healthy" -ge "$desired" ]]; then
       log "Swarm API readiness OK ($healthy/$desired tasks)"
+      wait_swarm_service_healthy prometheus
+      wait_swarm_service_healthy alertmanager
+      wait_monitoring_pipeline_swarm
       return
     fi
     sleep 1
   done
   docker service ps --no-trunc ploydok_api >&2 || true
   die "Swarm API readiness timed out" 1
+}
+
+wait_monitoring_pipeline_swarm() {
+  local id
+  id="$(docker ps -q --filter label=com.docker.swarm.service.name=ploydok_prometheus | head -n1)"
+  [[ -n "$id" ]] || die "Prometheus task missing during pipeline validation" 1
+  for _ in $(seq 1 60); do
+    if docker exec "$id" wget -qO- \
+      'http://127.0.0.1:9090/api/v1/query?query=up%7Bjob%3D%22ploydok-api%22%7D%20%3D%3D%201' |
+        grep -Fq '"result":[{' &&
+      docker exec "$id" wget -qO- \
+        'http://127.0.0.1:9090/api/v1/alertmanagers' |
+        grep -Fq '"activeAlertmanagers":[{'; then
+      log "Prometheus authenticated scrape and Alertmanager discovery OK"
+      return
+    fi
+    sleep 1
+  done
+  die "Prometheus pipeline validation timed out" 1
+}
+
+test_alert_receiver() {
+  local payload api_payload alertmanager_id prometheus_id compose
+  if [[ "$DRY_RUN" == "1" ]]; then
+    log "dry-run: send explicit test notification to the configured alert receiver"
+    return
+  fi
+  log "sending explicit test notification to the configured alert receiver"
+  payload='{"version":"4","groupKey":"ploydok-installer-test","status":"firing","receiver":"operator-webhook","groupLabels":{"alertname":"PloydokInstallerTest"},"commonLabels":{"alertname":"PloydokInstallerTest","severity":"info"},"commonAnnotations":{"summary":"Ploydok alert receiver installation test"},"externalURL":"","alerts":[{"status":"firing","labels":{"alertname":"PloydokInstallerTest","severity":"info"},"annotations":{"summary":"Ploydok alert receiver installation test"},"startsAt":"1970-01-01T00:00:00Z","endsAt":"1970-01-01T00:00:00Z","generatorURL":"","fingerprint":"installer-test"}]}'
+  api_payload='[{"labels":{"alertname":"PloydokInstallerPipelineTest","severity":"info"},"annotations":{"summary":"Ploydok Alertmanager pipeline test"},"startsAt":"2026-01-01T00:00:00Z"}]'
+  if [[ "$RUNTIME" == "swarm" ]]; then
+    alertmanager_id="$(docker ps -q --filter label=com.docker.swarm.service.name=ploydok_alertmanager | head -n1)"
+    prometheus_id="$(docker ps -q --filter label=com.docker.swarm.service.name=ploydok_prometheus | head -n1)"
+    [[ -n "$alertmanager_id" ]] || die "Alertmanager task missing during receiver test" 1
+    [[ -n "$prometheus_id" ]] || die "Prometheus task missing during Alertmanager pipeline test" 1
+    docker exec "$prometheus_id" wget -qO- --header="Content-Type: application/json" \
+      --post-data="$api_payload" http://alertmanager:9093/api/v2/alerts >/dev/null ||
+      die "Alertmanager pipeline test alert was rejected" 1
+    docker exec "$alertmanager_id" sh -ec \
+      'receiver="$(cat /run/ploydok-secrets/alert-webhook-url)"; wget -qO- --header="Content-Type: application/json" --post-data="$1" "$receiver"' \
+      sh "$payload" >/dev/null || die "alert receiver test notification failed from Alertmanager network" 1
+  else
+    compose=(docker compose --env-file "$DATA_DIR/.env" -f "$INSTALL_DIR/docker-compose.yml")
+    "${compose[@]}" exec -T prometheus wget -qO- --header="Content-Type: application/json" \
+      --post-data="$api_payload" http://alertmanager:9093/api/v2/alerts >/dev/null ||
+      die "Alertmanager pipeline test alert was rejected" 1
+    "${compose[@]}" exec -T alertmanager sh -ec \
+      'receiver="$(cat /run/ploydok-secrets/alert-webhook-url)"; wget -qO- --header="Content-Type: application/json" --post-data="$1" "$receiver"' \
+      sh "$payload" >/dev/null || die "alert receiver test notification failed from Alertmanager network" 1
+  fi
+  log "alert receiver test notification accepted"
 }
 
 db_migrate() {
@@ -869,6 +1105,9 @@ main() {
   require_root
   preflight
   choose_mode
+  load_existing_alerting
+  validate_alerting
+  validate_release_channel
   configure_binds
   resolve_public_endpoint
   log "installing Ploydok $VERSION in mode=$MODE install_dir=$INSTALL_DIR data_dir=$DATA_DIR origin=$PUBLIC_ORIGIN"
@@ -888,6 +1127,7 @@ main() {
   wait_health
   db_migrate
   wait_health
+  test_alert_receiver
   log "Ploydok installed. Open ${PUBLIC_ORIGIN}/setup"
 }
 

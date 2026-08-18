@@ -1,0 +1,71 @@
+{
+  "schemaVersion": 1,
+  "reviewedOn": "2026-08-18",
+  "reviewBy": "2026-09-18",
+  "entries": [
+    {
+      "ids": [1123897, 1130588, 1130737],
+      "package": "brace-expansion",
+      "severity": "high",
+      "classification": "build-time",
+      "decision": "temporarily-accepted",
+      "rationale": "Vulnerable 1.x is reachable only through minimatch in lint and type-analysis tooling; no untrusted pattern reaches a released service. Upgrade is tracked until the parent tools accept the patched line."
+    },
+    {
+      "ids": [1123898, 1130591, 1130734],
+      "package": "brace-expansion",
+      "severity": "high",
+      "classification": "build-time",
+      "decision": "temporarily-accepted",
+      "rationale": "Vulnerable 5.x copies are nested under TypeScript and ESLint tooling and are not present in an application runtime path."
+    },
+    {
+      "ids": [1123911, 1138115],
+      "package": "js-yaml",
+      "severity": "high",
+      "classification": "build-time",
+      "decision": "temporarily-accepted",
+      "rationale": "The vulnerable copies are nested under ESLint, cosmiconfig and build-time XML tooling; production API YAML parsing uses the patched yaml package instead."
+    },
+    {
+      "ids": [1123999],
+      "package": "hono",
+      "severity": "high",
+      "classification": "build-time",
+      "decision": "temporarily-accepted",
+      "rationale": "The vulnerable copy belongs to the MCP dependency bundled by the shadcn design tool. The API resolves patched Hono 4.13.x and does not import this nested server."
+    },
+    {
+      "ids": [1124064, 1130720, 1138948, 1139454, 1144861],
+      "package": "fast-uri",
+      "severity": "high",
+      "classification": "build-time",
+      "decision": "temporarily-accepted",
+      "rationale": "The vulnerable copies are used by AJV inside shadcn MCP/build tooling; they do not validate URLs in the released API or web server."
+    },
+    {
+      "ids": [1124252, 1139510],
+      "package": "postcss",
+      "severity": "high",
+      "classification": "build-time",
+      "decision": "temporarily-accepted",
+      "rationale": "PostCSS runs only while compiling repository-controlled CSS. Customer content and runtime requests cannot supply source maps to this compiler."
+    },
+    {
+      "ids": [1130722],
+      "package": "ip-address",
+      "severity": "high",
+      "classification": "build-time",
+      "decision": "temporarily-accepted",
+      "rationale": "The vulnerable copy is nested under the shadcn MCP development dependency; the released services do not use it for SSRF or trust-boundary decisions."
+    },
+    {
+      "ids": [1138811, 1139427],
+      "package": "nanoid",
+      "severity": "high",
+      "classification": "build-time",
+      "decision": "temporarily-accepted",
+      "rationale": "Only PostCSS build tooling retains nanoid 3.x. Runtime API and database code resolve patched nanoid 5.1.16 and never pass attacker-controlled sizes."
+    }
+  ]
+}

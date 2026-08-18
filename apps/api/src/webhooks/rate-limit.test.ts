@@ -52,7 +52,11 @@ class MemoryRedis {
     return existed ? 0 : 1
   }
 
-  async zrange(key: string, start: number, stop: number): Promise<Array<string>> {
+  async zrange(
+    key: string,
+    start: number,
+    stop: number
+  ): Promise<Array<string>> {
     const members = Array.from(this.sets.get(key)?.entries() ?? [])
       .sort((a, b) => a[1] - b[1])
       .map(([member]) => member)
@@ -62,6 +66,22 @@ class MemoryRedis {
 
   async expire(): Promise<number> {
     return 1
+  }
+
+  async eval(
+    _script: string,
+    _keyCount: number,
+    key: string,
+    cutoff: number,
+    now: number,
+    member: string,
+    maximum: number
+  ): Promise<[number, number]> {
+    await this.zremrangebyscore(key, 0, Number(cutoff))
+    const count = await this.zcard(key)
+    if (count >= Number(maximum)) return [0, 0]
+    await this.zadd(key, Number(now), member)
+    return [1, Number(maximum) - count - 1]
   }
 
   async quit(): Promise<void> {}
@@ -171,7 +191,9 @@ describe("createRateLimiter middleware", () => {
   it("returns 429 on the 101st request with Retry-After header", async () => {
     const app = buildApp(60, 100, `${PREFIX}:mw-101`)
     for (let i = 0; i < 100; i++) {
-      await app.request("/ping", { headers: { "x-test-key": "installation-1" } })
+      await app.request("/ping", {
+        headers: { "x-test-key": "installation-1" },
+      })
     }
     const res = await app.request("/ping", {
       headers: { "x-test-key": "installation-1" },
@@ -188,13 +210,19 @@ describe("createRateLimiter middleware", () => {
     const app = buildApp(60, 2, `${PREFIX}:mw-isolation`)
     // Fill key A to max
     for (let i = 0; i < 2; i++) {
-      await app.request("/ping", { headers: { "x-test-key": "installation-A" } })
+      await app.request("/ping", {
+        headers: { "x-test-key": "installation-A" },
+      })
     }
     // Key A should be blocked
-    const resA = await app.request("/ping", { headers: { "x-test-key": "installation-A" } })
+    const resA = await app.request("/ping", {
+      headers: { "x-test-key": "installation-A" },
+    })
     expect(resA.status).toBe(429)
     // Key B should still pass
-    const resB = await app.request("/ping", { headers: { "x-test-key": "installation-B" } })
+    const resB = await app.request("/ping", {
+      headers: { "x-test-key": "installation-B" },
+    })
     expect(resB.status).toBe(200)
   })
 
@@ -228,7 +256,7 @@ describe("createRateLimiter middleware", () => {
         rateLimitKeyFromProviderHeaderOrIp(
           c,
           "x-github-hook-installation-target-id",
-          (value) => /^\d+$/.test(value),
+          (value) => /^\d+$/.test(value)
         ),
     })
     app.use("*", limiter)
@@ -260,7 +288,7 @@ describe("createRateLimiter middleware", () => {
         rateLimitKeyFromProviderHeaderOrIp(
           c,
           "x-github-hook-installation-target-id",
-          (value) => /^\d+$/.test(value),
+          (value) => /^\d+$/.test(value)
         ),
     })
     app.use("*", limiter)
@@ -293,7 +321,9 @@ describe("createRateLimiter middleware", () => {
     }
 
     // Should now be allowed again
-    const res = await app.request("/ping", { headers: { "x-test-key": "inst-expire" } })
+    const res = await app.request("/ping", {
+      headers: { "x-test-key": "inst-expire" },
+    })
     expect(res.status).toBe(200)
   })
 })

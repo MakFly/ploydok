@@ -10,12 +10,11 @@ on:
   workflow_dispatch:
     inputs:
       version:
-        description: "Tag/version pushed to ghcr (defaults to 0.0.1 on workflow_dispatch)"
-        required: false
-        default: "0.0.1"
+        description: "Immutable semver to publish (for example 1.2.3)"
+        required: true
 
 permissions:
-  contents: read
+  contents: write
   packages: write
   id-token: write
 
@@ -23,10 +22,142 @@ env:
   REGISTRY: ghcr.io
   OWNER: makfly
 
+concurrency:
+  # Promotion is globally serialized: a tag existence check followed by a
+  # registry write is not atomic, so SHA-scoped groups still allowed two runs
+  # to race on the same immutable semver tag.
+  group: release-images-promotion
+  cancel-in-progress: false
+
 jobs:
+  quality:
+    name: release-quality-gate
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@d23441a48e516b6c34aea4fa41551a30e30af803 # v6
+
+      - uses: oven-sh/setup-bun@0c5077e51419868618aeaa5fe8019c62421857d6 # v2
+        with:
+          bun-version: 1.3.13
+
+      - name: Setup Rust
+        uses: dtolnay/rust-toolchain@4360b52568e2003a75bf9bc1d59f33a8e3fc893c # stable
+
+      - name: Cache Cargo
+        uses: Swatinem/rust-cache@49a0bdc70d2e1b713ca9e2869b211fcce03d3c1c # v2
+        with:
+          workspaces: agent -> target
+
+      - name: Install dependencies
+        run: bun install --frozen-lockfile
+
+      - name: Repository quality gates
+        run: |
+          bun run check:spdx
+          bun run check:migrations
+          bun run check:markdown
+          bun run check:test-placeholders
+          bun run audit:dependencies
+          bun run typecheck
+          bun run lint
+          bun run test
+
+      - name: Rust security and test gates
+        run: |
+          cargo install cargo-audit --locked --version 0.22.2
+          cargo audit --file agent/Cargo.lock --deny warnings
+          cargo test --workspace --manifest-path agent/Cargo.toml
+
+      - name: Installer scenarios
+        run: bash installer/tests/run.sh
+
+  postgres-integration:
+    name: release-postgres-gate
+    runs-on: ubuntu-latest
+    services:
+      postgres:
+        image: postgres:17-alpine@sha256:18cfe3ef5e6815560c98237d6216d1e5119702fb0f3894c8785dd58b8bbe5d73
+        env:
+          POSTGRES_USER: ploydok
+          POSTGRES_PASSWORD: ploydok-ci
+          POSTGRES_DB: ploydok_test
+        ports:
+          - 5432:5432
+        options: >-
+          --health-cmd "pg_isready -U ploydok -d ploydok_test"
+          --health-interval 5s
+          --health-timeout 5s
+          --health-retries 20
+      redis:
+        image: redis:7-alpine@sha256:e7723ff73d963f5cc6d9c4643ea3d989527a402a319239054e9472a7fb9219a2
+        ports:
+          - 6379:6379
+        options: >-
+          --health-cmd "redis-cli ping"
+          --health-interval 5s
+          --health-timeout 5s
+          --health-retries 20
+    env:
+      NODE_ENV: test
+      DATABASE_URL: postgres://ploydok:ploydok-ci@127.0.0.1:5432/ploydok_test
+      PLOYDOK_TEST_PG_URL: postgres://ploydok:ploydok-ci@127.0.0.1:5432/ploydok_test
+      REDIS_URL: redis://127.0.0.1:6379/0
+      PLOYDOK_TEST_REDIS_URL: redis://127.0.0.1:6379/0
+      SESSION_SECRET: 0123456789abcdef0123456789abcdef0123456789abcdef0123456789abcdef
+      MASTER_KEY: AAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAA=
+    steps:
+      - uses: actions/checkout@d23441a48e516b6c34aea4fa41551a30e30af803 # v6
+
+      - uses: oven-sh/setup-bun@0c5077e51419868618aeaa5fe8019c62421857d6 # v2
+        with:
+          bun-version: 1.3.13
+
+      - name: Install dependencies
+        run: bun install --frozen-lockfile
+
+      - name: Apply migrations to isolated database
+        run: bun run --cwd packages/db migrate
+
+      - name: Run database package without skipped tests
+        run: |
+          set -o pipefail
+          bun test packages/db/src 2>&1 | tee /tmp/ploydok-release-db.log
+          if grep -Eq '(^|[[:space:]])[1-9][0-9]* skip(ped)?([[:space:]]|$)' /tmp/ploydok-release-db.log; then
+            echo "release-critical database tests were skipped" >&2
+            exit 1
+          fi
+
+      - name: Run API database boundaries without skipped tests
+        run: |
+          set -Eeuo pipefail
+          tests=(
+            apps/api/src/auth/middleware.test.ts
+            apps/api/src/auth/second-factor.test.ts
+            apps/api/src/routes/auth.test.ts
+            apps/api/src/routes/apps-env.test.ts
+            apps/api/src/routes/apps-domains.test.ts
+            apps/api/src/routes/invitations.test.ts
+            apps/api/src/routes/memberships.test.ts
+            apps/api/src/security/invitations-rate-limit.test.ts
+            apps/api/src/mailer.test.ts
+            apps/api/src/worker/outbox-dispatcher.test.ts
+            apps/api/src/worker/queue-outbox.e2e.test.ts
+            apps/api/src/worker/queue-trust.e2e.test.ts
+          )
+          : >/tmp/ploydok-release-api-pg.log
+          for test_file in "${tests[@]}"; do
+            bun test "$test_file" 2>&1 | tee -a /tmp/ploydok-release-api-pg.log
+          done
+          if grep -Eq '(^|[[:space:]])[1-9][0-9]* skip(ped)?([[:space:]]|$)' /tmp/ploydok-release-api-pg.log; then
+            echo "release-critical API database tests were skipped" >&2
+            exit 1
+          fi
+
   build:
     name: build-${{ matrix.image }}
+    needs: [quality, postgres-integration]
     runs-on: ubuntu-latest
+    environment: image-release
     strategy:
       fail-fast: false
       matrix:
@@ -47,34 +178,43 @@ jobs:
             dockerfile: infra/adminer/Dockerfile
             context: infra/adminer
     steps:
-      - uses: actions/checkout@v6
+      - uses: actions/checkout@d23441a48e516b6c34aea4fa41551a30e30af803 # v6
 
       - name: Resolve version + tag list
         id: ver
+        env:
+          MANUAL_VERSION: ${{ inputs.version }}
         run: |
           short_sha="${GITHUB_SHA::7}"
+          image='${{ env.REGISTRY }}/${{ env.OWNER }}/${{ matrix.image }}'
           if [[ "${{ github.event_name }}" == "push" && "${GITHUB_REF}" == refs/tags/* ]]; then
             version="${GITHUB_REF_NAME#v}"
-            tags=$'${{ env.REGISTRY }}/${{ env.OWNER }}/${{ matrix.image }}:'"${version}"$'\n${{ env.REGISTRY }}/${{ env.OWNER }}/${{ matrix.image }}:latest'
+            [[ "$version" =~ ^[0-9]+\.[0-9]+\.[0-9]+([.-][A-Za-z0-9.-]+)?$ ]] || {
+              echo "release tag must be semantic: $version" >&2
+              exit 2
+            }
+            promotion_tags="${image}:${version} ${image}:latest"
           elif [[ "${{ github.event_name }}" == "push" && "${GITHUB_REF}" == refs/heads/main ]]; then
             version="main-${short_sha}"
-            tags=$'${{ env.REGISTRY }}/${{ env.OWNER }}/${{ matrix.image }}:edge\n${{ env.REGISTRY }}/${{ env.OWNER }}/${{ matrix.image }}:'"${version}"
+            promotion_tags="${image}:edge ${image}:${version}"
           else
-            version="${{ inputs.version }}"
-            tags=$'${{ env.REGISTRY }}/${{ env.OWNER }}/${{ matrix.image }}:'"${version}"
+            version="$MANUAL_VERSION"
+            [[ "$version" =~ ^[0-9]+\.[0-9]+\.[0-9]+([.-][A-Za-z0-9.-]+)?$ ]] || {
+              echo "manual version must be semantic: $version" >&2
+              exit 2
+            }
+            promotion_tags="${image}:${version}"
           fi
+          candidate="${image}:candidate-${GITHUB_SHA}"
           echo "version=${version}" >> "$GITHUB_OUTPUT"
-          {
-            echo "tags<<EOF"
-            echo "${tags}"
-            echo "EOF"
-          } >> "$GITHUB_OUTPUT"
+          echo "candidate=${candidate}" >> "$GITHUB_OUTPUT"
+          echo "promotion_tags=${promotion_tags}" >> "$GITHUB_OUTPUT"
 
-      - uses: docker/setup-buildx-action@v4
+      - uses: docker/setup-buildx-action@bb05f3f5519dd87d3ba754cc423b652a5edd6d2c # v4
 
-      - uses: sigstore/cosign-installer@v3
+      - uses: sigstore/cosign-installer@f713795cb21599bc4e5c4b58cbad1da852d7eeb9 # v3
 
-      - uses: docker/login-action@v4
+      - uses: docker/login-action@dbcb813823bdd20940b903addbd779551569679f # v4
         with:
           registry: ${{ env.REGISTRY }}
           username: ${{ github.actor }}
@@ -82,17 +222,270 @@ jobs:
 
       - name: Build and push
         id: build
-        uses: docker/build-push-action@v7
+        uses: docker/build-push-action@53b7df96c91f9c12dcc8a07bcb9ccacbed38856a # v7
         with:
           context: ${{ matrix.context }}
           file: ${{ matrix.dockerfile }}
           push: true
           platforms: linux/amd64,linux/arm64
-          tags: ${{ steps.ver.outputs.tags }}
+          tags: ${{ steps.ver.outputs.candidate }}
+          build-args: PLOYDOK_BUILD_VERSION=candidate-${{ github.sha }}
           cache-from: type=gha,scope=${{ matrix.image }}
           cache-to: type=gha,scope=${{ matrix.image }},mode=max
+          provenance: mode=max
+          sbom: true
+
+      - name: Reject exploitable critical image vulnerabilities
+        env:
+          IMAGE: ${{ env.REGISTRY }}/${{ env.OWNER }}/${{ matrix.image }}@${{ steps.build.outputs.digest }}
+          TRIVY_USERNAME: ${{ github.actor }}
+          TRIVY_PASSWORD: ${{ secrets.GITHUB_TOKEN }}
+        run: |
+          docker run --rm \
+            -e TRIVY_USERNAME \
+            -e TRIVY_PASSWORD \
+            aquasec/trivy:0.67.2 \
+            image --exit-code 1 --ignore-unfixed --severity CRITICAL "$IMAGE"
 
       # Signature keyless OIDC via Sigstore Fulcio. L'identité du signataire est
       # le run de ce workflow — l'installer la pinne via --certificate-identity-regexp.
       - name: Cosign sign (keyless)
         run: cosign sign --yes "${{ env.REGISTRY }}/${{ env.OWNER }}/${{ matrix.image }}@${{ steps.build.outputs.digest }}"
+
+      - name: Record the exact signed image digest
+        run: |
+          set -Eeuo pipefail
+          digest='${{ steps.build.outputs.digest }}'
+          [[ "$digest" =~ ^sha256:[0-9a-f]{64}$ ]]
+          component='${{ matrix.image }}'
+          component="${component#ploydok-}"
+          key="PLOYDOK_${component^^}_IMAGE"
+          printf '%s=%s/%s/%s@%s\n' \
+            "$key" "$REGISTRY" "$OWNER" '${{ matrix.image }}' "$digest" \
+            >'${{ matrix.image }}.env'
+
+      - name: Upload immutable digest fragment
+        uses: actions/upload-artifact@ea165f8d65b6e75b540449e92b4886f43607fa02 # v4.6.2
+        with:
+          name: release-digest-${{ github.sha }}-${{ matrix.image }}
+          path: ${{ matrix.image }}.env
+          if-no-files-found: error
+          retention-days: 30
+
+  release-manifest:
+    name: immutable-release-image-manifest
+    needs: [build]
+    runs-on: ubuntu-latest
+    steps:
+      - name: Download exact build outputs
+        uses: actions/download-artifact@d3f86a106a0bac45b974a628896c90dbdf5c8093 # v4.3.0
+        with:
+          pattern: release-digest-${{ github.sha }}-*
+          path: /tmp/release-digests
+          merge-multiple: true
+
+      - name: Assemble and validate the immutable manifest
+        run: |
+          set -Eeuo pipefail
+          : >release-images.env
+          for image in ploydok-api ploydok-web ploydok-agent ploydok-adminer ploydok-caddy; do
+            fragment="/tmp/release-digests/${image}.env"
+            [[ -f "$fragment" ]] || { echo "missing digest for $image" >&2; exit 2; }
+            [[ "$(wc -l <"$fragment")" -eq 1 ]]
+            grep -Eq "^PLOYDOK_[A-Z_]+_IMAGE=${REGISTRY}/${OWNER}/${image}@sha256:[0-9a-f]{64}$" "$fragment"
+            cat "$fragment" >>release-images.env
+          done
+          [[ "$(wc -l <release-images.env)" -eq 5 ]]
+
+      - name: Upload immutable release image manifest
+        uses: actions/upload-artifact@ea165f8d65b6e75b540449e92b4886f43607fa02 # v4.6.2
+        with:
+          name: release-image-manifest-${{ github.sha }}
+          path: release-images.env
+          if-no-files-found: error
+          retention-days: 30
+
+  gitlab-browser:
+    name: release-gitlab-browser-gate
+    needs: [release-manifest]
+    runs-on: ubuntu-latest
+    environment: image-release
+    env:
+      CI: "1"
+      PLOYDOK_RELEASE_GATE: "1"
+      PLOYDOK_FULL_INFRA: "1"
+      E2E_EXPECTED_PLATFORM_VERSION: candidate-${{ github.sha }}
+      E2E_WEB_URL: ${{ secrets.PLOYDOK_E2E_WEB_URL }}
+      E2E_FRESH_WEB_URL: ${{ secrets.PLOYDOK_E2E_FRESH_WEB_URL }}
+      E2E_API_URL: ${{ secrets.PLOYDOK_E2E_API_URL }}
+      PLAYWRIGHT_BASE_URL: ${{ secrets.PLOYDOK_E2E_WEB_URL }}
+      PLOYDOK_A11Y_E2E: "1"
+      E2E_TEST_EMAIL: ${{ secrets.PLOYDOK_E2E_TEST_EMAIL }}
+      E2E_TEST_BACKUP_CODE: ${{ secrets.PLOYDOK_E2E_TEST_BACKUP_CODE }}
+      E2E_GITLAB_REPO_FULL_NAME: ${{ secrets.PLOYDOK_E2E_GITLAB_REPO_FULL_NAME }}
+      E2E_GITLAB_PROJECT_ID: ${{ secrets.PLOYDOK_E2E_GITLAB_PROJECT_ID }}
+      E2E_GITLAB_BRANCH: ${{ vars.PLOYDOK_E2E_GITLAB_BRANCH || 'main' }}
+      E2E_SSH_HOST: ${{ secrets.PLOYDOK_E2E_SSH_HOST }}
+      E2E_SSH_PORT: ${{ vars.PLOYDOK_E2E_SSH_PORT || '22' }}
+      E2E_SSH_USER: ${{ secrets.PLOYDOK_E2E_SSH_USER }}
+      E2E_SSH_PRIVATE_KEY: ${{ secrets.PLOYDOK_E2E_SSH_PRIVATE_KEY }}
+      E2E_SSH_KNOWN_HOSTS: ${{ secrets.PLOYDOK_E2E_SSH_KNOWN_HOSTS }}
+    steps:
+      - uses: actions/checkout@d23441a48e516b6c34aea4fa41551a30e30af803 # v6
+
+      - uses: oven-sh/setup-bun@0c5077e51419868618aeaa5fe8019c62421857d6 # v2
+        with:
+          bun-version: 1.3.13
+
+      - name: Install dependencies and release browsers
+        run: |
+          bun install --frozen-lockfile
+          bunx playwright install --with-deps chromium firefox webkit
+
+      - name: Download the immutable release image manifest
+        uses: actions/download-artifact@d3f86a106a0bac45b974a628896c90dbdf5c8093 # v4.3.0
+        with:
+          name: release-image-manifest-${{ github.sha }}
+          path: /tmp/ploydok-release
+
+      - name: Require the real candidate deployment fixture
+        run: |
+          set -Eeuo pipefail
+          test -n "$E2E_WEB_URL"
+          test -n "$E2E_FRESH_WEB_URL"
+          test -n "$E2E_API_URL"
+          test -n "$E2E_TEST_EMAIL"
+          test -n "$E2E_TEST_BACKUP_CODE"
+          test -n "$E2E_GITLAB_REPO_FULL_NAME"
+          test -n "$E2E_GITLAB_PROJECT_ID"
+          test -n "$E2E_SSH_HOST"
+          test -n "$E2E_SSH_USER"
+          test -n "$E2E_SSH_PRIVATE_KEY"
+          test -n "$E2E_SSH_KNOWN_HOSTS"
+
+      - name: Deploy the exact signed candidate to the release fixture
+        run: |
+          set -Eeuo pipefail
+          install -d -m 0700 ~/.ssh
+          printf '%s\n' "$E2E_SSH_PRIVATE_KEY" >~/.ssh/ploydok-release
+          printf '%s\n' "$E2E_SSH_KNOWN_HOSTS" >~/.ssh/known_hosts
+          chmod 0600 ~/.ssh/ploydok-release ~/.ssh/known_hosts
+          scp -i ~/.ssh/ploydok-release -P "$E2E_SSH_PORT" \
+            installer/ploydok-cli installer/verify-release-images \
+            /tmp/ploydok-release/release-images.env \
+            "$E2E_SSH_USER@$E2E_SSH_HOST:/tmp/"
+          ssh -i ~/.ssh/ploydok-release -p "$E2E_SSH_PORT" \
+            "$E2E_SSH_USER@$E2E_SSH_HOST" \
+            "sudo bash /tmp/ploydok-cli upgrade --version=candidate-${GITHUB_SHA} --image-manifest=/tmp/release-images.env --include-data-plane && sudo bash /tmp/verify-release-images /tmp/release-images.env"
+
+      - name: GitLab browser deploy gate
+        working-directory: apps/web
+        run: bunx playwright test e2e/providers/deploy-gitlab.spec.ts --project=chromium
+
+      - name: WCAG and cross-browser public entrypoint gate
+        working-directory: apps/web
+        run: bunx playwright test e2e/accessibility/public-entrypoints.spec.ts
+
+  promote:
+    name: promote-${{ matrix.image }}
+    needs: [gitlab-browser]
+    runs-on: ubuntu-latest
+    environment: image-release
+    strategy:
+      fail-fast: false
+      matrix:
+        image:
+          - ploydok-api
+          - ploydok-web
+          - ploydok-agent
+          - ploydok-caddy
+          - ploydok-adminer
+    steps:
+      - name: Download the browser-tested image manifest
+        uses: actions/download-artifact@d3f86a106a0bac45b974a628896c90dbdf5c8093 # v4.3.0
+        with:
+          name: release-image-manifest-${{ github.sha }}
+          path: /tmp/ploydok-release
+
+      - uses: docker/setup-buildx-action@bb05f3f5519dd87d3ba754cc423b652a5edd6d2c # v4
+
+      - uses: docker/login-action@dbcb813823bdd20940b903addbd779551569679f # v4
+        with:
+          registry: ${{ env.REGISTRY }}
+          username: ${{ github.actor }}
+          password: ${{ secrets.GITHUB_TOKEN }}
+
+      - name: Promote the browser-tested candidate digest without rebuilding
+        env:
+          IMAGE: ${{ env.REGISTRY }}/${{ env.OWNER }}/${{ matrix.image }}
+          MANUAL_VERSION: ${{ inputs.version }}
+        run: |
+          set -Eeuo pipefail
+          component='${{ matrix.image }}'
+          component="${component#ploydok-}"
+          key="PLOYDOK_${component^^}_IMAGE"
+          tested_ref="$(awk -F= -v key="$key" '$1 == key { print $2 }' /tmp/ploydok-release/release-images.env)"
+          [[ "$tested_ref" == "$IMAGE@sha256:"* ]]
+          [[ "${tested_ref##*@}" =~ ^sha256:[0-9a-f]{64}$ ]]
+          digest="${tested_ref##*@}"
+          short_sha="${GITHUB_SHA::7}"
+          if [[ "${{ github.event_name }}" == "push" && "${GITHUB_REF}" == refs/tags/* ]]; then
+            version="${GITHUB_REF_NAME#v}"
+            promotion_tags="${IMAGE}:${version} ${IMAGE}:latest"
+          elif [[ "${{ github.event_name }}" == "push" && "${GITHUB_REF}" == refs/heads/main ]]; then
+            promotion_tags="${IMAGE}:edge ${IMAGE}:main-${short_sha}"
+          else
+            [[ "$MANUAL_VERSION" =~ ^[0-9]+\.[0-9]+\.[0-9]+([.-][A-Za-z0-9.-]+)?$ ]] || {
+              echo "manual version must be semantic: $MANUAL_VERSION" >&2
+              exit 2
+            }
+            promotion_tags="${IMAGE}:${MANUAL_VERSION}"
+          fi
+          for target in $promotion_tags; do
+            current="$(
+              docker buildx imagetools inspect "$target" 2>/dev/null |
+                awk '$1 == "Digest:" { print $2; exit }' || true
+            )"
+            is_mutable_edge=0
+            [[ "$target" == *:edge || "$target" == *:latest ]] && is_mutable_edge=1
+            if [[ -n "$current" && "$current" != "$digest" && "$is_mutable_edge" -eq 0 ]]; then
+              echo "refusing to reuse immutable release tag $target ($current != $digest)" >&2
+              exit 4
+            fi
+            docker buildx imagetools create --tag "$target" "$tested_ref"
+          done
+
+  bootstrap-assets:
+    name: signed-bootstrap-assets
+    if: startsWith(github.ref, 'refs/tags/v')
+    needs: promote
+    runs-on: ubuntu-latest
+    environment: image-release
+    steps:
+      - uses: actions/checkout@d23441a48e516b6c34aea4fa41551a30e30af803 # v6
+
+      - uses: sigstore/cosign-installer@f713795cb21599bc4e5c4b58cbad1da852d7eeb9 # v3
+
+      - name: Build immutable bootstrap bundle
+        id: bundle
+        run: |
+          set -Eeuo pipefail
+          version="${GITHUB_REF_NAME#v}"
+          bundle="ploydok-bootstrap-${version}.tar.gz"
+          mkdir -p /tmp/ploydok-bootstrap
+          install -m 0755 installer/bootstrap.sh /tmp/ploydok-bootstrap/bootstrap.sh
+          printf '%s\n' "$GITHUB_SHA" >/tmp/ploydok-bootstrap/COMMIT
+          tar -C /tmp/ploydok-bootstrap -czf "$bundle" bootstrap.sh COMMIT
+          sha256sum "$bundle" >"${bundle}.sha256"
+          cosign sign-blob --yes --bundle "${bundle}.sigstore.json" "$bundle"
+          echo "bundle=${bundle}" >>"$GITHUB_OUTPUT"
+
+      - name: Publish signed bootstrap after image gates
+        env:
+          GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+          BUNDLE: ${{ steps.bundle.outputs.bundle }}
+        run: |
+          gh release view "$GITHUB_REF_NAME" >/dev/null 2>&1 ||
+            gh release create "$GITHUB_REF_NAME" --verify-tag --generate-notes
+          gh release upload "$GITHUB_REF_NAME" --clobber \
+            "$BUNDLE" "$BUNDLE.sha256" "$BUNDLE.sigstore.json"

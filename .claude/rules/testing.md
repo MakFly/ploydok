@@ -43,6 +43,7 @@ docker ps -a --filter "name=ploydok-app-e2e-" --filter "name=ploydok-app-iso-" -
 ```
 
 Règles :
+
 - Ne jamais toucher aux containers `ploydok-app-*-green` sans suffixe `e2e-` / `iso-` — ce sont de vraies apps déployées.
 - Si on ajoute une nouvelle spec qui spawn un container, préfixer le nom par `e2e-` ou `iso-` pour qu'il soit capturé par le filtre ci-dessus.
 - Idéalement câbler le cleanup dans un `afterAll` / `test.afterEach` de la spec, mais le purge manuel reste le filet de sécurité.

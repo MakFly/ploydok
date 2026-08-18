@@ -16,6 +16,7 @@ export interface CloneOptions {
   depth?: number;
   /** Timeout in milliseconds before killing git. Default: 60_000. */
   timeoutMs?: number;
+  signal?: AbortSignal;
 }
 
 // ---------------------------------------------------------------------------
@@ -37,7 +38,7 @@ function scrubToken(url: string): string {
  * The token in the clone URL is scrubbed from all error messages.
  */
 export async function cloneRepo(
-  opts: CloneOptions,
+  opts: CloneOptions
 ): Promise<{ workspacePath: string; headSha: string | null }> {
   const dest = path.join(opts.buildDir, opts.appId, opts.buildId);
   await mkdir(dest, { recursive: true });
@@ -56,6 +57,7 @@ export async function cloneRepo(
   const proc = Bun.spawn(["git", ...args], {
     stdout: "pipe",
     stderr: "pipe",
+    ...(opts.signal ? { signal: opts.signal } : {}),
   });
 
   let timedOut = false;
@@ -68,13 +70,15 @@ export async function cloneRepo(
   clearTimeout(timeout);
 
   if (timedOut) {
-    throw new Error(`git clone timed out after ${opts.timeoutMs ?? 60_000}ms for ${scrubToken(opts.repoCloneUrl)}`);
+    throw new Error(
+      `git clone timed out after ${opts.timeoutMs ?? 60_000}ms for ${scrubToken(opts.repoCloneUrl)}`
+    );
   }
 
   if (exitCode !== 0) {
     const stderr = await new Response(proc.stderr).text();
     throw new Error(
-      `git clone failed (${exitCode}) for ${scrubToken(opts.repoCloneUrl)}: ${scrubToken(stderr)}`,
+      `git clone failed (${exitCode}) for ${scrubToken(opts.repoCloneUrl)}: ${scrubToken(stderr)}`
     );
   }
 
@@ -105,7 +109,10 @@ async function resolveHeadSha(workspace: string): Promise<string | null> {
 export async function cleanupWorkspace(
   appId: string,
   buildId: string,
-  buildDir: string,
+  buildDir: string
 ): Promise<void> {
-  await rm(path.join(buildDir, appId, buildId), { recursive: true, force: true });
+  await rm(path.join(buildDir, appId, buildId), {
+    recursive: true,
+    force: true,
+  });
 }

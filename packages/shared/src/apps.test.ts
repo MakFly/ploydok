@@ -143,6 +143,16 @@ describe("AppConfigSchema", () => {
     expect(result.rootDir).toBeUndefined()
   })
 
+  it("parses a GitLab config with a nested namespace", () => {
+    const result = AppConfigSchema.parse({
+      ...base,
+      gitProvider: "gitlab",
+      repoFullName: "platform/services/my-app",
+    })
+    expect(result.gitProvider).toBe("gitlab")
+    expect(result.repoFullName).toBe("platform/services/my-app")
+  })
+
   it("parses a full config with all optional fields", () => {
     const full = {
       ...base,

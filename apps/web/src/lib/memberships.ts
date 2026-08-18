@@ -1,14 +1,17 @@
 // SPDX-License-Identifier: AGPL-3.0-only
 import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query"
 import { toast } from "sonner"
-import { apiFetch } from "./api"
+import { ApiError, apiFetch } from "./api"
 import { notifyMutationError } from "./second-factor-toast"
 import type {
+  CreateInvitationResponse,
   InvitationAcceptResponse,
   InvitationPreview,
   InvitationRow,
   InviteBody,
   MemberListItem,
+  RegisterFromInvitationBody,
+  RegisterFromInvitationResponse,
 } from "@ploydok/shared"
 
 // ── Types (Re-export for convenience) ────────────────────────────────────────
@@ -34,6 +37,39 @@ export function mapMembersResponse(response: MembersApiResponse): {
     members: response.members,
     invitations: response.pending_invitations,
   }
+}
+
+export function invitationAcceptPath(token: string): string {
+  const search = new URLSearchParams({ token })
+  return `/invitations/accept?${search.toString()}`
+}
+
+export function isTerminalInvitationError(error: unknown): boolean {
+  return (
+    error instanceof ApiError && (error.status === 404 || error.status === 410)
+  )
+}
+
+export function clearInvitationTokenOnTerminalError(
+  storage: Pick<Storage, "removeItem">,
+  error: unknown
+): boolean {
+  if (!isTerminalInvitationError(error)) return false
+  storage.removeItem("ploydok.invitation-token")
+  return true
+}
+
+export function invitationLoginPath(token: string): string {
+  void token
+  return `/login?redirect=${encodeURIComponent("/invitations/accept")}`
+}
+
+export function validateInvitationPasswords(
+  password: string,
+  confirmation: string
+): string | null {
+  if (password !== confirmation) return "Passwords do not match"
+  return null
 }
 
 // ── Query keys ────────────────────────────────────────────────────────────────
@@ -71,22 +107,22 @@ export function useInviteMember() {
     }: {
       orgSlug: string
     } & InviteBody) => {
-      return apiFetch<{
-        invitation: {
-          id: string
-          email: string
-          role: string
-          expires_at: string
+      return apiFetch<CreateInvitationResponse>(
+        `/orgs/${orgSlug}/members/invite`,
+        {
+          method: "POST",
+          body: { email, role },
+          headers: { "content-type": "application/json" },
         }
-      }>(`/orgs/${orgSlug}/members/invite`, {
-        method: "POST",
-        body: { email, role },
-        headers: { "content-type": "application/json" },
-      })
+      )
     },
-    onSuccess: (_, vars) => {
+    onSuccess: (result, vars) => {
       qc.invalidateQueries({ queryKey: membershipKeys.list(vars.orgSlug) })
-      toast.success(`Invitation sent to ${vars.email}`)
+      toast.success(
+        result.delivery_status === "delivered"
+          ? `Invitation already sent to ${vars.email}`
+          : `Invitation queued for ${vars.email}`
+      )
     },
     onError: (err: Error) => {
       notifyMutationError(err, "Failed to send invitation")
@@ -199,6 +235,20 @@ export function useAcceptInvitation() {
     },
     onError: (err: Error) => {
       notifyMutationError(err, "Failed to accept invitation")
+    },
+  })
+}
+
+export function useRegisterFromInvitation() {
+  return useMutation({
+    mutationFn: async (body: RegisterFromInvitationBody) =>
+      apiFetch<RegisterFromInvitationResponse>("/invitations/register", {
+        method: "POST",
+        body,
+        headers: { "content-type": "application/json" },
+      }),
+    onError: (err: Error) => {
+      notifyMutationError(err, "Failed to create account")
     },
   })
 }

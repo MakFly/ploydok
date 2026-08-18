@@ -4,9 +4,9 @@ import type { Db } from "@ploydok/db"
 import {
   getGitHubAppConfig,
   getGitLabConfig,
-  getGitLabTokens,
   hasGitHubInstallationForUser,
 } from "@ploydok/db/queries"
+import { resolveGitLabConnection } from "../gitlab/connection"
 import { env } from "../env"
 import type { AuthUser } from "../auth/middleware"
 
@@ -24,12 +24,15 @@ export function createGitProvidersRouter(db: Db): Hono<GitProvidersRouterEnv> {
     const user = c.get("user")
     if (!user) return c.json({ error: "unauthenticated" }, 401)
 
-    const [githubConfig, gitlabConfig, githubConnected, gitlabTokens] =
+    const [githubConfig, gitlabConfig, githubConnected, gitlabResolution] =
       await Promise.all([
         getGitHubAppConfig(db),
         getGitLabConfig(db),
         hasGitHubInstallationForUser(db, user.id),
-        getGitLabTokens(db, user.id),
+        resolveGitLabConnection(db, user.id).then(
+          (connection) => ({ connection, error: null }),
+          (error: unknown) => ({ connection: null, error })
+        ),
       ])
 
     const github = {
@@ -39,15 +42,36 @@ export function createGitProvidersRouter(db: Db): Hono<GitProvidersRouterEnv> {
         ? `${apiOrigin(env.GITHUB_APP_CALLBACK_URL)}/github/installations/start`
         : null,
     }
+    const gitlabConnected = gitlabResolution.connection !== null
+    const gitlabErrorCode =
+      gitlabResolution.error &&
+      typeof gitlabResolution.error === "object" &&
+      "code" in gitlabResolution.error
+        ? String(gitlabResolution.error.code)
+        : null
+    const gitlabState = !gitlabConfig
+      ? "not_configured"
+      : gitlabConnected
+        ? "connected"
+        : gitlabErrorCode === "not_connected"
+          ? "disconnected"
+          : gitlabErrorCode === "expired"
+            ? "expired"
+            : "unavailable"
     const gitlab = {
       configured: gitlabConfig !== null,
-      connected: gitlabTokens !== null,
+      connected: gitlabConnected,
+      state: gitlabState,
       connect_url: gitlabConfig
         ? `${apiOrigin(env.GITLAB_OAUTH_CALLBACK_URL)}/gitlab/connect`
         : null,
     }
 
-    return c.json({ ready: github.connected || gitlab.connected, github, gitlab })
+    return c.json({
+      ready: github.connected || gitlab.connected,
+      github,
+      gitlab,
+    })
   })
 
   return router

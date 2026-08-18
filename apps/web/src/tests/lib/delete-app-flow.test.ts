@@ -1,7 +1,6 @@
 // SPDX-License-Identifier: AGPL-3.0-only
 import { afterEach, beforeEach, describe, expect, it } from "bun:test"
 import * as React from "react"
-import { Window } from "happy-dom"
 import { QueryClient, QueryClientProvider } from "@tanstack/react-query"
 import { act, cleanup, renderHook } from "@testing-library/react"
 import { toast } from "sonner"
@@ -20,22 +19,8 @@ const originalFetch = globalThis.fetch
 let successCalls = 0
 let loadingCalls = 0
 
-function installDom(): void {
-  const window = new Window()
-  Object.assign(globalThis, {
-    window,
-    document: window.document,
-    navigator: window.navigator,
-    HTMLElement: window.HTMLElement,
-    Node: window.Node,
-    MutationObserver: window.MutationObserver,
-    getComputedStyle: window.getComputedStyle.bind(window),
-  })
-}
-
 describe("useDeleteApp", () => {
   beforeEach(() => {
-    installDom()
     resetCsrfToken()
     invalidateGetCache()
     successCalls = 0

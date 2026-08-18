@@ -103,6 +103,28 @@ describe("build-static", () => {
     )
   })
 
+  test("une annulation avant publication conserve la génération active", async () => {
+    await runStaticBuild({
+      appId: "app1",
+      sha: "v1",
+      sourceDir: await createStaticProject(),
+    })
+    await expect(
+      runStaticBuild({
+        appId: "app1",
+        sha: "v2",
+        sourceDir: await createStaticProject(),
+        beforePublish: async () => {
+          throw new Error("cancelled")
+        },
+      })
+    ).rejects.toThrow("cancelled")
+    expect(await readlink(path.join(workspaceRoot, "app1", "current"))).toBe(
+      "v1"
+    )
+    expect(existsSync(path.join(workspaceRoot, "app1", "v2"))).toBe(false)
+  })
+
   test("gcOldShas garde keepN + préserve current", async () => {
     // Crée 5 builds successifs : v1, v2, v3, v4, v5 — current = v5
     for (const v of ["v1", "v2", "v3", "v4", "v5"]) {

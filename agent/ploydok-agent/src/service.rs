@@ -41,17 +41,16 @@ use bollard::container::{
 };
 use bollard::exec::{CreateExecOptions, ResizeExecOptions, StartExecOptions, StartExecResults};
 use bollard::image::{
-    BuildImageOptions, CreateImageOptions, ListImagesOptions, PruneImagesOptions,
-    RemoveImageOptions,
+    BuildImageOptions, CreateImageOptions, PruneImagesOptions, PushImageOptions, RemoveImageOptions,
 };
 use bollard::models::EndpointSettings;
 use bollard::models::{
     HealthConfig, HostConfig, Limit, Mount, MountTypeEnum, NetworkAttachmentConfig, PortBinding,
-    RestartPolicy, RestartPolicyNameEnum, ServiceSpec, ServiceSpecMode, ServiceSpecModeReplicated,
-    ServiceSpecRollbackConfig, ServiceSpecRollbackConfigFailureActionEnum,
-    ServiceSpecRollbackConfigOrderEnum, ServiceSpecUpdateConfig,
-    ServiceSpecUpdateConfigFailureActionEnum, ServiceSpecUpdateConfigOrderEnum, TaskSpec,
-    TaskSpecContainerSpec, TaskSpecResources,
+    PushImageInfo, RestartPolicy, RestartPolicyNameEnum, ServiceSpec, ServiceSpecMode,
+    ServiceSpecModeReplicated, ServiceSpecRollbackConfig,
+    ServiceSpecRollbackConfigFailureActionEnum, ServiceSpecRollbackConfigOrderEnum,
+    ServiceSpecUpdateConfig, ServiceSpecUpdateConfigFailureActionEnum,
+    ServiceSpecUpdateConfigOrderEnum, TaskSpec, TaskSpecContainerSpec, TaskSpecResources,
 };
 use bollard::network::{ConnectNetworkOptions, CreateNetworkOptions, DisconnectNetworkOptions};
 use bollard::service::{InspectServiceOptions, UpdateServiceOptions};
@@ -64,19 +63,21 @@ use tokio_stream::wrappers::ReceiverStream;
 use tonic::{Request, Response, Status};
 
 use ploydok_proto::agent::{
-    agent_server::Agent, exec_frame, restore_chunk, BuildProgress, ContainerCreateRequest,
-    ContainerCreateResponse, ContainerLogsRequest, ContainerRemoveRequest, ContainerRemoveResponse,
-    ContainerStartRequest, ContainerStartResponse, ContainerStatsRequest, ContainerStopRequest,
-    ContainerStopResponse, DiskUsageCategory, DumpChunk, DumpRequest, ExecFrame, FileEntry,
-    GetAuditPubkeyRequest, GetAuditPubkeyResponse, HostStatsRequest, HostStatsResponse,
-    ImageBuildRequest, ImageDfRequest, ImageDfResponse, ImagePruneRequest, ImagePruneResponse,
-    ImagePullRequest, InspectContainerHealthRequest, InspectContainerHealthResponse,
-    ListContainerFilesRequest, ListContainerFilesResponse, ListContainersRequest,
-    ListContainersResponse, ListServiceTasksRequest, ListServiceTasksResponse, LogLine,
-    NetworkConnectRequest, NetworkConnectResponse, NetworkCreateRequest, NetworkCreateResponse,
-    NetworkDisconnectRequest, NetworkDisconnectResponse, NetworkRemoveRequest,
-    NetworkRemoveResponse, PingContainerRequest, PingContainerResponse, PullProgress,
-    ReadContainerFileRequest, ReadContainerFileResponse, RegistryImageDigestRequest,
+    agent_server::Agent, exec_frame, restore_chunk, BuildCachePruneRequest,
+    BuildCachePruneResponse, BuildProgress, ContainerCreateRequest, ContainerCreateResponse,
+    ContainerLogsRequest, ContainerRemoveRequest, ContainerRemoveResponse, ContainerStartRequest,
+    ContainerStartResponse, ContainerStatsRequest, ContainerStopRequest, ContainerStopResponse,
+    DiskUsageCategory, DumpChunk, DumpRequest, ExecFrame, FileEntry, GetAuditPubkeyRequest,
+    GetAuditPubkeyResponse, HostStatsRequest, HostStatsResponse, ImageBuildRequest, ImageDfRequest,
+    ImageDfResponse, ImagePruneRequest, ImagePruneResponse, ImagePullRequest, ImagePushRequest,
+    ImagePushResponse, ImageRemoveRequest, ImageRemoveResponse, InspectContainerHealthRequest,
+    InspectContainerHealthResponse, ListContainerFilesRequest, ListContainerFilesResponse,
+    ListContainersRequest, ListContainersResponse, ListServiceTasksRequest,
+    ListServiceTasksResponse, LogLine, NetworkConnectRequest, NetworkConnectResponse,
+    NetworkCreateRequest, NetworkCreateResponse, NetworkDisconnectRequest,
+    NetworkDisconnectResponse, NetworkRemoveRequest, NetworkRemoveResponse, PingContainerRequest,
+    PingContainerResponse, PullProgress, ReadContainerFileRequest, ReadContainerFileResponse,
+    RegistryGarbageCollectRequest, RegistryGarbageCollectResponse, RegistryImageDigestRequest,
     RegistryImageDigestResponse, RestoreChunk, RestoreResult, ServiceCreateRequest,
     ServiceCreateResponse, ServiceRemoveRequest, ServiceRemoveResponse, ServiceRollbackRequest,
     ServiceRollbackResponse, ServiceScaleRequest, ServiceScaleResponse, ServiceUpdateImageRequest,
@@ -87,7 +88,7 @@ use ploydok_proto::agent::{
 
 use crate::audit::{audit, audit_with_client, client_identity_from_request};
 use crate::audit_signer::AuditSigner;
-use crate::validator::Validator;
+use crate::validator::{validate_workload_network_name, Validator};
 
 // Include monitor.rs as a submodule. This is the single canonical declaration
 // of the monitor module; lib.rs re-exports it via `pub use service::monitor`.
@@ -95,6 +96,23 @@ use crate::validator::Validator;
 #[path = "monitor.rs"]
 pub mod monitor;
 use monitor::Monitor;
+
+async fn resolve_and_validate_workload_network(
+    docker: &bollard::Docker,
+    network_id_or_name: &str,
+) -> Result<(), Status> {
+    let network = docker
+        .inspect_network(
+            network_id_or_name,
+            None::<bollard::network::InspectNetworkOptions<String>>,
+        )
+        .await
+        .map_err(|e| bollard_err("inspect_network", e))?;
+    let resolved_name = network.name.ok_or_else(|| {
+        Status::permission_denied("network_scope: Docker returned a network without a name")
+    })?;
+    validate_workload_network_name(&resolved_name).map_err(|e| *e)
+}
 
 // ─────────────────────────────────────────────────────────────────────────────
 // Helpers
@@ -357,6 +375,83 @@ fn registry_credentials(
             })
         }
     })
+}
+
+fn split_image_tag(image: &str) -> (&str, &str) {
+    let slash = image.rfind('/');
+    match image
+        .rfind(':')
+        .filter(|colon| slash.is_none_or(|slash| *colon > slash))
+    {
+        Some(colon) => (&image[..colon], &image[colon + 1..]),
+        None => (image, "latest"),
+    }
+}
+
+fn validate_push_frame(info: PushImageInfo) -> Result<(), Status> {
+    if let Some(error) = info.error.filter(|error| !error.trim().is_empty()) {
+        return Err(Status::internal(format!("push_image: {error}")));
+    }
+    Ok(())
+}
+
+fn validate_distribution_digest(reference: &str, digest: Option<String>) -> Result<String, Status> {
+    let digest = digest.ok_or_else(|| {
+        Status::internal(format!(
+            "distribution inspect returned no digest for exact reference {reference}"
+        ))
+    })?;
+    let hash = digest.strip_prefix("sha256:").ok_or_else(|| {
+        Status::internal(format!(
+            "distribution inspect returned an unsupported digest for {reference}"
+        ))
+    })?;
+    if hash.len() != 64 || !hash.chars().all(|character| character.is_ascii_hexdigit()) {
+        return Err(Status::internal(format!(
+            "distribution inspect returned an invalid digest for {reference}"
+        )));
+    }
+    Ok(format!("sha256:{}", hash.to_ascii_lowercase()))
+}
+
+fn is_ploydok_registry_container(container: &bollard::models::ContainerSummary) -> bool {
+    let image_matches = container
+        .image
+        .as_deref()
+        .is_some_and(|image| image == "registry:2" || image.starts_with("registry:2@sha256:"));
+    if !image_matches {
+        return false;
+    }
+    let Some(labels) = container.labels.as_ref() else {
+        return false;
+    };
+    labels
+        .get("ploydok.component")
+        .is_some_and(|value| value == "registry")
+        || labels
+            .get("ploydok.service")
+            .is_some_and(|value| value == "registry")
+        || (labels
+            .get("com.docker.compose.project")
+            .is_some_and(|value| value == "ploydok")
+            && labels
+                .get("com.docker.compose.service")
+                .is_some_and(|value| value == "registry"))
+        || labels
+            .get("com.docker.swarm.service.name")
+            .is_some_and(|value| value == "ploydok_registry")
+}
+
+fn percent_encode_query(value: &str) -> String {
+    value
+        .bytes()
+        .map(|byte| match byte {
+            b'A'..=b'Z' | b'a'..=b'z' | b'0'..=b'9' | b'-' | b'_' | b'.' | b'~' => {
+                (byte as char).to_string()
+            }
+            _ => format!("%{byte:02X}"),
+        })
+        .collect()
 }
 
 fn swarm_info_response(info: bollard::models::SystemInfo) -> SwarmInfoResponse {
@@ -1113,90 +1208,165 @@ impl Agent for AgentService {
 
     // ── ImagePrune ───────────────────────────────────────────────────────────
     //
-    // Reclaims disk from unused images. Host-scoped, so `ensure_managed_container`
-    // does not apply; the guard is the DEFAULT (dangling-only) plus `keep_repo_tags`
-    // (the Ploydok reference-set) which is honoured when `all=true`. `remove_image`
-    // runs with force=false, so Docker itself refuses to delete an image still bound
-    // to a container (running OR stopped) — a second line of defence.
+    // Reclaims only dangling images older than a mandatory bounded cutoff.
+    // Global unused-image pruning is deliberately absent even when a permissive
+    // development validator is injected.
 
     async fn image_prune(
         &self,
         request: Request<ImagePruneRequest>,
     ) -> Result<Response<ImagePruneResponse>, Status> {
         let req = request.into_inner();
-        audit(
-            "image_prune",
-            if req.all { "all" } else { "dangling" },
-            Ok(()),
-        );
-
-        // Precise path: prune *all* unused images while protecting the reference-set.
-        if req.all && !req.keep_repo_tags.is_empty() {
-            let keep: std::collections::HashSet<&str> =
-                req.keep_repo_tags.iter().map(String::as_str).collect();
-            let images = self
-                .docker
-                .list_images(Some(ListImagesOptions::<String> {
-                    all: false,
-                    ..Default::default()
-                }))
-                .await
-                .map_err(|e| bollard_err("list_images", e))?;
-
-            let mut deleted = 0i32;
-            let mut reclaimed = 0i64;
-            for img in images {
-                if img.repo_tags.iter().any(|t| keep.contains(t.as_str())) {
-                    continue;
-                }
-                if req.until_unix > 0 && img.created >= req.until_unix {
-                    continue;
-                }
-                match self
-                    .docker
-                    .remove_image(
-                        &img.id,
-                        Some(RemoveImageOptions {
-                            force: false,
-                            noprune: false,
-                        }),
-                        None,
-                    )
-                    .await
-                {
-                    Ok(_) => {
-                        deleted += 1;
-                        reclaimed += img.size.max(0);
-                    }
-                    Err(e) => {
-                        tracing::debug!(image = %img.id, error = %e, "image_prune: skipped (in use / conflict)");
-                    }
-                }
-            }
-            return Ok(Response::new(ImagePruneResponse {
-                images_deleted: deleted,
-                space_reclaimed_bytes: reclaimed,
-            }));
-        }
-
-        // Blanket path via Docker's own prune filters (dangling by default).
+        self.validator.validate_image_prune(&req).map_err(|e| *e)?;
         let mut filters: HashMap<String, Vec<String>> = HashMap::new();
-        let dangling = if req.all { "false" } else { "true" };
-        filters.insert("dangling".to_string(), vec![dangling.to_string()]);
-        if req.until_unix > 0 {
-            filters.insert("until".to_string(), vec![req.until_unix.to_string()]);
-        }
+        filters.insert("dangling".to_string(), vec!["true".to_string()]);
+        filters.insert("until".to_string(), vec![req.until_unix.to_string()]);
 
-        let result = self
+        let result = match self
             .docker
             .prune_images(Some(PruneImagesOptions { filters }))
             .await
-            .map_err(|e| bollard_err("prune_images", e))?;
+        {
+            Ok(result) => result,
+            Err(error) => {
+                let status = bollard_err("prune_images", error);
+                audit("image_prune", "dangling", Err(status.message()));
+                return Err(status);
+            }
+        };
+        audit("image_prune", "dangling", Ok(()));
 
         Ok(Response::new(ImagePruneResponse {
             images_deleted: result.images_deleted.map(|v| v.len() as i32).unwrap_or(0),
             space_reclaimed_bytes: result.space_reclaimed.unwrap_or(0),
         }))
+    }
+
+    async fn image_push(
+        &self,
+        request: Request<ImagePushRequest>,
+    ) -> Result<Response<ImagePushResponse>, Status> {
+        let req = request.into_inner();
+        self.validator.validate_image_push(&req).map_err(|e| *e)?;
+        let (repository, tag) = split_image_tag(&req.image);
+        let credentials = registry_credentials(req.registry_auth.as_ref());
+        let mut stream = self.docker.push_image(
+            repository,
+            Some(PushImageOptions { tag }),
+            credentials.clone(),
+        );
+        while let Some(item) = stream.next().await {
+            let info = item.map_err(|e| bollard_err("push_image", e))?;
+            validate_push_frame(info)?;
+        }
+        let inspect = self
+            .docker
+            .inspect_registry_image(&req.image, credentials)
+            .await
+            .map_err(|e| bollard_err("inspect exact pushed image", e))?;
+        let digest = validate_distribution_digest(&req.image, inspect.descriptor.digest)?;
+        audit("image_push", &req.image, Ok(()));
+        Ok(Response::new(ImagePushResponse { digest }))
+    }
+
+    async fn image_remove(
+        &self,
+        request: Request<ImageRemoveRequest>,
+    ) -> Result<Response<ImageRemoveResponse>, Status> {
+        let req = request.into_inner();
+        self.validator.validate_image_remove(&req).map_err(|e| *e)?;
+        self.docker
+            .remove_image(
+                &req.image,
+                Some(RemoveImageOptions {
+                    force: false,
+                    noprune: false,
+                }),
+                None,
+            )
+            .await
+            .map_err(|e| bollard_err("remove_image", e))?;
+        audit("image_remove", &req.image, Ok(()));
+        Ok(Response::new(ImageRemoveResponse { deleted: true }))
+    }
+
+    async fn build_cache_prune(
+        &self,
+        request: Request<BuildCachePruneRequest>,
+    ) -> Result<Response<BuildCachePruneResponse>, Status> {
+        let req = request.into_inner();
+        self.validator
+            .validate_build_cache_prune(&req)
+            .map_err(|e| *e)?;
+        let mut query = Vec::new();
+        let filters = format!(r#"{{"until":["{}"]}}"#, req.until_unix);
+        query.push(format!("filters={}", percent_encode_query(&filters)));
+        query.push(format!("keep-storage={}", req.keep_storage_bytes));
+        // `/build/prune` without a version prefix lets the daemon negotiate its
+        // own supported API. Docker 24 exposes API 1.43 and rejects `/v1.45`.
+        let output = docker_socket_post(&format!("/build/prune?{}", query.join("&")), "{}").await?;
+        let response_body = output
+            .split_once("\r\n\r\n")
+            .map(|(_, body)| body)
+            .unwrap_or(&output);
+        let body: serde_json::Value = serde_json::from_str(response_body)
+            .map_err(|e| Status::internal(format!("decode build prune response: {e}")))?;
+        let reclaimed = body
+            .get("SpaceReclaimed")
+            .and_then(|v| v.as_i64())
+            .unwrap_or(0);
+        audit("build_cache_prune", "host", Ok(()));
+        Ok(Response::new(BuildCachePruneResponse {
+            space_reclaimed_bytes: reclaimed,
+        }))
+    }
+
+    async fn registry_garbage_collect(
+        &self,
+        request: Request<RegistryGarbageCollectRequest>,
+    ) -> Result<Response<RegistryGarbageCollectResponse>, Status> {
+        let req = request.into_inner();
+        self.validator
+            .validate_registry_garbage_collect(&req)
+            .map_err(|e| *e)?;
+        let config_path = if req.config_path.is_empty() {
+            "/etc/docker/registry/config.yml"
+        } else {
+            req.config_path.as_str()
+        };
+        if !config_path.starts_with("/etc/docker/registry/") {
+            return Err(Status::invalid_argument(
+                "registry config_path is outside the allowed directory",
+            ));
+        }
+        let containers = self
+            .docker
+            .list_containers(Some(ListContainersOptions::<String> {
+                all: false,
+                ..Default::default()
+            }))
+            .await
+            .map_err(|e| bollard_err("list registry containers", e))?;
+        let container_id = containers
+            .into_iter()
+            .find(is_ploydok_registry_container)
+            .and_then(|container| container.id)
+            .ok_or_else(|| Status::not_found("running registry:2 container not found"))?;
+        let (output, exit_code) = exec_capture(
+            &self.docker,
+            &container_id,
+            vec!["registry", "garbage-collect", "-m", config_path],
+            Some(300),
+        )
+        .await?;
+        let output = String::from_utf8_lossy(&output).to_string();
+        if exit_code != 0 {
+            return Err(Status::internal(format!(
+                "registry garbage-collect exited {exit_code}: {output}"
+            )));
+        }
+        audit("registry_garbage_collect", &container_id, Ok(()));
+        Ok(Response::new(RegistryGarbageCollectResponse { output }))
     }
 
     // ── RegistryImageDigest ──────────────────────────────────────────────────
@@ -1279,15 +1449,22 @@ impl Agent for AgentService {
         request: Request<NetworkRemoveRequest>,
     ) -> Result<Response<NetworkRemoveResponse>, Status> {
         let req = request.into_inner();
-        audit("network_remove", &req.network_id, Ok(()));
-        self.validator
-            .validate_network_remove(&req)
-            .map_err(|e| *e)?;
+        if let Err(error) = self.validator.validate_network_remove(&req) {
+            audit("network_remove", &req.network_id, Err(error.message()));
+            return Err(*error);
+        }
+        if let Err(error) =
+            resolve_and_validate_workload_network(&self.docker, &req.network_id).await
+        {
+            audit("network_remove", &req.network_id, Err(error.message()));
+            return Err(error);
+        }
 
-        self.docker
-            .remove_network(&req.network_id)
-            .await
-            .map_err(|e| bollard_err("remove_network", e))?;
+        if let Err(error) = self.docker.remove_network(&req.network_id).await {
+            let status = bollard_err("remove_network", error);
+            audit("network_remove", &req.network_id, Err(status.message()));
+            return Err(status);
+        }
 
         audit("network_remove", &req.network_id, Ok(()));
         Ok(Response::new(NetworkRemoveResponse {}))
@@ -1300,14 +1477,17 @@ impl Agent for AgentService {
         request: Request<NetworkConnectRequest>,
     ) -> Result<Response<NetworkConnectResponse>, Status> {
         let req = request.into_inner();
-        audit(
-            "network_connect",
-            &format!("{}→{}", req.container_id, req.network_id),
-            Ok(()),
-        );
-        self.validator
-            .validate_network_connect(&req)
-            .map_err(|e| *e)?;
+        let target = format!("{}→{}", req.container_id, req.network_id);
+        if let Err(error) = self.validator.validate_network_connect(&req) {
+            audit("network_connect", &target, Err(error.message()));
+            return Err(*error);
+        }
+        if let Err(error) =
+            resolve_and_validate_workload_network(&self.docker, &req.network_id).await
+        {
+            audit("network_connect", &target, Err(error.message()));
+            return Err(error);
+        }
 
         let endpoint_config = EndpointSettings {
             aliases: if req.aliases.is_empty() {
@@ -1322,11 +1502,13 @@ impl Agent for AgentService {
             endpoint_config,
         };
 
-        self.docker
-            .connect_network(&req.network_id, opts)
-            .await
-            .map_err(|e| bollard_err("connect_network", e))?;
+        if let Err(error) = self.docker.connect_network(&req.network_id, opts).await {
+            let status = bollard_err("connect_network", error);
+            audit("network_connect", &target, Err(status.message()));
+            return Err(status);
+        }
 
+        audit("network_connect", &target, Ok(()));
         Ok(Response::new(NetworkConnectResponse {}))
     }
 
@@ -1337,25 +1519,30 @@ impl Agent for AgentService {
         request: Request<NetworkDisconnectRequest>,
     ) -> Result<Response<NetworkDisconnectResponse>, Status> {
         let req = request.into_inner();
-        audit(
-            "network_disconnect",
-            &format!("{}→{}", req.container_id, req.network_id),
-            Ok(()),
-        );
-        self.validator
-            .validate_network_disconnect(&req)
-            .map_err(|e| *e)?;
+        let target = format!("{}→{}", req.container_id, req.network_id);
+        if let Err(error) = self.validator.validate_network_disconnect(&req) {
+            audit("network_disconnect", &target, Err(error.message()));
+            return Err(*error);
+        }
+        if let Err(error) =
+            resolve_and_validate_workload_network(&self.docker, &req.network_id).await
+        {
+            audit("network_disconnect", &target, Err(error.message()));
+            return Err(error);
+        }
 
         let opts = DisconnectNetworkOptions {
             container: req.container_id.clone(),
             force: req.force,
         };
 
-        self.docker
-            .disconnect_network(&req.network_id, opts)
-            .await
-            .map_err(|e| bollard_err("disconnect_network", e))?;
+        if let Err(error) = self.docker.disconnect_network(&req.network_id, opts).await {
+            let status = bollard_err("disconnect_network", error);
+            audit("network_disconnect", &target, Err(status.message()));
+            return Err(status);
+        }
 
+        audit("network_disconnect", &target, Ok(()));
         Ok(Response::new(NetworkDisconnectResponse {}))
     }
 
@@ -2674,4 +2861,78 @@ fn build_tar_context(req: &ImageBuildRequest) -> Result<Vec<u8>, std::io::Error>
 
     ar.into_inner()
         .map_err(|e| std::io::Error::other(format!("tar finalise error: {e}")))
+}
+
+#[cfg(test)]
+mod sec02_tests {
+    use std::collections::HashMap;
+
+    use bollard::models::{ContainerSummary, DistributionInspect, PushImageInfo};
+
+    use super::{
+        is_ploydok_registry_container, split_image_tag, validate_distribution_digest,
+        validate_push_frame,
+    };
+
+    #[test]
+    fn exact_tag_digest_comes_from_distribution_after_real_aux_frame() {
+        let hash = "b".repeat(64);
+        let raw_push_frame = format!(
+            r#"{{"status":"Pushed","aux":{{"Tag":"build-42","Digest":"sha256:{hash}","Size":1234}}}}"#
+        );
+        let push_info: PushImageInfo =
+            serde_json::from_str(&raw_push_frame).expect("real Docker push frame");
+        validate_push_frame(push_info).expect("successful push frame");
+
+        let exact_reference = "127.0.0.1:5000/app-demo:build-42";
+        assert_eq!(
+            split_image_tag(exact_reference),
+            ("127.0.0.1:5000/app-demo", "build-42")
+        );
+        let distribution_json = format!(
+            r#"{{"Descriptor":{{"mediaType":"application/vnd.oci.image.manifest.v1+json","digest":"sha256:{hash}","size":1234}},"Platforms":[]}}"#
+        );
+        let inspect: DistributionInspect =
+            serde_json::from_str(&distribution_json).expect("distribution response");
+        assert_eq!(
+            validate_distribution_digest(exact_reference, inspect.descriptor.digest)
+                .expect("valid exact-tag digest"),
+            format!("sha256:{hash}")
+        );
+    }
+
+    #[test]
+    fn embedded_push_error_fails_before_distribution_lookup() {
+        let error = validate_push_frame(PushImageInfo {
+            error: Some("registry denied the push".to_string()),
+            ..Default::default()
+        })
+        .expect_err("embedded registry error must fail");
+        assert!(error.message().contains("registry denied"));
+    }
+
+    #[test]
+    fn registry_gc_requires_the_exact_ploydok_container_identity() {
+        let mut labels = HashMap::new();
+        labels.insert(
+            "com.docker.swarm.service.name".to_string(),
+            "ploydok_registry".to_string(),
+        );
+        let managed = ContainerSummary {
+            image: Some("registry:2".to_string()),
+            labels: Some(labels),
+            ..Default::default()
+        };
+        assert!(is_ploydok_registry_container(&managed));
+
+        let unrelated = ContainerSummary {
+            image: Some("registry:2".to_string()),
+            labels: Some(HashMap::from([(
+                "com.docker.compose.project".to_string(),
+                "unrelated".to_string(),
+            )])),
+            ..Default::default()
+        };
+        assert!(!is_ploydok_registry_container(&unrelated));
+    }
 }

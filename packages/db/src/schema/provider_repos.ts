@@ -6,6 +6,7 @@ import {
   integer,
   boolean,
   index,
+  primaryKey,
   unique,
 } from "drizzle-orm/pg-core"
 
@@ -18,7 +19,10 @@ export const provider_installations = pgTable(
     account_login: text("account_login").notNull(),
     account_type: text("account_type"),
     repository_selection: text("repository_selection"),
-    suspended_at: timestamp("suspended_at", { withTimezone: true, mode: "date" }),
+    suspended_at: timestamp("suspended_at", {
+      withTimezone: true,
+      mode: "date",
+    }),
     html_url: text("html_url"),
     avatar_url: text("avatar_url"),
     repository_count: integer("repository_count"),
@@ -31,17 +35,16 @@ export const provider_installations = pgTable(
       .$defaultFn(() => new Date()),
   },
   (t) => ({
-    uniqueProviderExternalId: unique("uq_provider_installations_provider_external_id").on(
-      t.provider,
-      t.external_id,
-    ),
-  }),
+    uniqueProviderExternalId: unique(
+      "uq_provider_installations_provider_external_id"
+    ).on(t.provider, t.external_id),
+  })
 )
 
 export const provider_repos = pgTable(
   "provider_repos",
   {
-    id: text("id").primaryKey(),
+    id: text("id").notNull(),
     installation_id: text("installation_id")
       .notNull()
       .references(() => provider_installations.id, { onDelete: "cascade" }),
@@ -60,8 +63,15 @@ export const provider_repos = pgTable(
     }).notNull(),
   },
   (t) => ({
+    primaryKey: primaryKey({
+      name: "provider_repos_pkey",
+      columns: [t.installation_id, t.id],
+    }),
     byInstallation: index("idx_provider_repos_install").on(t.installation_id),
-    byFullName: index("idx_provider_repos_fullname").on(t.provider, t.full_name),
+    byFullName: index("idx_provider_repos_fullname").on(
+      t.provider,
+      t.full_name
+    ),
     searchIdx: index("idx_provider_repos_search").on(t.full_name),
-  }),
+  })
 )

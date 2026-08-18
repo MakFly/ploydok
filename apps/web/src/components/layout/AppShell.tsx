@@ -175,7 +175,7 @@ const workspaceNav: Array<NavItem> = [
     label: "Templates",
     icon: RiStackLine,
     comingSoon: true,
-    tooltip: "Templates Compose — coming soon.",
+    tooltip: "Planned — Compose templates are not generally available.",
   },
   { label: "Monitoring", icon: RiPulseLine, orgPathSuffix: "monitoring" },
 ]
@@ -193,25 +193,25 @@ const platformNav: Array<NavItem> = [
     label: "Shared env",
     icon: RiKeyLine,
     comingSoon: true,
-    tooltip: "Backend ready, UI not wired yet — coming soon.",
+    tooltip: "Planned — shared environment is not generally available.",
   },
   {
     label: "Scheduled jobs",
     icon: RiTimerLine,
     comingSoon: true,
-    tooltip: "Read-only API only — full UI coming soon.",
+    tooltip: "Planned — scheduled jobs are not generally available.",
   },
   {
     label: "Event webhooks",
     icon: RiSendPlane2Line,
     comingSoon: true,
-    tooltip: "Read-only API only — full UI coming soon.",
+    tooltip: "Planned — event webhooks are not generally available.",
   },
   {
     label: "Tags",
     icon: RiPriceTagLine,
     comingSoon: true,
-    tooltip: "Cross-resource tagging — coming soon.",
+    tooltip: "Planned — cross-resource tagging is not generally available.",
   },
 ]
 
@@ -235,7 +235,7 @@ const integrationsNav: Array<NavItem> = [
     label: "API tokens",
     icon: RiKey2Line,
     comingSoon: true,
-    tooltip: "Personal Access Tokens — coming soon.",
+    tooltip: "Planned — API tokens are not generally available.",
   },
 ]
 
@@ -882,7 +882,7 @@ export function AppShell({ children }: AppShellProps): React.JSX.Element {
                           return (
                             <li key={item.label} className="relative">
                               <span
-                                title={item.tooltip ?? "Bientôt disponible"}
+                                title={item.tooltip ?? "Unavailable"}
                                 aria-disabled="true"
                                 className={cx(
                                   "flex w-full cursor-not-allowed items-center gap-2 overflow-hidden rounded-[10px] px-2 py-1.5 text-sm text-neutral-400 outline-none",
@@ -897,7 +897,9 @@ export function AppShell({ children }: AppShellProps): React.JSX.Element {
                                   aria-hidden="true"
                                   className="ml-auto rounded-sm bg-neutral-200 px-1 py-px text-xs font-semibold text-neutral-500 group-data-[sidebar-state=collapsed]/shell:hidden"
                                 >
-                                  Soon
+                                  {item.tooltip?.startsWith("Planned")
+                                    ? "Planned"
+                                    : "Unavailable"}
                                 </span>
                               </span>
                             </li>

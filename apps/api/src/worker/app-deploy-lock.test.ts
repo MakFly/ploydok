@@ -1,64 +1,103 @@
 // SPDX-License-Identifier: AGPL-3.0-only
-import { describe, expect, it } from "bun:test"
-import { createInProcessKeyedLock } from "./app-deploy-lock"
+import { describe, expect, it, mock } from "bun:test"
+import type { Db } from "@ploydok/db"
+import {
+  DeployCancelledError,
+  DeployLeaseLostError,
+  fenceDeploySideEffect,
+  runOwnedDeployReconciliation,
+  withAppDeployLease,
+} from "./app-deploy-lock"
 
-function deferred(): { promise: Promise<void>; resolve: () => void } {
-  let resolve!: () => void
-  const promise = new Promise<void>((r) => {
-    resolve = r
-  })
-  return { promise, resolve }
+function fakeDb(results: unknown[][]) {
+  const execute = mock(async () => results.shift() ?? [])
+  return { db: { execute } as unknown as Db, execute }
 }
 
-function tick(): Promise<void> {
-  return new Promise((resolve) => setTimeout(resolve, 0))
-}
-
-describe("createInProcessKeyedLock", () => {
-  it("serializes tasks for the same key", async () => {
-    const withLock = createInProcessKeyedLock()
-    const firstGate = deferred()
-    const events: string[] = []
-
-    const first = withLock("app-1", async () => {
-      events.push("first:start")
-      await firstGate.promise
-      events.push("first:end")
-    })
-
-    const second = withLock("app-1", async () => {
-      events.push("second:start")
-    })
-
-    await tick()
-    expect(events).toEqual(["first:start"])
-
-    firstGate.resolve()
-    await Promise.all([first, second])
-    expect(events).toEqual(["first:start", "first:end", "second:start"])
-  })
-
-  it("allows tasks for different keys to overlap", async () => {
-    const withLock = createInProcessKeyedLock()
-    const gate = deferred()
-    let active = 0
-    let maxActive = 0
-
-    const run = (key: string) =>
-      withLock(key, async () => {
-        active += 1
-        maxActive = Math.max(maxActive, active)
-        await gate.promise
-        active -= 1
+describe("durable app deploy lease", () => {
+  it("runs only after a token was durably acquired and releases it", async () => {
+    const { db, execute } = fakeDb([
+      [{ lease_token: "token-1" }],
+      [{ lease_token: "token-1", cancelled: false }],
+      [],
+    ])
+    await expect(
+      withAppDeployLease(db, "app-1", "build-1", async () => "ok", {
+        token: "token-1",
       })
+    ).resolves.toBe("ok")
+    expect(execute).toHaveBeenCalledTimes(3)
+  })
 
-    const first = run("app-1")
-    const second = run("app-2")
+  it("rejects when another worker owns the unexpired lease", async () => {
+    const { db } = fakeDb([[]])
+    await expect(
+      withAppDeployLease(db, "app-1", "build-2", async () => undefined)
+    ).rejects.toBeInstanceOf(DeployLeaseLostError)
+  })
 
-    await tick()
-    expect(maxActive).toBe(2)
+  it("stops at the next fence after cancellation intent", async () => {
+    const { db, execute } = fakeDb([])
+    let calls = 0
+    execute.mockImplementation(async () => {
+      calls += 1
+      if (calls === 1) {
+        return [{ lease_token: "token-1" }]
+      }
+      if (calls === 2) return [{ lease_token: "owned", cancelled: false }]
+      if (calls === 3) return [{ lease_token: "owned", cancelled: true }]
+      return []
+    })
+    await expect(
+      withAppDeployLease(
+        db,
+        "app-1",
+        "build-1",
+        async () => {
+          await fenceDeploySideEffect()
+        },
+        { token: "token-1" }
+      )
+    ).rejects.toBeInstanceOf(DeployCancelledError)
+  })
 
-    gate.resolve()
-    await Promise.all([first, second])
+  it("does not run stale cleanup after a successor replaced the token", async () => {
+    const { db } = fakeDb([
+      [{ lease_token: "stale-token" }],
+      [{ lease_token: "stale-token", cancelled: false }],
+      [],
+      [],
+    ])
+    const cleanup = mock(async () => undefined)
+    await withAppDeployLease(
+      db,
+      "app-1",
+      "build-stale",
+      async () => {
+        await expect(runOwnedDeployReconciliation(cleanup)).resolves.toBe(false)
+      },
+      { token: "stale-token" }
+    )
+    expect(cleanup).not.toHaveBeenCalled()
+  })
+
+  it("allows cancellation cleanup while the exact token is still owner", async () => {
+    const { db } = fakeDb([
+      [{ lease_token: "cancel-token" }],
+      [{ lease_token: "cancel-token", cancelled: false }],
+      [{ owned: true }],
+      [],
+    ])
+    const cleanup = mock(async () => undefined)
+    await withAppDeployLease(
+      db,
+      "app-1",
+      "build-cancelled",
+      async () => {
+        await expect(runOwnedDeployReconciliation(cleanup)).resolves.toBe(true)
+      },
+      { token: "cancel-token" }
+    )
+    expect(cleanup).toHaveBeenCalledTimes(1)
   })
 })

@@ -10,7 +10,6 @@ const log = childLogger("cleanup-build-caches")
 export const BUILD_CACHE_DIR_NAMES = [
   ".buildkit-cache",
   ".nixpacks-cache",
-  ".railpack-cache",
 ] as const
 
 const ONE_DAY_MS = 24 * 60 * 60 * 1000
@@ -35,11 +34,17 @@ export interface CleanupBuildCachesResult {
   removedBytes: number
 }
 
-export interface DockerBuildCachePruneResult {
+export interface BuildKitCachePruneResult {
   ok: boolean
   exitCode?: number
   output?: string
   error?: string
+}
+
+interface BuildctlProcess {
+  stdout: ReadableStream<Uint8Array>
+  stderr: ReadableStream<Uint8Array>
+  exited: Promise<number>
 }
 
 async function statDirectory(dir: string): Promise<Stats | null> {
@@ -121,53 +126,60 @@ export async function cleanupBuildCaches(
   return result
 }
 
-export async function pruneDockerBuildCache(opts?: {
+export async function pruneBuildKitCache(opts?: {
   keepDuration?: string
   keepStorage?: string
-}): Promise<DockerBuildCachePruneResult> {
+  address?: string
+  spawn?: (
+    command: string[],
+    options: { stdout: "pipe"; stderr: "pipe" }
+  ) => BuildctlProcess
+}): Promise<BuildKitCachePruneResult> {
   const keepDuration = opts?.keepDuration ?? DEFAULT_DOCKER_CACHE_KEEP_DURATION
   const keepStorage = opts?.keepStorage ?? DEFAULT_DOCKER_CACHE_KEEP_STORAGE
 
   try {
-    const proc = Bun.spawn(
+    const durationMatch = /^(\d+)h$/.exec(keepDuration)
+    const storageMatch = /^(\d+)([gmk])$/i.exec(keepStorage)
+    if (!durationMatch || !storageMatch) {
+      throw new Error("invalid build-cache retention setting")
+    }
+    const storageUnit = storageMatch[2]!.toUpperCase()
+    const normalizedStorage = `${storageMatch[1]}${storageUnit}B`
+    const address = opts?.address ?? env.PLOYDOK_BUILDKIT_ADDR
+    const spawn = opts?.spawn ?? Bun.spawn
+    const proc = spawn(
       [
-        "docker",
-        "builder",
+        "buildctl",
+        "--addr",
+        address,
         "prune",
-        "--filter",
-        `until=${keepDuration}`,
-        "--reserved-space",
-        keepStorage,
-        "--force",
+        "--keep-duration",
+        keepDuration,
+        "--keep-storage",
+        normalizedStorage,
       ],
       { stdout: "pipe", stderr: "pipe" }
     )
-    const stdout = await new Response(proc.stdout).text()
-    const stderr = await new Response(proc.stderr).text()
-    const exitCode = await proc.exited
+    const [stdout, stderr, exitCode] = await Promise.all([
+      new Response(proc.stdout).text(),
+      new Response(proc.stderr).text(),
+      proc.exited,
+    ])
     const output = [stdout.trim(), stderr.trim()].filter(Boolean).join("\n")
-
-    if (exitCode === 0) {
-      log.info(
-        { keepDuration, keepStorage, output },
-        "docker build cache pruned"
-      )
-      return { ok: true, exitCode, output }
+    if (exitCode !== 0) {
+      const error = output || `buildctl prune failed (exit ${exitCode})`
+      log.warn({ address, exitCode, error }, "dedicated BuildKit prune failed")
+      return { ok: false, exitCode, output, error }
     }
-
-    log.warn(
-      { keepDuration, keepStorage, exitCode, output },
-      "docker build cache prune failed"
+    log.info(
+      { address, keepDuration, keepStorage: normalizedStorage, output },
+      "dedicated BuildKit cache pruned"
     )
-    return {
-      ok: false,
-      exitCode,
-      output,
-      error: output || `docker builder prune failed (exit ${exitCode})`,
-    }
+    return { ok: true, exitCode, output }
   } catch (err) {
     const error = err instanceof Error ? err.message : String(err)
-    log.warn({ error }, "docker builder prune unavailable")
+    log.warn({ error }, "dedicated BuildKit prune unavailable")
     return { ok: false, error }
   }
 }
@@ -206,8 +218,15 @@ export function startCleanupBuildCachesCron(opts?: {
       const cleanup = await cleanupBuildCaches(
         opts?.rootDir ? { rootDir: opts.rootDir } : {}
       )
-      const docker = await pruneDockerBuildCache()
-      log.info({ cleanup, docker }, "build cache cleanup cron tick done")
+      const buildkit = await pruneBuildKitCache()
+      if (!buildkit.ok) {
+        log.warn(
+          { cleanup, buildkit },
+          "build cache cleanup cron tick completed with BuildKit prune failure"
+        )
+        return
+      }
+      log.info({ cleanup, buildkit }, "build cache cleanup cron tick done")
     } catch (err) {
       log.warn({ err }, "build cache cleanup cron tick failed")
     }

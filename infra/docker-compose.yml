@@ -165,7 +165,9 @@ services:
       context: ../agent
       dockerfile: Dockerfile
     container_name: ploydok-agent
-    restart: unless-stopped
+    # Pas de relance auto : un agent qui ressuscite tout seul masque les crashs
+    # et republie un socket périmé. Relance manuelle : make agent-restart
+    restart: "no"
     labels:
       ploydok.kind: agent
       ploydok.service: agent

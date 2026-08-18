@@ -6,11 +6,14 @@ Thanks for your interest in Ploydok. This project is AGPL-3.0-only — by contri
 
 ```bash
 bun install
-bun db:migrate   # once the db package is wired
-bun dev          # runs web + api
+make infra-up
+make db-ensure-auth
+make db-migrate
+make dev          # runs web + api after local infrastructure is ready
 ```
 
-Requirements: Bun ≥ 1.1, Node ≥ 20 (for tooling only), Docker (for integration tests from sprint 2).
+Requirements: Bun 1.3, Node.js 22 or newer for tooling, Docker, and Rust stable
+when changing the agent or host CLI.
 
 ## Developer Certificate of Origin (DCO)
 
@@ -51,10 +54,11 @@ The `scripts/check-spdx.ts` linter enforces this in CI. Run it locally with `bun
 ## Pull requests
 
 - Open one PR per focused change
-- Ensure `bun lint`, `bun typecheck`, `bun test`, `bun run check:spdx` all pass
+- Ensure `bun run lint`, `bun run typecheck`, `bun test`, and
+  `bun run check:spdx` all pass
 - Update docs when behavior changes
 - Add or update tests for any code change
-- Reference the sprint / issue in the PR description
+- Reference the relevant `PRD-PLAN.md` item or issue in the PR description
 
 ## Security
 

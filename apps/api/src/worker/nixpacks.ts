@@ -1,5 +1,5 @@
 // SPDX-License-Identifier: AGPL-3.0-only
-import { mkdir, chmod, readFile, rename, rm } from "node:fs/promises"
+import { chmod, mkdir, mkdtemp, readFile, rename, rm } from "node:fs/promises"
 import { existsSync, mkdirSync } from "node:fs"
 import path from "node:path"
 import os from "node:os"
@@ -32,6 +32,15 @@ export async function ensureNixpacksInstalled(): Promise<string> {
   await which.exited
   if (which.exitCode === 0) {
     return (await new Response(which.stdout).text()).trim()
+  }
+
+  if (
+    process.env["NODE_ENV"] === "production" ||
+    process.env["NODE_ENV"] === "prod"
+  ) {
+    throw new Error(
+      "nixpacks is missing from the production image; refusing an unpinned runtime download"
+    )
   }
 
   // 2. Check local dev cache
@@ -159,6 +168,7 @@ export interface NixpacksBuildOptions {
   startCmd?: string
   /** Called for every stdout/stderr line emitted by nixpacks. */
   onLog?: (line: string) => void
+  signal?: AbortSignal
 }
 
 export const DEFAULT_NIXPACKS_NODE_VERSION = "22"
@@ -214,7 +224,14 @@ function resolveNixpacksCommandOverrides(opts: {
  * Streams stdout and stderr through `opts.onLog` line by line.
  * Throws if the process exits with a non-zero code.
  */
-export async function nixpacksBuild(opts: NixpacksBuildOptions): Promise<void> {
+export interface NixpacksGeneratedContext {
+  contextDir: string
+  dockerfile: string
+}
+
+export async function nixpacksBuild(
+  opts: NixpacksBuildOptions
+): Promise<NixpacksGeneratedContext> {
   const bin = await ensureNixpacksInstalled()
   const ctx = path.join(opts.workspacePath, opts.rootDir ?? ".")
   const commandOverrides = resolveNixpacksCommandOverrides(opts)
@@ -268,12 +285,24 @@ export async function nixpacksBuild(opts: NixpacksBuildOptions): Promise<void> {
     mkdirSync(opts.cacheDir, { recursive: true })
   }
 
+  // Generated contexts may contain the full application source and therefore
+  // must not consume the API container's deliberately small /tmp tmpfs. In
+  // production cacheDir lives on the explicit writable build-data mount, so
+  // place the disposable context alongside it. Tests and callers without a
+  // cache directory retain the normal OS temporary-directory fallback.
+  const outputParent = opts.cacheDir ? path.dirname(opts.cacheDir) : os.tmpdir()
+  await mkdir(outputParent, { recursive: true })
+  const outputDir = await mkdtemp(
+    path.join(outputParent, ".ploydok-nixpacks-context-")
+  )
   const args = [
     ...(phpPlanOverride ? ["--json-plan", phpPlanOverride] : []),
     "build",
     ctx,
     "--name",
     opts.tag,
+    "--out",
+    outputDir,
   ]
 
   // Pass a stable cache key so Nixpacks can reuse layer cache across builds
@@ -320,6 +349,7 @@ export async function nixpacksBuild(opts: NixpacksBuildOptions): Promise<void> {
       ...process.env,
       ...effectiveBuildEnv,
     },
+    ...(opts.signal ? { signal: opts.signal } : {}),
   })
 
   async function pipeLogs(stream: ReadableStream<Uint8Array>) {
@@ -348,7 +378,12 @@ export async function nixpacksBuild(opts: NixpacksBuildOptions): Promise<void> {
 
   const code = await proc.exited
   if (code !== 0) {
+    await rm(outputDir, { recursive: true, force: true })
     throw new Error(`nixpacks build failed (exit ${code}) for tag ${opts.tag}`)
+  }
+  return {
+    contextDir: outputDir,
+    dockerfile: path.join(outputDir, ".nixpacks", "Dockerfile"),
   }
 }
 

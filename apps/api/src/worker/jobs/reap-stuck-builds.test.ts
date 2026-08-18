@@ -103,4 +103,26 @@ describe("reapStuckBuilds", () => {
       expect.objectContaining({ status: "running" })
     )
   })
+
+  it("returns a crashed Swarm redeploy to running when its service is tracked", async () => {
+    const { db, updates } = fakeDb([
+      [{ id: "build-1", app_id: "app-1", status: "running" }],
+      [{ id: "build-1", app_id: "app-1", status: "cancelled" }],
+      [],
+      [
+        {
+          status: "building",
+          container_id: null,
+          swarm_service_name: "ploydok-app-demo",
+        },
+      ],
+      [],
+    ])
+
+    await reapStuckBuilds(db)
+
+    expect(updates).toContainEqual(
+      expect.objectContaining({ status: "running" })
+    )
+  })
 })

@@ -1,11 +1,14 @@
 ## Summary
+
 <!-- one or two sentences describing the change -->
 
 ## Related
-- Sprint: <!-- e.g. sprint-1 task 1.4 -->
-- Issue / ADR: <!-- #123 or project-docs/decisions/NNNN-... -->
+
+- PRD item: <!-- e.g. SEC-02, PRD-03, or post-production iteration -->
+- Issue / decision: <!-- #123 or a repository document -->
 
 ## Checklist
+
 - [ ] Commits signed-off (DCO) — `git commit -s`
 - [ ] Tests added or updated (`bun test` green)
 - [ ] `bun typecheck` green
@@ -16,4 +19,5 @@
 - [ ] No secret, credential, or PII in diff or logs
 
 ## Notes for reviewers
+
 <!-- anything surprising, risky, or requiring careful review -->

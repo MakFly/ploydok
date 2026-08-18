@@ -62,11 +62,34 @@ const fakeTable = new Proxy(
     get: (_target, prop) => Symbol(String(prop)),
   }
 )
+const fakeRedisWindows = new Map<string, Map<string, number>>()
 const fakeRedis = {
   zremrangebyscore: mock(async () => 0),
   zcard: mock(async () => 0),
   zadd: mock(async () => 1),
   expire: mock(async () => 1),
+  // Mirrors the sliding-window Lua the limiter runs server-side.
+  eval: mock(
+    async (
+      _script: string,
+      _keyCount: number,
+      key: string,
+      cutoff: number,
+      now: number,
+      member: string,
+      maximum: number
+    ): Promise<[number, number]> => {
+      const window = fakeRedisWindows.get(key) ?? new Map<string, number>()
+      fakeRedisWindows.set(key, window)
+      for (const [entry, score] of window) {
+        if (score <= Number(cutoff)) window.delete(entry)
+      }
+      const count = window.size
+      if (count >= Number(maximum)) return [0, 0]
+      window.set(member, Number(now))
+      return [1, Number(maximum) - count - 1]
+    }
+  ),
 }
 const fakeDb = {
   select: mock(() => ({

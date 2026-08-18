@@ -630,6 +630,49 @@ export interface ImagePruneResponse {
   spaceReclaimedBytes: number;
 }
 
+export interface ImagePushRequest {
+  image: string;
+  registryAuth: RegistryAuth | undefined;
+}
+
+export interface ImagePushResponse {
+  digest: string;
+}
+
+export interface ImageRemoveRequest {
+  image: string;
+}
+
+export interface ImageRemoveResponse {
+  deleted: boolean;
+}
+
+export interface BuildCachePruneRequest {
+  /**
+   * Required cutoff. The agent rejects zero/future/excessively old values so
+   * this RPC can never become an unbounded `docker builder prune --all`.
+   */
+  untilUnix: number;
+  /** Minimum cache storage Docker must retain (`keep-storage` in Engine API). */
+  keepStorageBytes: number;
+}
+
+export interface BuildCachePruneResponse {
+  spaceReclaimedBytes: number;
+}
+
+export interface RegistryGarbageCollectRequest {
+  /**
+   * Empty selects /etc/docker/registry/config.yml. Non-empty paths must be
+   * normalized absolute paths below /etc/docker/registry with no dot segments.
+   */
+  configPath: string;
+}
+
+export interface RegistryGarbageCollectResponse {
+  output: string;
+}
+
 export interface RegistryImageDigestRequest {
   /** Full image reference (e.g. "nginx:1.25" or "ghcr.io/org/app:latest"). */
   image: string;
@@ -7362,6 +7405,532 @@ export const ImagePruneResponse: MessageFns<ImagePruneResponse> = {
   },
 };
 
+function createBaseImagePushRequest(): ImagePushRequest {
+  return { image: "", registryAuth: undefined };
+}
+
+export const ImagePushRequest: MessageFns<ImagePushRequest> = {
+  encode(message: ImagePushRequest, writer: BinaryWriter = new BinaryWriter()): BinaryWriter {
+    if (message.image !== "") {
+      writer.uint32(10).string(message.image);
+    }
+    if (message.registryAuth !== undefined) {
+      RegistryAuth.encode(message.registryAuth, writer.uint32(18).fork()).join();
+    }
+    return writer;
+  },
+
+  decode(input: BinaryReader | Uint8Array, length?: number): ImagePushRequest {
+    const reader = input instanceof BinaryReader ? input : new BinaryReader(input);
+    const end = length === undefined ? reader.len : reader.pos + length;
+    const message = createBaseImagePushRequest();
+    while (reader.pos < end) {
+      const tag = reader.uint32();
+      switch (tag >>> 3) {
+        case 1: {
+          if (tag !== 10) {
+            break;
+          }
+
+          message.image = reader.string();
+          continue;
+        }
+        case 2: {
+          if (tag !== 18) {
+            break;
+          }
+
+          message.registryAuth = RegistryAuth.decode(reader, reader.uint32());
+          continue;
+        }
+      }
+      if ((tag & 7) === 4 || tag === 0) {
+        break;
+      }
+      reader.skip(tag & 7);
+    }
+    return message;
+  },
+
+  fromJSON(object: any): ImagePushRequest {
+    return {
+      image: isSet(object.image) ? globalThis.String(object.image) : "",
+      registryAuth: isSet(object.registryAuth)
+        ? RegistryAuth.fromJSON(object.registryAuth)
+        : isSet(object.registry_auth)
+        ? RegistryAuth.fromJSON(object.registry_auth)
+        : undefined,
+    };
+  },
+
+  toJSON(message: ImagePushRequest): unknown {
+    const obj: any = {};
+    if (message.image !== "") {
+      obj.image = message.image;
+    }
+    if (message.registryAuth !== undefined) {
+      obj.registryAuth = RegistryAuth.toJSON(message.registryAuth);
+    }
+    return obj;
+  },
+
+  create(base?: DeepPartial<ImagePushRequest>): ImagePushRequest {
+    return ImagePushRequest.fromPartial(base ?? {});
+  },
+  fromPartial(object: DeepPartial<ImagePushRequest>): ImagePushRequest {
+    const message = createBaseImagePushRequest();
+    message.image = object.image ?? "";
+    message.registryAuth = (object.registryAuth !== undefined && object.registryAuth !== null)
+      ? RegistryAuth.fromPartial(object.registryAuth)
+      : undefined;
+    return message;
+  },
+};
+
+function createBaseImagePushResponse(): ImagePushResponse {
+  return { digest: "" };
+}
+
+export const ImagePushResponse: MessageFns<ImagePushResponse> = {
+  encode(message: ImagePushResponse, writer: BinaryWriter = new BinaryWriter()): BinaryWriter {
+    if (message.digest !== "") {
+      writer.uint32(10).string(message.digest);
+    }
+    return writer;
+  },
+
+  decode(input: BinaryReader | Uint8Array, length?: number): ImagePushResponse {
+    const reader = input instanceof BinaryReader ? input : new BinaryReader(input);
+    const end = length === undefined ? reader.len : reader.pos + length;
+    const message = createBaseImagePushResponse();
+    while (reader.pos < end) {
+      const tag = reader.uint32();
+      switch (tag >>> 3) {
+        case 1: {
+          if (tag !== 10) {
+            break;
+          }
+
+          message.digest = reader.string();
+          continue;
+        }
+      }
+      if ((tag & 7) === 4 || tag === 0) {
+        break;
+      }
+      reader.skip(tag & 7);
+    }
+    return message;
+  },
+
+  fromJSON(object: any): ImagePushResponse {
+    return { digest: isSet(object.digest) ? globalThis.String(object.digest) : "" };
+  },
+
+  toJSON(message: ImagePushResponse): unknown {
+    const obj: any = {};
+    if (message.digest !== "") {
+      obj.digest = message.digest;
+    }
+    return obj;
+  },
+
+  create(base?: DeepPartial<ImagePushResponse>): ImagePushResponse {
+    return ImagePushResponse.fromPartial(base ?? {});
+  },
+  fromPartial(object: DeepPartial<ImagePushResponse>): ImagePushResponse {
+    const message = createBaseImagePushResponse();
+    message.digest = object.digest ?? "";
+    return message;
+  },
+};
+
+function createBaseImageRemoveRequest(): ImageRemoveRequest {
+  return { image: "" };
+}
+
+export const ImageRemoveRequest: MessageFns<ImageRemoveRequest> = {
+  encode(message: ImageRemoveRequest, writer: BinaryWriter = new BinaryWriter()): BinaryWriter {
+    if (message.image !== "") {
+      writer.uint32(10).string(message.image);
+    }
+    return writer;
+  },
+
+  decode(input: BinaryReader | Uint8Array, length?: number): ImageRemoveRequest {
+    const reader = input instanceof BinaryReader ? input : new BinaryReader(input);
+    const end = length === undefined ? reader.len : reader.pos + length;
+    const message = createBaseImageRemoveRequest();
+    while (reader.pos < end) {
+      const tag = reader.uint32();
+      switch (tag >>> 3) {
+        case 1: {
+          if (tag !== 10) {
+            break;
+          }
+
+          message.image = reader.string();
+          continue;
+        }
+      }
+      if ((tag & 7) === 4 || tag === 0) {
+        break;
+      }
+      reader.skip(tag & 7);
+    }
+    return message;
+  },
+
+  fromJSON(object: any): ImageRemoveRequest {
+    return { image: isSet(object.image) ? globalThis.String(object.image) : "" };
+  },
+
+  toJSON(message: ImageRemoveRequest): unknown {
+    const obj: any = {};
+    if (message.image !== "") {
+      obj.image = message.image;
+    }
+    return obj;
+  },
+
+  create(base?: DeepPartial<ImageRemoveRequest>): ImageRemoveRequest {
+    return ImageRemoveRequest.fromPartial(base ?? {});
+  },
+  fromPartial(object: DeepPartial<ImageRemoveRequest>): ImageRemoveRequest {
+    const message = createBaseImageRemoveRequest();
+    message.image = object.image ?? "";
+    return message;
+  },
+};
+
+function createBaseImageRemoveResponse(): ImageRemoveResponse {
+  return { deleted: false };
+}
+
+export const ImageRemoveResponse: MessageFns<ImageRemoveResponse> = {
+  encode(message: ImageRemoveResponse, writer: BinaryWriter = new BinaryWriter()): BinaryWriter {
+    if (message.deleted !== false) {
+      writer.uint32(8).bool(message.deleted);
+    }
+    return writer;
+  },
+
+  decode(input: BinaryReader | Uint8Array, length?: number): ImageRemoveResponse {
+    const reader = input instanceof BinaryReader ? input : new BinaryReader(input);
+    const end = length === undefined ? reader.len : reader.pos + length;
+    const message = createBaseImageRemoveResponse();
+    while (reader.pos < end) {
+      const tag = reader.uint32();
+      switch (tag >>> 3) {
+        case 1: {
+          if (tag !== 8) {
+            break;
+          }
+
+          message.deleted = reader.bool();
+          continue;
+        }
+      }
+      if ((tag & 7) === 4 || tag === 0) {
+        break;
+      }
+      reader.skip(tag & 7);
+    }
+    return message;
+  },
+
+  fromJSON(object: any): ImageRemoveResponse {
+    return { deleted: isSet(object.deleted) ? globalThis.Boolean(object.deleted) : false };
+  },
+
+  toJSON(message: ImageRemoveResponse): unknown {
+    const obj: any = {};
+    if (message.deleted !== false) {
+      obj.deleted = message.deleted;
+    }
+    return obj;
+  },
+
+  create(base?: DeepPartial<ImageRemoveResponse>): ImageRemoveResponse {
+    return ImageRemoveResponse.fromPartial(base ?? {});
+  },
+  fromPartial(object: DeepPartial<ImageRemoveResponse>): ImageRemoveResponse {
+    const message = createBaseImageRemoveResponse();
+    message.deleted = object.deleted ?? false;
+    return message;
+  },
+};
+
+function createBaseBuildCachePruneRequest(): BuildCachePruneRequest {
+  return { untilUnix: 0, keepStorageBytes: 0 };
+}
+
+export const BuildCachePruneRequest: MessageFns<BuildCachePruneRequest> = {
+  encode(message: BuildCachePruneRequest, writer: BinaryWriter = new BinaryWriter()): BinaryWriter {
+    if (message.untilUnix !== 0) {
+      writer.uint32(8).int64(message.untilUnix);
+    }
+    if (message.keepStorageBytes !== 0) {
+      writer.uint32(16).int64(message.keepStorageBytes);
+    }
+    return writer;
+  },
+
+  decode(input: BinaryReader | Uint8Array, length?: number): BuildCachePruneRequest {
+    const reader = input instanceof BinaryReader ? input : new BinaryReader(input);
+    const end = length === undefined ? reader.len : reader.pos + length;
+    const message = createBaseBuildCachePruneRequest();
+    while (reader.pos < end) {
+      const tag = reader.uint32();
+      switch (tag >>> 3) {
+        case 1: {
+          if (tag !== 8) {
+            break;
+          }
+
+          message.untilUnix = longToNumber(reader.int64());
+          continue;
+        }
+        case 2: {
+          if (tag !== 16) {
+            break;
+          }
+
+          message.keepStorageBytes = longToNumber(reader.int64());
+          continue;
+        }
+      }
+      if ((tag & 7) === 4 || tag === 0) {
+        break;
+      }
+      reader.skip(tag & 7);
+    }
+    return message;
+  },
+
+  fromJSON(object: any): BuildCachePruneRequest {
+    return {
+      untilUnix: isSet(object.untilUnix)
+        ? globalThis.Number(object.untilUnix)
+        : isSet(object.until_unix)
+        ? globalThis.Number(object.until_unix)
+        : 0,
+      keepStorageBytes: isSet(object.keepStorageBytes)
+        ? globalThis.Number(object.keepStorageBytes)
+        : isSet(object.keep_storage_bytes)
+        ? globalThis.Number(object.keep_storage_bytes)
+        : 0,
+    };
+  },
+
+  toJSON(message: BuildCachePruneRequest): unknown {
+    const obj: any = {};
+    if (message.untilUnix !== 0) {
+      obj.untilUnix = Math.round(message.untilUnix);
+    }
+    if (message.keepStorageBytes !== 0) {
+      obj.keepStorageBytes = Math.round(message.keepStorageBytes);
+    }
+    return obj;
+  },
+
+  create(base?: DeepPartial<BuildCachePruneRequest>): BuildCachePruneRequest {
+    return BuildCachePruneRequest.fromPartial(base ?? {});
+  },
+  fromPartial(object: DeepPartial<BuildCachePruneRequest>): BuildCachePruneRequest {
+    const message = createBaseBuildCachePruneRequest();
+    message.untilUnix = object.untilUnix ?? 0;
+    message.keepStorageBytes = object.keepStorageBytes ?? 0;
+    return message;
+  },
+};
+
+function createBaseBuildCachePruneResponse(): BuildCachePruneResponse {
+  return { spaceReclaimedBytes: 0 };
+}
+
+export const BuildCachePruneResponse: MessageFns<BuildCachePruneResponse> = {
+  encode(message: BuildCachePruneResponse, writer: BinaryWriter = new BinaryWriter()): BinaryWriter {
+    if (message.spaceReclaimedBytes !== 0) {
+      writer.uint32(8).int64(message.spaceReclaimedBytes);
+    }
+    return writer;
+  },
+
+  decode(input: BinaryReader | Uint8Array, length?: number): BuildCachePruneResponse {
+    const reader = input instanceof BinaryReader ? input : new BinaryReader(input);
+    const end = length === undefined ? reader.len : reader.pos + length;
+    const message = createBaseBuildCachePruneResponse();
+    while (reader.pos < end) {
+      const tag = reader.uint32();
+      switch (tag >>> 3) {
+        case 1: {
+          if (tag !== 8) {
+            break;
+          }
+
+          message.spaceReclaimedBytes = longToNumber(reader.int64());
+          continue;
+        }
+      }
+      if ((tag & 7) === 4 || tag === 0) {
+        break;
+      }
+      reader.skip(tag & 7);
+    }
+    return message;
+  },
+
+  fromJSON(object: any): BuildCachePruneResponse {
+    return {
+      spaceReclaimedBytes: isSet(object.spaceReclaimedBytes)
+        ? globalThis.Number(object.spaceReclaimedBytes)
+        : isSet(object.space_reclaimed_bytes)
+        ? globalThis.Number(object.space_reclaimed_bytes)
+        : 0,
+    };
+  },
+
+  toJSON(message: BuildCachePruneResponse): unknown {
+    const obj: any = {};
+    if (message.spaceReclaimedBytes !== 0) {
+      obj.spaceReclaimedBytes = Math.round(message.spaceReclaimedBytes);
+    }
+    return obj;
+  },
+
+  create(base?: DeepPartial<BuildCachePruneResponse>): BuildCachePruneResponse {
+    return BuildCachePruneResponse.fromPartial(base ?? {});
+  },
+  fromPartial(object: DeepPartial<BuildCachePruneResponse>): BuildCachePruneResponse {
+    const message = createBaseBuildCachePruneResponse();
+    message.spaceReclaimedBytes = object.spaceReclaimedBytes ?? 0;
+    return message;
+  },
+};
+
+function createBaseRegistryGarbageCollectRequest(): RegistryGarbageCollectRequest {
+  return { configPath: "" };
+}
+
+export const RegistryGarbageCollectRequest: MessageFns<RegistryGarbageCollectRequest> = {
+  encode(message: RegistryGarbageCollectRequest, writer: BinaryWriter = new BinaryWriter()): BinaryWriter {
+    if (message.configPath !== "") {
+      writer.uint32(10).string(message.configPath);
+    }
+    return writer;
+  },
+
+  decode(input: BinaryReader | Uint8Array, length?: number): RegistryGarbageCollectRequest {
+    const reader = input instanceof BinaryReader ? input : new BinaryReader(input);
+    const end = length === undefined ? reader.len : reader.pos + length;
+    const message = createBaseRegistryGarbageCollectRequest();
+    while (reader.pos < end) {
+      const tag = reader.uint32();
+      switch (tag >>> 3) {
+        case 1: {
+          if (tag !== 10) {
+            break;
+          }
+
+          message.configPath = reader.string();
+          continue;
+        }
+      }
+      if ((tag & 7) === 4 || tag === 0) {
+        break;
+      }
+      reader.skip(tag & 7);
+    }
+    return message;
+  },
+
+  fromJSON(object: any): RegistryGarbageCollectRequest {
+    return {
+      configPath: isSet(object.configPath)
+        ? globalThis.String(object.configPath)
+        : isSet(object.config_path)
+        ? globalThis.String(object.config_path)
+        : "",
+    };
+  },
+
+  toJSON(message: RegistryGarbageCollectRequest): unknown {
+    const obj: any = {};
+    if (message.configPath !== "") {
+      obj.configPath = message.configPath;
+    }
+    return obj;
+  },
+
+  create(base?: DeepPartial<RegistryGarbageCollectRequest>): RegistryGarbageCollectRequest {
+    return RegistryGarbageCollectRequest.fromPartial(base ?? {});
+  },
+  fromPartial(object: DeepPartial<RegistryGarbageCollectRequest>): RegistryGarbageCollectRequest {
+    const message = createBaseRegistryGarbageCollectRequest();
+    message.configPath = object.configPath ?? "";
+    return message;
+  },
+};
+
+function createBaseRegistryGarbageCollectResponse(): RegistryGarbageCollectResponse {
+  return { output: "" };
+}
+
+export const RegistryGarbageCollectResponse: MessageFns<RegistryGarbageCollectResponse> = {
+  encode(message: RegistryGarbageCollectResponse, writer: BinaryWriter = new BinaryWriter()): BinaryWriter {
+    if (message.output !== "") {
+      writer.uint32(10).string(message.output);
+    }
+    return writer;
+  },
+
+  decode(input: BinaryReader | Uint8Array, length?: number): RegistryGarbageCollectResponse {
+    const reader = input instanceof BinaryReader ? input : new BinaryReader(input);
+    const end = length === undefined ? reader.len : reader.pos + length;
+    const message = createBaseRegistryGarbageCollectResponse();
+    while (reader.pos < end) {
+      const tag = reader.uint32();
+      switch (tag >>> 3) {
+        case 1: {
+          if (tag !== 10) {
+            break;
+          }
+
+          message.output = reader.string();
+          continue;
+        }
+      }
+      if ((tag & 7) === 4 || tag === 0) {
+        break;
+      }
+      reader.skip(tag & 7);
+    }
+    return message;
+  },
+
+  fromJSON(object: any): RegistryGarbageCollectResponse {
+    return { output: isSet(object.output) ? globalThis.String(object.output) : "" };
+  },
+
+  toJSON(message: RegistryGarbageCollectResponse): unknown {
+    const obj: any = {};
+    if (message.output !== "") {
+      obj.output = message.output;
+    }
+    return obj;
+  },
+
+  create(base?: DeepPartial<RegistryGarbageCollectResponse>): RegistryGarbageCollectResponse {
+    return RegistryGarbageCollectResponse.fromPartial(base ?? {});
+  },
+  fromPartial(object: DeepPartial<RegistryGarbageCollectResponse>): RegistryGarbageCollectResponse {
+    const message = createBaseRegistryGarbageCollectResponse();
+    message.output = object.output ?? "";
+    return message;
+  },
+};
+
 function createBaseRegistryImageDigestRequest(): RegistryImageDigestRequest {
   return { image: "", registryAuth: undefined };
 }
@@ -10371,6 +10940,47 @@ export const AgentService = {
     responseSerialize: (value: ImagePruneResponse): Buffer => Buffer.from(ImagePruneResponse.encode(value).finish()),
     responseDeserialize: (value: Buffer): ImagePruneResponse => ImagePruneResponse.decode(value),
   },
+  imagePush: {
+    path: "/ploydok.agent.v1.Agent/ImagePush" as const,
+    requestStream: false as const,
+    responseStream: false as const,
+    requestSerialize: (value: ImagePushRequest): Buffer => Buffer.from(ImagePushRequest.encode(value).finish()),
+    requestDeserialize: (value: Buffer): ImagePushRequest => ImagePushRequest.decode(value),
+    responseSerialize: (value: ImagePushResponse): Buffer => Buffer.from(ImagePushResponse.encode(value).finish()),
+    responseDeserialize: (value: Buffer): ImagePushResponse => ImagePushResponse.decode(value),
+  },
+  imageRemove: {
+    path: "/ploydok.agent.v1.Agent/ImageRemove" as const,
+    requestStream: false as const,
+    responseStream: false as const,
+    requestSerialize: (value: ImageRemoveRequest): Buffer => Buffer.from(ImageRemoveRequest.encode(value).finish()),
+    requestDeserialize: (value: Buffer): ImageRemoveRequest => ImageRemoveRequest.decode(value),
+    responseSerialize: (value: ImageRemoveResponse): Buffer => Buffer.from(ImageRemoveResponse.encode(value).finish()),
+    responseDeserialize: (value: Buffer): ImageRemoveResponse => ImageRemoveResponse.decode(value),
+  },
+  buildCachePrune: {
+    path: "/ploydok.agent.v1.Agent/BuildCachePrune" as const,
+    requestStream: false as const,
+    responseStream: false as const,
+    requestSerialize: (value: BuildCachePruneRequest): Buffer =>
+      Buffer.from(BuildCachePruneRequest.encode(value).finish()),
+    requestDeserialize: (value: Buffer): BuildCachePruneRequest => BuildCachePruneRequest.decode(value),
+    responseSerialize: (value: BuildCachePruneResponse): Buffer =>
+      Buffer.from(BuildCachePruneResponse.encode(value).finish()),
+    responseDeserialize: (value: Buffer): BuildCachePruneResponse => BuildCachePruneResponse.decode(value),
+  },
+  registryGarbageCollect: {
+    path: "/ploydok.agent.v1.Agent/RegistryGarbageCollect" as const,
+    requestStream: false as const,
+    responseStream: false as const,
+    requestSerialize: (value: RegistryGarbageCollectRequest): Buffer =>
+      Buffer.from(RegistryGarbageCollectRequest.encode(value).finish()),
+    requestDeserialize: (value: Buffer): RegistryGarbageCollectRequest => RegistryGarbageCollectRequest.decode(value),
+    responseSerialize: (value: RegistryGarbageCollectResponse): Buffer =>
+      Buffer.from(RegistryGarbageCollectResponse.encode(value).finish()),
+    responseDeserialize: (value: Buffer): RegistryGarbageCollectResponse =>
+      RegistryGarbageCollectResponse.decode(value),
+  },
   /** Registry image digest (auto-update watch) */
   registryImageDigest: {
     path: "/ploydok.agent.v1.Agent/RegistryImageDigest" as const,
@@ -10526,6 +11136,10 @@ export interface AgentServer extends UntypedServiceImplementation {
   /** Disk usage & image reclaim */
   imageDf: handleUnaryCall<ImageDfRequest, ImageDfResponse>;
   imagePrune: handleUnaryCall<ImagePruneRequest, ImagePruneResponse>;
+  imagePush: handleUnaryCall<ImagePushRequest, ImagePushResponse>;
+  imageRemove: handleUnaryCall<ImageRemoveRequest, ImageRemoveResponse>;
+  buildCachePrune: handleUnaryCall<BuildCachePruneRequest, BuildCachePruneResponse>;
+  registryGarbageCollect: handleUnaryCall<RegistryGarbageCollectRequest, RegistryGarbageCollectResponse>;
   /** Registry image digest (auto-update watch) */
   registryImageDigest: handleUnaryCall<RegistryImageDigestRequest, RegistryImageDigestResponse>;
   /** Swarm runtime */
@@ -10841,6 +11455,66 @@ export interface AgentClient extends Client {
     metadata: Metadata,
     options: Partial<CallOptions>,
     callback: (error: ServiceError | null, response: ImagePruneResponse) => void,
+  ): ClientUnaryCall;
+  imagePush(
+    request: ImagePushRequest,
+    callback: (error: ServiceError | null, response: ImagePushResponse) => void,
+  ): ClientUnaryCall;
+  imagePush(
+    request: ImagePushRequest,
+    metadata: Metadata,
+    callback: (error: ServiceError | null, response: ImagePushResponse) => void,
+  ): ClientUnaryCall;
+  imagePush(
+    request: ImagePushRequest,
+    metadata: Metadata,
+    options: Partial<CallOptions>,
+    callback: (error: ServiceError | null, response: ImagePushResponse) => void,
+  ): ClientUnaryCall;
+  imageRemove(
+    request: ImageRemoveRequest,
+    callback: (error: ServiceError | null, response: ImageRemoveResponse) => void,
+  ): ClientUnaryCall;
+  imageRemove(
+    request: ImageRemoveRequest,
+    metadata: Metadata,
+    callback: (error: ServiceError | null, response: ImageRemoveResponse) => void,
+  ): ClientUnaryCall;
+  imageRemove(
+    request: ImageRemoveRequest,
+    metadata: Metadata,
+    options: Partial<CallOptions>,
+    callback: (error: ServiceError | null, response: ImageRemoveResponse) => void,
+  ): ClientUnaryCall;
+  buildCachePrune(
+    request: BuildCachePruneRequest,
+    callback: (error: ServiceError | null, response: BuildCachePruneResponse) => void,
+  ): ClientUnaryCall;
+  buildCachePrune(
+    request: BuildCachePruneRequest,
+    metadata: Metadata,
+    callback: (error: ServiceError | null, response: BuildCachePruneResponse) => void,
+  ): ClientUnaryCall;
+  buildCachePrune(
+    request: BuildCachePruneRequest,
+    metadata: Metadata,
+    options: Partial<CallOptions>,
+    callback: (error: ServiceError | null, response: BuildCachePruneResponse) => void,
+  ): ClientUnaryCall;
+  registryGarbageCollect(
+    request: RegistryGarbageCollectRequest,
+    callback: (error: ServiceError | null, response: RegistryGarbageCollectResponse) => void,
+  ): ClientUnaryCall;
+  registryGarbageCollect(
+    request: RegistryGarbageCollectRequest,
+    metadata: Metadata,
+    callback: (error: ServiceError | null, response: RegistryGarbageCollectResponse) => void,
+  ): ClientUnaryCall;
+  registryGarbageCollect(
+    request: RegistryGarbageCollectRequest,
+    metadata: Metadata,
+    options: Partial<CallOptions>,
+    callback: (error: ServiceError | null, response: RegistryGarbageCollectResponse) => void,
   ): ClientUnaryCall;
   /** Registry image digest (auto-update watch) */
   registryImageDigest(

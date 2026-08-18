@@ -27,7 +27,11 @@ async function repairAppStatusAfterReap(db: Db, appId: string): Promise<void> {
   if (activeBuilds.length > 0) return
 
   const appRows = await db
-    .select({ status: apps.status, container_id: apps.container_id })
+    .select({
+      status: apps.status,
+      container_id: apps.container_id,
+      swarm_service_name: apps.swarm_service_name,
+    })
     .from(apps)
     .where(eq(apps.id, appId))
     .limit(1)
@@ -37,7 +41,7 @@ async function repairAppStatusAfterReap(db: Db, appId: string): Promise<void> {
   await db
     .update(apps)
     .set({
-      status: app.container_id ? "running" : "failed",
+      status: app.container_id || app.swarm_service_name ? "running" : "failed",
       updated_at: new Date(),
     })
     .where(eq(apps.id, appId))

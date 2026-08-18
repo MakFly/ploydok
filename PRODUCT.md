@@ -46,3 +46,22 @@ template.
 Target WCAG 2.2 AA for contrast, keyboard access, labels, focus visibility, and
 error announcements. Respect reduced-motion preferences and keep the complete
 authentication flow usable on narrow touch screens.
+
+## Feature maturity
+
+Ploydok uses exactly three public maturity levels. `Stable` means the feature
+is reachable and covered by production-path release tests. `Beta` means it is
+reachable with a documented limitation or incomplete release evidence.
+`Planned` capabilities are not presented as generally available.
+
+| Capability                                                              | Maturity | Current limitation                                           |
+| ----------------------------------------------------------------------- | -------- | ------------------------------------------------------------ |
+| GitHub application deploys                                              | Beta     | Mandatory release E2E still required                         |
+| OCI image deploys                                                       | Beta     | Fresh-onboarding E2E still required                          |
+| GitLab deploys                                                          | Beta     | Browser creation journey is not yet release-certified        |
+| Domains, logs, shell, environment and storage                           | Beta     | Production isolation journey still requires release proof    |
+| Managed databases and rollback                                          | Beta     | Restore and migration rollback evidence remains required     |
+| Preview deployments                                                     | Beta     | Pull-request lifecycle coverage is incomplete                |
+| Shared environment, scheduled jobs, event webhooks, API tokens and tags | Planned  | Backend/UI maturity varies; not part of the stable milestone |
+| Compose application deployment                                          | Planned  | No supported runtime contract yet                            |
+| Multi-node Swarm                                                        | Planned  | First release is explicitly single-node                      |

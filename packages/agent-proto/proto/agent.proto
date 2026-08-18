@@ -559,13 +559,12 @@ message ImageDfResponse {
 }
 
 message ImagePruneRequest {
-  // false → dangling (untagged) images only — the safe default.
-  // true  → all unused images (still protected by keep_repo_tags below).
+  // Must be false. Global unused-image pruning is forbidden; only dangling
+  // images older than the bounded cutoff may be reclaimed.
   bool all = 1;
-  // Only remove images created strictly before this cutoff (unix seconds). 0 = no cutoff.
+  // Required cutoff (unix seconds), bounded by the production validator.
   int64 until_unix = 2;
-  // Repo tags that must never be removed — the Ploydok reference-set guard
-  // (running-container tag + last-good build tag). Honoured when all=true.
+  // Reserved for wire compatibility and must remain empty.
   repeated string keep_repo_tags = 3;
 }
 
@@ -573,6 +572,32 @@ message ImagePruneResponse {
   int32 images_deleted = 1;
   int64 space_reclaimed_bytes = 2;
 }
+
+message ImagePushRequest {
+  string image = 1;
+  RegistryAuth registry_auth = 2;
+}
+
+message ImagePushResponse { string digest = 1; }
+
+message ImageRemoveRequest { string image = 1; }
+message ImageRemoveResponse { bool deleted = 1; }
+
+message BuildCachePruneRequest {
+  // Required cutoff. The agent rejects zero/future/excessively old values so
+  // this RPC can never become an unbounded `docker builder prune --all`.
+  int64 until_unix = 1;
+  // Minimum cache storage Docker must retain (`keep-storage` in Engine API).
+  int64 keep_storage_bytes = 2;
+}
+message BuildCachePruneResponse { int64 space_reclaimed_bytes = 1; }
+
+message RegistryGarbageCollectRequest {
+  // Empty selects /etc/docker/registry/config.yml. Non-empty paths must be
+  // normalized absolute paths below /etc/docker/registry with no dot segments.
+  string config_path = 1;
+}
+message RegistryGarbageCollectResponse { string output = 1; }
 
 // ─────────────────────────────────────────────────────────────────────────────
 // Registry image digest (image auto-update watch)
@@ -795,6 +820,10 @@ service Agent {
   // Disk usage & image reclaim
   rpc ImageDf         (ImageDfRequest)          returns (ImageDfResponse);
   rpc ImagePrune      (ImagePruneRequest)       returns (ImagePruneResponse);
+  rpc ImagePush       (ImagePushRequest)        returns (ImagePushResponse);
+  rpc ImageRemove     (ImageRemoveRequest)      returns (ImageRemoveResponse);
+  rpc BuildCachePrune (BuildCachePruneRequest)  returns (BuildCachePruneResponse);
+  rpc RegistryGarbageCollect (RegistryGarbageCollectRequest) returns (RegistryGarbageCollectResponse);
 
   // Registry image digest (auto-update watch)
   rpc RegistryImageDigest (RegistryImageDigestRequest) returns (RegistryImageDigestResponse);

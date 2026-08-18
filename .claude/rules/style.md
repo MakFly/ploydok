@@ -27,7 +27,10 @@
 - React 19. Server components **non** utilisés (TanStack Start gère SSR via loaders/beforeLoad).
 - Préférer `useSuspenseQuery` + route loader à `useEffect` pour fetch initial.
 - Forms : Zod schemas de `packages/shared/` côté validation — ne jamais dupliquer les schemas entre front et back.
-- Toute action mutante (POST/PUT/PATCH/DELETE, submit, deploy, sync) passe par `<Button loading={mutation.isPending}>` : spinner + `disabled` + `aria-busy` gérés par le primitive. Règle complète dans `CLAUDE.md` § Button Loading State.
+- Toute action mutante (POST/PUT/PATCH/DELETE, submit, deploy, sync) passe par
+  `<Button loading={mutation.isPending}>` : spinner + `disabled` + `aria-busy`
+  gérés par le primitive. La règle complète vit dans `AGENTS.md` § Button
+  Loading State.
 
 ## Commentaires
 

@@ -10,6 +10,16 @@ describe("CSRF", () => {
     expect(res.status).toBe(403);
   });
 
+  it("keeps public invitation registration behind CSRF", async () => {
+    const res = await app.request("/invitations/register", {
+      method: "POST",
+      headers: { "content-type": "application/json" },
+      body: JSON.stringify({ token: "invalid", display_name: "Test", password: "long-enough-password" }),
+    });
+    expect(res.status).toBe(403);
+    expect(await res.json()).toMatchObject({ error: { code: "CSRF_MISMATCH" } });
+  });
+
   it("GET /auth/csrf sets csrf cookie and returns token", async () => {
     const res = await app.request("/auth/csrf");
     expect(res.status).toBe(200);

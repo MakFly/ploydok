@@ -59,6 +59,11 @@ function GitProvidersHub(): React.JSX.Element {
         : providerStatus.data?.gitlab.connected
           ? "configured"
           : "not_configured",
+      ...(providerStatus.data?.gitlab.state === "unavailable"
+        ? { note: "GitLab temporarily unavailable; connection preserved" }
+        : providerStatus.data?.gitlab.state === "expired"
+          ? { note: "OAuth connection expired; reconnect required" }
+          : {}),
     },
   ]
 

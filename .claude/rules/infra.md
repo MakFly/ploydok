@@ -1,12 +1,16 @@
 # Infra locale (`infra/`)
 
-Docker Compose orchestre trois services pour le dev :
+Docker Compose orchestre le control-plane local pour le développement :
 
-| Service | Rôle | Port local |
-|---|---|---|
-| `caddy` | Reverse proxy + TLS. Admin API 2020. | 8180 (http) / 8543 (https) / 2020 (admin) |
-| `buildkitd` | Build OCI images (BuildKit). Adressé via `docker-container://ploydok-buildkitd`. | — |
-| `registry` | Registry v2 local, push des images buildées. | 5000 |
+| Service     | Rôle                                                                             | Port local                                |
+| ----------- | -------------------------------------------------------------------------------- | ----------------------------------------- |
+| `caddy`     | Reverse proxy + TLS. Admin API 2020.                                             | 8180 (http) / 8543 (https) / 2020 (admin) |
+| `buildkitd` | Build OCI images (BuildKit). Adressé via `docker-container://ploydok-buildkitd`. | —                                         |
+| `registry`  | Registry v2 local, push des images buildées.                                     | 5000                                      |
+| `postgres`  | Base de données de développement.                                                | 5434                                      |
+| `redis`     | File de travaux et données éphémères.                                            | 6381                                      |
+| `agent`     | Frontière gRPC des opérations Docker privilégiées.                               | socket Unix                               |
+| `adminer`   | UI de diagnostic DB locale.                                                      | via Caddy                                 |
 
 ## Commandes
 
@@ -16,7 +20,10 @@ make infra-down     # compose down + cleanup network
 make infra-logs     # tail caddy logs
 ```
 
-Réseau Docker : `ploydok-public` (créé par `infra-up`). Tous les services applicatifs (y compris containers spawn par l'agent) doivent y être joints.
+Les réseaux `ploydok-public`/`ploydok-ingress` sont créés par `infra-up` pour
+le développement. Ne pas étendre ces réseaux par commodité : les workloads et
+les interfaces d'administration doivent conserver les frontières définies par
+le compose et par le descriptor de production.
 
 ## Caddy
 
@@ -25,7 +32,8 @@ Réseau Docker : `ploydok-public` (créé par `infra-up`). Tous les services app
 
 ## BuildKit
 
-- Daemon : container `ploydok-buildkitd-1`. L'API envoie les frontend LLB via `buildctl` ou API native.
+- Daemon : container `ploydok-buildkitd`. L'API parle au daemon BuildKit ; les
+  opérations Docker privilégiées restent déléguées à l'agent.
 - Build dir côté API : `~/.ploydok-dev/builds/` (var `PLOYDOK_BUILD_DIR`). Garbage-collecté périodiquement — ne pas y stocker de données persistantes.
 
 ## Registry

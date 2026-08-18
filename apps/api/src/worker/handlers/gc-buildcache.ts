@@ -10,7 +10,7 @@ import type { Db } from "@ploydok/db"
 import { childLogger } from "../../logger"
 import { claimQueuedRow } from "../queue-claim"
 import { auditClaimed, auditUnauthorized } from "../queue-audit"
-import { pruneDockerBuildCache } from "../jobs/cleanup-build-caches"
+import { pruneBuildKitCache } from "../jobs/cleanup-build-caches"
 
 const log = childLogger("gc-buildcache")
 
@@ -58,10 +58,11 @@ export async function handleGcBuildcacheJob(
   })
 
   try {
-    const result = await pruneDockerBuildCache()
+    const result = await pruneBuildKitCache()
     if (!result.ok) {
       throw new Error(
-        result.error ?? `docker builder prune failed (exit ${result.exitCode})`
+        result.error ??
+          `dedicated BuildKit prune failed (exit ${result.exitCode})`
       )
     }
     await db

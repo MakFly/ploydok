@@ -7,6 +7,7 @@
  * Provides GC helpers: keep-last-N and disk-guard threshold check.
  */
 import { env } from "../env";
+import { getSharedAgent } from "../debug/singletons";
 
 // ---------------------------------------------------------------------------
 // Internal HTTP helpers
@@ -343,8 +344,6 @@ export async function diskGuard(
 // Blob garbage collection (binary call)
 // ---------------------------------------------------------------------------
 
-const REGISTRY_CONTAINER_NAME =
-  process.env.PLOYDOK_REGISTRY_CONTAINER ?? "ploydok-registry-1";
 const REGISTRY_CONTAINER_CONFIG =
   process.env.PLOYDOK_REGISTRY_CONFIG ?? "/etc/docker/registry/config.yml";
 
@@ -359,31 +358,18 @@ export interface GarbageCollectResult {
  * underlying blobs stay on disk until the registry binary is invoked with
  * `garbage-collect`.
  *
- * Runs `docker exec <registry-container> registry garbage-collect <config>
- * -m` (`-m` deletes manifests of untagged images too).
+ * Delegates registry container discovery and execution to the privileged agent.
  *
  * Returns `{ ok: false, output }` instead of throwing so callers can log and
  * continue (the registry may simply be offline in dev).
  */
 export async function runtimeGarbageCollect(): Promise<GarbageCollectResult> {
   try {
-    const proc = Bun.spawn(
-      [
-        "docker",
-        "exec",
-        REGISTRY_CONTAINER_NAME,
-        "registry",
-        "garbage-collect",
-        "-m",
-        REGISTRY_CONTAINER_CONFIG,
-      ],
-      { stdout: "pipe", stderr: "pipe" },
+    const result = await getSharedAgent().registryGarbageCollect(
+      { configPath: REGISTRY_CONTAINER_CONFIG },
+      5 * 60_000,
     );
-    const code = await proc.exited;
-    const stdout = await new Response(proc.stdout).text();
-    const stderr = await new Response(proc.stderr).text();
-    const output = `${stdout}${stderr}`.trim();
-    return { ok: code === 0, output };
+    return { ok: true, output: result.output };
   } catch (err) {
     return {
       ok: false,

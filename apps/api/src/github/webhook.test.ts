@@ -210,7 +210,12 @@ describe("handleWebhook — installation_repositories.removed", () => {
     };
     await handleWebhook(db, "installation_repositories", payload, "del-7", undefined, deps);
     expect(deleteRepos).toHaveBeenCalledTimes(1);
-    const ids = callArgs(deleteRepos, 0)[1] as string[];
+    const [, installationId, ids] = callArgs(deleteRepos, 0) as [
+      unknown,
+      string,
+      string[],
+    ];
+    expect(installationId).toBe("github:42");
     expect(ids).toEqual(["github:101", "github:202"]);
     expect(enqueue).not.toHaveBeenCalled();
   });

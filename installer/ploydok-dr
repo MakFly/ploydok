@@ -1,0 +1,656 @@
+#!/usr/bin/env bash
+# SPDX-License-Identifier: AGPL-3.0-only
+set -Eeuo pipefail
+
+DATA_DIR="/var/lib/ploydok"
+INSTALL_DIR="/opt/ploydok"
+DRY_RUN="${PLOYDOK_INSTALL_DRY_RUN:-0}"
+ROOT_PREFIX="${PLOYDOK_INSTALL_ROOT:-}"
+HEALTH_URL="${PLOYDOK_HEALTH_URL:-http://127.0.0.1:3335/health/ready}"
+RPO_HOURS=24
+RTO_HOURS=4
+QUIESCED=0
+STAGE=""
+PARTIAL_OUTPUT=""
+AUTO_RESUME=0
+RECREATE_ON_RESUME=0
+declare -a PAUSED_CONTAINERS=()
+declare -a COMPOSE_RUNNING_SERVICES=()
+declare -a SWARM_SERVICE_REPLICAS=()
+
+real_path() {
+  if [[ -n "$ROOT_PREFIX" ]]; then printf '%s%s\n' "$ROOT_PREFIX" "$1"; else printf '%s\n' "$1"; fi
+}
+
+fail() { echo "$*" >&2; exit 1; }
+
+require_command() {
+  command -v "$1" >/dev/null 2>&1 || fail "$1 is required"
+}
+
+require_private_key_permissions() {
+  local key="$1" mode
+  [[ "$key" =~ ^/[A-Za-z0-9._/-]+$ ]] || fail "signing key path contains unsupported characters"
+  [[ -f "$key" && -r "$key" && ! -L "$key" ]] || fail "backup signing key must be a readable regular file"
+  mode="$(stat -c '%a' "$key")"
+  (( (8#$mode & 077) == 0 )) || fail "backup signing key must not be accessible by group or other users"
+}
+
+runtime_kind() {
+  if [[ -f "$(real_path "$INSTALL_DIR/docker-stack.yml")" ]]; then printf 'swarm\n'; else printf 'compose\n'; fi
+}
+
+validate_state_paths() {
+  local data install
+  data="$(realpath -m -- "$DATA_DIR")"
+  install="$(realpath -m -- "$INSTALL_DIR")"
+  case "$data" in /var/lib/*|/srv/*) ;; *) fail "--data-dir must be a dedicated directory below /var/lib or /srv" ;; esac
+  case "$install" in /opt/*|/srv/*) ;; *) fail "--install-dir must be a dedicated directory below /opt or /srv" ;; esac
+  [[ "$data" != "$install" ]] || fail "data and install directories must be distinct"
+  case "$data/" in "$install/"*) fail "data directory must not be nested inside install directory" ;; esac
+  case "$install/" in "$data/"*) fail "install directory must not be nested inside data directory" ;; esac
+  DATA_DIR="$data"
+  INSTALL_DIR="$install"
+}
+
+descriptor_path() {
+  if [[ "$(runtime_kind)" == "swarm" ]]; then
+    real_path "$INSTALL_DIR/docker-stack.yml"
+  else
+    real_path "$INSTALL_DIR/docker-compose.yml"
+  fi
+}
+
+volume_name() { printf 'ploydok_%s\n' "$1"; }
+
+volume_mountpoint() {
+  local name="$1" mountpoint
+  mountpoint="$(docker volume inspect --format '{{.Mountpoint}}' "$name")"
+  [[ -n "$mountpoint" && -d "$mountpoint" ]] || fail "missing Docker volume mountpoint for $name"
+  printf '%s\n' "$mountpoint"
+}
+
+quiesce() {
+  local runtime descriptor env_file service replicas id
+  runtime="$(runtime_kind)"
+  descriptor="$(descriptor_path)"
+  env_file="$(real_path "$DATA_DIR/.env")"
+  if [[ "$DRY_RUN" == "1" ]]; then
+    echo "[ploydok-dr] dry-run: quiesce control plane and pause every managed app/database workload"
+    QUIESCED=1
+    return
+  fi
+  QUIESCED=1
+  if [[ "$runtime" == "swarm" ]]; then
+    # The agent is a global service and cannot be scaled. With the API stopped
+    # it has no mutation caller; workload containers are paused below.
+    for service in api web caddy caddy-admin adminer registry redis prometheus alertmanager; do
+      replicas="$(docker service inspect --format '{{.Spec.Mode.Replicated.Replicas}}' "ploydok_${service}" 2>/dev/null || printf '1')"
+      SWARM_SERVICE_REPLICAS+=("$service:$replicas")
+      docker service scale "ploydok_${service}=0"
+    done
+    for item in "${SWARM_SERVICE_REPLICAS[@]}"; do
+      service="${item%%:*}"
+      stopped=0
+      for _ in $(seq 1 60); do
+        if [[ -z "$(docker ps -q --filter "label=com.docker.swarm.service.name=ploydok_${service}")" ]]; then
+          stopped=1
+          break
+        fi
+        sleep 1
+      done
+      [[ "$stopped" == "1" ]] || fail "timed out waiting for ploydok_${service} to stop"
+    done
+  else
+    mapfile -t COMPOSE_RUNNING_SERVICES < <(
+      docker compose --env-file "$env_file" -f "$descriptor" ps --services --filter status=running
+    )
+    docker compose --env-file "$env_file" -f "$descriptor" stop \
+      api web agent caddy adminer registry redis prometheus alertmanager
+  fi
+  mapfile -t PAUSED_CONTAINERS < <(
+    for kind in app database service preview hook scheduled-job; do
+      docker ps -q --filter "label=ploydok.kind=$kind"
+    done | sort -u
+  )
+  for id in "${PAUSED_CONTAINERS[@]}"; do
+    [[ -n "$id" ]] && docker pause "$id" >/dev/null
+  done
+}
+
+resume() {
+  [[ "$QUIESCED" == "1" ]] || return 0
+  local runtime descriptor env_file item service replicas id failed=0 unpaused line key value
+  local -a restored_env=()
+  runtime="$(runtime_kind)"
+  descriptor="$(descriptor_path)"
+  env_file="$(real_path "$DATA_DIR/.env")"
+  if [[ "$DRY_RUN" == "1" ]]; then
+    echo "[ploydok-dr] dry-run: resume quiesced services"
+  elif [[ "$runtime" == "swarm" ]]; then
+    for id in "${PAUSED_CONTAINERS[@]}"; do
+      unpaused=0
+      for _ in $(seq 1 5); do
+        if docker unpause "$id" >/dev/null 2>&1; then unpaused=1; break; fi
+        docker inspect "$id" >/dev/null 2>&1 || { unpaused=1; break; }
+        sleep 1
+      done
+      [[ "$unpaused" == "1" ]] || failed=1
+    done
+    if [[ "$RECREATE_ON_RESUME" == "1" ]]; then
+      while IFS= read -r line || [[ -n "$line" ]]; do
+        [[ -z "$line" || "$line" == \#* ]] && continue
+        key="${line%%=*}"; value="${line#*=}"
+        [[ "$key" =~ ^[A-Z][A-Z0-9_]*$ && "$line" == *=* ]] || {
+          echo "invalid environment line while redeploying restored stack: $key" >&2
+          failed=1
+          continue
+        }
+        restored_env+=("$key=$value")
+      done <"$env_file"
+      if [[ "$failed" == "0" ]]; then
+        env "${restored_env[@]}" docker stack deploy --resolve-image never \
+          --with-registry-auth --prune -c "$descriptor" ploydok || failed=1
+      fi
+    fi
+    if [[ "$failed" == "0" ]]; then
+      for item in "${SWARM_SERVICE_REPLICAS[@]}"; do
+        service="${item%%:*}"; replicas="${item#*:}"
+        docker service scale "ploydok_${service}=$replicas" || failed=1
+      done
+    fi
+  else
+    for id in "${PAUSED_CONTAINERS[@]}"; do
+      unpaused=0
+      for _ in $(seq 1 5); do
+        if docker unpause "$id" >/dev/null 2>&1; then unpaused=1; break; fi
+        docker inspect "$id" >/dev/null 2>&1 || { unpaused=1; break; }
+        sleep 1
+      done
+      [[ "$unpaused" == "1" ]] || failed=1
+    done
+    if [[ "${#COMPOSE_RUNNING_SERVICES[@]}" -gt 0 ]]; then
+      if [[ "$RECREATE_ON_RESUME" == "1" ]]; then
+        docker compose --env-file "$env_file" -f "$descriptor" up -d --force-recreate \
+          "${COMPOSE_RUNNING_SERVICES[@]}" || failed=1
+      else
+        docker compose --env-file "$env_file" -f "$descriptor" start \
+          "${COMPOSE_RUNNING_SERVICES[@]}" || failed=1
+      fi
+    fi
+  fi
+  [[ "$failed" == "0" ]] || return 1
+  QUIESCED=0
+}
+
+cleanup() {
+  local status=$?
+  if [[ "$QUIESCED" == "1" && "$AUTO_RESUME" == "1" ]]; then resume || true; fi
+  if [[ "$status" -ne 0 && "$QUIESCED" == "1" && "$AUTO_RESUME" != "1" ]]; then
+    echo "restore failed after quiesce; services remain stopped to avoid serving hybrid state" >&2
+  fi
+  if [[ -n "$STAGE" && -d "$STAGE" ]]; then rm -rf -- "$STAGE"; fi
+  if [[ -n "$PARTIAL_OUTPUT" ]]; then
+    rm -rf -- "$PARTIAL_OUTPUT"
+  fi
+  exit "$status"
+}
+trap cleanup EXIT
+
+dump_postgres() {
+  local output="$1" runtime postgres_id
+  runtime="$(runtime_kind)"
+  if [[ "$DRY_RUN" == "1" ]]; then
+    echo "[ploydok-dr] dry-run: pg_dump --format=custom --file=$output"
+  elif [[ "$runtime" == "swarm" ]]; then
+    postgres_id="$(docker ps -q --filter label=com.docker.swarm.service.name=ploydok_postgres | head -n1)"
+    [[ -n "$postgres_id" ]] || fail "running ploydok_postgres task not found"
+    docker exec "$postgres_id" pg_dump -U ploydok --format=custom ploydok >"$output"
+  else
+    docker compose --env-file "$(real_path "$DATA_DIR/.env")" -f "$(descriptor_path)" \
+      exec -T postgres pg_dump -U ploydok --format=custom ploydok >"$output"
+  fi
+}
+
+snapshot_files() {
+  local payload="$1" source entry
+  mkdir -p "$payload/host-state" "$payload/bind-volumes" "$payload/volumes"
+  source="$(real_path "$DATA_DIR")"
+  for entry in .env master.key keys pki config secrets static certs caddy-ip-cert; do
+    if [[ -e "$source/$entry" ]]; then
+      tar -C "$source" -cpf - "$entry" | tar -C "$payload/host-state" -xpf -
+    fi
+  done
+  for entry in app-volumes volumes; do
+    [[ -d "$source/$entry" ]] && tar -C "$source/$entry" -cpf "$payload/bind-volumes/$entry.tar" .
+  done
+  source="$(real_path "$INSTALL_DIR")"
+  [[ -d "$source" ]] && tar -C "$source" -cpf "$payload/install-dir.tar" .
+  for entry in redis-data registry-data caddy-data caddy-config prometheus-data alertmanager-data; do
+    local name mountpoint
+    name="$(volume_name "$entry")"
+    mountpoint="$(volume_mountpoint "$name")"
+    tar -C "$mountpoint" -cpf "$payload/volumes/$entry.tar" .
+  done
+}
+
+write_manifest() {
+  local payload="$1" runtime descriptor descriptor_sha platform_version
+  runtime="$(runtime_kind)"
+  descriptor="$(descriptor_path)"
+  descriptor_sha="$(sha256sum "$descriptor" | awk '{print $1}')"
+  platform_version="$(grep -E '^[[:space:]]*image: .*/ploydok-api[:@]' "$descriptor" | head -n1 | tr -d '[:space:]')"
+  [[ "$descriptor_sha" =~ ^[0-9a-f]{64}$ ]] || fail "could not identify the runtime descriptor"
+  cat >"$payload/manifest.env" <<EOF
+PLOYDOK_DR_FORMAT=1
+CREATED_AT=$(date -u +%Y-%m-%dT%H:%M:%SZ)
+SOURCE_RUNTIME=$runtime
+SOURCE_HOST=$(hostname -f 2>/dev/null || hostname)
+DESCRIPTOR_SHA256=$descriptor_sha
+PLATFORM_IMAGE=$platform_version
+RPO_HOURS=$RPO_HOURS
+RTO_HOURS=$RTO_HOURS
+EOF
+  (cd "$payload" && find . -type f ! -name manifest.sha256 -print0 | sort -z | xargs -0 sha256sum >manifest.sha256)
+}
+
+manifest_value() {
+  local file="$1" key="$2" value count
+  count="$(grep -c "^${key}=" "$file" || true)"
+  [[ "$count" == "1" ]] || fail "manifest key $key is missing or duplicated"
+  value="$(sed -n "s/^${key}=//p" "$file")"
+  [[ "$value" =~ ^[A-Za-z0-9._:/@+-]+$ ]] || fail "manifest key $key contains unsafe data"
+  printf '%s\n' "$value"
+}
+
+validate_inner_tar() {
+  local archive="$1"
+  [[ -f "$archive" && ! -L "$archive" ]] || fail "required payload archive is missing: $archive"
+  if tar -tf "$archive" | grep -Eq '(^/|(^|/)\.\.(/|$))'; then
+    fail "inner payload archive contains an unsafe path: $archive"
+  fi
+  if tar -tvf "$archive" | awk '
+    $1 ~ /^[bcp]/ { bad=1 }
+    $1 ~ /^[lh]/ {
+      target=$NF
+      if (target ~ /^\// || target ~ /(^|\/)\.\.($|\/)/) bad=1
+    }
+    END { exit(bad ? 0 : 1) }
+  '; then
+    fail "inner payload archive contains an unsafe link or special file: $archive"
+  fi
+}
+
+validate_outer_tar_safety() {
+  local archive="$1"
+  if tar -tzf "$archive" | grep -Eq '(^/|(^|/)\.\.(/|$))'; then
+    fail "backup contains an unsafe path"
+  fi
+  if tar -tvzf "$archive" | awk '$1 ~ /^[bchlp]/ { found=1 } END { exit(found ? 0 : 1) }'; then
+    fail "backup contains a link or special file outside nested workload archives"
+  fi
+}
+
+validate_payload_structure() {
+  local payload="$1" entry
+  [[ -f "$payload/postgres.dump" && ! -L "$payload/postgres.dump" ]] || fail "Postgres payload is missing"
+  validate_inner_tar "$payload/install-dir.tar"
+  for entry in app-volumes volumes; do
+    validate_inner_tar "$payload/bind-volumes/$entry.tar"
+  done
+  for entry in redis-data registry-data caddy-data caddy-config prometheus-data alertmanager-data; do
+    validate_inner_tar "$payload/volumes/$entry.tar"
+  done
+}
+
+validate_archive() {
+  local archive="$1" identity="$2" signing_public_key="$3" target="$4" checksum_file signature_file format
+  [[ -r "$archive" ]] || fail "backup archive is not readable: $archive"
+  [[ -r "$identity" ]] || fail "age identity is not readable: $identity"
+  [[ -r "$signing_public_key" ]] || fail "backup signing public key is not readable: $signing_public_key"
+  checksum_file="$archive.sha256"
+  signature_file="$archive.sig"
+  [[ -r "$checksum_file" ]] || fail "missing encrypted archive checksum: $checksum_file"
+  [[ -r "$signature_file" ]] || fail "missing encrypted archive signature: $signature_file"
+  openssl dgst -sha256 -verify "$signing_public_key" -signature "$signature_file" "$archive" >/dev/null ||
+    fail "backup signature verification failed"
+  (cd "$(dirname -- "$archive")" && sha256sum -c "$(basename -- "$checksum_file")")
+  age --decrypt -i "$identity" -o "$target/archive.tar.gz" "$archive"
+  validate_outer_tar_safety "$target/archive.tar.gz"
+  mkdir -p "$target/payload"
+  tar --no-same-owner --no-same-permissions -xzf "$target/archive.tar.gz" -C "$target/payload"
+  [[ -f "$target/payload/manifest.env" ]] || fail "backup manifest is missing"
+  [[ -f "$target/payload/manifest.sha256" ]] || fail "backup payload checksums are missing"
+  (cd "$target/payload" && sha256sum -c manifest.sha256)
+  validate_payload_structure "$target/payload"
+  format="$(manifest_value "$target/payload/manifest.env" PLOYDOK_DR_FORMAT)"
+  [[ "$format" == "1" ]] || fail "unsupported backup format"
+  ARCHIVE_RUNTIME="$(manifest_value "$target/payload/manifest.env" SOURCE_RUNTIME)"
+  ARCHIVE_DESCRIPTOR_SHA="$(manifest_value "$target/payload/manifest.env" DESCRIPTOR_SHA256)"
+  [[ "$ARCHIVE_RUNTIME" == "swarm" || "$ARCHIVE_RUNTIME" == "compose" ]] || fail "invalid source runtime"
+  [[ "$ARCHIVE_DESCRIPTOR_SHA" =~ ^[0-9a-f]{64}$ ]] || fail "invalid descriptor digest"
+}
+
+ensure_remote_destination() {
+  local destination="$1" allow_local="$2" fstype canonical data install
+  [[ "$destination" == /* ]] || fail "--destination must be an absolute mounted path"
+  [[ -d "$destination" ]] || fail "backup destination does not exist: $destination"
+  canonical="$(realpath -e -- "$destination")"
+  data="$(realpath -m -- "$(real_path "$DATA_DIR")")"
+  install="$(realpath -m -- "$(real_path "$INSTALL_DIR")")"
+  case "$canonical/" in
+    "$data/"*|"$install/"*|"$(realpath -m -- "$(real_path /var/backups)")/"*)
+      fail "backup destination must not be on Ploydok's local state paths"
+      ;;
+  esac
+  if [[ "$allow_local" != "1" ]]; then
+    require_command findmnt
+    fstype="$(findmnt -T "$canonical" -n -o FSTYPE)"
+    case "$fstype" in nfs|nfs4|cifs|fuse.sshfs|fuse.rclone|fuse.s3fs|s3fs) ;; *)
+      fail "destination filesystem '$fstype' is not off-host; mount remote storage or pass --allow-local-destination for a drill"
+    esac
+  fi
+  printf '%s\n' "$canonical"
+}
+
+wait_for_health() {
+  local runtime service id status ready
+  [[ "$DRY_RUN" == "1" ]] && { echo "[ploydok-dr] dry-run: require API, Prometheus and Alertmanager ready"; return; }
+  runtime="$(runtime_kind)"
+  for _ in $(seq 1 120); do
+    ready=1
+    curl -fsS "$HEALTH_URL" >/dev/null 2>&1 || ready=0
+    for service in prometheus alertmanager; do
+      if [[ "$runtime" == "swarm" ]]; then
+        id="$(docker ps -q --filter "label=com.docker.swarm.service.name=ploydok_${service}" | head -n1)"
+      else
+        id="$(docker compose --env-file "$(real_path "$DATA_DIR/.env")" -f "$(descriptor_path)" ps -q "$service")"
+      fi
+      status="$(docker inspect --format '{{if .State.Health}}{{.State.Health.Status}}{{else}}{{.State.Status}}{{end}}' "$id" 2>/dev/null || true)"
+      [[ "$status" == "healthy" ]] || ready=0
+    done
+    [[ "$ready" == "1" ]] && return
+    sleep 1
+  done
+  return 1
+}
+
+command_name="${1:-}"
+shift || true
+
+case "$command_name" in
+  configure-control-plane-backups)
+    destination="" recipient="" signing_key="" retention_days=30
+    for arg in "$@"; do case "$arg" in
+      --destination=*) destination="${arg#*=}" ;;
+      --age-recipient=*) recipient="${arg#*=}" ;;
+      --signing-key=*) signing_key="${arg#*=}" ;;
+      --retention-days=*) retention_days="${arg#*=}" ;;
+      *) fail "unknown option: $arg" ;;
+    esac; done
+    [[ -n "$destination" && -n "$recipient" && -n "$signing_key" ]] || fail "--destination, --age-recipient and --signing-key are required"
+    [[ "$destination" =~ ^/[A-Za-z0-9._/-]+$ ]] || fail "--destination contains unsupported characters"
+    [[ "$recipient" =~ ^age1[0-9a-z]+$ ]] || fail "--age-recipient must be a native age recipient"
+    [[ "$retention_days" =~ ^[1-9][0-9]*$ ]] || fail "--retention-days must be a positive integer"
+    if [[ "$DRY_RUN" == "1" ]]; then
+      echo "[ploydok-dr] dry-run: install a persistent daily backup timer for $destination"
+      exit 0
+    fi
+    [[ "${EUID:-$(id -u)}" -eq 0 ]] || fail "configure-control-plane-backups must run as root"
+    destination="$(ensure_remote_destination "$destination" 0)"
+    require_private_key_permissions "$signing_key"
+    install -d -m 0755 /etc/systemd/system
+    cat >/etc/systemd/system/ploydok-backup.service <<EOF
+[Unit]
+Description=Ploydok encrypted off-host control-plane backup
+RequiresMountsFor=$destination
+After=docker.service
+OnFailure=ploydok-backup-failure@%n.service
+
+[Service]
+Type=oneshot
+UMask=0077
+ExecStart=/usr/local/bin/ploydok-cli backup-control-plane --destination=$destination --age-recipient=$recipient --signing-key=$signing_key --retention-days=$retention_days
+EOF
+    cat >/etc/systemd/system/ploydok-backup.timer <<'EOF'
+[Unit]
+Description=Daily Ploydok control-plane backup
+
+[Timer]
+OnCalendar=*-*-* 02:00:00 UTC
+RandomizedDelaySec=30m
+Persistent=true
+Unit=ploydok-backup.service
+
+[Install]
+WantedBy=timers.target
+EOF
+    cat >/etc/systemd/system/ploydok-backup-failure@.service <<'EOF'
+[Unit]
+Description=Record a failed Ploydok control-plane backup
+
+[Service]
+Type=oneshot
+ExecStart=/usr/bin/touch /var/lib/ploydok/backups/control-plane.last-failure
+EOF
+    chmod 0644 /etc/systemd/system/ploydok-backup.service /etc/systemd/system/ploydok-backup.timer \
+      /etc/systemd/system/ploydok-backup-failure@.service
+    systemctl daemon-reload
+    systemctl enable --now ploydok-backup.timer
+    touch /var/lib/ploydok/backups/control-plane.configured
+    chmod 0444 /var/lib/ploydok/backups/control-plane.configured
+    echo "Daily encrypted off-host backups configured for $destination"
+    ;;
+  backup-control-plane)
+    destination="" recipient="" signing_key="" retention_days=30 allow_local=0
+    for arg in "$@"; do case "$arg" in
+      --destination=*) destination="${arg#*=}" ;;
+      --age-recipient=*) recipient="${arg#*=}" ;;
+      --signing-key=*) signing_key="${arg#*=}" ;;
+      --retention-days=*) retention_days="${arg#*=}" ;;
+      --allow-local-destination) allow_local=1 ;;
+      --data-dir=*) DATA_DIR="${arg#*=}" ;;
+      --install-dir=*) INSTALL_DIR="${arg#*=}" ;;
+      *) fail "unknown option: $arg" ;;
+    esac; done
+    [[ -n "$destination" && -n "$recipient" && -n "$signing_key" ]] || fail "--destination, --age-recipient and --signing-key are required"
+    [[ "$recipient" =~ ^age1[0-9a-z]+$ ]] || fail "--age-recipient must be a native age recipient"
+    [[ "$retention_days" =~ ^[1-9][0-9]*$ ]] || fail "--retention-days must be a positive integer"
+    validate_state_paths
+    if [[ "$DRY_RUN" == "1" ]]; then
+      echo "[ploydok-dr] dry-run: require remote destination $destination"
+      echo "[ploydok-dr] dry-run: create encrypted, checksummed backup for recipient $recipient"
+      echo "[ploydok-dr] dry-run: retain backups for $retention_days days"
+      exit 0
+    fi
+    [[ "${EUID:-$(id -u)}" -eq 0 ]] || fail "backup-control-plane must run as root"
+    require_command age; require_command docker; require_command flock; require_command openssl; require_command sha256sum
+    require_private_key_permissions "$signing_key"
+    destination="$(ensure_remote_destination "$destination" "$allow_local")"
+    exec 9>/run/lock/ploydok-backup.lock
+    flock -n 9 || fail "another control-plane backup is already running"
+    STAGE="$(mktemp -d)"
+    mkdir -p "$STAGE/payload"
+    AUTO_RESUME=1
+    quiesce
+    dump_postgres "$STAGE/payload/postgres.dump"
+    snapshot_files "$STAGE/payload"
+    write_manifest "$STAGE/payload"
+    validate_payload_structure "$STAGE/payload"
+    resume || fail "failed to resume every quiesced service or workload"
+    timestamp="$(date -u +%Y%m%dT%H%M%SZ)"
+    generation="ploydok-control-plane-$timestamp"
+    final_dir="$destination/$generation"
+    partial_dir="$destination/.$generation.partial.$$"
+    PARTIAL_OUTPUT="$partial_dir"
+    [[ ! -e "$final_dir" && ! -e "$partial_dir" ]] || fail "backup generation already exists: $final_dir"
+    mkdir -m 0755 "$partial_dir"
+    tar -C "$STAGE/payload" -czf "$STAGE/archive.tar.gz" .
+    validate_outer_tar_safety "$STAGE/archive.tar.gz"
+    age -r "$recipient" -o "$partial_dir/backup.tar.gz.age" "$STAGE/archive.tar.gz"
+    openssl dgst -sha256 -sign "$signing_key" -out "$partial_dir/backup.tar.gz.age.sig" \
+      "$partial_dir/backup.tar.gz.age"
+    openssl pkey -in "$signing_key" -pubout -out "$STAGE/signing.pub" >/dev/null
+    openssl dgst -sha256 -verify "$STAGE/signing.pub" \
+      -signature "$partial_dir/backup.tar.gz.age.sig" "$partial_dir/backup.tar.gz.age" >/dev/null
+    (cd "$partial_dir" && sha256sum backup.tar.gz.age >backup.tar.gz.age.sha256)
+    mv -- "$partial_dir" "$final_dir"
+    PARTIAL_OUTPUT=""
+    output="$final_dir/backup.tar.gz.age"
+    while IFS= read -r -d '' expired; do
+      quarantine="$destination/.expired.$(basename -- "$expired").$$"
+      mv -- "$expired" "$quarantine"
+      echo "Expired backup generation removed: $expired"
+      rm -rf -- "$quarantine"
+    done < <(find "$destination" -maxdepth 1 -type d -name 'ploydok-control-plane-*' -mtime "+$retention_days" -print0)
+    install -d -m 0750 "$(real_path "$DATA_DIR/backups")"
+    date -u +%Y-%m-%dT%H:%M:%SZ >"$(real_path "$DATA_DIR/backups/control-plane.last-success")"
+    echo "Encrypted control-plane backup created: $output"
+    ;;
+  verify-control-plane-backup)
+    archive="" identity="" signing_public_key=""
+    for arg in "$@"; do case "$arg" in
+      --archive=*) archive="${arg#*=}" ;;
+      --age-identity=*) identity="${arg#*=}" ;;
+      --signing-public-key=*) signing_public_key="${arg#*=}" ;;
+      *) fail "unknown option: $arg" ;;
+    esac; done
+    [[ -n "$archive" && -n "$identity" && -n "$signing_public_key" ]] || fail "--archive, --age-identity and --signing-public-key are required"
+    require_command age; require_command openssl; require_command sha256sum
+    STAGE="$(mktemp -d)"
+    validate_archive "$archive" "$identity" "$signing_public_key" "$STAGE"
+    echo "Backup verified: $archive"
+    ;;
+  restore-control-plane)
+    archive="" identity="" signing_public_key="" verify_command="" yes=0
+    for arg in "$@"; do case "$arg" in
+      --archive=*) archive="${arg#*=}" ;;
+      --age-identity=*) identity="${arg#*=}" ;;
+      --signing-public-key=*) signing_public_key="${arg#*=}" ;;
+      --verify-command=*) verify_command="${arg#*=}" ;;
+      --data-dir=*) DATA_DIR="${arg#*=}" ;;
+      --install-dir=*) INSTALL_DIR="${arg#*=}" ;;
+      --yes) yes=1 ;;
+      *) fail "unknown option: $arg" ;;
+    esac; done
+    [[ "$yes" == "1" || "$DRY_RUN" == "1" ]] || fail "restore overwrites durable state; re-run with --yes"
+    [[ -n "$archive" && -n "$identity" && -n "$signing_public_key" && -n "$verify_command" ]] || fail "--archive, --age-identity, --signing-public-key and --verify-command are required"
+    validate_state_paths
+    if [[ "$DRY_RUN" == "1" ]]; then
+      echo "[ploydok-dr] dry-run: verify archive checksum, age authentication and payload manifest"
+      echo "[ploydok-dr] dry-run: restore Postgres, Redis, registry, Caddy, monitoring, app volumes, keys, certificates and config"
+      echo "[ploydok-dr] dry-run: require readiness then run $verify_command"
+      exit 0
+    fi
+    [[ "${EUID:-$(id -u)}" -eq 0 ]] || fail "restore-control-plane must run as root"
+    [[ -x "$verify_command" ]] || fail "verification command must be an executable file"
+    require_command age; require_command docker; require_command openssl; require_command sha256sum
+    STAGE="$(mktemp -d)"
+    validate_archive "$archive" "$identity" "$signing_public_key" "$STAGE"
+    payload="$STAGE/payload"
+    [[ "$ARCHIVE_RUNTIME" == "$(runtime_kind)" ]] || fail "backup runtime $ARCHIVE_RUNTIME does not match target runtime $(runtime_kind)"
+    target_descriptor_sha="$(sha256sum "$(descriptor_path)" | awk '{print $1}')"
+    [[ "$ARCHIVE_DESCRIPTOR_SHA" == "$target_descriptor_sha" ]] || fail "fresh host must run the exact descriptor release recorded by the backup"
+    managed_count="$(
+      for kind in app database service preview hook scheduled-job; do
+        docker ps -aq --filter "label=ploydok.kind=$kind"
+      done | sort -u | grep -c . || true
+    )"
+    [[ "$managed_count" -eq 0 ]] || fail "restore is supported only on a fresh host without managed workloads"
+    for empty_dir in "$(real_path "$DATA_DIR/app-volumes")" "$(real_path "$DATA_DIR/volumes")"; do
+      [[ -d "$empty_dir" ]] || continue
+      [[ -z "$(find "$empty_dir" -mindepth 1 -print -quit)" ]] ||
+        fail "restore target contains durable workload data: $empty_dir"
+    done
+    target_runtime_uid="$(id -u ploydok)"
+    target_runtime_gid="$(id -g ploydok)"
+    runtime="$(runtime_kind)"
+    if [[ "$runtime" == "swarm" ]]; then
+      postgres_id="$(docker ps -q --filter label=com.docker.swarm.service.name=ploydok_postgres | head -n1)"
+      [[ -n "$postgres_id" ]] || fail "running ploydok_postgres task not found"
+      resource_count="$(docker exec "$postgres_id" psql -U ploydok -d ploydok -Atc \
+        'SELECT (SELECT count(*) FROM users)+(SELECT count(*) FROM apps)+(SELECT count(*) FROM databases)')"
+    else
+      descriptor="$(descriptor_path)"; env_file="$(real_path "$DATA_DIR/.env")"
+      resource_count="$(docker compose --env-file "$env_file" -f "$descriptor" exec -T postgres \
+        psql -U ploydok -d ploydok -Atc \
+        'SELECT (SELECT count(*) FROM users)+(SELECT count(*) FROM apps)+(SELECT count(*) FROM databases)')"
+    fi
+    [[ "$resource_count" == "0" ]] || fail "restore target is not empty; use a newly installed host"
+    AUTO_RESUME=0
+    RECREATE_ON_RESUME=1
+    quiesce
+    recovery="$(real_path "/var/backups/ploydok-pre-restore-$(date -u +%Y%m%dT%H%M%SZ)")"
+    mkdir -p -m 0700 "$recovery"
+    for entry in .env master.key keys pki config secrets static certs caddy-ip-cert; do
+      target="$(real_path "$DATA_DIR")/$entry"
+      [[ -e "$target" ]] && mv -- "$target" "$recovery/"
+      [[ -e "$payload/host-state/$entry" ]] && cp -a -- "$payload/host-state/$entry" "$(real_path "$DATA_DIR")/"
+    done
+    for entry in app-volumes volumes; do
+      target="$(real_path "$DATA_DIR")/$entry"
+      mkdir -p "$target"
+      find "$target" -mindepth 1 -maxdepth 1 -exec rm -rf -- {} +
+      tar -C "$target" -xpf "$payload/bind-volumes/$entry.tar"
+    done
+    tar -C "$(real_path "$INSTALL_DIR")" -cpf "$recovery/install-dir.tar" .
+    for entry in redis-data registry-data caddy-data caddy-config prometheus-data alertmanager-data; do
+      mountpoint="$(volume_mountpoint "$(volume_name "$entry")")"
+      find "$mountpoint" -mindepth 1 -maxdepth 1 -exec rm -rf -- {} +
+      tar -C "$mountpoint" -xpf "$payload/volumes/$entry.tar"
+    done
+    if [[ "$runtime" == "swarm" ]]; then
+      postgres_id="$(docker ps -q --filter label=com.docker.swarm.service.name=ploydok_postgres | head -n1)"
+      [[ -n "$postgres_id" ]] || fail "running ploydok_postgres task not found"
+      docker exec "$postgres_id" dropdb -U ploydok --if-exists ploydok
+      docker exec "$postgres_id" createdb -U ploydok ploydok
+      docker exec -i "$postgres_id" pg_restore -U ploydok -d ploydok --clean --if-exists <"$payload/postgres.dump"
+    else
+      descriptor="$(descriptor_path)"; env_file="$(real_path "$DATA_DIR/.env")"
+      docker compose --env-file "$env_file" -f "$descriptor" exec -T postgres dropdb -U ploydok --if-exists ploydok
+      docker compose --env-file "$env_file" -f "$descriptor" exec -T postgres createdb -U ploydok ploydok
+      docker compose --env-file "$env_file" -f "$descriptor" exec -T postgres pg_restore -U ploydok -d ploydok --clean --if-exists <"$payload/postgres.dump"
+    fi
+    pg_password="$(grep '^PLOYDOK_PG_PASSWORD=' "$(real_path "$DATA_DIR/.env")" | cut -d= -f2-)"
+    [[ "$pg_password" =~ ^[0-9a-f]{64}$ ]] || fail "restored Postgres credential is invalid"
+    if [[ "$runtime" == "swarm" ]]; then
+      docker exec "$postgres_id" psql -U ploydok -d ploydok \
+        -c "ALTER USER ploydok PASSWORD '$pg_password'"
+    else
+      docker compose --env-file "$env_file" -f "$descriptor" exec -T postgres \
+        psql -U ploydok -d ploydok -c "ALTER USER ploydok PASSWORD '$pg_password'"
+    fi
+    sed -E -i "s/^PLOYDOK_RUNTIME_UID=.*/PLOYDOK_RUNTIME_UID=$target_runtime_uid/" "$(real_path "$DATA_DIR/.env")"
+    sed -E -i "s/^PLOYDOK_RUNTIME_GID=.*/PLOYDOK_RUNTIME_GID=$target_runtime_gid/" "$(real_path "$DATA_DIR/.env")"
+    for entry in .env master.key keys pki config static certs caddy-ip-cert; do
+      [[ -e "$(real_path "$DATA_DIR")/$entry" ]] && chown -R "$target_runtime_uid:$target_runtime_gid" "$(real_path "$DATA_DIR")/$entry"
+    done
+    secrets_dir="$(real_path "$DATA_DIR/secrets")"
+    if [[ -d "$secrets_dir" ]]; then
+      chown "$target_runtime_uid:$target_runtime_gid" "$secrets_dir"
+      for secret in metrics-token alert-webhook-url; do
+        if [[ -f "$secrets_dir/$secret" ]]; then
+          chown 65534:65534 "$secrets_dir/$secret"
+          chmod 0400 "$secrets_dir/$secret"
+        fi
+      done
+    fi
+    if ! resume; then
+      AUTO_RESUME=0
+      quiesce
+      fail "failed to resume every restored service or workload; services were stopped"
+    fi
+    if ! wait_for_health; then
+      AUTO_RESUME=0
+      quiesce
+      fail "restored control plane did not become ready; services were stopped"
+    fi
+    if ! "$verify_command"; then
+      AUTO_RESUME=0
+      quiesce
+      fail "restore sentinel verification failed; services were stopped"
+    fi
+    echo "Restore verified. Previous host files retained at $recovery"
+    ;;
+  *) fail "unknown disaster-recovery command: $command_name" ;;
+esac

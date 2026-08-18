@@ -1,5 +1,7 @@
 # Runtime Swarm, scaling et rollouts propres
 
+> Maturity: Beta — only the documented single-node topology is supported.
+
 Ploydok peut exécuter les apps via Docker Swarm services. Ce mode apporte le scaling par replicas, les updates `start-first`, le rollback automatique et un chemin CI/CD plus propre pour mettre à jour le VPS.
 
 ## Scaling

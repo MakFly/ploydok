@@ -2,7 +2,7 @@
 import { describe, it, expect, beforeEach } from "bun:test"
 import { Hono } from "hono"
 import { nanoid } from "nanoid"
-import { users, projects, apps } from "@ploydok/db"
+import { users, projects, apps, memberships, passkeys } from "@ploydok/db"
 import type { Db } from "@ploydok/db"
 import { makeTestDb as makePgTestDb, TEST_PG_URL } from "../test/db-helpers"
 import { createAppsEnvRouter } from "./apps-env"
@@ -47,6 +47,15 @@ async function createTestProject(db: TestDb, ownerId: string) {
     slug: `proj-${id}`,
     created_at: now,
   })
+  // Authorization reads the membership model, not projects.owner_id.
+  await db.insert(memberships).values({
+    id: nanoid(),
+    org_id: id,
+    user_id: ownerId,
+    role: "owner",
+    invited_at: now,
+    accepted_at: now,
+  })
   return { id }
 }
 
@@ -84,6 +93,34 @@ async function createTestApp(db: TestDb, userId: string, projectId: string) {
   return { id }
 }
 
+async function grantSecondFactor(db: TestDb, userId: string): Promise<void> {
+  const now = new Date()
+  await db.insert(passkeys).values([
+    {
+      id: nanoid(),
+      user_id: userId,
+      credential_id: `cred-env-a-${userId}`,
+      public_key: Buffer.from("pk1"),
+      counter: 0,
+      transports: "[]",
+      device_name: "Device A",
+      created_at: now,
+      last_used_at: now,
+    },
+    {
+      id: nanoid(),
+      user_id: userId,
+      credential_id: `cred-env-b-${userId}`,
+      public_key: Buffer.from("pk2"),
+      counter: 0,
+      transports: "[]",
+      device_name: "Device B",
+      created_at: now,
+      last_used_at: now,
+    },
+  ])
+}
+
 function fakeUser(id: string, email = "user@test.com"): AuthUser {
   return { id, email, display_name: "Test User", session_id: "sess-test" }
 }
@@ -117,6 +154,8 @@ describe.skipIf(skip)("GET /apps/:id/env", () => {
     db = await makeTestDb()
     const user = await createTestUser(db)
     userId = user.id
+    // PATCH /env is a second-factor gated mutation.
+    await grantSecondFactor(db, userId)
     const project = await createTestProject(db, userId)
     appId = (await createTestApp(db, userId, project.id)).id
   })
@@ -191,12 +230,16 @@ describe.skipIf(skip)("PATCH /apps/:id/env", () => {
     db = await makeTestDb()
     const user = await createTestUser(db)
     userId = user.id
+    // PATCH /env is a second-factor gated mutation.
+    await grantSecondFactor(db, userId)
     const project = await createTestProject(db, userId)
     appId = (await createTestApp(db, userId, project.id)).id
   })
 
   it("returns 404 when app belongs to another user", async () => {
     const otherUser = await createTestUser(db)
+    // The second-factor gate runs before ownership, so the intruder needs one.
+    await grantSecondFactor(db, otherUser.id)
     const app = buildTestApp(db, fakeUser(otherUser.id))
     const res = await app.request(`/apps/${appId}/env`, {
       method: "PATCH",

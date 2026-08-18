@@ -4,10 +4,13 @@
 //
 // Tests unitaires sur StrictValidator directement (pas de bollard nécessaire).
 
-use ploydok_agent::validator::{StrictValidator, Validator, ValidatorConfig};
+use ploydok_agent::validator::{
+    validate_workload_network_name, StrictValidator, Validator, ValidatorConfig,
+};
 use ploydok_proto::agent::{
-    ContainerCreateRequest, HealthcheckConfig, ImageBuildRequest, ImagePullRequest,
-    NetworkCreateRequest, ResourceLimits, VolumeMount,
+    BuildCachePruneRequest, ContainerCreateRequest, HealthcheckConfig, ImageBuildRequest,
+    ImagePruneRequest, ImagePullRequest, ImagePushRequest, ImageRemoveRequest,
+    NetworkCreateRequest, RegistryGarbageCollectRequest, ResourceLimits, VolumeMount,
 };
 use tonic::Code;
 
@@ -343,6 +346,142 @@ fn test_network_create_host_driver_denied() {
 }
 
 #[test]
+fn test_image_push_only_accepts_ploydok_managed_repositories() {
+    let v = make_validator();
+    let valid = ImagePushRequest {
+        image: "127.0.0.1:5000/app-demo:build-1".to_string(),
+        registry_auth: None,
+    };
+    assert!(v.validate_image_push(&valid).is_ok());
+
+    let unrelated = ImagePushRequest {
+        image: "127.0.0.1:5000/library/postgres:16".to_string(),
+        registry_auth: None,
+    };
+    let err = v.validate_image_push(&unrelated).unwrap_err();
+    assert_eq!(err.code(), Code::PermissionDenied);
+    assert!(err.message().contains("managed_image_only"));
+}
+
+#[test]
+fn test_image_prune_forbids_global_or_unbounded_cleanup() {
+    let v = make_validator();
+    let now = std::time::SystemTime::now()
+        .duration_since(std::time::UNIX_EPOCH)
+        .expect("clock after epoch")
+        .as_secs() as i64;
+    let valid = ImagePruneRequest {
+        all: false,
+        until_unix: now - 7 * 24 * 60 * 60,
+        keep_repo_tags: vec![],
+    };
+    assert!(v.validate_image_prune(&valid).is_ok());
+
+    for invalid in [
+        ImagePruneRequest {
+            all: true,
+            ..valid.clone()
+        },
+        ImagePruneRequest {
+            until_unix: 0,
+            ..valid.clone()
+        },
+        ImagePruneRequest {
+            keep_repo_tags: vec!["127.0.0.1:5000/app-demo:latest".to_string()],
+            ..valid
+        },
+    ] {
+        assert!(v.validate_image_prune(&invalid).is_err());
+    }
+}
+
+#[test]
+fn test_image_remove_rejects_non_ploydok_images() {
+    let v = make_validator();
+    let valid = ImageRemoveRequest {
+        image: "registry:5000/preview-app-demo:abc123".to_string(),
+    };
+    assert!(v.validate_image_remove(&valid).is_ok());
+
+    for image in [
+        "docker.io/library/postgres:16",
+        "127.0.0.1:5000/postgres:16",
+        "127.0.0.1:5000/app-../../postgres:16",
+    ] {
+        let err = v
+            .validate_image_remove(&ImageRemoveRequest {
+                image: image.to_string(),
+            })
+            .unwrap_err();
+        assert!(matches!(
+            err.code(),
+            Code::PermissionDenied | Code::InvalidArgument
+        ));
+    }
+}
+
+#[test]
+fn test_build_cache_prune_requires_bounded_retention() {
+    let v = make_validator();
+    let now = std::time::SystemTime::now()
+        .duration_since(std::time::UNIX_EPOCH)
+        .expect("clock after epoch")
+        .as_secs() as i64;
+    let valid = BuildCachePruneRequest {
+        until_unix: now - 7 * 24 * 60 * 60,
+        keep_storage_bytes: 10 * 1024 * 1024 * 1024,
+    };
+    assert!(v.validate_build_cache_prune(&valid).is_ok());
+
+    for invalid in [
+        BuildCachePruneRequest {
+            until_unix: 0,
+            keep_storage_bytes: valid.keep_storage_bytes,
+        },
+        BuildCachePruneRequest {
+            until_unix: now + 60,
+            keep_storage_bytes: valid.keep_storage_bytes,
+        },
+        BuildCachePruneRequest {
+            until_unix: valid.until_unix,
+            keep_storage_bytes: 0,
+        },
+    ] {
+        let err = v.validate_build_cache_prune(&invalid).unwrap_err();
+        assert_eq!(err.code(), Code::InvalidArgument);
+    }
+}
+
+#[test]
+fn test_registry_gc_rejects_non_normalized_or_foreign_paths() {
+    let v = make_validator();
+    for config_path in ["", "/etc/docker/registry/config.yml"] {
+        assert!(v
+            .validate_registry_garbage_collect(&RegistryGarbageCollectRequest {
+                config_path: config_path.to_string(),
+            })
+            .is_ok());
+    }
+
+    for config_path in [
+        "/etc/docker/registry/../secret.yml",
+        "/etc/docker/registry/./config.yml",
+        "/etc/passwd",
+        "etc/docker/registry/config.yml",
+    ] {
+        let err = v
+            .validate_registry_garbage_collect(&RegistryGarbageCollectRequest {
+                config_path: config_path.to_string(),
+            })
+            .unwrap_err();
+        assert!(matches!(
+            err.code(),
+            Code::PermissionDenied | Code::InvalidArgument
+        ));
+    }
+}
+
+#[test]
 fn test_user_uid_zero_is_denied() {
     let v = make_validator();
     let mut req = valid_create();
@@ -399,4 +538,37 @@ fn test_multi_networks_rejects_bad_prefix() {
     let err = v.validate_container_create(&req).unwrap_err();
     assert_eq!(err.code(), Code::PermissionDenied);
     assert!(err.message().contains("network_prefix"));
+}
+
+#[test]
+fn test_workload_rejects_control_plane_networks() {
+    let v = make_validator();
+    for network in [
+        "ploydok-management",
+        "ploydok-build",
+        "ploydok-monitoring",
+        "ploydok-alerting",
+    ] {
+        let mut req = valid_create();
+        req.network = String::new();
+        req.networks = vec![network.to_string()];
+        let err = v.validate_container_create(&req).unwrap_err();
+        assert_eq!(err.code(), Code::PermissionDenied);
+        assert!(err.message().contains("network_control_plane_forbidden"));
+    }
+}
+
+#[test]
+fn test_resolved_opaque_ids_reject_control_plane_network_names() {
+    for resolved_name in [
+        "ploydok-management",
+        "ploydok-build",
+        "ploydok-monitoring",
+        "ploydok_ploydok-monitoring",
+        "ploydok_ploydok-alerting",
+    ] {
+        let err = validate_workload_network_name(resolved_name).unwrap_err();
+        assert_eq!(err.code(), Code::PermissionDenied);
+    }
+    assert!(validate_workload_network_name("ploydok-project-abc").is_ok());
 }

@@ -1,6 +1,6 @@
 // SPDX-License-Identifier: AGPL-3.0-only
 import * as React from "react"
-import { Link, createFileRoute } from "@tanstack/react-router"
+import { Link, createFileRoute, useRouter } from "@tanstack/react-router"
 import { Button } from "@workspace/ui/components/button"
 import {
   RiAddLine,
@@ -32,7 +32,17 @@ import {
 import type { BuildWithApp } from "../../../../lib/apps"
 import type { BuildStatus, ContainerSnapshot } from "@ploydok/shared"
 
+interface DashboardSearch {
+  create?: "github" | "gitlab" | "image"
+}
+
 export const Route = createFileRoute("/_authed/orgs/$orgSlug/dashboard")({
+  validateSearch: (search: Record<string, unknown>): DashboardSearch =>
+    search.create === "image" ||
+    search.create === "github" ||
+    search.create === "gitlab"
+      ? { create: search.create }
+      : {},
   component: DashboardPage,
 })
 
@@ -105,7 +115,9 @@ function mergeRuntimeHealth(
 }
 
 function DashboardPage(): React.JSX.Element {
-  const [modalOpen, setModalOpen] = React.useState(false)
+  const router = useRouter()
+  const { create } = Route.useSearch()
+  const [modalOpen, setModalOpen] = React.useState(create !== undefined)
   const organization = useCurrentOrganization()
   const {
     data: apps = [],
@@ -143,6 +155,17 @@ function DashboardPage(): React.JSX.Element {
   ).length
   const latestBuild = recentBuilds.at(0)
   const showOnboarding = apps.length === 0 || !appConfig?.configured
+
+  React.useEffect(() => {
+    if (create) setModalOpen(true)
+  }, [create])
+
+  const closeCreateModal = React.useCallback(() => {
+    setModalOpen(false)
+    if (create) {
+      void router.navigate({ href: window.location.pathname, replace: true })
+    }
+  }, [create, router])
 
   return (
     <ShellPage
@@ -310,8 +333,21 @@ function DashboardPage(): React.JSX.Element {
 
       <CreateAppModal
         open={modalOpen}
+        initialSource={create}
         organizationId={organization?.id}
-        onClose={() => setModalOpen(false)}
+        onClose={closeCreateModal}
+        onCreated={
+          create && organization
+            ? async (appId) => {
+                await router.navigate({
+                  href: organizationPath(
+                    organization.slug,
+                    `apps/${appId}/deployments`
+                  ),
+                })
+              }
+            : undefined
+        }
       />
     </ShellPage>
   )

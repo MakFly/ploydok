@@ -49,6 +49,14 @@ import type {
   ImageDfResponse,
   ImagePruneRequest,
   ImagePruneResponse,
+  ImagePushRequest,
+  ImagePushResponse,
+  ImageRemoveRequest,
+  ImageRemoveResponse,
+  BuildCachePruneRequest,
+  BuildCachePruneResponse,
+  RegistryGarbageCollectRequest,
+  RegistryGarbageCollectResponse,
   RegistryImageDigestRequest,
   RegistryImageDigestResponse,
 } from "@ploydok/agent-proto"
@@ -407,6 +415,22 @@ export class Agent {
       req,
       timeoutMs
     )
+  }
+
+  imagePush(req: ImagePushRequest, timeoutMs?: number): Promise<ImagePushResponse> {
+    return callUnary((r, m, opts, cb) => this.client.imagePush(r, m, opts, cb), req, timeoutMs)
+  }
+
+  imageRemove(req: ImageRemoveRequest, timeoutMs?: number): Promise<ImageRemoveResponse> {
+    return callUnary((r, m, opts, cb) => this.client.imageRemove(r, m, opts, cb), req, timeoutMs)
+  }
+
+  buildCachePrune(req: BuildCachePruneRequest, timeoutMs?: number): Promise<BuildCachePruneResponse> {
+    return callUnary((r, m, opts, cb) => this.client.buildCachePrune(r, m, opts, cb), req, timeoutMs)
+  }
+
+  registryGarbageCollect(req: RegistryGarbageCollectRequest, timeoutMs?: number): Promise<RegistryGarbageCollectResponse> {
+    return callUnary((r, m, opts, cb) => this.client.registryGarbageCollect(r, m, opts, cb), req, timeoutMs)
   }
 
   registryImageDigest(

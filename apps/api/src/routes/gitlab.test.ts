@@ -1,16 +1,47 @@
 // SPDX-License-Identifier: AGPL-3.0-only
 import { afterEach, beforeEach, describe, expect, it, mock } from "bun:test"
-import { createHmac } from "node:crypto"
 import { Hono } from "hono"
 import type { Context, Next } from "hono"
 import { env } from "../env"
 
 let mockGitLabConfig: Record<string, unknown> | null = null
 let fakeInstanceAdmin = true
+let mockInstallations: Array<{ id: string }> = []
+let lastListReposOptions: Record<string, unknown> | null = null
 const deliveryInserts: Array<{
   row: Record<string, unknown>
   rawBodyBuffer?: Buffer
 }> = []
+const enqueueGitLabSync = mock(async () => undefined)
+const oauthNonceValues = new Map<string, string>()
+const fakeRedis = {
+  set: mock(
+    async (
+      key: string,
+      value: string,
+      _ex: string,
+      _ttl: number,
+      _nx: string
+    ) => {
+      if (oauthNonceValues.has(key)) return null
+      oauthNonceValues.set(key, value)
+      return "OK"
+    }
+  ),
+  eval: mock(
+    async (
+      _script: string,
+      keyCount: number,
+      key: string,
+      expected: string
+    ) => {
+      if (keyCount !== 1) throw new Error("unexpected Redis key count")
+      if (oauthNonceValues.get(key) !== expected) return 0
+      oauthNonceValues.delete(key)
+      return 1
+    }
+  ),
+}
 
 const fakeTable = new Proxy(
   {},
@@ -36,6 +67,7 @@ const fakeDb = {
 
 mock.module("@ploydok/db", () => ({
   createDb: () => fakeDb,
+  createRedis: () => fakeRedis,
   provider_credentials: fakeTable,
   users: {
     id: "id",
@@ -49,9 +81,12 @@ mock.module("@ploydok/db/queries", () => ({
   getCacheStatus: async () => null,
   getGitLabConfig: async () => mockGitLabConfig,
   getGitLabTokens: async () => null,
-  getInstallationStaleness: async () => null,
-  listInstallations: async () => [],
-  listRepos: async () => [],
+  getInstallationStaleness: async () => ({ mostStaleAt: null }),
+  listInstallations: async () => mockInstallations,
+  listRepos: async (_db: unknown, options: Record<string, unknown>) => {
+    lastListReposOptions = options
+    return { rows: [], total: 0 }
+  },
   saveGitLabConfig: async () => undefined,
   upsertGitLabTokens: async () => undefined,
 }))
@@ -62,6 +97,18 @@ mock.module("../github/app-credentials", () => ({
     nonce: Buffer.from("nonce"),
   }),
   decryptField: async (enc: Buffer) => enc.toString().replace(/^enc:/, ""),
+}))
+
+mock.module("../gitlab/connection", () => ({
+  resolveGitLabConnection: async () => ({
+    accessToken: "access-token",
+    installationId: "gitlab:user:user-test-1",
+    provider: {
+      listBranches: async () => [],
+      fileExists: async () => false,
+      readFile: async () => "",
+    },
+  }),
 }))
 
 mock.module("../gitlab/webhook", () => ({
@@ -94,7 +141,7 @@ mock.module("../webhooks/rate-limiters", () => ({
 }))
 
 mock.module("../worker/handlers/sync-provider-repos", () => ({
-  enqueueProviderReposSync: async () => undefined,
+  enqueueProviderReposSync: enqueueGitLabSync,
 }))
 
 mock.module("../logger", () => ({
@@ -106,7 +153,7 @@ mock.module("../logger", () => ({
   }),
 }))
 
-const { gitlabRouter } = await import("./gitlab")
+const { gitlabRouter, gitLabDbRowToWire } = await import("./gitlab")
 
 const FAKE_USER = {
   id: "user-test-1",
@@ -131,7 +178,13 @@ function buildApp(user?: typeof FAKE_USER): Hono {
 beforeEach(() => {
   mockGitLabConfig = null
   fakeInstanceAdmin = true
+  mockInstallations = []
+  lastListReposOptions = null
   deliveryInserts.length = 0
+  enqueueGitLabSync.mockClear()
+  oauthNonceValues.clear()
+  fakeRedis.set.mockClear()
+  fakeRedis.eval.mockClear()
 })
 
 describe("GitLab configuration mutations", () => {
@@ -232,8 +285,51 @@ describe("GET /gitlab/config", () => {
   })
 })
 
+describe("GitLab repository wire format", () => {
+  it("converts cached DB rows into the project shape used by the browser", () => {
+    const wire = gitLabDbRowToWire({
+      id: "gitlab:431",
+      installation_id: "gitlab:user:user-test-1",
+      provider: "gitlab",
+      full_name: "platform/services/api",
+      name: "api",
+      description: "Nested project",
+      default_branch: "develop",
+      private: true,
+      html_url: "https://gitlab.example.test/platform/services/api",
+      pushed_at: null,
+      updated_at: null,
+      last_synced_at: new Date(),
+    })
+
+    expect(wire).toEqual({
+      id: 431,
+      fullName: "platform/services/api",
+      description: "Nested project",
+      private: true,
+      defaultBranch: "develop",
+      cloneUrl: "https://gitlab.example.test/platform/services/api.git",
+    })
+  })
+
+  it("scopes cached repository search to the current user's installation", async () => {
+    mockInstallations = [{ id: "gitlab:user:user-test-1" }]
+    const res = await buildApp(FAKE_USER).request(
+      "/gitlab/repos?search=platform"
+    )
+
+    expect(res.status).toBe(200)
+    expect(lastListReposOptions).toMatchObject({
+      provider: "gitlab",
+      installationIds: ["gitlab:user:user-test-1"],
+      search: "platform",
+    })
+  })
+})
+
 describe("GitLab OAuth round-trip", () => {
   const realFetch = globalThis.fetch
+  const realDateNow = Date.now
 
   function configured() {
     mockGitLabConfig = {
@@ -252,6 +348,36 @@ describe("GitLab OAuth round-trip", () => {
 
   afterEach(() => {
     globalThis.fetch = realFetch
+    Date.now = realDateNow
+  })
+
+  it("uses one clock snapshot for the signed state and Redis nonce", async () => {
+    configured()
+    stubTokenExchange()
+    let clockReads = 0
+    Date.now = () => (clockReads++ === 0 ? 1_000 : 2_000)
+    const app = buildApp(FAKE_USER)
+
+    const start = await app.request("/gitlab/connect")
+    const state = new URL(start.headers.get("location")!).searchParams.get(
+      "state"
+    )!
+    const cookie = readStateCookie(start)
+    const redisValue = JSON.parse(oauthNonceValues.values().next().value!) as [
+      number,
+      string,
+      string,
+    ]
+    const signedPayload = JSON.parse(
+      Buffer.from(cookie.split(".")[0]!, "base64url").toString("utf8")
+    ) as { exp: number }
+    expect(redisValue[0]).toBe(601)
+    expect(signedPayload.exp).toBe(redisValue[0])
+    const back = await app.request(`/gitlab/callback?code=xyz&state=${state}`, {
+      headers: { cookie: `gl_oauth_state=${encodeURIComponent(cookie)}` },
+    })
+
+    expect(back.status).toBe(302)
   })
 
   function stubTokenExchange() {
@@ -284,7 +410,15 @@ describe("GitLab OAuth round-trip", () => {
 
     expect(back.status).toBe(302)
     expect(back.headers.get("location")).toBe(
-      `${env.WEB_ORIGIN}/onboarding?connected=1`
+      `${env.WEB_ORIGIN}/onboarding?connected=1&sync=queued&source=gitlab`
+    )
+    expect(enqueueGitLabSync).toHaveBeenCalled()
+    expect(fakeRedis.set).toHaveBeenCalledWith(
+      expect.stringContaining("oauth:gitlab:nonce:"),
+      expect.any(String),
+      "EX",
+      600,
+      "NX"
     )
   })
 
@@ -304,7 +438,7 @@ describe("GitLab OAuth round-trip", () => {
     })
 
     expect(back.headers.get("location")).toBe(
-      `${env.WEB_ORIGIN}/settings/git-providers/gitlab?connected=1`
+      `${env.WEB_ORIGIN}/settings/git-providers/gitlab?connected=1&sync=queued&source=gitlab`
     )
   })
 
@@ -326,29 +460,73 @@ describe("GitLab OAuth round-trip", () => {
     })
 
     expect(back.headers.get("location")).toBe(
-      `${env.WEB_ORIGIN}/settings/git-providers/gitlab?connected=1`
+      `${env.WEB_ORIGIN}/settings/git-providers/gitlab?connected=1&sync=queued&source=gitlab`
     )
   })
 
-  it("keeps accepting a legacy bare-state cookie", async () => {
+  it("consumes an OAuth nonce exactly once", async () => {
     configured()
     stubTokenExchange()
     const app = buildApp(FAKE_USER)
-    const state = "legacy-gitlab-state"
-    const mac = createHmac("sha256", env.SESSION_SECRET)
-      .update(state)
-      .digest("hex")
+    const start = await app.request("/gitlab/connect")
+    const state = new URL(start.headers.get("location")!).searchParams.get(
+      "state"
+    )!
+    const cookie = readStateCookie(start)
+    const headers = {
+      cookie: `gl_oauth_state=${encodeURIComponent(cookie)}`,
+    }
 
-    const back = await app.request(`/gitlab/callback?code=xyz&state=${state}`, {
-      headers: {
-        cookie: `gl_oauth_state=${encodeURIComponent(`${state}.${mac}`)}`,
-      },
+    const first = await app.request(
+      `/gitlab/callback?code=xyz&state=${state}`,
+      { headers }
+    )
+    const replay = await app.request(
+      `/gitlab/callback?code=xyz&state=${state}`,
+      { headers }
+    )
+
+    expect(first.status).toBe(302)
+    expect(replay.status).toBe(400)
+    expect(await replay.json()).toEqual({ error: "invalid_state" })
+    expect(fakeRedis.eval).toHaveBeenCalledTimes(2)
+  })
+
+  it("rejects a callback after the authenticated session changes", async () => {
+    configured()
+    stubTokenExchange()
+    const initiatingApp = buildApp(FAKE_USER)
+    const start = await initiatingApp.request("/gitlab/connect")
+    const state = new URL(start.headers.get("location")!).searchParams.get(
+      "state"
+    )!
+    const cookie = readStateCookie(start)
+    const changedSessionApp = buildApp({
+      ...FAKE_USER,
+      session_id: "session-test-2",
     })
 
-    expect(back.status).toBe(302)
-    expect(back.headers.get("location")).toBe(
-      `${env.WEB_ORIGIN}/settings/git-providers/gitlab?connected=1`
+    const back = await changedSessionApp.request(
+      `/gitlab/callback?code=xyz&state=${state}`,
+      {
+        headers: {
+          cookie: `gl_oauth_state=${encodeURIComponent(cookie)}`,
+        },
+      }
     )
+
+    expect(back.status).toBe(403)
+    expect(await back.json()).toEqual({ error: "oauth_user_mismatch" })
+
+    const legitimate = await initiatingApp.request(
+      `/gitlab/callback?code=xyz&state=${state}`,
+      {
+        headers: {
+          cookie: `gl_oauth_state=${encodeURIComponent(cookie)}`,
+        },
+      }
+    )
+    expect(legitimate.status).toBe(302)
   })
 
   it("rejects a state that does not match the cookie", async () => {
@@ -365,5 +543,57 @@ describe("GitLab OAuth round-trip", () => {
     expect(back.status).toBe(400)
     const data = (await back.json()) as { error: string }
     expect(data.error).toBe("invalid_state")
+
+    const state = new URL(start.headers.get("location")!).searchParams.get(
+      "state"
+    )!
+    stubTokenExchange()
+    const legitimate = await app.request(
+      `/gitlab/callback?code=xyz&state=${state}`,
+      { headers: { cookie: `gl_oauth_state=${encodeURIComponent(cookie)}` } }
+    )
+    expect(legitimate.status).toBe(302)
+  })
+
+  it("redirects a provider denial only after validating OAuth state", async () => {
+    configured()
+    const app = buildApp(FAKE_USER)
+    const start = await app.request("/gitlab/connect?return_to=%2Fonboarding")
+    const state = new URL(start.headers.get("location")!).searchParams.get(
+      "state"
+    )!
+    const cookie = readStateCookie(start)
+
+    const denied = await app.request(
+      `/gitlab/callback?error=access_denied&state=${state}`,
+      { headers: { cookie: `gl_oauth_state=${encodeURIComponent(cookie)}` } }
+    )
+
+    expect(denied.status).toBe(302)
+    expect(denied.headers.get("location")).toBe(
+      `${env.WEB_ORIGIN}/onboarding?gitlab_error=access_denied`
+    )
+    expect(denied.headers.get("set-cookie")).toContain("Max-Age=0")
+  })
+
+  it("returns exchange failures to the trusted UI target", async () => {
+    configured()
+    globalThis.fetch = (async () =>
+      new Response("invalid grant", { status: 400 })) as unknown as typeof fetch
+    const app = buildApp(FAKE_USER)
+    const start = await app.request("/gitlab/connect")
+    const state = new URL(start.headers.get("location")!).searchParams.get(
+      "state"
+    )!
+    const cookie = readStateCookie(start)
+
+    const back = await app.request(`/gitlab/callback?code=bad&state=${state}`, {
+      headers: { cookie: `gl_oauth_state=${encodeURIComponent(cookie)}` },
+    })
+
+    expect(back.status).toBe(302)
+    expect(back.headers.get("location")).toBe(
+      `${env.WEB_ORIGIN}/settings/git-providers/gitlab?gitlab_error=exchange_failed`
+    )
   })
 })

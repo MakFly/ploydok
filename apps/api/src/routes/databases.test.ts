@@ -33,6 +33,8 @@ mock.module("../databases/spawner", () => ({
     async (_db: unknown, row: Record<string, unknown>) => row
   ),
   removeDatabasePublicProxy: mock(async () => {}),
+  resumeDatabaseCreation: mock(async () => {}),
+  compensateDatabaseCreation: mock(async () => {}),
 }))
 
 mock.module("../debug/singletons", () => ({

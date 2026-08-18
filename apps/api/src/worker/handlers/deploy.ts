@@ -1,7 +1,7 @@
 // SPDX-License-Identifier: AGPL-3.0-only
 import fs from "node:fs"
 import path from "node:path"
-import { and, eq } from "drizzle-orm"
+import { and, eq, inArray, sql } from "drizzle-orm"
 import { nanoid } from "nanoid"
 import { z } from "zod"
 import { apps, builds, projects, system_jobs } from "@ploydok/db"
@@ -26,10 +26,8 @@ import { env } from "../../env"
 import { decryptField } from "../../github/app-credentials"
 import { GitHubProvider } from "../../github/client"
 import { GitHubCache } from "../../github/cache"
-import {
-  getInstallationToken,
-  listAppInstallations,
-} from "../../github/installation-tokens"
+import { getInstallationToken } from "../../github/installation-tokens"
+import { assertGitLabProjectSelection } from "../../gitlab/connection"
 import { cloneRepo } from "../git"
 import { detectBuildMethod } from "../detect"
 import { detectDockerfilePort } from "../detect-port"
@@ -45,9 +43,15 @@ import {
   dispatchStaticDeploy,
   gcOldShas,
   caddyStaticRootForApp,
+  promoteSha,
 } from "./build-static"
 import { imageRepoForApp } from "../../services/runtime-containers"
 import { classifyAgentError, FatalDeployError } from "../errors"
+import {
+  recordDeploymentOutcome,
+  recordInitialBuildClaim,
+  type DeploymentOutcome,
+} from "../../observability/operational-metrics"
 import { createRedis } from "@ploydok/db"
 import { postCommitStatusForApp } from "../../providers/commit-status"
 import { dispatch } from "../../notify/index"
@@ -64,6 +68,22 @@ import {
 import { purgeCloudflareForApp } from "../../cloudflare/purge"
 import { captureAppManifests } from "../../advisories/service"
 import { enqueueImageScan } from "./scan-image"
+import {
+  currentDeployAbortSignal,
+  currentDeployLease,
+  currentDeployLeaseCondition,
+  DeployCancelledError,
+  DeployLeaseLostError,
+  fenceDeploySideEffect,
+} from "../app-deploy-lock"
+
+export function deploymentOutcomeForError(
+  error: unknown
+): "application_failed" | "platform_failed" {
+  return error instanceof FatalDeployError
+    ? "application_failed"
+    : "platform_failed"
+}
 
 // Shared Redis client for commit status dedup (singleton per worker process).
 const redis = createRedis(env.REDIS_URL)
@@ -89,6 +109,33 @@ const DeployPayloadSchema = z.object({
     .optional(),
 })
 
+export function imageUpdateForBuild(
+  build: Pick<
+    typeof builds.$inferSelect,
+    | "id"
+    | "image_update_from_digest"
+    | "image_update_to_digest"
+    | "image_update_previous_status"
+  >
+) {
+  const fields = [
+    build.image_update_from_digest,
+    build.image_update_to_digest,
+    build.image_update_previous_status,
+  ]
+  if (fields.every((value) => value === null)) return undefined
+  if (fields.some((value) => value === null)) {
+    throw new FatalDeployError(
+      `Build ${build.id} has incomplete image-update metadata`
+    )
+  }
+  return {
+    fromDigest: build.image_update_from_digest!,
+    toDigest: build.image_update_to_digest!,
+    previousStatus: build.image_update_previous_status!,
+  }
+}
+
 // ---------------------------------------------------------------------------
 // Internal helpers
 // ---------------------------------------------------------------------------
@@ -99,10 +146,14 @@ interface AppForDeploy {
   name: string
   slug: string
   status: string
+  container_id: string | null
   git_provider: string | null
   repo_full_name: string | null
   branch: string | null
   github_installation_id: string | null
+  gitlab_project_id: number | null
+  git_provider_installation_id: string | null
+  gitlab_credential_user_id: string | null
   root_dir: string | null
   dockerfile_path: string | null
   nixpacks_config_path: string | null
@@ -141,35 +192,6 @@ interface AppForDeploy {
 
 import { isSymfonyFlexWorkspace } from "./symfony-detect"
 
-interface DeployLog {
-  info(bindings: Record<string, unknown>, message: string): void
-  warn(bindings: Record<string, unknown>, message: string): void
-}
-
-function removeLocalImageAfterPush(imageRef: string, log: DeployLog): void {
-  void (async () => {
-    const proc = Bun.spawn(["docker", "rmi", imageRef], {
-      stdout: "pipe",
-      stderr: "pipe",
-    })
-    const stdout = await new Response(proc.stdout).text()
-    const stderr = await new Response(proc.stderr).text()
-    const exitCode = await proc.exited
-
-    if (exitCode === 0) {
-      log.info({ imageRef }, "local image removed after push")
-      return
-    }
-
-    log.warn(
-      { imageRef, exitCode, stdout: stdout.trim(), stderr: stderr.trim() },
-      "local image removal after push failed"
-    )
-  })().catch((err) => {
-    log.warn({ err, imageRef }, "local image removal after push failed")
-  })
-}
-
 export function pinImageReference(imageRef: string, digest: string): string {
   const withoutDigest = imageRef.split("@", 1)[0]!
   const lastSlash = withoutDigest.lastIndexOf("/")
@@ -191,10 +213,14 @@ async function getAppForDeploy(db: Db, appId: string): Promise<AppForDeploy> {
       name: apps.name,
       slug: apps.slug,
       status: apps.status,
+      container_id: apps.container_id,
       git_provider: apps.git_provider,
       repo_full_name: apps.repo_full_name,
       branch: apps.branch,
       github_installation_id: apps.github_installation_id,
+      gitlab_project_id: apps.gitlab_project_id,
+      git_provider_installation_id: apps.git_provider_installation_id,
+      gitlab_credential_user_id: apps.gitlab_credential_user_id,
       root_dir: apps.root_dir,
       dockerfile_path: apps.dockerfile_path,
       nixpacks_config_path: apps.nixpacks_config_path,
@@ -286,20 +312,36 @@ async function classifyWorkspaceStack(params: {
   }
 }
 
+export async function restoreInterruptedAppState(
+  db: Db,
+  app: AppForDeploy
+): Promise<void> {
+  await db
+    .update(apps)
+    .set({
+      status: app.status as typeof apps.$inferSelect.status,
+      container_id: app.container_id,
+      runtime_mode: app.runtime_mode,
+      swarm_service_name: app.swarm_service_name,
+      updated_at: new Date(),
+    })
+    .where(and(eq(apps.id, app.id), currentDeployLeaseCondition()))
+}
+
 function defaultRuntimePortForStack(
-  method: "docker" | "nixpacks" | "railpack" | "static",
+  method: "docker" | "nixpacks" | "static",
   classification: StackClassification
 ): number | null {
   if (method === "static") return null
   if (
-    (method === "nixpacks" || method === "railpack") &&
+    method === "nixpacks" &&
     (classification.stack === "laravel" ||
       classification.stack === "symfony" ||
       classification.stack === "php")
   ) {
     return 80
   }
-  if (method === "nixpacks" || method === "railpack") {
+  if (method === "nixpacks") {
     if (
       classification.stack === "django" ||
       classification.stack === "flask" ||
@@ -365,33 +407,59 @@ async function loadRegistryAuthForApp(
   return { username: row.username, password }
 }
 
-async function resolveInstallationTokenForApp(
+export async function resolveCloneSourceForApp(
+  db: Db,
   app: AppForDeploy
-): Promise<{ installationId: string; token: string }> {
+): Promise<{ installationId: string; cloneUrl: string }> {
   if (!app.repo_full_name) {
     throw new Error(`App ${app.id} has no repo_full_name`)
   }
 
-  if (app.github_installation_id) {
+  if (app.git_provider === "github") {
+    if (!app.github_installation_id) {
+      throw new FatalDeployError(
+        `App ${app.id} has no explicit GitHub installation; reconnect and reselect the repository`
+      )
+    }
     const token = await getInstallationToken(app.github_installation_id)
-    return { installationId: app.github_installation_id, token }
+    const ghProvider = new GitHubProvider(new GitHubCache())
+    return {
+      installationId: `github:${app.github_installation_id}`,
+      cloneUrl: ghProvider.cloneUrlWithToken(app.repo_full_name, token),
+    }
   }
 
-  const ownerLogin = app.repo_full_name.split("/")[0]?.toLowerCase() ?? ""
-  const installations = await listAppInstallations()
-  const match = installations.find(
-    (i) => i.accountLogin.toLowerCase() === ownerLogin
-  )
-  if (!match) {
-    throw new Error(
-      `No GitHub App installation grants access to ${app.repo_full_name}. ` +
-        `Install the Ploydok GitHub App on ${ownerLogin} (or another account ` +
-        `with read access) and set apps.github_installation_id on this app.`
-    )
+  if (app.git_provider === "gitlab") {
+    if (
+      !app.gitlab_credential_user_id ||
+      !app.gitlab_project_id ||
+      !app.branch ||
+      app.git_provider_installation_id !==
+        `gitlab:user:${app.gitlab_credential_user_id}`
+    ) {
+      throw new FatalDeployError(
+        `App ${app.id} has no exact GitLab credential/project binding; reselect the repository`
+      )
+    }
+    const connection = await assertGitLabProjectSelection(db, {
+      credentialUserId: app.gitlab_credential_user_id,
+      projectId: app.gitlab_project_id,
+      fullName: app.repo_full_name,
+      branch: app.branch,
+    })
+    return {
+      installationId: connection.installationId,
+      cloneUrl: connection.provider.cloneUrlWithToken(
+        app.repo_full_name,
+        connection.accessToken,
+        connection.project.cloneUrl
+      ),
+    }
   }
-  const installationId = String(match.id)
-  const token = await getInstallationToken(installationId)
-  return { installationId, token }
+
+  throw new FatalDeployError(
+    `App ${app.id} has unsupported git_provider='${app.git_provider ?? "null"}'`
+  )
 }
 
 // ---------------------------------------------------------------------------
@@ -445,7 +513,23 @@ export async function handleDeploy(
       return
     }
 
+    if (job.attempts === 1) {
+      recordInitialBuildClaim(
+        claimed.queued_at,
+        claimed.claimed_at ?? new Date()
+      )
+    }
+
     appId = claimed.app_id
+    // JOB-01 outbox payloads contain references only. Hydrate deploy metadata
+    // from the durable build row after its ownership/status claim.
+    payload.commitSha ??= claimed.commit_sha
+    payload.commitMessage ??= claimed.commit_message
+    if (claimed.source === "auto:tag" && claimed.image_tag) {
+      payload.kind = "tag"
+      payload.tag = claimed.image_tag
+    }
+    payload.imageUpdate = imageUpdateForBuild(claimed)
     auditClaimed({
       jobName: "deploy.requested",
       jobId: job.id,
@@ -466,6 +550,7 @@ export async function handleDeploy(
   }
 
   const log = workerLog.child({ jobId: job.id, appId })
+  await fenceDeploySideEffect()
 
   // Fetch app + owner
   const app = await getAppForDeploy(db, appId)
@@ -498,12 +583,15 @@ export async function handleDeploy(
         .where(
           and(
             eq(apps.id, app.id),
-            eq(apps.pending_image_digest, payload.imageUpdate.toDigest)
+            eq(apps.pending_image_digest, payload.imageUpdate.toDigest),
+            currentDeployLeaseCondition()
           )
         )
+      recordDeploymentOutcome("cancelled")
       return
     }
   } else if (!app.repo_full_name || !app.branch) {
+    recordDeploymentOutcome("application_failed")
     throw new FatalDeployError(
       `App ${app.id} is missing repo_full_name or branch — cannot deploy`
     )
@@ -521,43 +609,35 @@ export async function handleDeploy(
         errorMessage: "user lost access during queue wait",
         finishedAt: new Date(),
       })
+      recordDeploymentOutcome("application_failed")
       return
     }
   }
 
   // Normalize app.build_method:
   //   - legacy "docker" aliases to "dockerfile"
-  //   - "compose" is not yet implemented — reject early (sprint 3.3).
-  //   - "railpack" is supported first-class since Wave 3 (PLAN-build-strategy-v2).
+  //   - "compose" and "railpack" are planned but unavailable in production.
   const rawMethod = app.build_method ?? "auto"
-  if (rawMethod === "compose") {
+  if (rawMethod === "compose" || rawMethod === "railpack") {
+    recordDeploymentOutcome("application_failed")
     throw new FatalDeployError(
       `build_method="${rawMethod}" is not yet supported (planned sprint 3.3)`
     )
   }
-  const normalizedMethod:
-    | "docker"
-    | "nixpacks"
-    | "railpack"
-    | "static"
-    | "auto" =
+  const normalizedMethod: "docker" | "nixpacks" | "static" | "auto" =
     rawMethod === "docker" || rawMethod === "dockerfile"
       ? "docker"
       : rawMethod === "nixpacks"
         ? "nixpacks"
-        : rawMethod === "railpack"
-          ? "railpack"
-          : rawMethod === "static"
-            ? "static"
-            : "auto"
+        : rawMethod === "static"
+          ? "static"
+          : "auto"
   const resolvedBuildMethod =
     normalizedMethod === "nixpacks"
       ? "nixpacks"
-      : normalizedMethod === "railpack"
-        ? "railpack"
-        : normalizedMethod === "static"
-          ? "static"
-          : "docker"
+      : normalizedMethod === "static"
+        ? "static"
+        : "docker"
 
   // Hydrate build record with build_method, commitSha, commitMessage.
   await db
@@ -572,10 +652,11 @@ export async function handleDeploy(
     .where(eq(builds.id, buildId))
 
   await updateBuildStatus(db, buildId, "running", { startedAt: new Date() })
+  await fenceDeploySideEffect()
   await db
     .update(apps)
     .set({ status: "building", updated_at: new Date() })
-    .where(eq(apps.id, appId))
+    .where(and(eq(apps.id, appId), currentDeployLeaseCondition()))
 
   // Notify: build started
   if (ownerId) {
@@ -620,18 +701,6 @@ export async function handleDeploy(
 
   log.info({ buildId }, "deploy started")
 
-  // Commit status — pending (best-effort, non-fatal)
-  if (payload.commitSha) {
-    postCommitStatusForApp(db, redis, app, {
-      sha: payload.commitSha,
-      state: "pending",
-      description: "Build en cours",
-      buildId,
-    }).catch((err) =>
-      log.warn({ err, buildId }, "postCommitStatus(pending) failed (non-fatal)")
-    )
-  }
-
   // Create log file stream for this build.
   const logDir = path.join(env.PLOYDOK_BUILD_DIR, app.id)
   const logPath = path.join(logDir, `${buildId}.log`)
@@ -667,9 +736,32 @@ export async function handleDeploy(
   let scanImageRef: string | null = null
   // Commit status state to post on failure: FatalDeployError → failure, unknown → error
   let commitStatusErrorState: "failure" | "error" = "error"
+  let deploymentOutcome: DeploymentOutcome = "succeeded"
+  let leaseLost = false
+  let cancelledByFence = false
+  let rollbackStaticPromotion: (() => Promise<void>) | null = null
+  let runtimePublished = false
+  let appStateReconciled = false
+  const reconcileInterruptedApp = async (): Promise<void> => {
+    if (appStateReconciled || runtimePublished) return
+    appStateReconciled = true
+    await restoreInterruptedAppState(db, app)
+  }
   const deployStartMs = Date.now()
 
   try {
+    // Await provider status so no detached request can outlive cancellation.
+    if (payload.commitSha) {
+      await fenceDeploySideEffect()
+      await postCommitStatusForApp(db, redis, app, {
+        sha: payload.commitSha,
+        state: "pending",
+        description: "Build en cours",
+        buildId,
+        beforeSend: fenceDeploySideEffect,
+      })
+    }
+
     // ── Phase 1.B: Docker-image source ──────────────────────────────────────
     //
     // When git_provider === 'image', skip clone + build entirely. The image
@@ -721,6 +813,7 @@ export async function handleDeploy(
           buildId,
         }
         try {
+          await fenceDeploySideEffect()
           await runPreDeployHook(
             hookCtx,
             app.hooks_pre_deploy,
@@ -734,6 +827,7 @@ export async function handleDeploy(
       let runtimeRef: string
       let containerId: string | undefined
       try {
+        await fenceDeploySideEffect()
         if (app.runtime_mode === "docker") {
           const runOpts: Parameters<typeof runBlueGreen>[0] = {
             appId: app.id,
@@ -761,6 +855,7 @@ export async function handleDeploy(
       } catch (runErr) {
         throw classifyAgentError(runErr)
       }
+      runtimePublished = true
       imageLog(`[deploy] runtime live: ${runtimeRef}`)
 
       // Post-deploy hook (image source path) — non-fatal on failure
@@ -775,6 +870,7 @@ export async function handleDeploy(
           env: secretEnv,
           buildId,
         }
+        await fenceDeploySideEffect()
         const postResult = await runPostDeployHook(
           postHookCtx,
           app.hooks_post_deploy,
@@ -829,6 +925,7 @@ export async function handleDeploy(
         finalStatus = "succeeded"
       }
       if (payload.imageUpdate) {
+        await fenceDeploySideEffect()
         const finalized = await db
           .update(apps)
           .set({
@@ -840,7 +937,8 @@ export async function handleDeploy(
             and(
               eq(apps.id, app.id),
               eq(apps.track_latest, true),
-              eq(apps.pending_image_digest, payload.imageUpdate.toDigest)
+              eq(apps.pending_image_digest, payload.imageUpdate.toDigest),
+              currentDeployLeaseCondition()
             )
           )
           .returning({ id: apps.id })
@@ -887,20 +985,21 @@ export async function handleDeploy(
     const branchName = app.branch!
 
     // 1. Clone
-    const { installationId, token } = await resolveInstallationTokenForApp(app)
-    const ghCache = new GitHubCache()
-    const ghProvider = new GitHubProvider(ghCache)
-    const cloneUrl = ghProvider.cloneUrlWithToken(repoFullName, token)
+    const { installationId, cloneUrl } = await resolveCloneSourceForApp(db, app)
 
     log.info({ buildId, installationId }, "cloning repo")
     let cloneResult: Awaited<ReturnType<typeof cloneRepo>>
     try {
+      await fenceDeploySideEffect()
       cloneResult = await cloneRepo({
         repoCloneUrl: cloneUrl,
         buildDir: env.PLOYDOK_BUILD_DIR,
         appId: app.id,
         buildId,
         branch: branchName,
+        ...(currentDeployAbortSignal()
+          ? { signal: currentDeployAbortSignal()! }
+          : {}),
       })
     } catch (cloneErr) {
       throw classifyAgentError(cloneErr)
@@ -923,7 +1022,6 @@ export async function handleDeploy(
     const detectedOverride =
       normalizedMethod === "docker" ||
       normalizedMethod === "nixpacks" ||
-      normalizedMethod === "railpack" ||
       normalizedMethod === "static"
         ? normalizedMethod
         : "auto"
@@ -968,7 +1066,7 @@ export async function handleDeploy(
         await db
           .update(apps)
           .set({ runtime_port: detectedPort, updated_at: new Date() })
-          .where(eq(apps.id, app.id))
+          .where(and(eq(apps.id, app.id), currentDeployLeaseCondition()))
         app.runtime_port = detectedPort
       }
     }
@@ -989,7 +1087,8 @@ export async function handleDeploy(
       await db
         .update(apps)
         .set({ start_command: app.start_command, updated_at: new Date() })
-        .where(eq(apps.id, app.id))
+        .where(and(eq(apps.id, app.id), currentDeployLeaseCondition()))
+      runtimePublished = true
       onLog(
         `[deploy] inferred start command for ${workspaceClassification.framework ?? workspaceClassification.stack}: ${app.start_command}`
       )
@@ -1056,7 +1155,7 @@ export async function handleDeploy(
         await db
           .update(apps)
           .set({ runtime_port: inferredRuntimePort, updated_at: new Date() })
-          .where(eq(apps.id, app.id))
+          .where(and(eq(apps.id, app.id), currentDeployLeaseCondition()))
         app.runtime_port = inferredRuntimePort
       }
     }
@@ -1064,6 +1163,7 @@ export async function handleDeploy(
     // Guard: abort early if registry disk is too full (threshold = 80 %).
     // Under pressure, kick an aggressive sweep (keep 1 per repo) before
     // giving up — most builds will recover instead of failing the deploy.
+    await fenceDeploySideEffect()
     await diskGuard(80, async () => {
       const { runAggressiveDiskGuard } = await import("./gc-registry")
       await runAggressiveDiskGuard({
@@ -1129,6 +1229,7 @@ export async function handleDeploy(
 
     if (detected.method === "static") {
       onLog("[deploy] static site build selected")
+      await fenceDeploySideEffect()
       const staticResult = await dispatchStaticDeploy(
         app.id,
         commitSha,
@@ -1140,11 +1241,19 @@ export async function handleDeploy(
           buildCommand: app.build_command,
           env: buildEnv,
           onLog,
+          ...(currentDeployAbortSignal()
+            ? { signal: currentDeployAbortSignal()! }
+            : {}),
+          beforePublish: fenceDeploySideEffect,
         }
       )
+      rollbackStaticPromotion = staticResult.previousSha
+        ? () => promoteSha(app.id, staticResult.previousSha!)
+        : () => fs.promises.unlink(staticResult.currentSymlink).catch(() => {})
       onLog(`[deploy] static files installed: ${staticResult.shaDir}`)
 
       if (app.domain) {
+        await fenceDeploySideEffect()
         await getSharedCaddy().upsertStaticRoute({
           appId: app.id,
           host: app.domain,
@@ -1152,16 +1261,19 @@ export async function handleDeploy(
           spaFallback: app.static_spa_fallback ?? true,
           cdn: app,
         })
+        await fenceDeploySideEffect()
         await purgeCloudflareForApp(db, app.id)
         onLog(`[deploy] Caddy static route updated for ${app.domain}`)
       }
 
       const keep = app.keep_per_repo ?? 3
       if (keep > 0) {
+        await fenceDeploySideEffect()
         const deleted = await gcOldShas(app.id, keep)
         if (deleted > 0) onLog(`[deploy] static GC removed ${deleted} build(s)`)
       }
 
+      await fenceDeploySideEffect()
       await db
         .update(apps)
         .set({
@@ -1169,10 +1281,11 @@ export async function handleDeploy(
           status: "serving",
           updated_at: new Date(),
         })
-        .where(eq(apps.id, app.id))
+        .where(and(eq(apps.id, app.id), currentDeployLeaseCondition()))
 
       finalPatch = { finishedAt: new Date() }
       finalStatus = "succeeded"
+      await fenceDeploySideEffect()
 
       if (ownerId) {
         try {
@@ -1207,6 +1320,7 @@ export async function handleDeploy(
       log.info({ buildId, imageRef, pushRef }, "starting BuildKit build")
       let imageDigest: string, durationMs: number
       try {
+        await fenceDeploySideEffect()
         ;({ imageDigest, durationMs } = await buildImage({
           contextDir,
           dockerfile: dockerfileAbs,
@@ -1217,6 +1331,9 @@ export async function handleDeploy(
           // the plaintext into the image history, visible via `docker history`.
           buildSecrets: buildEnv,
           onLog,
+          ...(currentDeployAbortSignal()
+            ? { signal: currentDeployAbortSignal()! }
+            : {}),
         }))
       } catch (buildErr) {
         throw classifyAgentError(buildErr)
@@ -1230,6 +1347,7 @@ export async function handleDeploy(
 
       // If this is a tag deploy, also push the image under the git tag name.
       if (payload.kind === "tag" && payload.tag) {
+        await fenceDeploySideEffect()
         await tagManifest(repo, commitSha, payload.tag).catch((tagErr) => {
           log.warn(
             { tagErr, buildId, tag: payload.tag },
@@ -1257,54 +1375,7 @@ export async function handleDeploy(
       }
 
       // Post-push GC: keep last 3 images for this app repo.
-      gcKeepLast(repo, 3).catch((gcErr) => {
-        log.warn({ gcErr, repo }, "post-build GC failed (non-fatal)")
-      })
-    } else if (detected.method === "railpack") {
-      // Railpack path (Wave 3 — iso Dokploy): newer Go-based builder by
-      // Railway that uses Caddy instead of nginx for PHP. Same host-side
-      // docker daemon semantics as nixpacks (imageRef not pushRef).
-      const railpackCache = path.join(
-        env.PLOYDOK_BUILD_DIR,
-        app.id,
-        ".railpack-cache"
-      )
-      log.info({ buildId, imageRef, pushRef }, "starting railpack build")
-      try {
-        const { railpackBuild } = await import("../railpack")
-        await railpackBuild({
-          workspacePath,
-          tag: imageRef,
-          cacheDir: railpackCache,
-          ...(app.root_dir !== null && { rootDir: app.root_dir }),
-          ...(Object.keys(buildEnv).length > 0 && { buildEnv }),
-          onLog,
-        })
-      } catch (rpErr) {
-        throw classifyAgentError(rpErr)
-      }
-
-      // Push to local registry (same pattern as nixpacks path).
-      onLog(`[deploy] pushing image to ${imageRef}`)
-      const pushProc = Bun.spawn(["docker", "push", imageRef], {
-        stdout: "pipe",
-        stderr: "pipe",
-      })
-      const pushStdout = await new Response(pushProc.stdout).text()
-      const pushStderr = await new Response(pushProc.stderr).text()
-      for (const line of (pushStdout + pushStderr).split("\n")) {
-        if (line) onLog(line)
-      }
-      const pushCode = await pushProc.exited
-      if (pushCode !== 0) {
-        throw new Error(
-          `docker push failed (exit ${pushCode}) for ${imageRef}: ${pushStderr.trim()}`
-        )
-      }
-      removeLocalImageAfterPush(imageRef, log)
-      log.info({ buildId, imageRef }, "railpack build + push done")
-      await updateBuildStatus(db, buildId, "running", { imageTag: imageRef })
-
+      await fenceDeploySideEffect()
       gcKeepLast(repo, 3).catch((gcErr) => {
         log.warn({ gcErr, repo }, "post-build GC failed (non-fatal)")
       })
@@ -1367,17 +1438,13 @@ export async function handleDeploy(
       }
       log.info({ buildId, imageRef, pushRef }, "starting nixpacks build")
       try {
-        // Unlike buildctl (which runs inside the buildkitd compose container
-        // and pushes via the compose DNS name `registry:5000`), `nixpacks
-        // build` shells out to the HOST docker daemon. The host resolves the
-        // registry at `127.0.0.1:5000` (published port), not `registry:5000`
-        // (compose-internal DNS). Tagging with `pushRef` here would create an
-        // unreachable name in the local image store — that's why the pull at
-        // blue-green fails with 404. Use `imageRef` (host-side addr) so the
-        // subsequent `docker push` below lands in the registry.
-        await nixpacksBuild({
+        // Nixpacks generates a Dockerfile/context with --out and never opens
+        // a Docker daemon. The platform BuildKit path then builds and pushes
+        // that generated context to the compose-internal registry reference.
+        await fenceDeploySideEffect()
+        const generated = await nixpacksBuild({
           workspacePath,
-          tag: imageRef,
+          tag: pushRef,
           cacheKey: app.id,
           cacheDir: nixpacksCache,
           // NOTE: `--incremental-cache-image` is intentionally disabled.
@@ -1403,38 +1470,38 @@ export async function handleDeploy(
             runtimeEnv: runtimeSecretEnv,
           }),
           onLog,
+          ...(currentDeployAbortSignal()
+            ? { signal: currentDeployAbortSignal()! }
+            : {}),
         })
+        try {
+          await fenceDeploySideEffect()
+          await buildImage({
+            contextDir: generated.contextDir,
+            dockerfile: generated.dockerfile,
+            imageRef: pushRef,
+            cacheDir: nixpacksCache,
+            onLog,
+            ...(currentDeployAbortSignal()
+              ? { signal: currentDeployAbortSignal()! }
+              : {}),
+          })
+        } finally {
+          await fs.promises.rm(generated.contextDir, {
+            recursive: true,
+            force: true,
+          })
+        }
       } catch (nixErr) {
         throw classifyAgentError(nixErr)
       }
-
-      // Push the built image into the registry. `nixpacks build` only tags
-      // the image in the local docker daemon — it does NOT push. Without
-      // this, the blue-green runner cannot pull `imageRef` and fails with
-      // "manifest unknown".
-      onLog(`[deploy] pushing image to ${imageRef}`)
-      const pushProc = Bun.spawn(["docker", "push", imageRef], {
-        stdout: "pipe",
-        stderr: "pipe",
-      })
-      const pushStdout = await new Response(pushProc.stdout).text()
-      const pushStderr = await new Response(pushProc.stderr).text()
-      for (const line of (pushStdout + pushStderr).split("\n")) {
-        if (line) onLog(line)
-      }
-      const pushCode = await pushProc.exited
-      if (pushCode !== 0) {
-        throw new Error(
-          `docker push failed (exit ${pushCode}) for ${imageRef}: ${pushStderr.trim()}`
-        )
-      }
-      removeLocalImageAfterPush(imageRef, log)
 
       log.info({ buildId, imageRef }, "nixpacks build + push done")
       await updateBuildStatus(db, buildId, "running", { imageTag: imageRef })
 
       // If this is a tag deploy, also push the image under the git tag name.
       if (payload.kind === "tag" && payload.tag) {
+        await fenceDeploySideEffect()
         await tagManifest(repo, commitSha, payload.tag).catch((tagErr) => {
           log.warn(
             { tagErr, buildId, tag: payload.tag },
@@ -1462,6 +1529,7 @@ export async function handleDeploy(
       }
 
       // Post-push GC: keep last 3 images for this app repo.
+      await fenceDeploySideEffect()
       gcKeepLast(repo, 3).catch((gcErr) => {
         log.warn({ gcErr, repo }, "post-build GC failed (non-fatal)")
       })
@@ -1487,6 +1555,7 @@ export async function handleDeploy(
         buildId,
       }
       try {
+        await fenceDeploySideEffect()
         await runPreDeployHook(
           preHookCtx,
           app.hooks_pre_deploy,
@@ -1504,6 +1573,7 @@ export async function handleDeploy(
       (entry) => onLog(entry.line)
     )
     try {
+      await fenceDeploySideEffect()
       if (app.runtime_mode === "docker") {
         const runOpts: Parameters<typeof runBlueGreen>[0] = {
           appId: app.id,
@@ -1531,6 +1601,7 @@ export async function handleDeploy(
     } finally {
       unsubscribeRuntimeLogs()
     }
+    runtimePublished = true
     onLog(`[deploy] runtime live: ${runtimeRef}`)
 
     // Post-deploy hook (git source path) — non-fatal on failure
@@ -1545,6 +1616,7 @@ export async function handleDeploy(
         env: runtimeSecretEnv,
         buildId,
       }
+      await fenceDeploySideEffect()
       const postResult = await runPostDeployHook(
         postHookCtx,
         app.hooks_post_deploy,
@@ -1642,10 +1714,32 @@ export async function handleDeploy(
     const msg = err instanceof Error ? err.message : String(err)
     log.error({ buildId, err }, "deploy failed")
 
+    const abortReason = currentDeployAbortSignal()?.reason
+    if (
+      err instanceof DeployLeaseLostError ||
+      abortReason instanceof DeployLeaseLostError
+    ) {
+      leaseLost = true
+      await rollbackStaticPromotion?.()
+      await reconcileInterruptedApp()
+      throw abortReason instanceof DeployLeaseLostError ? abortReason : err
+    }
+    if (
+      err instanceof DeployCancelledError ||
+      abortReason instanceof DeployCancelledError
+    ) {
+      cancelledByFence = true
+      deploymentOutcome = "cancelled"
+      await rollbackStaticPromotion?.()
+      await reconcileInterruptedApp()
+      throw abortReason instanceof DeployCancelledError ? abortReason : err
+    }
+
     finalStatus = "failed"
     finalPatch = { finishedAt: new Date(), errorMessage: msg }
     commitStatusErrorState =
       err instanceof FatalDeployError ? "failure" : "error"
+    deploymentOutcome = deploymentOutcomeForError(err)
 
     // If a previous deploy had put the app in "running", a failed redeploy
     // must NOT overwrite that — blue-green keeps the old container alive.
@@ -1657,10 +1751,11 @@ export async function handleDeploy(
         ? "running"
         : "failed"
 
+    await fenceDeploySideEffect()
     await db
       .update(apps)
       .set({ status: fallbackStatus, updated_at: new Date() })
-      .where(eq(apps.id, app.id))
+      .where(and(eq(apps.id, app.id), currentDeployLeaseCondition()))
 
     if (payload.imageUpdate && job.attempts >= job.max_attempts) {
       await db
@@ -1669,7 +1764,8 @@ export async function handleDeploy(
         .where(
           and(
             eq(apps.id, app.id),
-            eq(apps.pending_image_digest, payload.imageUpdate.toDigest)
+            eq(apps.pending_image_digest, payload.imageUpdate.toDigest),
+            currentDeployLeaseCondition()
           )
         )
     }
@@ -1690,24 +1786,88 @@ export async function handleDeploy(
         .where(eq(builds.id, buildId))
         .limit(1)
     )[0]?.status
-    const wasCancelled = currentStatus === "cancelled"
+    let wasCancelled = currentStatus === "cancelled" || cancelledByFence
+    let terminalFenceError: unknown = null
+    if (wasCancelled) {
+      await rollbackStaticPromotion?.()
+      await reconcileInterruptedApp()
+    }
+    if (wasCancelled) {
+      recordDeploymentOutcome("cancelled")
+    }
     if (wasCancelled) {
       log.info(
         { buildId, finalStatus },
         "build was cancelled mid-flight — skipping final status write"
       )
-    } else {
-      await updateBuildStatus(db, buildId, finalStatus, {
-        ...finalPatch,
-        logPath,
-        ...(finalPatch.postDeployError !== undefined && {
-          postDeployError: finalPatch.postDeployError,
-        }),
-      })
+    } else if (!leaseLost) {
+      try {
+        await fenceDeploySideEffect()
+      } catch (error) {
+        terminalFenceError = error
+        leaseLost = error instanceof DeployLeaseLostError
+        wasCancelled = error instanceof DeployCancelledError
+        await rollbackStaticPromotion?.()
+        if (wasCancelled || leaseLost) await reconcileInterruptedApp()
+      }
+      const lease = terminalFenceError ? undefined : currentDeployLease()
+      if (!lease && !terminalFenceError) throw new DeployLeaseLostError()
+      // Terminal write and ownership check share one SQL statement. A stale
+      // worker therefore cannot overwrite the successor after a reclaim.
+      const terminalRows = lease
+        ? await db
+            .update(builds)
+            .set({
+              status: finalStatus,
+              finished_at: finalPatch.finishedAt,
+              log_path: logPath,
+              ...(finalPatch.errorMessage !== undefined && {
+                error_message: finalPatch.errorMessage,
+              }),
+              ...(finalPatch.containerId !== undefined && {
+                container_id: finalPatch.containerId,
+              }),
+              ...(finalPatch.runtimeRef !== undefined && {
+                runtime_ref: finalPatch.runtimeRef,
+              }),
+              ...(finalPatch.postDeployError !== undefined && {
+                post_deploy_error: finalPatch.postDeployError,
+              }),
+            })
+            .where(
+              and(
+                eq(builds.id, buildId),
+                inArray(builds.status, ["pending", "running"] as const),
+                sql`EXISTS (
+              SELECT 1 FROM app_deploy_leases lease
+              WHERE lease.app_id = ${lease.appId}
+                AND lease.build_id = ${lease.buildId}
+                AND lease.lease_token = ${lease.token}
+                AND lease.lease_until > now()
+            )`
+              )
+            )
+            .returning({ id: builds.id })
+        : []
+      if (lease && !terminalRows[0]) {
+        leaseLost = true
+        terminalFenceError = new DeployLeaseLostError(
+          "deployment lease changed before terminal write"
+        )
+      }
+    }
+
+    if (
+      !wasCancelled &&
+      !leaseLost &&
+      (finalStatus !== "failed" || job.attempts >= job.max_attempts)
+    ) {
+      recordDeploymentOutcome(deploymentOutcome)
     }
 
     const deploySucceeded =
       !wasCancelled &&
+      !leaseLost &&
       (finalStatus === "succeeded" || finalStatus === "succeeded_with_warning")
 
     if (deploySucceeded && scanImageRef) {
@@ -1721,28 +1881,25 @@ export async function handleDeploy(
     }
 
     // Commit status — success / failure / error (best-effort, non-fatal)
-    if (resolvedCommitShaFinal && !wasCancelled) {
+    if (resolvedCommitShaFinal && !wasCancelled && !leaseLost) {
       const durationMs = Date.now() - deployStartMs
       const statusState =
         finalStatus === "succeeded" || finalStatus === "succeeded_with_warning"
           ? "success"
           : commitStatusErrorState
-      postCommitStatusForApp(db, redis, app, {
+      await fenceDeploySideEffect()
+      await postCommitStatusForApp(db, redis, app, {
         sha: resolvedCommitShaFinal,
         state: statusState,
         buildId,
         durationMs,
-      }).catch((err) =>
-        log.warn(
-          { err, buildId },
-          `postCommitStatus(${statusState}) failed (non-fatal)`
-        )
-      )
+        beforeSend: fenceDeploySideEffect,
+      })
     }
 
     // Publish terminal event AFTER the DB commit so any React Query
     // invalidation triggered by the event fetches the final status.
-    if (ownerId && !wasCancelled) {
+    if (ownerId && !wasCancelled && !leaseLost) {
       const terminal =
         finalStatus === "succeeded"
           ? { type: "build.succeeded" as const, message: "Build réussi" }
@@ -1773,6 +1930,7 @@ export async function handleDeploy(
     // Notification dispatch — build/deploy outcome
     if (
       !wasCancelled &&
+      !leaseLost &&
       workspacePathForAudit &&
       (finalStatus === "succeeded" || finalStatus === "succeeded_with_warning")
     ) {
@@ -1789,7 +1947,7 @@ export async function handleDeploy(
     }
 
     // Notification dispatch — build/deploy outcome
-    if (ownerId && !wasCancelled) {
+    if (ownerId && !wasCancelled && !leaseLost) {
       const durationMs = Date.now() - deployStartMs
       const notifyEvent =
         finalStatus === "succeeded" || finalStatus === "succeeded_with_warning"
@@ -1827,5 +1985,7 @@ export async function handleDeploy(
         const msg = enqErr instanceof Error ? enqErr.message : String(enqErr)
         log.warn({ err: msg, buildId }, "failed to push logs.archive to BullMQ")
       })
+
+    if (terminalFenceError) throw terminalFenceError
   }
 }

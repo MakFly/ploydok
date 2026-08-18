@@ -3,7 +3,9 @@ import { redirect } from "@tanstack/react-router"
 import { ApiError, SessionExpiredError, apiFetch } from "./api"
 import { organizationDashboardPath } from "./organizations"
 import { getGitProviderStatus } from "./git-providers"
+import { getRememberedOnboardingDeploymentSource } from "./onboarding"
 import type { GitProviderStatus } from "./git-providers"
+import type { OnboardingDeploymentSource } from "./onboarding"
 import type { Me } from "@ploydok/shared"
 
 interface InstanceState {
@@ -59,25 +61,17 @@ export async function requireMe(
 }
 
 /**
- * Guard for the _authed layout: authenticated *and* past onboarding.
+ * Guard for the authenticated application shell.
  *
- * There is no exempt path. The onboarding wizard is self-contained — it
- * registers the instance-level GitHub App or GitLab OAuth app and connects the
- * account without ever leaving /onboarding — so nothing under _authed needs to
- * stay reachable beforehand. /settings/git-providers used to be exempt back
- * when the wizard could only hand off to it; keeping that hole would leak the
- * whole app shell to a user who has not onboarded.
+ * A Git provider is one deployment source, not an authentication prerequisite:
+ * users can intentionally continue from onboarding with a public or private OCI
+ * image. Provider readiness still decides the default post-login destination,
+ * but it must not make the image workflow unreachable once selected.
  */
 export async function requireOnboardedSession(
-  fetchMe: () => Promise<Me> = () => apiFetch<Me>("/me"),
-  fetchProviders: () => Promise<GitProviderStatus> = getGitProviderStatus
+  fetchMe: () => Promise<Me> = () => apiFetch<Me>("/me")
 ): Promise<Me> {
-  const me = await requireMe(fetchMe)
-  const providers = await fetchProviders()
-  if (!providers.ready) {
-    throw redirect({ to: "/onboarding" })
-  }
-  return me
+  return requireMe(fetchMe)
 }
 
 function resolveDefaultOrganizationPath(me: Me): string {
@@ -89,9 +83,16 @@ function resolveDefaultOrganizationPath(me: Me): string {
 export function resolvePostAuthPath(
   me: Me,
   providers: Pick<GitProviderStatus, "ready">,
-  requestedPath?: string | null
+  requestedPath?: string | null,
+  onboardingSource?: OnboardingDeploymentSource | null
 ): string {
-  if (!providers.ready) return "/onboarding"
+  if (
+    requestedPath === "/invitations/accept" ||
+    requestedPath?.startsWith("/invitations/accept?token=")
+  ) {
+    return requestedPath
+  }
+  if (!providers.ready && onboardingSource !== "image") return "/onboarding"
   return requestedPath ?? resolveDefaultOrganizationPath(me)
 }
 
@@ -104,7 +105,11 @@ export async function redirectIfAuthenticated(
   try {
     const me = await fetchMe()
     const providers = await fetchProviders()
-    throw redirect({ href: resolvePostAuthPath(me, providers) })
+    const onboardingSource =
+      await getRememberedOnboardingDeploymentSource(me.id)
+    throw redirect({
+      href: resolvePostAuthPath(me, providers, undefined, onboardingSource),
+    })
   } catch (err) {
     if (isRedirect(err)) throw err
     if (!isUnauthenticated(err)) throw err

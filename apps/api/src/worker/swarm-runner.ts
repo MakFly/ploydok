@@ -8,6 +8,7 @@ import { AgentClient } from "@ploydok/agent-proto"
 import type {
   ListServiceTasksResponse,
   ServiceCreateResponse,
+  ServiceRollbackResponse,
   ServiceUpdateImageResponse,
   SwarmEnsureSingleNodeResponse,
 } from "@ploydok/agent-proto"
@@ -28,6 +29,13 @@ import { workerLog } from "./logger.js"
 import { buildEnvForDeploy } from "../secrets/resolver.js"
 import { PLANS } from "@ploydok/shared"
 import type { PlanName } from "@ploydok/shared"
+import {
+  currentDeployLease,
+  currentDeployLeaseCondition,
+  DeployLeaseLostError,
+  fenceDeploySideEffect,
+  runOwnedDeployReconciliation,
+} from "./app-deploy-lock.js"
 
 const DEFAULT_TASK_POLL_MS = 2_000
 const DEFAULT_TASK_TIMEOUT_MS = 180_000
@@ -55,7 +63,10 @@ function runtimeServiceName(app: { id: string; slug: string }): string {
     .replace(/[^a-z0-9-]+/g, "-")
     .replace(/^-+|-+$/g, "")
     .slice(0, 36)
-  const token = app.id.toLowerCase().replace(/[^a-z0-9-]+/g, "").slice(0, 10)
+  const token = app.id
+    .toLowerCase()
+    .replace(/[^a-z0-9-]+/g, "")
+    .slice(0, 10)
   return `ploydok-app-${slug || "app"}-${token}`
 }
 
@@ -197,9 +208,12 @@ export async function runSwarmDeploy(
     opts.agentSocketPath ? { socketPath: opts.agentSocketPath } : {}
   )
   const caddy = new CaddyClient(opts.caddyBaseUrl)
+  const createsService = !app.swarm_service_name
+  let runtimeMutated = false
 
   try {
     logBus.publish(channel, `[swarm] ensuring single-node swarm`)
+    await fenceDeploySideEffect()
     await grpcUnary<SwarmEnsureSingleNodeResponse>(
       agent.swarmEnsureSingleNode.bind(agent),
       {}
@@ -214,14 +228,17 @@ export async function runSwarmDeploy(
       )
     }
 
+    await fenceDeploySideEffect()
     const network = await ensureProjectSwarmNetwork(db, app.project_id)
     const sharedAgent = getSharedAgent()
+    await fenceDeploySideEffect()
     await ensureProjectDatabasesOnSwarmNetwork(
       db,
       app.project_id,
       network,
       sharedAgent
     )
+    await fenceDeploySideEffect()
     await ensureCaddyOnProjectNetwork(sharedAgent, network)
     const resourceLimits = resolveResourceLimits(app)
     const containerEnv = {
@@ -240,6 +257,7 @@ export async function runSwarmDeploy(
         "ploydok.app_id": appId,
         "ploydok.owner_id": app.owner_id,
         "ploydok.runtime": "swarm",
+        "ploydok.deploy_token": currentDeployLease()?.token ?? "unfenced",
       },
       networks: [network],
       mounts: volumes.map((volume) => ({
@@ -269,15 +287,15 @@ export async function runSwarmDeploy(
 
     if (!app.swarm_service_name) {
       logBus.publish(channel, `[swarm] creating service ${serviceName}`)
-      await grpcUnary<ServiceCreateResponse>(
-        agent.serviceCreate.bind(agent),
-        {
-          spec,
-          ...(opts.registryAuth ? { registryAuth: opts.registryAuth } : {}),
-        }
-      )
+      await fenceDeploySideEffect()
+      await grpcUnary<ServiceCreateResponse>(agent.serviceCreate.bind(agent), {
+        spec,
+        ...(opts.registryAuth ? { registryAuth: opts.registryAuth } : {}),
+      })
+      runtimeMutated = true
     } else {
       logBus.publish(channel, `[swarm] updating service image ${imageRef}`)
+      await fenceDeploySideEffect()
       await grpcUnary<ServiceUpdateImageResponse>(
         agent.serviceUpdateImage.bind(agent),
         {
@@ -293,21 +311,25 @@ export async function runSwarmDeploy(
           ...(opts.registryAuth ? { registryAuth: opts.registryAuth } : {}),
         }
       )
+      runtimeMutated = true
     }
 
     await waitForServiceHealthy({ agent, serviceName, replicas, channel })
 
     if (app.domain) {
+      await fenceDeploySideEffect()
       await caddy.setUpstream(
         appId,
         app.domain,
         { host: serviceName, port: runtimePort },
         { cdn: app }
       )
+      await fenceDeploySideEffect()
       await purgeCloudflareForApp(db, appId)
     }
 
-    await db
+    await fenceDeploySideEffect()
+    const appUpdates = await db
       .update(apps)
       .set({
         runtime_mode: "swarm",
@@ -316,13 +338,46 @@ export async function runSwarmDeploy(
         status: "running",
         updated_at: new Date(),
       })
-      .where(eq(apps.id, appId))
+      .where(and(eq(apps.id, appId), currentDeployLeaseCondition()))
+      .returning({ id: apps.id })
+    if (!appUpdates[0]) {
+      throw new DeployLeaseLostError(
+        "lease changed before Swarm runtime commit"
+      )
+    }
 
     const result = { serviceName, runtimeRef: serviceName }
     if (opts.onLive) await opts.onLive(result)
     logBus.publish(channel, `[swarm] service live: ${serviceName}`)
-    workerLog.info({ appId, serviceName, imageRef, replicas }, "swarm deploy complete")
+    workerLog.info(
+      { appId, serviceName, imageRef, replicas },
+      "swarm deploy complete"
+    )
     return result
+  } catch (error) {
+    if (runtimeMutated && createsService) {
+      await runOwnedDeployReconciliation(() =>
+        grpcUnary(agent.serviceRemove.bind(agent), { serviceName })
+      ).catch((cleanupError) =>
+        workerLog.error(
+          { appId, serviceName, cleanupError },
+          "swarm: partial service reconciliation failed"
+        )
+      )
+    } else if (runtimeMutated) {
+      await runOwnedDeployReconciliation(async () => {
+        await grpcUnary<ServiceRollbackResponse>(
+          agent.serviceRollback.bind(agent),
+          { serviceName }
+        )
+      }).catch((cleanupError) =>
+        workerLog.error(
+          { appId, serviceName, cleanupError },
+          "swarm: service rollback reconciliation failed"
+        )
+      )
+    }
+    throw error
   } finally {
     agent.close()
   }
@@ -418,7 +473,8 @@ export async function rollbackSwarmApp(
         .where(and(eq(builds.id, targetBuildId), eq(builds.app_id, appId)))
         .limit(1)
       const image = rows[0]?.image_tag
-      if (!image) throw new Error(`Rollback build ${targetBuildId} has no image tag`)
+      if (!image)
+        throw new Error(`Rollback build ${targetBuildId} has no image tag`)
       await grpcUnary(agent.serviceUpdateImage.bind(agent), {
         serviceName: app.service,
         image,

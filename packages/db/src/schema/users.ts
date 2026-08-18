@@ -1,5 +1,6 @@
 // SPDX-License-Identifier: AGPL-3.0-only
-import { boolean, pgTable, text, timestamp } from "drizzle-orm/pg-core"
+import { boolean, pgTable, text, timestamp, uniqueIndex } from "drizzle-orm/pg-core"
+import { sql } from "drizzle-orm"
 
 export const users = pgTable("users", {
   id: text("id").primaryKey(),
@@ -23,7 +24,9 @@ export const users = pgTable("users", {
     .notNull()
     .default(true),
   is_instance_admin: boolean("is_instance_admin").notNull().default(false),
-})
+}, (table) => [
+  uniqueIndex("users_email_lower_unique").on(sql`lower(btrim(${table.email}))`),
+])
 
 export type UserRow = typeof users.$inferSelect
 export type UserInsert = typeof users.$inferInsert

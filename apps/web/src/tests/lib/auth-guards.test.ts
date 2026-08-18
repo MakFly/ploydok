@@ -108,6 +108,25 @@ describe("auth route guards", () => {
     )
   })
 
+  it("keeps an invitation token through login before provider onboarding", () => {
+    const invitationPath = "/invitations/accept"
+    expect(resolvePostAuthPath(fakeMe, providersMissing, invitationPath)).toBe(
+      invitationPath
+    )
+  })
+
+  it("resolvePostAuthPath remembers OCI onboarding without requiring Git", () => {
+    expect(
+      resolvePostAuthPath(fakeMe, providersMissing, undefined, "image")
+    ).toBe("/orgs/test-user/dashboard")
+  })
+
+  it("resolvePostAuthPath restores an OCI user's requested route", () => {
+    expect(
+      resolvePostAuthPath(fakeMe, providersMissing, "/orgs/acme/apps", "image")
+    ).toBe("/orgs/acme/apps")
+  })
+
   it("redirectIfAuthenticated allows public access on 401", async () => {
     await expect(
       redirectIfAuthenticated(async () => {
@@ -126,54 +145,27 @@ describe("auth route guards", () => {
   })
 })
 
-// The _authed layout must gate the whole app on a connected Git provider. The
-// onboarding wizard is self-contained, so no path is exempt — an earlier
-// version whitelisted /settings/git-providers and that leaked the app shell to
-// users who had not onboarded.
 describe("requireOnboardedSession", () => {
-  it("returns the user once a provider is connected", async () => {
-    await expect(
-      requireOnboardedSession(
-        async () => fakeMe,
-        async () => providersReady
-      )
-    ).resolves.toEqual(fakeMe)
+  it("returns an authenticated user without requiring a Git provider", async () => {
+    await expect(requireOnboardedSession(async () => fakeMe)).resolves.toEqual(
+      fakeMe
+    )
   })
 
-  it("redirects to onboarding when no provider is connected", async () => {
+  it("redirects an unauthenticated user to login", async () => {
     await expect(
-      requireOnboardedSession(
-        async () => fakeMe,
-        async () => providersMissing
-      )
-    ).rejects.toMatchObject({ options: { to: "/onboarding" } })
-  })
-
-  it("redirects to login before even probing providers", async () => {
-    let providersProbed = false
-    await expect(
-      requireOnboardedSession(
-        async () => {
-          throw new ApiError(401, "UNAUTHENTICATED", "Not logged in")
-        },
-        async () => {
-          providersProbed = true
-          return providersReady
-        }
-      )
+      requireOnboardedSession(async () => {
+        throw new ApiError(401, "UNAUTHENTICATED", "Not logged in")
+      })
     ).rejects.toMatchObject({ options: { to: "/login" } })
-    expect(providersProbed).toBe(false)
   })
 
-  it("surfaces infra errors instead of faking an onboarding redirect", async () => {
+  it("surfaces infra errors instead of faking an auth redirect", async () => {
     const err = new TypeError("Network down")
     await expect(
-      requireOnboardedSession(
-        async () => fakeMe,
-        async () => {
-          throw err
-        }
-      )
+      requireOnboardedSession(async () => {
+        throw err
+      })
     ).rejects.toBe(err)
   })
 })

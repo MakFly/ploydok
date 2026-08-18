@@ -4,12 +4,11 @@
 //
 // Structure:
 //   <pki_dir>/
-//     ca.pem, ca.key
+//     ca.pem
 //     server.pem, server.key
-//     client.pem, client.key
 //
-// If the directory is absent or empty, all certs are generated automatically.
-// To force regeneration, delete the PKI directory and restart the agent.
+// The production agent only receives this server-side triplet. The CA private
+// key and API client credentials stay on the host and are never mounted.
 
 use std::path::{Path, PathBuf};
 use std::time::SystemTime;
@@ -34,14 +33,7 @@ pub struct PkiMaterial {
 /// Returns the loaded PEM bytes for the server cert, server key and CA cert.
 pub fn ensure_pki(pki_dir: &str) -> Result<PkiMaterial> {
     let dir = Path::new(pki_dir);
-    let files = [
-        "ca.pem",
-        "ca.key",
-        "server.pem",
-        "server.key",
-        "client.pem",
-        "client.key",
-    ];
+    let files = ["ca.pem", "server.pem", "server.key"];
 
     let needs_gen = !dir.exists() || files.iter().any(|f| !dir.join(f).exists());
 

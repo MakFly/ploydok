@@ -3,9 +3,11 @@
 #
 # Ploydok one-line installer.
 #
-# Usage:
-#   curl -fsSL https://raw.githubusercontent.com/MakFly/ploydok/main/installer/bootstrap.sh | sudo bash
-#   curl -fsSL https://raw.githubusercontent.com/MakFly/ploydok/main/installer/bootstrap.sh | sudo bash -s -- --mode=coexist --yes
+# Production usage requires the signed release bundle. Verify and extract it
+# as an unprivileged user, then pass its COMMIT value when invoking this script
+# with sudo. See README.md for the complete command sequence.
+# Development-only edge usage is an explicit opt-in:
+#   PLOYDOK_ALLOW_EDGE=1 PLOYDOK_REF=main curl .../main/installer/bootstrap.sh | sudo -E bash
 #
 # Once the install.ploydok.dev domain is live, the alias will be:
 #   curl -fsSL https://install.ploydok.dev | sudo bash
@@ -13,7 +15,9 @@
 set -Eeuo pipefail
 
 REPO_URL="${PLOYDOK_REPO_URL:-https://github.com/MakFly/ploydok.git}"
-REF="${PLOYDOK_REF:-main}"
+REF="${PLOYDOK_REF:-}"
+EXPECTED_COMMIT="${PLOYDOK_EXPECTED_COMMIT:-}"
+ALLOW_EDGE="${PLOYDOK_ALLOW_EDGE:-0}"
 WORK_DIR="${PLOYDOK_BOOTSTRAP_DIR:-/opt/ploydok-installer}"
 DRY_RUN="${PLOYDOK_INSTALL_DRY_RUN:-0}"
 COSIGN_VERSION="${PLOYDOK_COSIGN_VERSION:-v2.4.3}"
@@ -27,6 +31,27 @@ fi
 
 command -v curl >/dev/null 2>&1 || die "curl is required" 3
 command -v bash >/dev/null 2>&1 || die "bash is required" 3
+
+validate_source() {
+  if [[ "$ALLOW_EDGE" == "1" ]]; then
+    REF="${REF:-main}"
+  else
+    [[ -n "$REF" ]] || die "PLOYDOK_REF is required; use an immutable release tag or commit" 2
+    if [[ "$REF" =~ ^[0-9a-f]{40}$ && -z "$EXPECTED_COMMIT" ]]; then
+      EXPECTED_COMMIT="$REF"
+    fi
+    [[ "$EXPECTED_COMMIT" =~ ^[0-9a-f]{40}$ ]] ||
+      die "PLOYDOK_EXPECTED_COMMIT must be the 40-character release commit" 2
+  fi
+
+  [[ "$REF" =~ ^[A-Za-z0-9][A-Za-z0-9._/-]*$ ]] || die "invalid PLOYDOK_REF" 2
+  [[ "$REF" != *".."* && "$REF" != *"@{"* ]] || die "invalid PLOYDOK_REF" 2
+  case "$WORK_DIR" in
+    ""|/|/opt|/usr|/var|/home) die "unsafe PLOYDOK_BOOTSTRAP_DIR: $WORK_DIR" 2 ;;
+  esac
+}
+
+validate_source
 
 install_base_dependencies() {
   command -v git >/dev/null 2>&1 && command -v envsubst >/dev/null 2>&1 && return
@@ -73,11 +98,32 @@ done
 
 log "fetching $REPO_URL@$REF into $WORK_DIR"
 if [[ -d "$WORK_DIR/.git" ]]; then
+  git -C "$WORK_DIR" remote set-url origin "$REPO_URL"
   git -C "$WORK_DIR" fetch --depth 1 origin "$REF"
   git -C "$WORK_DIR" checkout -q FETCH_HEAD
 else
-  rm -rf "$WORK_DIR"
-  git clone --depth 1 --branch "$REF" "$REPO_URL" "$WORK_DIR"
+  [[ ! -e "$WORK_DIR" ]] || die "$WORK_DIR exists but is not a Git checkout" 2
+  mkdir -p "$WORK_DIR"
+  git -C "$WORK_DIR" init -q
+  git -C "$WORK_DIR" remote add origin "$REPO_URL"
+  git -C "$WORK_DIR" fetch --depth 1 origin "$REF"
+  git -C "$WORK_DIR" checkout -q FETCH_HEAD
+fi
+
+RESOLVED_COMMIT="$(git -C "$WORK_DIR" rev-parse HEAD)"
+if [[ -n "$EXPECTED_COMMIT" && "$RESOLVED_COMMIT" != "$EXPECTED_COMMIT" ]]; then
+  die "release verification failed: expected $EXPECTED_COMMIT, resolved $RESOLVED_COMMIT" 5
+fi
+log "verified source commit $RESOLVED_COMMIT"
+
+if [[ -z "${PLOYDOK_VERSION:-}" && "$REF" =~ ^v[0-9]+\.[0-9]+\.[0-9]+([.-][A-Za-z0-9.-]+)?$ ]]; then
+  export PLOYDOK_VERSION="${REF#v}"
+fi
+if [[ "$ALLOW_EDGE" == "1" ]]; then
+  export PLOYDOK_VERSION="${PLOYDOK_VERSION:-edge}"
+else
+  [[ -n "${PLOYDOK_VERSION:-}" ]] ||
+    die "PLOYDOK_VERSION is required when PLOYDOK_REF is not a semantic release tag" 2
 fi
 
 log "running installer (forwarding $# args)"

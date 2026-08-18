@@ -38,7 +38,7 @@ export function generateRefreshToken(): string {
  * Create a new session and return the raw refresh token.
  */
 export async function createSession(
-  db: Db,
+  db: Pick<Db, "insert">,
   opts: {
     userId: string;
     userAgent: string;

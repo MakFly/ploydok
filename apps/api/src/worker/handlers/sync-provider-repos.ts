@@ -1,8 +1,6 @@
 // SPDX-License-Identifier: AGPL-3.0-only
 import {
-  upsertInstallation,
-  replaceInstallationRepos,
-  getGitLabConfig,
+  replaceInstallationSnapshot,
   getGitHubAppConfig,
   lockGitHubAppConfigForUse,
 } from "@ploydok/db/queries"
@@ -17,11 +15,10 @@ import {
   provider_credentials,
   provider_installations,
 } from "@ploydok/db"
-import { and, eq, inArray, ne, notInArray, sql } from "drizzle-orm"
+import { and, eq, notInArray, sql } from "drizzle-orm"
 import { listAppInstallations } from "../../github/installation-tokens"
 import { ghProvider } from "../../routes/github"
-import { GitLabProvider } from "../../gitlab/client"
-import { decryptField } from "../../github/app-credentials"
+import { resolveGitLabConnection } from "../../gitlab/connection"
 import { getGitHubAppConfigFingerprint } from "../../github/config-fingerprint"
 import { workerLog } from "../logger"
 import { providerReposSyncQueue } from "../queues"
@@ -92,7 +89,13 @@ async function claimProviderCredential(
     .where(
       and(
         eq(provider_credentials.id, credentialId),
-        inArray(provider_credentials.last_sync_status, ["pending", "running"])
+        sql`(
+          ${provider_credentials.last_sync_status} = 'pending'
+          OR (
+            ${provider_credentials.last_sync_status} = 'running'
+            AND ${provider_credentials.last_sync_claimed_at} < NOW() - INTERVAL '15 minutes'
+          )
+        )`
       )
     )
     .returning()
@@ -164,33 +167,12 @@ function getGitHubInstallationDbId(installationId: string): string {
   return `github:${normalizeGitHubInstallationId(installationId)}`
 }
 
-async function deleteLegacyGitHubInstallationDuplicates(
-  db: Db,
-  installationId: string
-): Promise<void> {
-  const externalId = normalizeGitHubInstallationId(installationId)
-  const dbId = getGitHubInstallationDbId(externalId)
-
-  await db
-    .delete(provider_installations)
-    .where(
-      and(
-        eq(provider_installations.provider, "github"),
-        eq(provider_installations.external_id, externalId),
-        ne(provider_installations.id, dbId)
-      )
-    )
-}
-
-async function upsertLiveGitHubInstallation(
-  db: Db,
-  installation: Awaited<ReturnType<typeof listAppInstallations>>[number]
-): Promise<void> {
+function buildLiveGitHubInstallationRow(
+  installation: Awaited<ReturnType<typeof listAppInstallations>>[number],
+  syncedAt = new Date()
+): ProviderInstallationRow {
   const installId = String(installation.id)
-  const now = new Date()
-
-  await deleteLegacyGitHubInstallationDuplicates(db, installId)
-  await upsertInstallation(db, {
+  return {
     id: getGitHubInstallationDbId(installId),
     provider: "github",
     external_id: installId,
@@ -203,9 +185,9 @@ async function upsertLiveGitHubInstallation(
     html_url: installation.htmlUrl,
     avatar_url: installation.avatarUrl,
     repository_count: null,
-    last_synced_at: now,
-    created_at: now,
-  })
+    last_synced_at: syncedAt,
+    created_at: syncedAt,
+  }
 }
 
 async function pruneStaleGitHubInstallations(
@@ -276,7 +258,9 @@ async function syncGitHubFanOut(db: Db, ctx: SyncCtx): Promise<void> {
       pruneStaleGitHubInstallations(transactionDb, installations)
     ))
   ) {
-    workerLog.info("github fan-out: App config changed, abandoning stale result")
+    workerLog.info(
+      "github fan-out: App config changed, abandoning stale result"
+    )
     return
   }
   workerLog.info(
@@ -297,26 +281,6 @@ async function syncGitHubFanOut(db: Db, ctx: SyncCtx): Promise<void> {
 
   for (const install of installations) {
     const installId = String(install.id)
-
-    try {
-      if (
-        !(await withConfigFence((transactionDb) =>
-          upsertLiveGitHubInstallation(transactionDb, install)
-        ))
-      ) {
-        workerLog.info(
-          { installId },
-          "github fan-out: App config changed before installation upsert"
-        )
-        return
-      }
-    } catch (err) {
-      workerLog.warn(
-        { err, installId },
-        "github fan-out: upsert installation failed, skipping"
-      )
-      continue
-    }
 
     const credentialId = getGitHubInstallationDbId(installId)
     try {
@@ -398,10 +362,10 @@ async function syncGitHubInstallation(
       jobName: "provider.repos.sync",
       jobId: `sync-${credentialId}`,
       payload: { provider: "github", installationId: externalInstallationId },
-      reason: "Credential not found or not in pending/running state",
+      reason: "Credential not found or already claimed by an active sync",
     })
     throw new Error(
-      `GitHub credential ${credentialId} not found or not in pending/running state`
+      `GitHub credential ${credentialId} not found or already claimed by an active sync`
     )
   }
 
@@ -413,7 +377,8 @@ async function syncGitHubInstallation(
         updated_at: new Date(),
       })
       .where(eq(provider_credentials.id, credentialId))
-    const reason = "Provider credential is not claimable: missing last_sync_source"
+    const reason =
+      "Provider credential is not claimable: missing last_sync_source"
     auditUnauthorized({
       jobName: "provider.repos.sync",
       jobId: `sync-${credentialId}`,
@@ -442,23 +407,45 @@ async function syncGitHubInstallation(
     `Importing GitHub repositories for installation ${externalInstallationId}…`
   )
 
+  // Resolve metadata up front, but do not publish it yet. Installation
+  // freshness and repositories are one snapshot and become visible together
+  // only after every GitHub page has been fetched successfully.
+  let liveInstallations: Awaited<ReturnType<typeof listAppInstallations>>
   try {
-    const liveInstallations = await listAppInstallations()
-    const liveInstallation = liveInstallations.find(
-      (installation) => String(installation.id) === externalInstallationId
-    )
-    if (liveInstallation) {
-      await upsertLiveGitHubInstallation(db, liveInstallation)
-    }
+    liveInstallations = await listAppInstallations()
   } catch (err) {
-    workerLog.warn(
-      { err, installationId: externalInstallationId },
-      "github sync: live installation lookup failed"
+    await db
+      .update(provider_credentials)
+      .set({ last_sync_status: "failed", updated_at: new Date() })
+      .where(eq(provider_credentials.id, credentialId))
+    emit(
+      ctx,
+      "provider.sync.failed",
+      {
+        provider: "github",
+        installationId: dbInstallationId,
+        error: err instanceof Error ? err.message : String(err),
+      },
+      "Failed to resolve the GitHub installation"
+    )
+    throw err
+  }
+  const liveInstallation = liveInstallations.find(
+    (installation) => String(installation.id) === externalInstallationId
+  )
+  if (!liveInstallation) {
+    await db
+      .update(provider_credentials)
+      .set({ last_sync_status: "failed", updated_at: new Date() })
+      .where(eq(provider_credentials.id, credentialId))
+    throw new Error(
+      `GitHub installation ${externalInstallationId} is no longer available`
     )
   }
 
   const allRepos: ProviderRepoRow[] = []
   const MAX_PAGES = 50
+  let completedPagination = false
   const now = new Date()
 
   for (let page = 1; page <= MAX_PAGES; page++) {
@@ -493,7 +480,14 @@ async function syncGitHubInstallation(
         },
         `GitHub listRepos failed at page ${page}`
       )
-      break
+      await db
+        .update(provider_credentials)
+        .set({
+          last_sync_status: "failed",
+          updated_at: new Date(),
+        })
+        .where(eq(provider_credentials.id, credentialId))
+      throw err
     }
 
     for (const repo of result.repos) {
@@ -526,11 +520,31 @@ async function syncGitHubInstallation(
       `Imported ${allRepos.length} GitHub repos so far (page ${page})`
     )
 
-    if (!result.hasMore) break
+    if (!result.hasMore) {
+      completedPagination = true
+      break
+    }
+  }
+
+  if (!completedPagination) {
+    await db
+      .update(provider_credentials)
+      .set({
+        last_sync_status: "failed",
+        updated_at: new Date(),
+      })
+      .where(eq(provider_credentials.id, credentialId))
+    throw new Error(
+      `GitHub repository pagination exceeded the safety limit (${MAX_PAGES} pages)`
+    )
   }
 
   try {
-    await replaceInstallationRepos(db, dbInstallationId, allRepos)
+    await replaceInstallationSnapshot(
+      db,
+      buildLiveGitHubInstallationRow(liveInstallation, now),
+      allRepos
+    )
     await db
       .update(provider_credentials)
       .set({
@@ -563,7 +577,7 @@ async function syncGitHubInstallation(
       .where(eq(provider_credentials.id, credentialId))
     workerLog.error(
       { err, installationId: externalInstallationId },
-      "github sync: replaceInstallationRepos failed"
+      "github sync: snapshot publication failed"
     )
     emit(
       ctx,
@@ -665,10 +679,10 @@ async function syncGitLabUser(
       jobName: "provider.repos.sync",
       jobId: `sync-${credentialId}`,
       payload: { provider: "gitlab", userId },
-      reason: "Credential not found or not in pending/running state",
+      reason: "Credential not found or already claimed by an active sync",
     })
     throw new Error(
-      `GitLab credential ${credentialId} not found or not in pending/running state`
+      `GitLab credential ${credentialId} not found or already claimed by an active sync`
     )
   }
 
@@ -680,7 +694,8 @@ async function syncGitLabUser(
         updated_at: new Date(),
       })
       .where(eq(provider_credentials.id, credentialId))
-    const reason = "Provider credential is not claimable: missing last_sync_source"
+    const reason =
+      "Provider credential is not claimable: missing last_sync_source"
     auditUnauthorized({
       jobName: "provider.repos.sync",
       jobId: `sync-${credentialId}`,
@@ -709,44 +724,9 @@ async function syncGitLabUser(
     `Importing GitLab projects for user ${userId}…`
   )
 
-  const cfg = await getGitLabConfig(db)
-  if (!cfg) {
-    await db
-      .update(provider_credentials)
-      .set({
-        last_sync_status: "failed",
-        updated_at: new Date(),
-      })
-      .where(eq(provider_credentials.id, credentialId))
-    workerLog.warn({ userId }, "gitlab sync: no GitLab config, skipping")
-    throw new Error("GitLab configuration not found")
-  }
-
-  const tokenRows = await db
-    .select()
-    .from(gitlab_tokens)
-    .where(eq(gitlab_tokens.user_id, userId))
-    .limit(1)
-
-  const tokenRow = tokenRows[0]
-  if (!tokenRow) {
-    await db
-      .update(provider_credentials)
-      .set({
-        last_sync_status: "failed",
-        updated_at: new Date(),
-      })
-      .where(eq(provider_credentials.id, credentialId))
-    workerLog.warn({ userId }, "gitlab sync: no token found, skipping")
-    throw new Error("GitLab token not found")
-  }
-
-  let accessToken: string
+  let connection: Awaited<ReturnType<typeof resolveGitLabConnection>>
   try {
-    accessToken = await decryptField(
-      tokenRow.access_token_enc as Buffer,
-      tokenRow.access_token_nonce as Buffer
-    )
+    connection = await resolveGitLabConnection(db, userId)
   } catch (err) {
     await db
       .update(provider_credentials)
@@ -755,15 +735,13 @@ async function syncGitLabUser(
         updated_at: new Date(),
       })
       .where(eq(provider_credentials.id, credentialId))
-    workerLog.warn(
-      { err, userId },
-      "gitlab sync: token decryption failed, skipping"
-    )
-    throw new Error("GitLab token decryption failed")
+    workerLog.warn({ err, userId }, "gitlab sync: credential resolution failed")
+    throw err
   }
 
-  const provider = new GitLabProvider(cfg.instance_url)
-  const installationId = `gitlab:user:${userId}`
+  const provider = connection.provider
+  const accessToken = connection.accessToken
+  const installationId = connection.installationId
   const now = new Date()
 
   const installRow: ProviderInstallationRow = {
@@ -781,25 +759,9 @@ async function syncGitLabUser(
     created_at: now,
   }
 
-  try {
-    await upsertInstallation(db, installRow)
-  } catch (err) {
-    await db
-      .update(provider_credentials)
-      .set({
-        last_sync_status: "failed",
-        updated_at: new Date(),
-      })
-      .where(eq(provider_credentials.id, credentialId))
-    workerLog.warn(
-      { err, userId },
-      "gitlab sync: upsert installation failed, skipping"
-    )
-    throw new Error("GitLab installation upsert failed")
-  }
-
   const allRepos: ProviderRepoRow[] = []
   const MAX_PAGES = 50
+  let completedPagination = false
 
   for (let page = 1; page <= MAX_PAGES; page++) {
     let result: {
@@ -831,7 +793,14 @@ async function syncGitLabUser(
         },
         `GitLab listRepos failed at page ${page}`
       )
-      break
+      await db
+        .update(provider_credentials)
+        .set({
+          last_sync_status: "failed",
+          updated_at: new Date(),
+        })
+        .where(eq(provider_credentials.id, credentialId))
+      throw err
     }
 
     for (const repo of result.repos) {
@@ -864,11 +833,27 @@ async function syncGitLabUser(
       `Imported ${allRepos.length} GitLab projects so far (page ${page})`
     )
 
-    if (!result.hasMore) break
+    if (!result.hasMore) {
+      completedPagination = true
+      break
+    }
+  }
+
+  if (!completedPagination) {
+    await db
+      .update(provider_credentials)
+      .set({
+        last_sync_status: "failed",
+        updated_at: new Date(),
+      })
+      .where(eq(provider_credentials.id, credentialId))
+    throw new Error(
+      `GitLab repository pagination exceeded the safety limit (${MAX_PAGES} pages)`
+    )
   }
 
   try {
-    await replaceInstallationRepos(db, installationId, allRepos)
+    await replaceInstallationSnapshot(db, installRow, allRepos)
     await db
       .update(provider_credentials)
       .set({
@@ -896,10 +881,7 @@ async function syncGitLabUser(
         updated_at: new Date(),
       })
       .where(eq(provider_credentials.id, credentialId))
-    workerLog.error(
-      { err, userId },
-      "gitlab sync: replaceInstallationRepos failed"
-    )
+    workerLog.error({ err, userId }, "gitlab sync: snapshot publication failed")
     emit(
       ctx,
       "provider.sync.failed",

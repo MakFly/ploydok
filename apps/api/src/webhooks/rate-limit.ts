@@ -24,28 +24,45 @@ export interface RateLimitResult {
   remaining: number
 }
 
+const SLIDING_WINDOW_LUA = `
+local key = KEYS[1]
+local cutoff = tonumber(ARGV[1])
+local now = tonumber(ARGV[2])
+local member = ARGV[3]
+local maximum = tonumber(ARGV[4])
+local ttl = tonumber(ARGV[5])
+redis.call('ZREMRANGEBYSCORE', key, 0, cutoff)
+local count = redis.call('ZCARD', key)
+if count >= maximum then
+  return {0, 0}
+end
+redis.call('ZADD', key, now, member)
+redis.call('EXPIRE', key, ttl)
+return {1, maximum - count - 1}
+`
+
 export async function checkRateLimit(
   redis: Redis,
   key: string,
   windowSec: number,
-  max: number,
+  max: number
 ): Promise<RateLimitResult> {
   const nowMs = Date.now()
   const windowMs = windowSec * 1000
   const cutoff = nowMs - windowMs
 
-  await redis.zremrangebyscore(key, 0, cutoff)
-  const count = await redis.zcard(key)
-
-  if (count >= max) {
-    return { allowed: false, remaining: 0 }
-  }
-
   const member = `${nowMs}:${nanoid()}`
-  await redis.zadd(key, nowMs, member)
-  await redis.expire(key, windowSec * 2)
-
-  return { allowed: true, remaining: max - count - 1 }
+  const result = (await redis.eval(
+    SLIDING_WINDOW_LUA,
+    1,
+    key,
+    cutoff,
+    nowMs,
+    member,
+    max,
+    windowSec * 2
+  )) as [number, number]
+  return { allowed: result[0] === 1, remaining: Number(result[1]) }
 }
 
 export function createRateLimiter(opts: RateLimiterOpts) {
@@ -68,27 +85,28 @@ export function createRateLimiter(opts: RateLimiterOpts) {
     const redisKey = `${keyPrefix}:${rawKey}`
     const nowMs = Date.now()
     const windowMs = effectiveWindowSec * 1000
-    const cutoff = nowMs - windowMs
-
-    await redis.zremrangebyscore(redisKey, 0, cutoff)
-    const count = await redis.zcard(redisKey)
+    const result = await checkRateLimit(
+      redis,
+      redisKey,
+      effectiveWindowSec,
+      effectiveMax
+    )
 
     const resetTs = Math.ceil((nowMs + windowMs) / 1000)
 
-    if (count >= effectiveMax) {
+    if (!result.allowed) {
       c.header("Retry-After", String(effectiveWindowSec))
       c.header("X-RateLimit-Limit", String(effectiveMax))
       c.header("X-RateLimit-Remaining", "0")
       c.header("X-RateLimit-Reset", String(resetTs))
-      return c.json({ code: "rate_limited", retry_after: effectiveWindowSec }, 429)
+      return c.json(
+        { code: "rate_limited", retry_after: effectiveWindowSec },
+        429
+      )
     }
 
-    const member = `${nowMs}:${nanoid()}`
-    await redis.zadd(redisKey, nowMs, member)
-    await redis.expire(redisKey, effectiveWindowSec * 2)
-
     c.header("X-RateLimit-Limit", String(effectiveMax))
-    c.header("X-RateLimit-Remaining", String(effectiveMax - count - 1))
+    c.header("X-RateLimit-Remaining", String(result.remaining))
     c.header("X-RateLimit-Reset", String(resetTs))
 
     return next()
@@ -98,7 +116,7 @@ export function createRateLimiter(opts: RateLimiterOpts) {
 export function rateLimitKeyFromProviderHeaderOrIp(
   c: Context,
   providerHeader: string,
-  isValidProviderKey: (value: string) => boolean,
+  isValidProviderKey: (value: string) => boolean
 ): string | RateLimitKey {
   const providerValue = c.req.header(providerHeader)?.trim() ?? ""
   if (providerValue && isValidProviderKey(providerValue)) {

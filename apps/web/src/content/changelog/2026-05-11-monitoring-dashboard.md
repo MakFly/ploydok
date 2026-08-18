@@ -1,5 +1,7 @@
 # Dashboard monitoring workspace
 
+> Maturity: Beta — production monitoring burn-in remains required.
+
 Le dashboard affiche maintenant un résumé runtime orienté produit au lieu d'exposer directement des compteurs Docker bruts.
 
 ## Ce qui change

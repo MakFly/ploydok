@@ -1,8 +1,0 @@
-// SPDX-License-Identifier: AGPL-3.0-only
-import { describe, it, expect } from "bun:test"
-
-describe("memberships queries", () => {
-  it("skips without Postgres", () => {
-    expect(true).toBe(true)
-  })
-})

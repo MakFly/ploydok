@@ -1,6 +1,7 @@
 // SPDX-License-Identifier: AGPL-3.0-only
 import { Hono } from "hono"
 import { z } from "zod"
+import type { MiddlewareHandler } from "hono"
 import { createDb } from "@ploydok/db"
 import type { Db } from "@ploydok/db"
 import { env } from "../env"
@@ -12,7 +13,7 @@ import {
 import { encryptField, decryptField } from "../github/app-credentials"
 import type { AuthUser } from "../auth/middleware"
 import { requireSecondFactor } from "../auth/middleware"
-import { getProjectForUser } from "@ploydok/db/queries"
+import { getProjectForOwner, getProjectForUser } from "@ploydok/db/queries"
 
 const SECRET_MASK = "***"
 
@@ -41,7 +42,10 @@ function serializeProjectEnvVar(
 ) {
   return {
     key: row.key,
-    value: row.is_secret && !reveal ? SECRET_MASK : value,
+    // The list endpoint is metadata-only for every role. Even a value marked
+    // non-secret can affect every deployment in the workspace, so clear text
+    // is returned exclusively by the owner-only reveal endpoint.
+    value: reveal ? value : SECRET_MASK,
     isSecret: Boolean(row.is_secret),
     updatedAt: row.updated_at.toISOString(),
   }
@@ -51,6 +55,34 @@ export function createProjectEnvRouter(db: Db): Hono {
   const router = new Hono()
 
   const sf = requireSecondFactor(db)
+  const projectNotFound = (c: Parameters<MiddlewareHandler>[0]) =>
+    c.json(
+      { error: { code: "NOT_FOUND", message: "Project not found" } },
+      404
+    )
+
+  const belongsToWorkspace = (
+    c: Parameters<MiddlewareHandler>[0],
+    project: { slug: string }
+  ) => {
+    const orgSlug = c.req.param("orgSlug")
+    return !orgSlug || project.slug === orgSlug
+  }
+
+  // Unknown projects, foreign workspaces and non-owner memberships deliberately
+  // share the same 404 response so this secret-management surface cannot be
+  // used to enumerate resources across tenants.
+  const ownerOnly: MiddlewareHandler = async (c, next) => {
+    const user = getUser(c)
+    const projectId = c.req.param("projectId")!
+    const project = await getProjectForOwner(db, projectId, user.id)
+
+    if (!project || !belongsToWorkspace(c, project)) {
+      return projectNotFound(c)
+    }
+
+    return next()
+  }
 
   // -------------------------------------------------------------------------
   // GET /orgs/:orgSlug/shared-env — List project env vars (secrets masked)
@@ -61,20 +93,14 @@ export function createProjectEnvRouter(db: Db): Hono {
     const projectId = c.req.param("projectId")!
 
     const project = await getProjectForUser(db, projectId, user.id)
-    if (!project) {
-      return c.json(
-        { error: { code: "NOT_FOUND", message: "Project not found" } },
-        404
-      )
+    if (!project || !belongsToWorkspace(c, project)) {
+      return projectNotFound(c)
     }
 
     const rows = await listProjectEnv(db, projectId)
     const vars = []
 
-    for (const row of rows) {
-      const value = await decryptField(row.value_enc, row.value_nonce)
-      vars.push(serializeProjectEnvVar(row, value))
-    }
+    for (const row of rows) vars.push(serializeProjectEnvVar(row, SECRET_MASK))
 
     return c.json({ vars })
   })
@@ -83,18 +109,9 @@ export function createProjectEnvRouter(db: Db): Hono {
   // GET /:projectId/env/reveal/:key — Reveal a secret env var (requires 2FA)
   // -------------------------------------------------------------------------
 
-  router.get("/:projectId/env/reveal/:key", sf, async (c) => {
-    const user = getUser(c)
+  router.get("/:projectId/env/reveal/:key", ownerOnly, sf, async (c) => {
     const projectId = c.req.param("projectId")!
     const key = c.req.param("key")!
-
-    const project = await getProjectForUser(db, projectId, user.id)
-    if (!project) {
-      return c.json(
-        { error: { code: "NOT_FOUND", message: "Project not found" } },
-        404
-      )
-    }
 
     const rows = await listProjectEnv(db, projectId)
     const row = rows.find((r) => r.key === key)
@@ -119,17 +136,8 @@ export function createProjectEnvRouter(db: Db): Hono {
   // PUT /orgs/:orgSlug/shared-env — Upsert/replace project env vars
   // -------------------------------------------------------------------------
 
-  router.put("/:projectId/env", sf, async (c) => {
-    const user = getUser(c)
+  router.put("/:projectId/env", ownerOnly, sf, async (c) => {
     const projectId = c.req.param("projectId")!
-
-    const project = await getProjectForUser(db, projectId, user.id)
-    if (!project) {
-      return c.json(
-        { error: { code: "NOT_FOUND", message: "Project not found" } },
-        404
-      )
-    }
 
     let body: z.infer<typeof PutProjectEnvBody>
     try {
@@ -179,18 +187,9 @@ export function createProjectEnvRouter(db: Db): Hono {
   // DELETE /:projectId/env/:key — Delete a project env var
   // -------------------------------------------------------------------------
 
-  router.delete("/:projectId/env/:key", sf, async (c) => {
-    const user = getUser(c)
+  router.delete("/:projectId/env/:key", ownerOnly, sf, async (c) => {
     const projectId = c.req.param("projectId")!
     const key = c.req.param("key")!
-
-    const project = await getProjectForUser(db, projectId, user.id)
-    if (!project) {
-      return c.json(
-        { error: { code: "NOT_FOUND", message: "Project not found" } },
-        404
-      )
-    }
 
     await deleteProjectEnv(db, projectId, key)
     return c.json({ success: true })

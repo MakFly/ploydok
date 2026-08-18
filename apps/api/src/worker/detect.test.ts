@@ -130,14 +130,14 @@ describe("detectBuildMethod", () => {
   })
 
   // ---------------------------------------------------------------------------
-  // Railpack auto-detection
+  // Railpack is planned but unavailable without a local Docker daemon
   // ---------------------------------------------------------------------------
 
-  it("auto-detect: railpack.json at root → returns railpack", async () => {
+  it("does not auto-detect Railpack from railpack.json", async () => {
     await writeFile(path.join(tmpDir, "railpack.json"), "{}\n")
 
     const result = await detectBuildMethod({ workspacePath: tmpDir })
-    expect(result.method).toBe("railpack")
+    expect(result.method).toBe("nixpacks")
     expect(result.dockerfilePath).toBeUndefined()
   })
 
@@ -148,23 +148,5 @@ describe("detectBuildMethod", () => {
     const result = await detectBuildMethod({ workspacePath: tmpDir })
     expect(result.method).toBe("docker")
     expect(result.dockerfilePath).toBe("Dockerfile")
-  })
-
-  it("override=railpack without config file → still respected", async () => {
-    const result = await detectBuildMethod({
-      workspacePath: tmpDir,
-      override: "railpack",
-    })
-    expect(result.method).toBe("railpack")
-  })
-
-  it("auto-detect: custom railpackConfigPath honored", async () => {
-    await writeFile(path.join(tmpDir, "railpack.custom.json"), "{}\n")
-
-    const result = await detectBuildMethod({
-      workspacePath: tmpDir,
-      railpackConfigPath: "railpack.custom.json",
-    })
-    expect(result.method).toBe("railpack")
   })
 })

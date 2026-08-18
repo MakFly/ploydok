@@ -171,11 +171,13 @@ describe("requireAuth session state", () => {
 describe.skipIf(skip)("requireAuth middleware", () => {
   let db: Db
   let userId: string
+  let sessionId: string
 
   beforeEach(async () => {
     const result = await makeTestDb()
     db = result.db
     userId = `mw-${nanoid(6)}`
+    sessionId = `s-${nanoid(6)}`
     const now = new Date()
     await db
       .insert(users)
@@ -229,7 +231,7 @@ describe.skipIf(skip)("requireAuth middleware", () => {
     const token = await signAccessToken({
       userId,
       email: "x@x.com",
-      sessionId: "s",
+      sessionId,
     })
     const parts = token.split(".")
     parts[1] = "tampered"
@@ -362,11 +364,13 @@ describe.skipIf(skip)("requireScope middleware", () => {
 describe.skipIf(skip)("requireSecondFactor middleware", () => {
   let db: Db
   let userId: string
+  let sessionId: string
 
   beforeEach(async () => {
     const result = await makeTestDb()
     db = result.db
     userId = `sf-${nanoid(6)}`
+    sessionId = `s-${nanoid(6)}`
     const now = new Date()
     await db
       .insert(users)
@@ -383,11 +387,11 @@ describe.skipIf(skip)("requireSecondFactor middleware", () => {
   })
 
   async function makeApp() {
-    await insertActiveSession(db, userId, "s")
+    await insertActiveSession(db, userId, sessionId)
     const token = await signAccessToken({
       userId,
       email: `user-${userId}@test.com`,
-      sessionId: "s",
+      sessionId,
     })
     const app = new Hono()
     app.get("/secure", requireAuth(db), requireSecondFactor(db), (c) =>
@@ -508,12 +512,14 @@ describe.skipIf(skip)("requireSecondFactor middleware", () => {
 describe.skipIf(skip)("requireRole middleware", () => {
   let db: Db
   let userId: string
+  let sessionId: string
   let orgId: string
 
   beforeEach(async () => {
     const result = await makeTestDb()
     db = result.db
     userId = `role-${nanoid(6)}`
+    sessionId = `s-${nanoid(6)}`
     orgId = `org-${nanoid(6)}`
     const now = new Date()
 
@@ -544,7 +550,7 @@ describe.skipIf(skip)("requireRole middleware", () => {
       })
       .onConflictDoNothing()
 
-    await insertActiveSession(db, userId, "s")
+    await insertActiveSession(db, userId, sessionId)
   })
 
   it("returns 401 without auth", async () => {
@@ -561,9 +567,21 @@ describe.skipIf(skip)("requireRole middleware", () => {
     const token = await signAccessToken({
       userId,
       email: `user-${userId}@test.com`,
-      sessionId: "s",
+      sessionId,
     })
     const otherOrgId = `other-${nanoid(6)}`
+    // The org must exist: a missing org is a 404 by contract, not a 403.
+    const { projects: otherProjects } = await import("@ploydok/db")
+    await db
+      .insert(otherProjects)
+      .values({
+        id: otherOrgId,
+        owner_id: userId,
+        name: "Other Org",
+        slug: `org-${otherOrgId}`,
+        created_at: new Date(),
+      })
+      .onConflictDoNothing()
 
     const app = new Hono()
     app.get(
@@ -583,7 +601,7 @@ describe.skipIf(skip)("requireRole middleware", () => {
     const token = await signAccessToken({
       userId,
       email: `user-${userId}@test.com`,
-      sessionId: "s",
+      sessionId,
     })
     const { memberships } = await import("@ploydok/db")
     const now = new Date()
@@ -619,7 +637,7 @@ describe.skipIf(skip)("requireRole middleware", () => {
     const token = await signAccessToken({
       userId,
       email: `user-${userId}@test.com`,
-      sessionId: "s",
+      sessionId,
     })
     const { memberships } = await import("@ploydok/db")
     const now = new Date()

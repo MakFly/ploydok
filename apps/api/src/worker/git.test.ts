@@ -55,7 +55,8 @@ describe("cloneRepo", () => {
   });
 
   it("calls git clone with correct shallow-clone args", async () => {
-    const spawnMock = mock((_cmd: string[]) => makeSpawnMock(0));
+    const controller = new AbortController();
+    const spawnMock = mock((_cmd: string[], _opts?: unknown) => makeSpawnMock(0));
     Bun.spawn = spawnMock as unknown as typeof Bun.spawn;
 
     await cloneRepo({
@@ -65,12 +66,14 @@ describe("cloneRepo", () => {
       buildId: "bld-1",
       branch: "main",
       depth: 1,
+      signal: controller.signal,
     });
 
     // cloneRepo spawns twice: once for `git clone`, once for `git rev-parse HEAD`
     // (to resolve the head sha). We assert on the first invocation only.
     expect(spawnMock.mock.calls.length).toBeGreaterThanOrEqual(1);
-    const [cmd] = spawnMock.mock.calls[0]!;
+    const [cmd, spawnOpts] = spawnMock.mock.calls[0]!;
+    expect(spawnOpts).toMatchObject({ signal: controller.signal });
     expect(cmd[0]).toBe("git");
     expect(cmd).toContain("clone");
     expect(cmd).toContain("--depth");

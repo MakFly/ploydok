@@ -50,6 +50,13 @@ import type { PlanName } from "@ploydok/shared"
 import { buildEnvForDeploy } from "../secrets/resolver.js"
 import { purgeCloudflareForApp } from "../cloudflare/purge.js"
 import { listRuntimeAppVolumeMounts } from "../services/app-volumes.js"
+import {
+  currentDeployLease,
+  currentDeployLeaseCondition,
+  DeployLeaseLostError,
+  fenceDeploySideEffect,
+  runOwnedDeployReconciliation,
+} from "./app-deploy-lock.js"
 
 // ---------------------------------------------------------------------------
 // Constants
@@ -599,6 +606,7 @@ export async function createContainerWithStaleSlotRecovery(opts: {
   request: unknown
 }): Promise<ContainerCreateResponse> {
   try {
+    await fenceDeploySideEffect()
     return await grpcUnary<ContainerCreateResponse>(
       opts.agent.containerCreate.bind(opts.agent),
       opts.request
@@ -642,8 +650,10 @@ export async function createContainerWithStaleSlotRecovery(opts: {
       opts.channel,
       `[runner] stale target container ${opts.containerName} already exists; removing it before retry`
     )
+    await fenceDeploySideEffect()
     await stopContainer(opts.agent, opts.containerName)
 
+    await fenceDeploySideEffect()
     return await grpcUnary<ContainerCreateResponse>(
       opts.agent.containerCreate.bind(opts.agent),
       opts.request
@@ -677,6 +687,7 @@ export async function runBlueGreen(
   const appRows = await db
     .select({
       id: apps.id,
+      container_id: apps.container_id,
       slug: apps.slug,
       domain: apps.domain,
       restart_policy: apps.restart_policy,
@@ -754,10 +765,12 @@ export async function runBlueGreen(
   const agent = createAgentClient(opts.agentSocketPath)
   const caddyClient = new CaddyClient(opts.caddyBaseUrl)
 
-  let newContainerId: string
+  let newContainerId: string | undefined
+  let caddySwitched = false
 
   try {
     // 0. Pull image — host daemon's cache is separate from the registry storage.
+    await fenceDeploySideEffect()
     logBus.publish(channel, `[runner] pulling image ${imageRef}`)
     await pullImage(agent, imageRef, channel, opts.registryAuth)
     logBus.publish(channel, `[runner] image pulled`)
@@ -766,7 +779,9 @@ export async function runBlueGreen(
     // Zero-trust invariant: the app container only ever lives on its project
     // network. Caddy is attached dynamically so external ingress still works,
     // but other projects' apps share NO network with this one.
+    await fenceDeploySideEffect()
     const projectNetwork = await ensureProjectNetwork(db, appRow.project_id)
+    await fenceDeploySideEffect()
     await ensureCaddyOnProjectNetwork(getSharedAgent(), projectNetwork)
     const networks = networksForApp(projectNetwork)
     const resourceLimits = resolveResourceLimits(appRow)
@@ -775,6 +790,7 @@ export async function runBlueGreen(
     })
 
     // 1. Create container.
+    await fenceDeploySideEffect()
     const createResp = await createContainerWithStaleSlotRecovery({
       agent,
       caddyClient,
@@ -790,6 +806,7 @@ export async function runBlueGreen(
           "ploydok.app_id": appId,
           "ploydok.owner_id": appRow.owner_id,
           "ploydok.color": newColor,
+          "ploydok.deploy_token": currentDeployLease()?.token ?? "unfenced",
         },
         // Multi-network: `networks` takes precedence; `network` kept empty
         // so legacy single-string path is inert.
@@ -854,6 +871,7 @@ export async function runBlueGreen(
     logBus.publish(channel, `[runner] container created: ${newContainerId}`)
 
     // 2. Start container.
+    await fenceDeploySideEffect()
     await grpcUnary<ContainerStartResponse>(agent.containerStart.bind(agent), {
       containerId: newContainerId,
     })
@@ -891,6 +909,7 @@ export async function runBlueGreen(
     )
 
     // 4. Switch Caddy upstream.
+    await fenceDeploySideEffect()
     await caddyClient.setUpstream(
       appId,
       domain,
@@ -900,6 +919,8 @@ export async function runBlueGreen(
       },
       { cdn: appRow }
     )
+    caddySwitched = true
+    await fenceDeploySideEffect()
     await purgeCloudflareForApp(db, appId)
     logBus.publish(channel, `[runner] Caddy upstream updated`)
     workerLog.info(
@@ -915,10 +936,15 @@ export async function runBlueGreen(
     // 5. Mark app live immediately — new container serves traffic from this
     //    point. The grace period + old-container stop below are cleanup and
     //    must not delay the UI transition to "running".
-    await db
+    await fenceDeploySideEffect()
+    const appUpdates = await db
       .update(apps)
       .set({ container_id: newName, status: "running", updated_at: new Date() })
-      .where(eq(apps.id, appId))
+      .where(and(eq(apps.id, appId), currentDeployLeaseCondition()))
+      .returning({ id: apps.id })
+    if (!appUpdates[0]) {
+      throw new DeployLeaseLostError("lease changed before app runtime commit")
+    }
 
     const liveInfo: RunBlueGreenResult = {
       containerId: newContainerId,
@@ -939,10 +965,44 @@ export async function runBlueGreen(
 
     // 7. Stop old container.
     logBus.publish(channel, `[runner] stopping old container ${oldNames[0]}`)
+    await fenceDeploySideEffect()
     await stopContainerCandidates(agent, oldNames)
     logBus.publish(channel, `[runner] old container stopped`)
 
     return liveInfo
+  } catch (error) {
+    // Reconcile a target slot created before cancellation/lease loss. Never
+    // touch the previously-live color here.
+    if (caddySwitched) {
+      const restoreCaddy =
+        appRow.container_id !== null
+          ? caddyClient.setUpstream(appId, domain, {
+              host: appRow.container_id!,
+              port: runtimePort,
+            })
+          : caddyClient.removeUpstream(appId)
+      await runOwnedDeployReconciliation(async () => {
+        await restoreCaddy
+        await purgeCloudflareForApp(db, appId)
+      }).catch((cleanupError) =>
+        workerLog.error(
+          { appId, oldName: oldNames[0], cleanupError },
+          "runner: Caddy rollback failed during reconciliation"
+        )
+      )
+    }
+    if (newContainerId) {
+      const containerIdToRemove = newContainerId
+      await runOwnedDeployReconciliation(() =>
+        stopContainer(agent, containerIdToRemove)
+      ).catch((cleanupError) =>
+        workerLog.error(
+          { appId, newContainerId: containerIdToRemove, cleanupError },
+          "runner: partial container reconciliation failed"
+        )
+      )
+    }
+    throw error
   } finally {
     agent.close()
   }

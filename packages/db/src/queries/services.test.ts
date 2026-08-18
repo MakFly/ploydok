@@ -12,7 +12,7 @@ import { join } from "node:path"
 import { eq } from "drizzle-orm"
 import { nanoid } from "nanoid"
 import { createDb } from "../client"
-import { projects, services, users } from "../schema"
+import { memberships, projects, services, users } from "../schema"
 import {
   getServiceById,
   getServiceForUser,
@@ -71,6 +71,18 @@ describe.skipIf(skip)("services queries", () => {
         name: "Test Project",
         slug: `slug-${projectId}`,
         created_at: now,
+      })
+      .onConflictDoNothing()
+
+    await db
+      .insert(memberships)
+      .values({
+        id: `svc-member-${nanoid(6)}`,
+        org_id: projectId,
+        user_id: userId,
+        role: "owner",
+        invited_at: now,
+        accepted_at: now,
       })
       .onConflictDoNothing()
   })

@@ -2,7 +2,7 @@
 import { describe, it, expect, beforeEach } from "bun:test"
 import { Hono } from "hono"
 import { nanoid } from "nanoid"
-import { users, projects, apps, passkeys } from "@ploydok/db"
+import { users, projects, apps, memberships, passkeys } from "@ploydok/db"
 import type { Db } from "@ploydok/db"
 import { createAppsDomainsRouter } from "./apps-domains"
 import type { AuthUser } from "../auth/middleware"
@@ -49,6 +49,15 @@ async function createTestProject(db: TestDb, ownerId: string) {
     name: `Project ${id}`,
     slug: `proj-${id}`,
     created_at: now,
+  })
+  // Authorization reads the membership model, not projects.owner_id.
+  await db.insert(memberships).values({
+    id: nanoid(),
+    org_id: id,
+    user_id: ownerId,
+    role: "owner",
+    invited_at: now,
+    accepted_at: now,
   })
   return { id }
 }
@@ -489,7 +498,7 @@ describe.skipIf(skip)("domains mutations require second factor", () => {
     await db.insert(passkeys).values({
       id: nanoid(),
       user_id: userId,
-      credential_id: "cred-dom-sf-only",
+      credential_id: `cred-dom-sf-only-${userId}`,
       public_key: Buffer.from("pk"),
       counter: 0,
       transports: "[]",

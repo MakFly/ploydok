@@ -33,6 +33,11 @@ export const builds = pgTable(
       ],
     }),
     image_tag: text("image_tag"),
+    image_update_from_digest: text("image_update_from_digest"),
+    image_update_to_digest: text("image_update_to_digest"),
+    image_update_previous_status: text("image_update_previous_status", {
+      enum: ["running", "serving"],
+    }),
     container_id: text("container_id"),
     runtime_ref: text("runtime_ref"),
     commit_sha: text("commit_sha"),
@@ -69,6 +74,7 @@ export const builds = pgTable(
         "cron:cleanup",
         "auto:push",
         "auto:tag",
+        "reconcile",
         "system",
       ],
     })
@@ -78,6 +84,13 @@ export const builds = pgTable(
       .notNull()
       .$defaultFn(() => new Date()),
     claimed_at: timestamp("claimed_at", { withTimezone: true, mode: "date" }),
+    cancel_requested_at: timestamp("cancel_requested_at", {
+      withTimezone: true,
+      mode: "date",
+    }),
+    cancel_requested_by_user_id: text("cancel_requested_by_user_id").references(
+      () => users.id
+    ),
   },
   (t) => [
     index("builds_app_id_idx").on(t.app_id),

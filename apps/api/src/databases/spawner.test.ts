@@ -2,6 +2,8 @@
 import { describe, it, expect, mock, beforeEach } from "bun:test"
 import {
   extractPasswordFromConnectionString,
+  compensateDatabaseCreation,
+  resumeDatabaseCreation,
   spawnDatabase,
   startDatabaseContainer,
 } from "./spawner"
@@ -13,7 +15,16 @@ const mockContainerCreate = mock(async () => ({
   containerId: "test-container-id",
 }))
 const mockContainerStart = mock(async () => ({}))
+const mockContainerRemove = mock(
+  async (_req: {
+    containerId: string
+    force: boolean
+    removeVolumes: boolean
+  }) => ({})
+)
 const mockNetworkCreate = mock(async () => ({ networkId: "test-net-id" }))
+const mockUpsertTcpProxy = mock(async () => undefined)
+const mockRemoveTcpProxy = mock(async () => undefined)
 const mockListContainers = mock(async () => ({
   containers: [
     {
@@ -27,10 +38,120 @@ mock.module("../debug/singletons", () => ({
   getSharedAgent: () => ({
     containerCreate: mockContainerCreate,
     containerStart: mockContainerStart,
+    containerRemove: mockContainerRemove,
     listContainers: mockListContainers,
     networkCreate: mockNetworkCreate,
   }),
-  getSharedCaddy: () => ({}),
+  getSharedCaddy: () => ({
+    upsertTcpProxy: mockUpsertTcpProxy,
+    removeTcpProxy: mockRemoveTcpProxy,
+  }),
+}))
+
+let sagaState: {
+  state:
+    | "initializing"
+    | "provisioning"
+    | "compensating"
+    | "failed"
+    | "complete"
+    | "compensated"
+  completed_steps: string[]
+  owned_resources: Record<string, string>
+  attempt_count: number
+} | null = null
+
+mock.module("@ploydok/db/queries", () => ({
+  createCreationSaga: mock(
+    async (
+      _db: unknown,
+      input: {
+        completedSteps?: string[]
+        ownedResources?: Record<string, string>
+      }
+    ) => {
+      sagaState ??= {
+        state: "initializing",
+        completed_steps: input.completedSteps ?? [],
+        owned_resources: input.ownedResources ?? {},
+        attempt_count: 0,
+      }
+    }
+  ),
+  getCreationSaga: mock(async () => sagaState),
+  claimCreationSaga: mock(async () => {
+    if (
+      !sagaState ||
+      sagaState.state === "complete" ||
+      sagaState.state === "compensated"
+    )
+      return null
+    sagaState.state = "provisioning"
+    sagaState.attempt_count += 1
+    return { saga: sagaState, token: "test-compensation-token" }
+  }),
+  fenceCreationSaga: mock(async () => true),
+  recordClaimedCreationSagaStep: mock(
+    async (
+      _db: unknown,
+      _type: string,
+      _id: string,
+      _token: string,
+      step: string,
+      resources: Record<string, string> = {}
+    ) => {
+      if (!sagaState) return false
+      if (!sagaState.completed_steps.includes(step))
+        sagaState.completed_steps.push(step)
+      Object.assign(sagaState.owned_resources, resources)
+      return true
+    }
+  ),
+  completeClaimedCreationSaga: mock(async () => {
+    if (sagaState) sagaState.state = "complete"
+    return true
+  }),
+  retryClaimedCreationSaga: mock(async () => {
+    if (sagaState) sagaState.state = "failed"
+    return true
+  }),
+  beginClaimedCreationSagaCompensation: mock(async () => {
+    if (sagaState) sagaState.state = "compensating"
+    return true
+  }),
+  completeClaimedCreationSagaCompensation: mock(async () => {
+    if (sagaState) sagaState.state = "compensated"
+    return true
+  }),
+  beginCreationSagaAttempt: mock(async () => {
+    if (sagaState && sagaState.state !== "complete")
+      sagaState.state = "provisioning"
+  }),
+  beginCreationSagaCompensation: mock(async () => {
+    if (sagaState && sagaState.state !== "complete") {
+      sagaState.state = "provisioning"
+    }
+  }),
+  recordCreationSagaStep: mock(
+    async (
+      _db: unknown,
+      _type: string,
+      _id: string,
+      step: string,
+      resources: Record<string, string> = {}
+    ) => {
+      if (!sagaState) return
+      if (!sagaState.completed_steps.includes(step))
+        sagaState.completed_steps.push(step)
+      Object.assign(sagaState.owned_resources, resources)
+    }
+  ),
+  completeCreationSaga: mock(async () => {
+    if (sagaState) sagaState.state = "complete"
+  }),
+  failCreationSaga: mock(async () => {
+    if (sagaState && sagaState.state !== "complete") sagaState.state = "failed"
+  }),
 }))
 
 const mockEnsureProjectNetwork = mock(async () => "ploydok-proj-test-project")
@@ -71,6 +192,9 @@ const mockDb = {
       }),
     })),
   })),
+  transaction: mock(async (callback: (tx: unknown) => Promise<unknown>) =>
+    callback(mockDb)
+  ),
 } as unknown as import("@ploydok/db").Db
 
 // ── Tests ──────────────────────────────────────────────────────────────────────
@@ -97,10 +221,14 @@ describe("spawnDatabase", () => {
     updatedRows = []
     mockContainerCreate.mockClear()
     mockContainerStart.mockClear()
+    mockContainerRemove.mockClear()
     mockListContainers.mockClear()
     mockNetworkCreate.mockClear()
     mockEnsureProjectNetwork.mockClear()
     mockEncryptSecret.mockClear()
+    mockUpsertTcpProxy.mockClear()
+    mockRemoveTcpProxy.mockClear()
+    sagaState = null
   })
 
   const kinds: DbKind[] = ["postgres", "redis", "mongo", "libsql"]
@@ -128,7 +256,7 @@ describe("spawnDatabase", () => {
       expect(
         updatedRows.some((row) => row.container_id === "test-container-id")
       ).toBe(true)
-      expect(updatedRows.some((row) => row.connection_string_enc)).toBe(true)
+      expect(insertedRow.connection_string_enc).toBeTruthy()
       expect(updatedRows[updatedRows.length - 1]?.status).toBe("running")
 
       expect(mockContainerCreate).toHaveBeenCalledTimes(1)
@@ -179,6 +307,64 @@ describe("spawnDatabase", () => {
     expect(result.connectionString).toContain(":5432/app")
     expect(result.connectionString).toContain("serverVersion=16")
     expect(result.connectionString).toContain("charset=utf8")
+  })
+
+  it("resumes after a crash without creating a second container", async () => {
+    mockContainerStart.mockImplementationOnce(async () => {
+      throw new Error("simulated crash after container create")
+    })
+
+    await expect(
+      spawnDatabase(mockDb, {
+        projectId: "proj-crash",
+        ownerId: "user-1",
+        kind: "postgres",
+        name: "crash-db",
+        plan: "small",
+      })
+    ).rejects.toThrow("simulated crash")
+    expect(sagaState?.state).toBe("failed")
+    expect(sagaState?.completed_steps).toContain("container_created")
+
+    await resumeDatabaseCreation(
+      mockDb,
+      insertedRow as unknown as import("@ploydok/db").DatabaseRow,
+      "user-1"
+    )
+
+    expect(mockContainerCreate).toHaveBeenCalledTimes(1)
+    expect(mockContainerStart).toHaveBeenCalledTimes(2)
+    expect(sagaState?.state).toBe("complete")
+  })
+
+  it("compensates owned runtime resources after a terminal creation failure", async () => {
+    mockContainerStart.mockImplementationOnce(async () => {
+      throw new Error("terminal failure")
+    })
+    await expect(
+      spawnDatabase(mockDb, {
+        projectId: "proj-compensate",
+        ownerId: "user-1",
+        kind: "postgres",
+        name: "compensate-db",
+        plan: "small",
+      })
+    ).rejects.toThrow("terminal failure")
+
+    await compensateDatabaseCreation(
+      mockDb,
+      insertedRow as unknown as import("@ploydok/db").DatabaseRow,
+      "test-compensation-token",
+      "test compensation"
+    )
+
+    expect(mockContainerRemove).toHaveBeenCalledTimes(1)
+    expect(mockContainerRemove.mock.calls[0]?.[0]).toMatchObject({
+      force: true,
+      removeVolumes: true,
+    })
+    expect(sagaState?.completed_steps).toContain("container_compensated")
+    expect(sagaState?.completed_steps).toContain("runtime_compensated")
   })
 
   it("connection string for redis includes correct format", async () => {

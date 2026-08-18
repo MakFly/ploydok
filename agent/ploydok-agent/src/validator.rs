@@ -16,13 +16,14 @@
 //   - `PermissiveValidator` : no-op, development only.
 //   - `StrictValidator`     : production allowlist enforcement (task 2.3).
 
-use std::path::Path;
+use std::path::{Component, Path, PathBuf};
 
 use ploydok_proto::agent::{
-    ContainerCreateRequest, ContainerRemoveRequest, ContainerStartRequest, ContainerStopRequest,
-    ExecStart, ImageBuildRequest, ImagePullRequest, InspectContainerHealthRequest,
-    ListContainerFilesRequest, ListServiceTasksRequest, NetworkConnectRequest,
-    NetworkCreateRequest, NetworkDisconnectRequest, NetworkRemoveRequest, ReadContainerFileRequest,
+    BuildCachePruneRequest, ContainerCreateRequest, ContainerRemoveRequest, ContainerStartRequest,
+    ContainerStopRequest, ExecStart, ImageBuildRequest, ImagePruneRequest, ImagePullRequest,
+    ImagePushRequest, ImageRemoveRequest, InspectContainerHealthRequest, ListContainerFilesRequest,
+    ListServiceTasksRequest, NetworkConnectRequest, NetworkCreateRequest, NetworkDisconnectRequest,
+    NetworkRemoveRequest, ReadContainerFileRequest, RegistryGarbageCollectRequest,
     ServiceRemoveRequest, ServiceRollbackRequest, ServiceScaleRequest, ServiceUpdateImageRequest,
     SwarmServiceSpec,
 };
@@ -45,6 +46,14 @@ pub trait Validator: Send + Sync + 'static {
     fn validate_container_remove(&self, req: &ContainerRemoveRequest) -> ValidatorResult;
     fn validate_image_pull(&self, req: &ImagePullRequest) -> ValidatorResult;
     fn validate_image_build(&self, req: &ImageBuildRequest) -> ValidatorResult;
+    fn validate_image_prune(&self, req: &ImagePruneRequest) -> ValidatorResult;
+    fn validate_image_push(&self, req: &ImagePushRequest) -> ValidatorResult;
+    fn validate_image_remove(&self, req: &ImageRemoveRequest) -> ValidatorResult;
+    fn validate_build_cache_prune(&self, req: &BuildCachePruneRequest) -> ValidatorResult;
+    fn validate_registry_garbage_collect(
+        &self,
+        req: &RegistryGarbageCollectRequest,
+    ) -> ValidatorResult;
     fn validate_network_create(&self, req: &NetworkCreateRequest) -> ValidatorResult;
     fn validate_network_remove(&self, req: &NetworkRemoveRequest) -> ValidatorResult;
     fn validate_network_connect(&self, req: &NetworkConnectRequest) -> ValidatorResult;
@@ -92,6 +101,24 @@ impl Validator for PermissiveValidator {
         Ok(())
     }
     fn validate_image_build(&self, _req: &ImageBuildRequest) -> ValidatorResult {
+        Ok(())
+    }
+    fn validate_image_prune(&self, _req: &ImagePruneRequest) -> ValidatorResult {
+        Ok(())
+    }
+    fn validate_image_push(&self, _req: &ImagePushRequest) -> ValidatorResult {
+        Ok(())
+    }
+    fn validate_image_remove(&self, _req: &ImageRemoveRequest) -> ValidatorResult {
+        Ok(())
+    }
+    fn validate_build_cache_prune(&self, _req: &BuildCachePruneRequest) -> ValidatorResult {
+        Ok(())
+    }
+    fn validate_registry_garbage_collect(
+        &self,
+        _req: &RegistryGarbageCollectRequest,
+    ) -> ValidatorResult {
         Ok(())
     }
     fn validate_network_create(&self, _req: &NetworkCreateRequest) -> ValidatorResult {
@@ -315,6 +342,193 @@ fn validate_host_path(host_path: &str, allowed_prefixes: &[&str]) -> Result<(), 
     ))
 }
 
+const MANAGED_IMAGE_REGISTRIES: &[&str] = &["registry:5000", "127.0.0.1:5000", "localhost:5000"];
+const MIN_BUILD_CACHE_KEEP_BYTES: i64 = 1024 * 1024 * 1024;
+const MAX_BUILD_CACHE_KEEP_BYTES: i64 = 1024 * 1024 * 1024 * 1024;
+const MIN_BUILD_CACHE_AGE_SECONDS: i64 = 60 * 60;
+const MAX_BUILD_CACHE_AGE_SECONDS: i64 = 365 * 24 * 60 * 60;
+const DEFAULT_REGISTRY_CONFIG: &str = "/etc/docker/registry/config.yml";
+
+fn image_repository(image: &str) -> Option<(&str, &str)> {
+    let registry = extract_registry(image);
+    let slash = image.find('/')?;
+    let repository_with_ref = &image[slash + 1..];
+    let repository_without_digest = repository_with_ref
+        .split_once('@')
+        .map_or(repository_with_ref, |(repository, _)| repository);
+    let repository = repository_without_digest
+        .rsplit_once(':')
+        .map_or(repository_without_digest, |(repository, _)| repository);
+    Some((registry, repository))
+}
+
+fn validate_managed_image(image: &str) -> ValidatorResult {
+    let Some((registry, repository)) = image_repository(image) else {
+        return Err(deny(
+            tonic::Code::InvalidArgument,
+            "managed_image_reference",
+            serde_json::json!({ "image": image }),
+        ));
+    };
+    let valid_repository = repository
+        .strip_prefix("app-")
+        .or_else(|| repository.strip_prefix("preview-app-"))
+        .is_some_and(|suffix| {
+            !suffix.is_empty()
+                && suffix.len() <= 200
+                && suffix.chars().all(|character| {
+                    character.is_ascii_lowercase() || character.is_ascii_digit() || character == '-'
+                })
+        });
+    if !MANAGED_IMAGE_REGISTRIES.contains(&registry) || !valid_repository {
+        return Err(deny(
+            tonic::Code::PermissionDenied,
+            "managed_image_only",
+            serde_json::json!({
+                "image": image,
+                "registry": registry,
+                "repository": repository,
+            }),
+        ));
+    }
+    Ok(())
+}
+
+fn validate_build_cache_bounds(req: &BuildCachePruneRequest) -> ValidatorResult {
+    let now = std::time::SystemTime::now()
+        .duration_since(std::time::UNIX_EPOCH)
+        .map_err(|_| {
+            deny(
+                tonic::Code::Internal,
+                "system_clock_before_epoch",
+                serde_json::json!({}),
+            )
+        })?
+        .as_secs() as i64;
+    let age_seconds = now.saturating_sub(req.until_unix);
+    if req.until_unix <= 0
+        || req.until_unix > now
+        || !(MIN_BUILD_CACHE_AGE_SECONDS..=MAX_BUILD_CACHE_AGE_SECONDS).contains(&age_seconds)
+    {
+        return Err(deny(
+            tonic::Code::InvalidArgument,
+            "build_cache_until_bounds",
+            serde_json::json!({
+                "until_unix": req.until_unix,
+                "min_age_seconds": MIN_BUILD_CACHE_AGE_SECONDS,
+                "max_age_seconds": MAX_BUILD_CACHE_AGE_SECONDS,
+            }),
+        ));
+    }
+    if !(MIN_BUILD_CACHE_KEEP_BYTES..=MAX_BUILD_CACHE_KEEP_BYTES).contains(&req.keep_storage_bytes)
+    {
+        return Err(deny(
+            tonic::Code::InvalidArgument,
+            "build_cache_keep_storage_bounds",
+            serde_json::json!({
+                "keep_storage_bytes": req.keep_storage_bytes,
+                "min": MIN_BUILD_CACHE_KEEP_BYTES,
+                "max": MAX_BUILD_CACHE_KEEP_BYTES,
+            }),
+        ));
+    }
+    Ok(())
+}
+
+fn validate_image_prune_bounds(req: &ImagePruneRequest) -> ValidatorResult {
+    if req.all {
+        return Err(deny(
+            tonic::Code::PermissionDenied,
+            "image_prune_global_forbidden",
+            serde_json::json!({ "all": true }),
+        ));
+    }
+    if !req.keep_repo_tags.is_empty() {
+        return Err(deny(
+            tonic::Code::InvalidArgument,
+            "image_prune_keep_tags_without_global_mode",
+            serde_json::json!({ "keep_repo_tags": &req.keep_repo_tags }),
+        ));
+    }
+    let now = std::time::SystemTime::now()
+        .duration_since(std::time::UNIX_EPOCH)
+        .map_err(|_| {
+            deny(
+                tonic::Code::Internal,
+                "system_clock_before_epoch",
+                serde_json::json!({}),
+            )
+        })?
+        .as_secs() as i64;
+    let age_seconds = now.saturating_sub(req.until_unix);
+    if req.until_unix <= 0
+        || req.until_unix > now
+        || !(MIN_BUILD_CACHE_AGE_SECONDS..=MAX_BUILD_CACHE_AGE_SECONDS).contains(&age_seconds)
+    {
+        return Err(deny(
+            tonic::Code::InvalidArgument,
+            "image_prune_until_bounds",
+            serde_json::json!({
+                "until_unix": req.until_unix,
+                "min_age_seconds": MIN_BUILD_CACHE_AGE_SECONDS,
+                "max_age_seconds": MAX_BUILD_CACHE_AGE_SECONDS,
+            }),
+        ));
+    }
+    Ok(())
+}
+
+fn validate_registry_config_path(config_path: &str) -> ValidatorResult {
+    let candidate = if config_path.is_empty() {
+        DEFAULT_REGISTRY_CONFIG
+    } else {
+        config_path
+    };
+    if candidate.contains('\0')
+        || candidate.len() > 4096
+        || candidate
+            .split('/')
+            .any(|component| component == "." || component == "..")
+    {
+        return Err(deny(
+            tonic::Code::InvalidArgument,
+            "registry_config_path",
+            serde_json::json!({ "config_path": candidate }),
+        ));
+    }
+
+    let path = Path::new(candidate);
+    if !path.is_absolute() {
+        return Err(deny(
+            tonic::Code::InvalidArgument,
+            "registry_config_path_absolute",
+            serde_json::json!({ "config_path": candidate }),
+        ));
+    }
+    let mut normalized = PathBuf::new();
+    for component in path.components() {
+        match component {
+            Component::RootDir | Component::Normal(_) => normalized.push(component.as_os_str()),
+            Component::Prefix(_) | Component::CurDir | Component::ParentDir => {
+                return Err(deny(
+                    tonic::Code::InvalidArgument,
+                    "registry_config_path_normalized",
+                    serde_json::json!({ "config_path": candidate }),
+                ));
+            }
+        }
+    }
+    let allowed_root = Path::new("/etc/docker/registry");
+    if normalized != path || !normalized.starts_with(allowed_root) || normalized == allowed_root {
+        return Err(deny(
+            tonic::Code::PermissionDenied,
+            "registry_config_path_scope",
+            serde_json::json!({ "config_path": candidate }),
+        ));
+    }
+    Ok(())
+}
+
 // ─── Validator impl ──────────────────────────────────────────────────────────
 
 impl Validator for StrictValidator {
@@ -429,20 +643,7 @@ impl Validator for StrictValidator {
             }
         }
         for n in &net_candidates {
-            if *n == "host" {
-                return Err(deny(
-                    tonic::Code::PermissionDenied,
-                    "network_host_forbidden",
-                    serde_json::json!({ "network": n }),
-                ));
-            }
-            if !n.starts_with("ploydok-") {
-                return Err(deny(
-                    tonic::Code::PermissionDenied,
-                    "network_prefix",
-                    serde_json::json!({ "network": n, "expected_prefix": "ploydok-" }),
-                ));
-            }
+            validate_workload_network_name(n)?;
         }
 
         // 7. User: must not be root/0 if specified.
@@ -578,6 +779,29 @@ impl Validator for StrictValidator {
         Ok(())
     }
 
+    fn validate_image_prune(&self, req: &ImagePruneRequest) -> ValidatorResult {
+        validate_image_prune_bounds(req)
+    }
+
+    fn validate_image_push(&self, req: &ImagePushRequest) -> ValidatorResult {
+        validate_managed_image(&req.image)
+    }
+
+    fn validate_image_remove(&self, req: &ImageRemoveRequest) -> ValidatorResult {
+        validate_managed_image(&req.image)
+    }
+
+    fn validate_build_cache_prune(&self, req: &BuildCachePruneRequest) -> ValidatorResult {
+        validate_build_cache_bounds(req)
+    }
+
+    fn validate_registry_garbage_collect(
+        &self,
+        req: &RegistryGarbageCollectRequest,
+    ) -> ValidatorResult {
+        validate_registry_config_path(&req.config_path)
+    }
+
     fn validate_network_create(&self, req: &NetworkCreateRequest) -> ValidatorResult {
         // Name must start with ploydok-.
         if !req.name.starts_with("ploydok-") {
@@ -644,13 +868,7 @@ impl Validator for StrictValidator {
                 serde_json::json!({ "network_id": &req.network_id, "expected_prefix": "ploydok-" }),
             ));
         }
-        if req.container_id.is_empty() {
-            return Err(deny(
-                tonic::Code::InvalidArgument,
-                "container_id_empty",
-                serde_json::json!({ "container_id": "" }),
-            ));
-        }
+        validate_container_id(&req.container_id)?;
         Ok(())
     }
 
@@ -669,13 +887,7 @@ impl Validator for StrictValidator {
                 serde_json::json!({ "network_id": &req.network_id, "expected_prefix": "ploydok-" }),
             ));
         }
-        if req.container_id.is_empty() {
-            return Err(deny(
-                tonic::Code::InvalidArgument,
-                "container_id_empty",
-                serde_json::json!({ "container_id": "" }),
-            ));
-        }
+        validate_container_id(&req.container_id)?;
         Ok(())
     }
 
@@ -778,7 +990,7 @@ impl Validator for StrictValidator {
             ));
         }
         for network in &req.networks {
-            validate_network_name(network)?;
+            validate_workload_network_name(network)?;
         }
         for mount in &req.mounts {
             if let Err(reason) = validate_host_path(
@@ -896,6 +1108,27 @@ fn validate_network_name(network: &str) -> ValidatorResult {
         ));
     }
     Ok(())
+}
+
+pub fn validate_workload_network_name(network: &str) -> ValidatorResult {
+    if network == "host" {
+        return Err(deny(
+            tonic::Code::PermissionDenied,
+            "network_host_forbidden",
+            serde_json::json!({ "network": network }),
+        ));
+    }
+    if matches!(
+        network,
+        "ploydok-management" | "ploydok-build" | "ploydok-monitoring" | "ploydok-alerting"
+    ) {
+        return Err(deny(
+            tonic::Code::PermissionDenied,
+            "network_control_plane_forbidden",
+            serde_json::json!({ "network": network }),
+        ));
+    }
+    validate_network_name(network)
 }
 
 fn validate_container_id(container_id: &str) -> ValidatorResult {

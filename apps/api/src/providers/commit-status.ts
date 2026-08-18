@@ -1,12 +1,8 @@
 // SPDX-License-Identifier: AGPL-3.0-only
 import type { Db } from "@ploydok/db"
-import {
-  getGitLabConfig,
-  getGitLabTokens,
-} from "@ploydok/db/queries"
 import type { CommitStatusInput } from "@ploydok/shared"
-import { decryptField } from "../github/app-credentials"
 import { getInstallationToken } from "../github/installation-tokens"
+import { resolveGitLabConnection } from "../gitlab/connection"
 import { childLogger } from "../logger"
 import { env } from "../env"
 import { getProvider } from "./index"
@@ -21,6 +17,7 @@ export interface AppForCommitStatus {
   git_provider: string | null
   repo_full_name: string | null
   github_installation_id: string | null
+  gitlab_credential_user_id?: string | null
   owner_id: string
   post_commit_status: boolean
 }
@@ -32,6 +29,8 @@ export interface PostCommitStatusOptions {
   buildId?: string
   buildNumber?: number
   durationMs?: number
+  /** Re-check deploy ownership immediately before provider network calls. */
+  beforeSend?: () => Promise<void>
 }
 
 /**
@@ -43,7 +42,7 @@ export async function postCommitStatusForApp(
   db: Db,
   redis: Redis,
   app: AppForCommitStatus,
-  opts: PostCommitStatusOptions,
+  opts: PostCommitStatusOptions
 ): Promise<void> {
   if (!app.post_commit_status) return
   if (!app.repo_full_name) return
@@ -54,6 +53,7 @@ export async function postCommitStatusForApp(
   const { sha, state, buildId } = opts
 
   // Dedup: skip if we already sent the exact same state for this sha+context in the last 60s
+  await opts.beforeSend?.()
   const dedupKey = `status:sent:${sha}:${CONTEXT}:${state}`
   const isNew = await redis.set(dedupKey, "1", "EX", 60, "NX").catch(() => null)
   if (isNew === null) {
@@ -61,7 +61,9 @@ export async function postCommitStatusForApp(
     return
   }
 
-  const [owner, repo] = app.repo_full_name.split("/")
+  const pathParts = app.repo_full_name.split("/").filter(Boolean)
+  const repo = pathParts.pop()
+  const owner = pathParts.join("/")
   if (!owner || !repo) return
 
   const targetUrl = buildId
@@ -87,6 +89,7 @@ export async function postCommitStatusForApp(
     ...(description !== undefined && { description }),
   }
 
+  await opts.beforeSend?.()
   try {
     if (provider === "github") {
       await postGitHubStatus(app, statusInput)
@@ -95,16 +98,22 @@ export async function postCommitStatusForApp(
     }
     log.info({ sha, state, provider, appId: app.id }, "commit status posted")
   } catch (err) {
-    log.warn({ err, sha, state, provider, appId: app.id }, "commit status post failed (non-fatal)")
+    log.warn(
+      { err, sha, state, provider, appId: app.id },
+      "commit status post failed (non-fatal)"
+    )
   }
 }
 
 async function postGitHubStatus(
   app: AppForCommitStatus,
-  input: Omit<CommitStatusInput, "token" | "context">,
+  input: Omit<CommitStatusInput, "token" | "context">
 ): Promise<void> {
   if (!app.github_installation_id) {
-    log.debug({ appId: app.id }, "no github_installation_id — skip commit status")
+    log.debug(
+      { appId: app.id },
+      "no github_installation_id — skip commit status"
+    )
     return
   }
   const token = await getInstallationToken(app.github_installation_id)
@@ -115,22 +124,22 @@ async function postGitHubStatus(
 async function postGitLabStatus(
   db: Db,
   app: AppForCommitStatus,
-  input: Omit<CommitStatusInput, "token" | "context">,
+  input: Omit<CommitStatusInput, "token" | "context">
 ): Promise<void> {
-  const cfg = await getGitLabConfig(db)
-  if (!cfg) {
-    log.debug({ appId: app.id }, "gitlab not configured — skip commit status")
+  if (!app.gitlab_credential_user_id) {
+    log.debug(
+      { appId: app.id },
+      "no exact GitLab credential — skip commit status"
+    )
     return
   }
-  const tokens = await getGitLabTokens(db, app.owner_id)
-  if (!tokens) {
-    log.debug({ appId: app.id }, "no gitlab tokens for owner — skip commit status")
-    return
-  }
-  const accessToken = await decryptField(
-    tokens.access_token_enc as Buffer,
-    tokens.access_token_nonce as Buffer,
+  const connection = await resolveGitLabConnection(
+    db,
+    app.gitlab_credential_user_id
   )
-  const glProvider = getProvider("gitlab", { gitlabInstanceUrl: cfg.instance_url })
-  await glProvider.postCommitStatus({ ...input, context: CONTEXT, token: accessToken })
+  await connection.provider.postCommitStatus({
+    ...input,
+    context: CONTEXT,
+    token: connection.accessToken,
+  })
 }

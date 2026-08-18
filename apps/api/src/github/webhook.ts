@@ -301,7 +301,7 @@ async function handleInstallationRepositoriesEvent(
 
     case "removed": {
       const ids = (repositories_removed ?? []).map((r) => makeRepoId(r.id));
-      await queries.deleteRepos(db, ids);
+      await queries.deleteRepos(db, installationId, ids);
       log.info({ deliveryId, installationId, count: ids.length }, "repos removed from installation");
       break;
     }
