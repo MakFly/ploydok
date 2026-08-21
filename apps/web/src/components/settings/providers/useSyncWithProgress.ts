@@ -1,6 +1,7 @@
 // SPDX-License-Identifier: AGPL-3.0-only
 import * as React from "react"
 import { useEventsSubscription } from "../../../lib/events-provider"
+import i18n from "../../../lib/i18n"
 import type { SyncStatus } from "./SyncProgressDialog"
 
 // ---------------------------------------------------------------------------
@@ -56,18 +57,21 @@ export function useSyncWithProgress(): SyncProgressState {
   const [syncId, setSyncId] = React.useState<string | null>(null)
   const [startedAt, setStartedAt] = React.useState<number | null>(null)
   const [status, setStatus] = React.useState<SyncStatus>("idle")
-  const [errorMessage, setErrorMessage] = React.useState<string | undefined>(undefined)
+  const [errorMessage, setErrorMessage] = React.useState<string | undefined>(
+    undefined
+  )
   const [importedCount, setImportedCount] = React.useState(0)
   const [totalCount, setTotalCount] = React.useState(0)
 
   // Stable refs so useEventsSubscription doesn't re-attach on every render.
   const syncIdRef = React.useRef<string | null>(null)
-  React.useEffect(() => { syncIdRef.current = syncId }, [syncId])
+  React.useEffect(() => {
+    syncIdRef.current = syncId
+  }, [syncId])
 
   function isMine(envelope: ProviderSyncEnvelope): boolean {
     return (
-      syncIdRef.current != null &&
-      envelope.data?.syncId === syncIdRef.current
+      syncIdRef.current != null && envelope.data?.syncId === syncIdRef.current
     )
   }
 
@@ -98,12 +102,21 @@ export function useSyncWithProgress(): SyncProgressState {
   const onFailed = React.useCallback((envelope: ProviderSyncEnvelope) => {
     if (!isMine(envelope)) return
     setStatus("error")
-    setErrorMessage(envelope.data?.error ?? "Sync failed")
+    setErrorMessage(envelope.data?.error ?? i18n.t("settings:sync.failed"))
   }, [])
 
-  useEventsSubscription<ProviderSyncEnvelope>("provider.sync.started", onStarted)
-  useEventsSubscription<ProviderSyncEnvelope>("provider.sync.progress", onProgress)
-  useEventsSubscription<ProviderSyncEnvelope>("provider.sync.completed", onCompleted)
+  useEventsSubscription<ProviderSyncEnvelope>(
+    "provider.sync.started",
+    onStarted
+  )
+  useEventsSubscription<ProviderSyncEnvelope>(
+    "provider.sync.progress",
+    onProgress
+  )
+  useEventsSubscription<ProviderSyncEnvelope>(
+    "provider.sync.completed",
+    onCompleted
+  )
   useEventsSubscription<ProviderSyncEnvelope>("provider.sync.failed", onFailed)
 
   function begin(newSyncId: string): void {

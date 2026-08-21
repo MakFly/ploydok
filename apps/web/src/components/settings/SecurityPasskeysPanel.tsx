@@ -28,15 +28,18 @@ import { Input } from "@workspace/ui/components/input"
 import { Label } from "@workspace/ui/components/label"
 import { Skeleton } from "@workspace/ui/components/skeleton"
 import { cn } from "@workspace/ui/lib/utils"
+import { useTranslation } from "react-i18next"
 import { toast } from "sonner"
 import {
   useAddPasskey,
   usePasskeys,
   useRemovePasskey,
 } from "../../lib/passkeys"
+import i18n from "../../lib/i18n"
 import type { PasskeyInfo } from "@ploydok/shared"
 
 export function SecurityPasskeysPanel(): React.JSX.Element {
+  const { t } = useTranslation("settings")
   const { data: passkeys, isLoading, error } = usePasskeys()
 
   if (error) {
@@ -44,7 +47,7 @@ export function SecurityPasskeysPanel(): React.JSX.Element {
       <CardFrame>
         <p className="text-sm text-destructive" role="alert">
           <RiErrorWarningLine className="mr-1.5 inline size-3.5 align-[-2px]" />
-          Failed to load passkeys: {error.message}
+          {t("passkeys.loadFailed", { message: error.message })}
         </p>
       </CardFrame>
     )
@@ -59,10 +62,12 @@ export function SecurityPasskeysPanel(): React.JSX.Element {
       <div className="space-y-2">
         <div className="flex items-baseline justify-between px-1">
           <p className="font-mono text-[10px] tracking-wide text-muted-foreground uppercase">
-            Registered devices
+            {t("passkeys.registered")}
           </p>
           <p className="font-mono text-[10px] text-muted-foreground">
-            {isLoading ? "…" : `${passkeys?.length ?? 0} total`}
+            {isLoading
+              ? "…"
+              : t("passkeys.total", { count: passkeys?.length ?? 0 })}
           </p>
         </div>
 
@@ -77,8 +82,8 @@ export function SecurityPasskeysPanel(): React.JSX.Element {
         ) : (
           <EmptyState
             icon={RiFingerprintLine}
-            title="No passkeys registered"
-            hint="Add a device above to enable passkey sign-in for this account."
+            title={t("passkeys.empty")}
+            hint={t("passkeys.emptyHint")}
           />
         )}
       </div>
@@ -88,12 +93,10 @@ export function SecurityPasskeysPanel(): React.JSX.Element {
           <RiAlarmWarningLine className="mt-0.5 size-4 shrink-0 text-amber-600 dark:text-amber-400" />
           <div>
             <p className="font-medium text-foreground">
-              Single-point-of-failure
+              {t("passkeys.singlePoint")}
             </p>
             <p className="mt-0.5 text-muted-foreground">
-              You cannot remove your last passkey without active backup codes.
-              Enroll a second device — a phone, a hardware key, or another
-              laptop — before travelling.
+              {t("passkeys.singlePointHint")}
             </p>
           </div>
         </div>
@@ -112,20 +115,20 @@ function detectPasskeySupport(): PasskeySupport {
   if (!window.isSecureContext) {
     return {
       available: false,
-      message:
-        "Passkeys require HTTPS. Open Ploydok from its configured HTTPS domain before enrolling a device.",
+      message: i18n.t("settings:passkeys.httpsRequired"),
     }
   }
   if (!("PublicKeyCredential" in window)) {
     return {
       available: false,
-      message: "This browser does not expose WebAuthn passkey APIs.",
+      message: i18n.t("settings:passkeys.noWebAuthn"),
     }
   }
   return { available: true, message: null }
 }
 
 function AddPasskeyCard(): React.JSX.Element {
+  const { t } = useTranslation("settings")
   const addPasskey = useAddPasskey()
   const [deviceName, setDeviceName] = React.useState("")
   const [support, setSupport] = React.useState<PasskeySupport>({
@@ -148,14 +151,14 @@ function AddPasskeyCard(): React.JSX.Element {
     try {
       await addPasskey.mutateAsync({ deviceName })
       setDeviceName("")
-      toast.success("Passkey enrolled")
+      toast.success(t("passkeys.enrolled"))
     } catch (err) {
       const message =
         err instanceof DOMException && err.name === "NotAllowedError"
-          ? "Passkey enrollment was cancelled or timed out."
+          ? t("passkeys.cancelled")
           : err instanceof Error
             ? err.message
-            : "Failed to enroll passkey"
+            : t("passkeys.enrollFailed")
       setError(message)
       toast.error(message)
     }
@@ -163,29 +166,35 @@ function AddPasskeyCard(): React.JSX.Element {
 
   return (
     <CardFrame
-      title="Add passkey"
-      description="Enroll this browser, phone, or hardware key as a sign-in method for your account."
+      title={t("passkeys.add")}
+      description={t("passkeys.addHint")}
       icon={RiFingerprintLine}
     >
-      <form onSubmit={(event) => void handleSubmit(event)} className="space-y-3">
+      <form
+        onSubmit={(event) => void handleSubmit(event)}
+        className="space-y-3"
+      >
         <div className="grid gap-2 md:grid-cols-[1fr_auto] md:items-end">
           <div className="space-y-1.5">
-            <Label htmlFor="passkey-device-name">Device name</Label>
+            <Label htmlFor="passkey-device-name">
+              {t("passkeys.deviceName")}
+            </Label>
             <Input
               id="passkey-device-name"
               value={deviceName}
               onChange={(event) => setDeviceName(event.target.value)}
-              placeholder="MacBook Touch ID, iPhone, YubiKey…"
+              placeholder={t("passkeys.devicePlaceholder")}
               autoComplete="off"
             />
           </div>
           <Button
             type="submit"
-            loading={addPasskey.isPending} disabled={!support.available}
+            loading={addPasskey.isPending}
+            disabled={!support.available}
             className="md:min-w-32"
           >
             <RiAddLine className="size-4" />
-            {addPasskey.isPending ? "Enrolling…" : "Add passkey"}
+            {addPasskey.isPending ? t("passkeys.enrolling") : t("passkeys.add")}
           </Button>
         </div>
 
@@ -207,24 +216,29 @@ function AddPasskeyCard(): React.JSX.Element {
 
 interface DeviceKind {
   icon: React.ComponentType<{ className?: string }>
-  tag: string
+  tagKey:
+    | "passkeys.kindHardware"
+    | "passkeys.kindMobile"
+    | "passkeys.kindTouchId"
+    | "passkeys.kindWindowsHello"
+    | "passkeys.kindPasskey"
 }
 
 function inferDevice(name: string | null): DeviceKind {
   const n = (name ?? "").toLowerCase()
   if (/yubi|nitro|feitian|solokeys|hardware.?key|security.?key|usb/.test(n)) {
-    return { icon: RiUsbLine, tag: "Hardware key" }
+    return { icon: RiUsbLine, tagKey: "passkeys.kindHardware" }
   }
   if (/iphone|ipad|android|phone|pixel|galaxy/.test(n)) {
-    return { icon: RiSmartphoneLine, tag: "Mobile" }
+    return { icon: RiSmartphoneLine, tagKey: "passkeys.kindMobile" }
   }
   if (/mac|touch.?id|macbook|imac/.test(n)) {
-    return { icon: RiFingerprintLine, tag: "Touch ID" }
+    return { icon: RiFingerprintLine, tagKey: "passkeys.kindTouchId" }
   }
   if (/windows|hello|thinkpad|surface/.test(n)) {
-    return { icon: RiKey2Line, tag: "Windows Hello" }
+    return { icon: RiKey2Line, tagKey: "passkeys.kindWindowsHello" }
   }
-  return { icon: RiShieldKeyholeLine, tag: "Passkey" }
+  return { icon: RiShieldKeyholeLine, tagKey: "passkeys.kindPasskey" }
 }
 
 function PasskeyRow({
@@ -234,10 +248,11 @@ function PasskeyRow({
   passkey: PasskeyInfo
   canRemove: boolean
 }): React.JSX.Element {
+  const { t } = useTranslation("settings")
   const removePasskey = useRemovePasskey()
   const [removeError, setRemoveError] = React.useState<string | null>(null)
-  const { icon: Icon, tag } = inferDevice(passkey.device_name)
-  const displayName = passkey.device_name ?? "Unnamed device"
+  const { icon: Icon, tagKey } = inferDevice(passkey.device_name)
+  const displayName = passkey.device_name ?? t("passkeys.unnamed")
   const createdAbs = new Date(passkey.created_at).toLocaleString()
   const lastUsedAbs = new Date(passkey.last_used_at).toLocaleString()
 
@@ -247,7 +262,7 @@ function PasskeyRow({
       await removePasskey.mutateAsync(passkey.id)
     } catch (err) {
       setRemoveError(
-        err instanceof Error ? err.message : "Failed to remove passkey"
+        err instanceof Error ? err.message : t("passkeys.removeFailed")
       )
     }
   }
@@ -263,18 +278,18 @@ function PasskeyRow({
           <div className="flex flex-wrap items-center gap-2">
             <p className="truncate text-sm font-medium">{displayName}</p>
             <span className="inline-flex items-center rounded-full border border-border bg-background px-1.5 py-0.5 font-mono text-[9px] tracking-wide text-muted-foreground uppercase">
-              {tag}
+              {t(tagKey)}
             </span>
           </div>
           <dl className="flex flex-wrap gap-x-4 gap-y-0.5 font-mono text-[11px] text-muted-foreground">
             <div className="flex items-center gap-1">
-              <dt className="opacity-60">added</dt>
+              <dt className="opacity-60">{t("passkeys.added")}</dt>
               <dd title={createdAbs} className="text-foreground/80">
                 {relativeTime(passkey.created_at)}
               </dd>
             </div>
             <div className="flex items-center gap-1">
-              <dt className="opacity-60">last used</dt>
+              <dt className="opacity-60">{t("passkeys.lastUsed")}</dt>
               <dd title={lastUsedAbs} className="text-foreground/80">
                 {relativeTime(passkey.last_used_at)}
               </dd>
@@ -293,15 +308,16 @@ function PasskeyRow({
               <Button
                 variant="ghost"
                 size="sm"
-                loading={removePasskey.isPending} disabled={!canRemove}
-                aria-label={`Remove ${displayName}`}
+                loading={removePasskey.isPending}
+                disabled={!canRemove}
+                aria-label={t("passkeys.removeAria", { name: displayName })}
                 className={cn(
                   "text-muted-foreground hover:text-destructive",
                   !canRemove && "cursor-not-allowed"
                 )}
               >
                 <RiDeleteBin6Line />
-                Remove
+                {t("passkeys.remove")}
               </Button>
             </AlertDialogTrigger>
             <AlertDialogContent>
@@ -309,22 +325,20 @@ function PasskeyRow({
                 <AlertDialogMedia>
                   <RiDeleteBin6Line />
                 </AlertDialogMedia>
-                <AlertDialogTitle>Remove this passkey?</AlertDialogTitle>
+                <AlertDialogTitle>
+                  {t("passkeys.removeConfirm")}
+                </AlertDialogTitle>
                 <AlertDialogDescription>
-                  <span className="font-medium text-foreground">
-                    {displayName}
-                  </span>{" "}
-                  will no longer be able to sign in. This cannot be undone —
-                  you&apos;ll need to enroll the device again from scratch.
+                  {t("passkeys.removeHint", { name: displayName })}
                 </AlertDialogDescription>
               </AlertDialogHeader>
               <AlertDialogFooter>
-                <AlertDialogCancel>Keep it</AlertDialogCancel>
+                <AlertDialogCancel>{t("passkeys.keep")}</AlertDialogCancel>
                 <AlertDialogAction
                   variant="destructive"
                   onClick={() => void handleRemove()}
                 >
-                  Remove passkey
+                  {t("passkeys.removePasskey")}
                 </AlertDialogAction>
               </AlertDialogFooter>
             </AlertDialogContent>
@@ -371,11 +385,12 @@ function CardFrame({
 }
 
 function LoadingRow(): React.JSX.Element {
+  const { t } = useTranslation("settings")
   return (
     <div
       className="rounded-lg border border-dashed border-panel-border bg-panel-inset p-4"
       aria-busy="true"
-      aria-label="Loading passkeys"
+      aria-label={t("passkeys.loading")}
     >
       <Skeleton className="h-10 w-full rounded-md" />
     </div>
@@ -407,16 +422,16 @@ function relativeTime(iso: string): string {
   const then = new Date(iso).getTime()
   const diff = Math.max(0, now - then)
   const s = Math.floor(diff / 1000)
-  if (s < 45) return "just now"
+  if (s < 45) return i18n.t("settings:relative.justNow")
   const m = Math.floor(s / 60)
-  if (m < 60) return `${m}m ago`
+  if (m < 60) return i18n.t("settings:relative.minutes", { count: m })
   const h = Math.floor(m / 60)
-  if (h < 24) return `${h}h ago`
+  if (h < 24) return i18n.t("settings:relative.hours", { count: h })
   const d = Math.floor(h / 24)
-  if (d < 7) return `${d}d ago`
+  if (d < 7) return i18n.t("settings:relative.days", { count: d })
   const w = Math.floor(d / 7)
-  if (w < 5) return `${w}w ago`
+  if (w < 5) return i18n.t("settings:relative.weeks", { count: w })
   const mo = Math.floor(d / 30)
-  if (mo < 12) return `${mo}mo ago`
-  return `${Math.floor(d / 365)}y ago`
+  if (mo < 12) return i18n.t("settings:relative.months", { count: mo })
+  return i18n.t("settings:relative.years", { count: Math.floor(d / 365) })
 }

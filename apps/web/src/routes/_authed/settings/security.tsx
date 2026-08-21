@@ -12,6 +12,7 @@ import {
   RiShieldCheckLine,
   RiShieldKeyholeLine,
 } from "@remixicon/react"
+import { useTranslation } from "react-i18next"
 import { cn } from "@workspace/ui/lib/utils"
 import { ShellPage } from "../../../components/layout/AppShell"
 import { SettingsTabs } from "../../../components/settings/SettingsTabs"
@@ -21,12 +22,13 @@ export const Route = createFileRoute("/_authed/settings/security")({
 })
 
 function SecurityLayout(): React.JSX.Element {
+  const { t } = useTranslation("settings")
   const pathname = useRouterState({ select: (s) => s.location.pathname })
 
   return (
     <ShellPage
-      title="Security"
-      description="Lock down who can reach your Ploydok workspace. Manage passkeys, audit open sessions, and keep a recovery path in reserve."
+      title={t("security.title")}
+      description={t("security.description")}
     >
       <div className="space-y-6">
         <div className="space-y-4">
@@ -45,10 +47,11 @@ function SecuritySubTabs({
 }: {
   pathname: string
 }): React.JSX.Element {
+  const { t } = useTranslation("settings")
   const subs = [
     {
       to: "/settings/security/passkey",
-      label: "Passkeys",
+      label: t("security.passkeys"),
       icon: RiFingerprintLine,
       matches: (currentPath: string) =>
         currentPath === "/settings/security/passkey" ||
@@ -56,21 +59,21 @@ function SecuritySubTabs({
     },
     {
       to: "/settings/security/sessions",
-      label: "Sessions",
+      label: t("security.sessions"),
       icon: RiMacbookLine,
       matches: (currentPath: string) =>
         currentPath === "/settings/security/sessions",
     },
     {
       to: "/settings/security/totp",
-      label: "TOTP",
+      label: t("security.totp"),
       icon: RiShieldCheckLine,
       matches: (currentPath: string) =>
         currentPath === "/settings/security/totp",
     },
     {
       to: "/settings/security/posture",
-      label: "Posture",
+      label: t("security.postureTab"),
       icon: RiShieldKeyholeLine,
       matches: (currentPath: string) =>
         currentPath === "/settings/security/posture",
@@ -79,7 +82,7 @@ function SecuritySubTabs({
 
   return (
     <nav
-      aria-label="Security sections"
+      aria-label={t("security.sectionsAria")}
       className="flex flex-wrap gap-1 border-b border-border"
     >
       {subs.map(({ to, label, icon: Icon, matches }) => {

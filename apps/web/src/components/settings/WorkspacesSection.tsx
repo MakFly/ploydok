@@ -2,6 +2,7 @@
 import * as React from "react"
 import { Link, useNavigate } from "@tanstack/react-router"
 import { RiArrowRightSLine, RiBuilding2Line } from "@remixicon/react"
+import { useTranslation } from "react-i18next"
 import { Button } from "@workspace/ui/components/button"
 import { Input } from "@workspace/ui/components/input"
 import { Label } from "@workspace/ui/components/label"
@@ -23,24 +24,24 @@ import {
 import type { OrganizationSummary } from "@ploydok/shared"
 
 export function WorkspacesSection(): React.JSX.Element {
+  const { t } = useTranslation("settings")
   const { data: organizations, isLoading } = useOrganizations()
 
   return (
     <section
-      aria-label="Workspaces"
-      className="rounded-xl rounded-2xl bg-panel p-5"
+      aria-label={t("workspace.listTitle")}
+      className="rounded-2xl rounded-xl bg-panel p-5"
     >
       <header className="mb-4 flex items-start justify-between gap-4">
         <div>
           <p className="font-mono text-[10px] tracking-wide text-muted-foreground uppercase">
-            Account
+            {t("account")}
           </p>
           <h2 className="mt-1 text-base font-semibold text-foreground">
-            Workspaces
+            {t("workspace.listTitle")}
           </h2>
           <p className="mt-0.5 text-sm text-muted-foreground">
-            Every workspace you own. Open the General tab to rename or delete
-            it.
+            {t("workspace.listDescription")}
           </p>
         </div>
       </header>
@@ -57,7 +58,7 @@ export function WorkspacesSection(): React.JSX.Element {
           ))}
         </ul>
       ) : (
-        <p className="text-sm text-muted-foreground">No workspaces yet.</p>
+        <p className="text-sm text-muted-foreground">{t("workspace.empty")}</p>
       )}
     </section>
   )
@@ -68,6 +69,7 @@ function WorkspaceRow({
 }: {
   organization: OrganizationSummary
 }): React.JSX.Element {
+  const { t } = useTranslation("settings")
   const deleteOrg = useDeleteOrganization()
   const { data: organizations } = useOrganizations()
   const navigate = useNavigate()
@@ -110,7 +112,7 @@ function WorkspaceRow({
           {organization.name}
           {organization.is_default ? (
             <span className="ml-2 inline-flex rounded border border-border bg-muted px-1.5 py-0.5 font-mono text-[10px] tracking-wide text-muted-foreground uppercase">
-              Default
+              {t("workspace.default")}
             </span>
           ) : null}
         </p>
@@ -124,7 +126,7 @@ function WorkspaceRow({
           to="/orgs/$orgSlug/settings/general"
           params={{ orgSlug: organization.slug }}
         >
-          Open
+          {t("common:open")}
           <RiArrowRightSLine className="size-3.5" />
         </Link>
       </Button>
@@ -138,7 +140,7 @@ function WorkspaceRow({
           setOpen(true)
         }}
       >
-        Delete
+        {t("common:delete")}
       </Button>
 
       <AlertDialog
@@ -149,24 +151,16 @@ function WorkspaceRow({
       >
         <AlertDialogContent>
           <AlertDialogHeader>
-            <AlertDialogTitle>Delete this workspace?</AlertDialogTitle>
+            <AlertDialogTitle>{t("workspace.deleteConfirm")}</AlertDialogTitle>
             <AlertDialogDescription asChild>
               <div className="space-y-3 text-sm text-muted-foreground">
-                <p>
-                  Every resource owned by{" "}
-                  <strong className="text-foreground">
-                    {organization.name}
-                  </strong>{" "}
-                  will be removed in cascade — apps, databases, domains, env
-                  vars, audit history. This cannot be undone.
-                </p>
+                <p>{t("workspace.cascade", { name: organization.name })}</p>
                 <div className="space-y-1.5">
                   <Label
                     htmlFor={`confirm-${organization.slug}`}
                     className="text-xs font-medium text-foreground"
                   >
-                    Type <span className="font-mono">{organization.name}</span>{" "}
-                    to confirm
+                    {t("workspace.typeToConfirm", { name: organization.name })}
                   </Label>
                   <Input
                     id={`confirm-${organization.slug}`}
@@ -182,17 +176,20 @@ function WorkspaceRow({
           </AlertDialogHeader>
           <AlertDialogFooter>
             <AlertDialogCancel disabled={deleteOrg.isPending}>
-              Cancel
+              {t("common:cancel")}
             </AlertDialogCancel>
             <AlertDialogAction
-              loading={deleteOrg.isPending} disabled={!canDelete}
+              loading={deleteOrg.isPending}
+              disabled={!canDelete}
               onClick={(e) => {
                 e.preventDefault()
                 void handleDelete()
               }}
-              className="bg-none bg-destructive text-white hover:bg-destructive/90"
+              className="bg-destructive bg-none text-white hover:bg-destructive/90"
             >
-              {deleteOrg.isPending ? "Deleting…" : "Delete workspace"}
+              {deleteOrg.isPending
+                ? t("workspace.deleting")
+                : t("workspace.deleteWorkspace")}
             </AlertDialogAction>
           </AlertDialogFooter>
         </AlertDialogContent>

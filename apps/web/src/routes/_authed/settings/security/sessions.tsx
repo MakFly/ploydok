@@ -26,12 +26,14 @@ import {
 import { Button } from "@workspace/ui/components/button"
 import { Skeleton } from "@workspace/ui/components/skeleton"
 import { cn } from "@workspace/ui/lib/utils"
+import { useTranslation } from "react-i18next"
 import { SessionHistoryPopover } from "../../../../components/settings/SessionHistoryPopover"
 import {
   useRevokeOthers,
   useRevokeSession,
   useSessions,
 } from "../../../../lib/sessions"
+import i18n from "../../../../lib/i18n"
 import type { SessionInfo } from "@ploydok/shared"
 
 export const Route = createFileRoute("/_authed/settings/security/sessions")({
@@ -39,6 +41,7 @@ export const Route = createFileRoute("/_authed/settings/security/sessions")({
 })
 
 function SessionsPage(): React.JSX.Element {
+  const { t } = useTranslation("settings")
   const { data: sessions, isLoading, error } = useSessions()
   const revokeOthers = useRevokeOthers()
 
@@ -50,7 +53,7 @@ function SessionsPage(): React.JSX.Element {
           className="flex items-center gap-1.5 text-sm text-destructive"
         >
           <RiErrorWarningLine className="size-4" />
-          Failed to load sessions: {error.message}
+          {t("sessions.loadFailed", { message: error.message })}
         </p>
       </section>
     )
@@ -67,9 +70,9 @@ function SessionsPage(): React.JSX.Element {
       <section className="space-y-3">
         <div className="flex flex-col gap-2 sm:flex-row sm:items-end sm:justify-between">
           <div>
-            <h2 className="text-base font-semibold">Sessions</h2>
+            <h2 className="text-base font-semibold">{t("sessions.title")}</h2>
             <p className="mt-1 text-xs text-muted-foreground">
-              Devices logged into your account
+              {t("sessions.hint")}
             </p>
           </div>
           <SessionHistoryPopover sessions={sorted} />
@@ -79,7 +82,7 @@ function SessionsPage(): React.JSX.Element {
           <div
             className="space-y-2 rounded-xl border border-dashed border-panel-border bg-panel-inset p-4"
             aria-busy="true"
-            aria-label="Loading sessions"
+            aria-label={t("sessions.loading")}
           >
             <Skeleton className="h-14 w-full rounded-lg" />
             <Skeleton className="h-14 w-full rounded-lg" />
@@ -96,8 +99,7 @@ function SessionsPage(): React.JSX.Element {
               <div className="overflow-hidden rounded-xl border border-border bg-card">
                 <div className="flex min-h-[58px] items-center justify-between gap-3 border-b border-border px-4">
                   <span className="text-[13px] font-medium">
-                    {others.length} other{" "}
-                    {others.length === 1 ? "session" : "sessions"}
+                    {t("sessions.others", { count: others.length })}
                   </span>
                   <AlertDialog>
                     <AlertDialogTrigger asChild>
@@ -107,7 +109,7 @@ function SessionsPage(): React.JSX.Element {
                         loading={revokeOthers.isPending}
                       >
                         <RiCloseCircleLine />
-                        Sign out all
+                        {t("sessions.signOutAll")}
                       </Button>
                     </AlertDialogTrigger>
                     <AlertDialogContent>
@@ -116,23 +118,23 @@ function SessionsPage(): React.JSX.Element {
                           <RiCloseCircleLine />
                         </AlertDialogMedia>
                         <AlertDialogTitle>
-                          Sign out all other devices?
+                          {t("sessions.signOutAllConfirm")}
                         </AlertDialogTitle>
                         <AlertDialogDescription>
-                          Every device except this one will be signed out
-                          immediately. They will have to re-authenticate with a
-                          passkey to regain access.
+                          {t("sessions.signOutAllHint")}
                         </AlertDialogDescription>
                       </AlertDialogHeader>
                       <AlertDialogFooter>
-                        <AlertDialogCancel>Cancel</AlertDialogCancel>
+                        <AlertDialogCancel>
+                          {t("common:cancel")}
+                        </AlertDialogCancel>
                         <AlertDialogAction
                           variant="destructive"
                           onClick={() => revokeOthers.mutate()}
                         >
                           {revokeOthers.isPending
-                            ? "Signing out…"
-                            : "Sign them out"}
+                            ? t("sessions.signingOut")
+                            : t("sessions.signThemOut")}
                         </AlertDialogAction>
                       </AlertDialogFooter>
                     </AlertDialogContent>
@@ -146,7 +148,7 @@ function SessionsPage(): React.JSX.Element {
               </div>
             ) : (
               <p className="px-1 text-xs text-muted-foreground">
-                No other active sessions.
+                {t("sessions.noOthers")}
               </p>
             )}
           </div>
@@ -155,16 +157,14 @@ function SessionsPage(): React.JSX.Element {
             <div className="flex size-10 items-center justify-center rounded-full bg-muted">
               <RiComputerLine className="size-5 text-muted-foreground" />
             </div>
-            <p className="text-sm font-medium">No active sessions</p>
+            <p className="text-sm font-medium">{t("sessions.empty")}</p>
           </div>
         )}
       </section>
 
       {current ? (
         <p className="text-xs text-muted-foreground">
-          To end your current session, use{" "}
-          <span className="font-medium text-foreground">Sign out</span> from the
-          sidebar user menu.
+          {t("sessions.endCurrent")}
         </p>
       ) : null}
     </div>
@@ -178,8 +178,10 @@ interface ParsedUA {
 }
 
 function parseUA(ua: string): ParsedUA {
-  let os = "Unknown OS"
-  let browser = "Unknown browser"
+  const unknownOs = i18n.t("settings:sessions.unknownOs")
+  const unknownBrowser = i18n.t("settings:sessions.unknownBrowser")
+  let os = unknownOs
+  let browser = unknownBrowser
   if (/Windows/i.test(ua)) os = "Windows"
   else if (/iPhone/i.test(ua)) os = "iPhone"
   else if (/iPad/i.test(ua)) os = "iPad"
@@ -196,7 +198,7 @@ function parseUA(ua: string): ParsedUA {
   const icon =
     os === "iPhone" || os === "iPad" || os === "Android"
       ? RiSmartphoneLine
-      : os === "Unknown OS"
+      : os === unknownOs
         ? RiGlobalLine
         : RiComputerLine
 
@@ -210,6 +212,7 @@ function SessionRow({
   session: SessionInfo
   compact?: boolean
 }): React.JSX.Element {
+  const { t } = useTranslation("settings")
   const revoke = useRevokeSession()
   const { os, browser, icon: Icon } = parseUA(session.user_agent)
   const pending = revoke.isPending && revoke.variables === session.id
@@ -241,7 +244,10 @@ function SessionRow({
         <div className="min-w-0 flex-1 space-y-1">
           <div className="flex flex-wrap items-center gap-2">
             <p className="truncate text-sm font-medium">
-              {browser} <span className="text-muted-foreground">on {os}</span>
+              {browser}{" "}
+              <span className="text-muted-foreground">
+                {t("sessions.onOs", { os })}
+              </span>
             </p>
             {session.is_current ? (
               <span className="relative inline-flex items-center gap-1 rounded-full bg-emerald-500/15 px-1.5 py-0.5 text-[10px] font-medium text-emerald-700 dark:text-emerald-300">
@@ -249,7 +255,7 @@ function SessionRow({
                   <span className="absolute inline-flex size-full animate-ping rounded-full bg-emerald-500 opacity-60" />
                   <span className="relative inline-flex size-1.5 rounded-full bg-emerald-500" />
                 </span>
-                This device
+                {t("sessions.thisDevice")}
               </span>
             ) : null}
           </div>
@@ -258,14 +264,14 @@ function SessionRow({
             <div className="flex items-center gap-1">
               <dt className="flex items-center gap-1 opacity-60">
                 <RiMapPinLine className="size-3" />
-                ip
+                {t("sessions.ip")}
               </dt>
               <dd className="text-foreground/80">{session.ip}</dd>
             </div>
             <div className="flex items-center gap-1">
               <dt className="flex items-center gap-1 opacity-60">
                 <RiTimeLine className="size-3" />
-                last seen
+                {t("sessions.lastSeen")}
               </dt>
               <dd title={lastSeenAbs} className="text-foreground/80">
                 {relativeTime(session.last_seen_at)}
@@ -285,7 +291,7 @@ function SessionRow({
           {session.is_current ? (
             <span className="inline-flex items-center gap-1 text-[11px] font-medium text-emerald-700 dark:text-emerald-300">
               <RiShieldCheckLine className="size-3.5" />
-              Trusted
+              {t("sessions.trusted")}
             </span>
           ) : (
             <AlertDialog>
@@ -295,10 +301,10 @@ function SessionRow({
                   size="sm"
                   loading={pending}
                   className="text-muted-foreground hover:text-destructive"
-                  aria-label={`Revoke session on ${browser} / ${os}`}
+                  aria-label={t("sessions.revokeAria", { browser, os })}
                 >
                   <RiCloseCircleLine />
-                  Revoke
+                  {t("sessions.revoke")}
                 </Button>
               </AlertDialogTrigger>
               <AlertDialogContent>
@@ -306,22 +312,24 @@ function SessionRow({
                   <AlertDialogMedia>
                     <RiCloseCircleLine />
                   </AlertDialogMedia>
-                  <AlertDialogTitle>Revoke this session?</AlertDialogTitle>
+                  <AlertDialogTitle>
+                    {t("sessions.revokeConfirm")}
+                  </AlertDialogTitle>
                   <AlertDialogDescription>
-                    <span className="font-medium text-foreground">
-                      {browser} on {os}
-                    </span>{" "}
-                    (<span className="font-mono">{session.ip}</span>) will be
-                    signed out immediately.
+                    {t("sessions.revokeHint", {
+                      browser,
+                      os,
+                      ip: session.ip,
+                    })}
                   </AlertDialogDescription>
                 </AlertDialogHeader>
                 <AlertDialogFooter>
-                  <AlertDialogCancel>Cancel</AlertDialogCancel>
+                  <AlertDialogCancel>{t("common:cancel")}</AlertDialogCancel>
                   <AlertDialogAction
                     variant="destructive"
                     onClick={() => revoke.mutate(session.id)}
                   >
-                    Revoke session
+                    {t("sessions.revokeSession")}
                   </AlertDialogAction>
                 </AlertDialogFooter>
               </AlertDialogContent>
@@ -337,19 +345,18 @@ function relativeTime(iso: string): string {
   const now = Date.now()
   const then = new Date(iso).getTime()
   const diff = now - then
-  if (diff <= 0) return "just now"
+  if (diff <= 0) return i18n.t("settings:relative.justNow")
   const s = Math.floor(diff / 1000)
-  const suffix = " ago"
-  if (s < 45) return "just now"
+  if (s < 45) return i18n.t("settings:relative.justNow")
   const m = Math.floor(s / 60)
-  if (m < 60) return `${m}m${suffix}`
+  if (m < 60) return i18n.t("settings:relative.minutes", { count: m })
   const h = Math.floor(m / 60)
-  if (h < 24) return `${h}h${suffix}`
+  if (h < 24) return i18n.t("settings:relative.hours", { count: h })
   const d = Math.floor(h / 24)
-  if (d < 7) return `${d}d${suffix}`
+  if (d < 7) return i18n.t("settings:relative.days", { count: d })
   const w = Math.floor(d / 7)
-  if (w < 5) return `${w}w${suffix}`
+  if (w < 5) return i18n.t("settings:relative.weeks", { count: w })
   const mo = Math.floor(d / 30)
-  if (mo < 12) return `${mo}mo${suffix}`
-  return `${Math.floor(d / 365)}y${suffix}`
+  if (mo < 12) return i18n.t("settings:relative.months", { count: mo })
+  return i18n.t("settings:relative.years", { count: Math.floor(d / 365) })
 }

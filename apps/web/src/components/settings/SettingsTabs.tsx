@@ -2,40 +2,35 @@
 import * as React from "react"
 import { Link, useRouterState } from "@tanstack/react-router"
 import { RiShieldCheckLine, RiUserLine } from "@remixicon/react"
+import { useTranslation } from "react-i18next"
 import { cn } from "@workspace/ui/lib/utils"
 
-interface SettingsTab {
-  to: string
-  label: string
-  icon: React.ComponentType<{ className?: string }>
-  matches: (pathname: string) => boolean
-}
-
-const TABS: ReadonlyArray<SettingsTab> = [
-  {
-    to: "/settings",
-    label: "Account",
-    icon: RiUserLine,
-    matches: (p) => p === "/settings" || p === "/settings/",
-  },
-  {
-    to: "/settings/security",
-    label: "Security",
-    icon: RiShieldCheckLine,
-    matches: (p) => p.startsWith("/settings/security"),
-  },
-]
-
 export function SettingsTabs(): React.JSX.Element {
+  const { t } = useTranslation("settings")
   const pathname = useRouterState({ select: (s) => s.location.pathname })
+
+  const tabs = [
+    {
+      to: "/settings",
+      label: t("account"),
+      icon: RiUserLine,
+      matches: (p: string) => p === "/settings" || p === "/settings/",
+    },
+    {
+      to: "/settings/security",
+      label: t("security.title"),
+      icon: RiShieldCheckLine,
+      matches: (p: string) => p.startsWith("/settings/security"),
+    },
+  ] as const
 
   return (
     <div
       role="tablist"
-      aria-label="Settings sections"
+      aria-label={t("security.tabsAria")}
       className="inline-flex w-full items-center gap-0.5 rounded-lg border border-border bg-muted/40 p-0.5 md:w-auto"
     >
-      {TABS.map(({ to, label, icon: Icon, matches }) => {
+      {tabs.map(({ to, label, icon: Icon, matches }) => {
         const active = matches(pathname)
         return (
           <Link

@@ -1,5 +1,6 @@
 // SPDX-License-Identifier: AGPL-3.0-only
 import * as React from "react"
+import { useTranslation } from "react-i18next"
 import {
   RiCheckboxCircleFill,
   RiErrorWarningFill,
@@ -42,12 +43,43 @@ export interface SyncProgressDialogProps {
 
 // ---------------------------------------------------------------------------
 
-export function SyncProgressDialog(props: SyncProgressDialogProps): React.JSX.Element {
-  const { open, onClose, status, startedAt, importedCount, totalCount, errorMessage, providerLabel } = props
+export function SyncProgressDialog(
+  props: SyncProgressDialogProps
+): React.JSX.Element {
+  const {
+    open,
+    onClose,
+    status,
+    startedAt,
+    importedCount,
+    totalCount,
+    errorMessage,
+    providerLabel,
+  } = props
+  const { t } = useTranslation("settings")
   const elapsed = useElapsed(startedAt, status)
 
+  const title =
+    status === "done"
+      ? t("sync.complete")
+      : status === "error"
+        ? t("sync.failed")
+        : t("sync.synchronizing", { provider: providerLabel })
+
+  const description =
+    status === "done"
+      ? t("sync.imported", { count: totalCount, elapsed })
+      : status === "error"
+        ? (errorMessage ?? t("sync.unknownError"))
+        : t("sync.runningHint")
+
   return (
-    <Dialog open={open} onOpenChange={(v) => { if (!v) onClose() }}>
+    <Dialog
+      open={open}
+      onOpenChange={(v) => {
+        if (!v) onClose()
+      }}
+    >
       <DialogContent className="sm:max-w-md">
         <DialogHeader>
           <DialogTitle className="flex items-center gap-2">
@@ -58,41 +90,31 @@ export function SyncProgressDialog(props: SyncProgressDialogProps): React.JSX.El
             ) : (
               <RiRefreshLine className="size-5 animate-spin text-primary" />
             )}
-            {status === "done"
-              ? "Sync complete"
-              : status === "error"
-                ? "Sync failed"
-                : `Synchronizing ${providerLabel}`}
+            {title}
           </DialogTitle>
-          <DialogDescription>
-            {status === "done"
-              ? `Imported ${totalCount} ${totalCount === 1 ? "repo" : "repos"} in ${elapsed}s.`
-              : status === "error"
-                ? errorMessage ?? "Unknown error."
-                : "Walking your provider API and writing the cache. You can close this dialog — the job keeps running in the background."}
-          </DialogDescription>
+          <DialogDescription>{description}</DialogDescription>
         </DialogHeader>
 
         <ProgressBar status={status} />
 
         <div className="space-y-1 text-xs text-muted-foreground tabular-nums">
           <div className="flex justify-between">
-            <span>Imported so far</span>
+            <span>{t("sync.importedSoFar")}</span>
             <span className="font-mono">{importedCount}</span>
           </div>
           <div className="flex justify-between">
-            <span>Cache total</span>
+            <span>{t("sync.cacheTotal")}</span>
             <span className="font-mono">{totalCount}</span>
           </div>
           <div className="flex justify-between">
-            <span>Elapsed</span>
+            <span>{t("sync.elapsed")}</span>
             <span className="font-mono">{elapsed}s</span>
           </div>
         </div>
 
         <DialogFooter>
           <Button variant="outline" onClick={onClose}>
-            {status === "running" ? "Hide" : "Close"}
+            {status === "running" ? t("common:hide") : t("common:close")}
           </Button>
         </DialogFooter>
       </DialogContent>

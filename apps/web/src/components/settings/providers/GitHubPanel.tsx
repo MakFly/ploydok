@@ -1,6 +1,7 @@
 // SPDX-License-Identifier: AGPL-3.0-only
 import * as React from "react"
 import { useQueryClient } from "@tanstack/react-query"
+import { useTranslation } from "react-i18next"
 import { Button } from "@workspace/ui/components/button"
 import {
   AlertDialog,
@@ -40,6 +41,19 @@ type CredentialsStatus = GitHubAppCredentialsStatus["status"] | undefined
 const responsiveDialogActionClassName =
   "h-auto min-h-[38px] w-full whitespace-normal py-2 sm:h-[38px] sm:w-auto sm:whitespace-nowrap sm:py-0"
 
+const INSTALL_ERROR_KEYS = [
+  "admin_required",
+  "state_mismatch",
+  "missing_installation_id",
+  "sync_failed",
+] as const
+
+type InstallErrorKey = (typeof INSTALL_ERROR_KEYS)[number]
+
+function isInstallErrorKey(value: string): value is InstallErrorKey {
+  return (INSTALL_ERROR_KEYS as ReadonlyArray<string>).includes(value)
+}
+
 export function shouldOpenGitHubCredentialsDialog(
   status: CredentialsStatus,
   dismissed: boolean
@@ -61,6 +75,7 @@ export function GitHubCredentialsRecovery({
   unreadable: boolean
   onImported: () => void
 }): React.JSX.Element | null {
+  const { t } = useTranslation("settings")
   const [dialogOpen, setDialogOpen] = React.useState(false)
   const [dialogDismissed, setDialogDismissed] = React.useState(false)
   const [reconnecting, setReconnecting] = React.useState(false)
@@ -103,12 +118,10 @@ export function GitHubCredentialsRecovery({
       >
         <div>
           <p className="text-sm font-medium text-destructive">
-            GitHub App credentials are unreadable
+            {t("github.credentialsUnreadable")}
           </p>
           <p className="mt-1 text-sm text-muted-foreground">
-            The stored private key cannot be decrypted with the current instance
-            key. Repository access is paused until the existing App is
-            reconnected.
+            {t("github.credentialsUnreadableHint")}
           </p>
         </div>
         {!reconnecting && (
@@ -118,7 +131,7 @@ export function GitHubCredentialsRecovery({
               variant="outline"
               onClick={() => setReconnecting(true)}
             >
-              Reconnect GitHub App
+              {t("github.reconnectApp")}
             </Button>
             <Button
               size="sm"
@@ -128,7 +141,7 @@ export function GitHubCredentialsRecovery({
                 setForgetDialogOpen(true)
               }}
             >
-              Reset local configuration
+              {t("github.resetLocal")}
             </Button>
           </div>
         )}
@@ -156,17 +169,15 @@ export function GitHubCredentialsRecovery({
         <AlertDialogContent className="max-w-[calc(100vw-2rem)] sm:max-w-xl">
           <AlertDialogHeader>
             <AlertDialogTitle>
-              GitHub App credentials need attention
+              {t("github.credentialsNeedAttention")}
             </AlertDialogTitle>
             <AlertDialogDescription>
-              Ploydok can no longer decrypt the stored GitHub App private key.
-              No GitHub installation was changed. Reconnect the existing App to
-              restore repository access.
+              {t("github.credentialsNeedAttentionHint")}
             </AlertDialogDescription>
           </AlertDialogHeader>
           <AlertDialogFooter>
             <AlertDialogCancel className={responsiveDialogActionClassName}>
-              Later
+              {t("github.later")}
             </AlertDialogCancel>
             <Button
               className={responsiveDialogActionClassName}
@@ -178,7 +189,7 @@ export function GitHubCredentialsRecovery({
                 setForgetDialogOpen(true)
               }}
             >
-              Reset local configuration
+              {t("github.resetLocal")}
             </Button>
             <AlertDialogAction
               className={responsiveDialogActionClassName}
@@ -187,7 +198,7 @@ export function GitHubCredentialsRecovery({
                 setReconnecting(true)
               }}
             >
-              Reconnect GitHub App
+              {t("github.reconnectApp")}
             </AlertDialogAction>
           </AlertDialogFooter>
         </AlertDialogContent>
@@ -201,14 +212,9 @@ export function GitHubCredentialsRecovery({
       >
         <AlertDialogContent className="max-w-[calc(100vw-2rem)]">
           <AlertDialogHeader>
-            <AlertDialogTitle>
-              Reset local GitHub configuration?
-            </AlertDialogTitle>
+            <AlertDialogTitle>{t("github.resetLocalConfirm")}</AlertDialogTitle>
             <AlertDialogDescription>
-              This deletes the unreadable GitHub App configuration from Ploydok
-              only. It does not uninstall or delete the App on GitHub, and it
-              does not modify any GitHub installation. You must manage the
-              existing App and its installations manually on GitHub.
+              {t("github.resetLocalHint")}
             </AlertDialogDescription>
           </AlertDialogHeader>
           {forgetLocalApp.error && (
@@ -221,7 +227,7 @@ export function GitHubCredentialsRecovery({
               className={responsiveDialogActionClassName}
               disabled={forgetLocalApp.isPending}
             >
-              Cancel
+              {t("common:cancel")}
             </AlertDialogCancel>
             <Button
               className={responsiveDialogActionClassName}
@@ -230,8 +236,8 @@ export function GitHubCredentialsRecovery({
               onClick={() => void handleForgetLocalApp()}
             >
               {forgetLocalApp.isPending
-                ? "Resetting local configuration..."
-                : "Reset local configuration"}
+                ? t("github.resettingLocal")
+                : t("github.resetLocal")}
             </Button>
           </AlertDialogFooter>
         </AlertDialogContent>
@@ -241,6 +247,7 @@ export function GitHubCredentialsRecovery({
 }
 
 export function GitHubPanel(): React.JSX.Element {
+  const { t } = useTranslation("settings")
   const appParam =
     typeof window !== "undefined"
       ? new URLSearchParams(window.location.search).get("app")
@@ -289,7 +296,7 @@ export function GitHubPanel(): React.JSX.Element {
       setAppSuccess(false)
     } catch (err) {
       setResetError(
-        err instanceof Error ? err.message : "Failed to reset GitHub App"
+        err instanceof Error ? err.message : t("github.resetFailed")
       )
     }
   }
@@ -297,10 +304,9 @@ export function GitHubPanel(): React.JSX.Element {
   return (
     <div className="space-y-6">
       <div>
-        <h2 className="text-base font-semibold">GitHub App</h2>
+        <h2 className="text-base font-semibold">{t("github.appTitle")}</h2>
         <p className="text-sm text-muted-foreground">
-          Create a GitHub App for your instance. Allows repo access across orgs
-          without a personal token.
+          {t("github.appDescription")}
         </p>
       </div>
 
@@ -310,7 +316,7 @@ export function GitHubPanel(): React.JSX.Element {
             className="text-sm text-green-600 dark:text-green-400"
             role="status"
           >
-            GitHub App configured successfully.
+            {t("github.configuredSuccess")}
           </p>
         )}
         {appLoading ? (
@@ -340,8 +346,9 @@ export function GitHubPanel(): React.JSX.Element {
 
       {appConfig?.configured && credentialsStatus.isError && (
         <p className="text-sm text-destructive" role="alert">
-          Failed to verify GitHub App credentials:{" "}
-          {credentialsStatus.error.message}
+          {t("github.verifyCredentialsFailed", {
+            message: credentialsStatus.error.message,
+          })}
         </p>
       )}
 
@@ -373,6 +380,7 @@ function GitHubUserConnection({
     install_url?: string | null
   }
 }): React.JSX.Element {
+  const { t } = useTranslation("settings")
   return (
     <section className="rounded-2xl bg-panel p-6">
       <div className="flex items-start gap-4">
@@ -382,15 +390,15 @@ function GitHubUserConnection({
         <div className="min-w-0 flex-1">
           <h2 className="text-sm font-semibold">
             {status?.connected
-              ? "GitHub connected"
-              : "Connect your GitHub account"}
+              ? t("github.connected")
+              : t("github.connectAccount")}
           </h2>
           <p className="mt-1 text-sm leading-6 text-muted-foreground">
             {status?.connected
-              ? "This account can import repositories through the Ploydok GitHub App."
+              ? t("github.connectedHint")
               : status?.configured
-                ? "An instance administrator must link a GitHub account or organization before you can import repositories."
-                : "An instance administrator must configure the GitHub App before you can connect."}
+                ? t("github.needsLink")
+                : t("github.needsAdmin")}
           </p>
         </div>
       </div>
@@ -407,6 +415,7 @@ export function InstallationsCard({
   role: InstallationRole
   installUrl: string | null
 }): React.JSX.Element {
+  const { t } = useTranslation("settings")
   const { data, isLoading, isFetching, error, refetch } = useInstallations()
   const remove = useRemoveGitHubInstallation()
   const [pendingId, setPendingId] = React.useState<number | null>(null)
@@ -431,20 +440,10 @@ export function InstallationsCard({
     const installErrorParam = params.get("install_error")
 
     if (installErrorParam) {
-      const messages: Record<string, string> = {
-        admin_required:
-          "An instance administrator must add GitHub accounts or organizations.",
-        state_mismatch:
-          "GitHub returned from installation with an invalid or expired state. Please retry.",
-        missing_installation_id:
-          "GitHub did not return an installation id. Please retry from the install button.",
-        sync_failed:
-          "GitHub installation completed, but Ploydok could not queue the repository sync. Please refresh or sync manually.",
-      }
-      setInstallError(
-        messages[installErrorParam] ??
-          "GitHub installation did not complete correctly. Please retry."
-      )
+      const key = isInstallErrorKey(installErrorParam)
+        ? installErrorParam
+        : "generic"
+      setInstallError(t(`github.installError.${key}`))
       setJustInstalled(null)
     } else if (installationId && setupAction && installed === "1") {
       setJustInstalled({ id: installationId, action: setupAction, syncId })
@@ -469,7 +468,7 @@ export function InstallationsCard({
 
     const timer = setTimeout(() => setJustInstalled(null), 6_000)
     return () => clearTimeout(timer)
-  }, [refetch])
+  }, [refetch, t])
 
   const handleStartInstall = (url: string): void => {
     if (typeof window === "undefined") return
@@ -487,8 +486,8 @@ export function InstallationsCard({
         err instanceof Error
           ? err.message
           : role === "admin"
-            ? "Failed to revoke installation"
-            : "Failed to disconnect installation"
+            ? t("github.revokeFailed")
+            : t("github.disconnectFailed")
       )
     } finally {
       setPendingId(null)
@@ -506,13 +505,13 @@ export function InstallationsCard({
         data-testid="github-installations-header"
       >
         <div>
-          <h2 className="text-base font-semibold">Active installations</h2>
+          <h2 className="text-base font-semibold">
+            {t("github.installations")}
+          </h2>
           <p className="text-sm text-muted-foreground">
-            Accounts and organizations where the Ploydok GitHub App is
-            installed.
             {role === "admin"
-              ? " Revoking removes the App from that GitHub account or organization."
-              : " Disconnecting removes only your local Ploydok link. An instance administrator must add new accounts or organizations."}
+              ? t("github.installationsHintAdmin")
+              : t("github.installationsHintMember")}
           </p>
         </div>
         <div className="flex w-full flex-col gap-2 sm:w-auto sm:shrink-0 sm:flex-row sm:flex-wrap sm:justify-end">
@@ -522,7 +521,7 @@ export function InstallationsCard({
               size="sm"
               onClick={() => handleStartInstall(installUrl)}
             >
-              Add account or organization
+              {t("github.addAccount")}
             </Button>
           )}
           <Button
@@ -532,16 +531,16 @@ export function InstallationsCard({
             onClick={() => void refetch()}
             loading={isFetching}
           >
-            {isFetching ? "Refreshing..." : "Refresh"}
+            {isFetching ? t("github.refreshing") : t("common:refresh")}
           </Button>
         </div>
       </div>
 
       {justInstalled && (
         <p className="text-sm text-green-600 dark:text-green-400" role="status">
-          GitHub App installation #{justInstalled.id}{" "}
-          {justInstalled.action === "update" ? "updated" : "received"}. Your
-          repositories are syncing below.
+          {justInstalled.action === "update"
+            ? t("github.installedUpdated", { id: justInstalled.id })
+            : t("github.installedReceived", { id: justInstalled.id })}
         </p>
       )}
       {installError && (
@@ -555,7 +554,7 @@ export function InstallationsCard({
           <GitHubStatusSkeleton />
         ) : error ? (
           <p className="text-sm text-destructive" role="alert">
-            Failed to load installations: {error.message}
+            {t("github.loadInstallationsFailed", { message: error.message })}
           </p>
         ) : !data || data.installations.length === 0 ? (
           <InstallationsEmptyState />
@@ -603,24 +602,17 @@ export function InstallationsCard({
           <AlertDialogHeader>
             <AlertDialogTitle>
               {role === "admin"
-                ? "Revoke GitHub installation?"
-                : "Disconnect GitHub installation?"}
+                ? t("github.revokeConfirm")
+                : t("github.disconnectConfirm")}
             </AlertDialogTitle>
             <AlertDialogDescription>
-              {role === "admin" ? (
-                <>
-                  This uninstalls the Ploydok GitHub App from{" "}
-                  <strong>@{selectedInstallation?.accountLogin}</strong> on
-                  GitHub and removes its repository access.
-                </>
-              ) : (
-                <>
-                  This removes your local Ploydok link to{" "}
-                  <strong>@{selectedInstallation?.accountLogin}</strong>. It
-                  does not uninstall the App or change any installation on
-                  GitHub.
-                </>
-              )}
+              {role === "admin"
+                ? t("github.revokeHint", {
+                    login: selectedInstallation?.accountLogin,
+                  })
+                : t("github.disconnectHint", {
+                    login: selectedInstallation?.accountLogin,
+                  })}
             </AlertDialogDescription>
           </AlertDialogHeader>
           {revokeError && (
@@ -633,7 +625,7 @@ export function InstallationsCard({
               className={responsiveDialogActionClassName}
               disabled={pendingId !== null}
             >
-              Cancel
+              {t("common:cancel")}
             </AlertDialogCancel>
             <Button
               className={responsiveDialogActionClassName}
@@ -647,11 +639,11 @@ export function InstallationsCard({
             >
               {pendingId !== null
                 ? role === "admin"
-                  ? "Revoking..."
-                  : "Disconnecting..."
+                  ? t("github.revoking")
+                  : t("github.disconnecting")
                 : role === "admin"
-                  ? "Revoke"
-                  : "Disconnect"}
+                  ? t("github.revoke")
+                  : t("github.disconnect")}
             </Button>
           </AlertDialogFooter>
         </AlertDialogContent>
@@ -665,6 +657,7 @@ function GitHubCacheSection({
 }: {
   autoSync: { installationId: string; syncId: string } | null
 }): React.JSX.Element {
+  const { t } = useTranslation("settings")
   const queryClient = useQueryClient()
   const sync = useSyncGitHubInstallations()
   const cache = useGitHubCacheStatus({})
@@ -711,8 +704,8 @@ function GitHubCacheSection({
   return (
     <>
       <CachedReposPanel
-        title="Cached repositories"
-        description="Repos are served from a Postgres cache so the create-app picker opens instantly. Webhooks invalidate it on install / repo events; a background sync re-fills stale data."
+        title={t("github.cachedTitle")}
+        description={t("github.cachedHint")}
         entries={cache.data?.installations ?? []}
         isLoading={cache.isLoading}
         isError={cache.isError}
@@ -723,8 +716,7 @@ function GitHubCacheSection({
         onSyncAll={() => startSync({})}
         emptyState={
           <p className="text-sm text-muted-foreground">
-            No installation cached yet. Click <strong>Sync now</strong> to
-            import your GitHub installations and their repositories.
+            {t("github.cachedEmpty")}
           </p>
         }
       />
@@ -736,7 +728,7 @@ function GitHubCacheSection({
         importedCount={progress.importedCount}
         totalCount={progress.totalCount}
         errorMessage={progress.errorMessage}
-        providerLabel="GitHub"
+        providerLabel={t("github.title")}
       />
     </>
   )
@@ -753,13 +745,14 @@ function InstallationRow({
   role: InstallationRole
   onRemove: () => void
 }): React.JSX.Element {
+  const { t } = useTranslation("settings")
   const count = installation.repositoryCount
   const countLabel =
     count === null
-      ? "unknown"
+      ? t("github.unknownRepos")
       : installation.repositorySelection === "all"
-        ? `all repositories`
-        : `${count} ${count === 1 ? "repository" : "repositories"}`
+        ? t("github.allRepositories")
+        : t("github.repository", { count })
 
   return (
     <li className="flex items-center gap-4 py-3 first:pt-0 last:pb-0">
@@ -782,7 +775,9 @@ function InstallationRow({
         <p className="truncate text-xs text-muted-foreground">
           {countLabel}
           {installation.suspendedAt && (
-            <span className="ml-2 text-destructive">· suspended</span>
+            <span className="ml-2 text-destructive">
+              · {t("github.suspended")}
+            </span>
           )}
         </p>
       </div>
@@ -794,33 +789,34 @@ function InstallationRow({
       >
         {isPending
           ? role === "admin"
-            ? "Revoking..."
-            : "Disconnecting..."
+            ? t("github.revoking")
+            : t("github.disconnecting")
           : role === "admin"
-            ? "Revoke"
-            : "Disconnect"}
+            ? t("github.revoke")
+            : t("github.disconnect")}
       </Button>
     </li>
   )
 }
 
 function InstallationsEmptyState(): React.JSX.Element {
+  const { t } = useTranslation("settings")
   return (
     <div className="flex flex-col items-start gap-3">
       <p className="text-sm text-muted-foreground">
-        The GitHub App is configured but has no repository access yet. Install
-        it on a GitHub account or organization to enable repository import.
+        {t("github.emptyInstallations")}
       </p>
     </div>
   )
 }
 
 function GitHubStatusSkeleton(): React.JSX.Element {
+  const { t } = useTranslation("common")
   return (
     <div
       className="flex items-center gap-4"
       aria-busy="true"
-      aria-label="Loading"
+      aria-label={t("loading")}
     >
       <div className="size-10 skeleton-surface rounded-full" />
       <div className="space-y-2">
@@ -846,6 +842,7 @@ function GitHubAppConfiguredState({
   onReset,
   error,
 }: GitHubAppConfiguredStateProps): React.JSX.Element {
+  const { t } = useTranslation("settings")
   const [resetDialogOpen, setResetDialogOpen] = React.useState(false)
 
   const handleResetConfirm = (): void => {
@@ -865,8 +862,7 @@ function GitHubAppConfiguredState({
             <span className="text-xs text-muted-foreground">({slug})</span>
           </p>
           <p className="text-xs text-muted-foreground">
-            GitHub App registered. Repository access is managed from the active
-            installations below.
+            {t("github.registeredHint")}
           </p>
         </div>
         <div className="ml-auto">
@@ -875,7 +871,7 @@ function GitHubAppConfiguredState({
               className="size-1.5 rounded-full bg-current"
               aria-hidden="true"
             />
-            Configured
+            {t("github.configured")}
           </span>
         </div>
       </div>
@@ -893,7 +889,7 @@ function GitHubAppConfiguredState({
           onClick={() => setResetDialogOpen(true)}
           loading={isPending}
         >
-          {isPending ? "Uninstalling..." : "Reset App"}
+          {isPending ? t("github.uninstalling") : t("github.resetApp")}
         </Button>
       </div>
 
@@ -905,22 +901,21 @@ function GitHubAppConfiguredState({
       >
         <AlertDialogContent>
           <AlertDialogHeader>
-            <AlertDialogTitle>Reset this GitHub App?</AlertDialogTitle>
+            <AlertDialogTitle>{t("github.resetAppConfirm")}</AlertDialogTitle>
             <AlertDialogDescription>
-              This will uninstall <strong>{name}</strong> from every connected
-              GitHub account or organization and delete its local Ploydok
-              configuration. You will need to create and install the App again.
-              This action cannot be undone.
+              {t("github.resetAppHint", { name })}
             </AlertDialogDescription>
           </AlertDialogHeader>
           <AlertDialogFooter>
-            <AlertDialogCancel disabled={isPending}>Cancel</AlertDialogCancel>
+            <AlertDialogCancel disabled={isPending}>
+              {t("common:cancel")}
+            </AlertDialogCancel>
             <AlertDialogAction
               variant="destructive"
               loading={isPending}
               onClick={handleResetConfirm}
             >
-              {isPending ? "Uninstalling..." : "Reset App"}
+              {isPending ? t("github.uninstalling") : t("github.resetApp")}
             </AlertDialogAction>
           </AlertDialogFooter>
         </AlertDialogContent>
