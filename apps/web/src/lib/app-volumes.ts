@@ -2,6 +2,7 @@
 import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query"
 import { toast } from "sonner"
 import { apiFetch } from "./api"
+import i18n from "./i18n"
 import type {
   AppVolume,
   CreateAppVolumeInput,
@@ -33,10 +34,10 @@ export function useCreateAppVolume(appId: string) {
       }),
     onSuccess: () => {
       queryClient.invalidateQueries({ queryKey: appVolumesKey(appId) })
-      toast.success("Volume created")
+      toast.success(i18n.t("apps:toasts.volumeCreated"))
     },
     onError: (err: Error) => {
-      toast.error(`Volume creation failed: ${err.message}`)
+      toast.error(i18n.t("apps:toasts.volumeCreateFailed", { message: err.message }))
     },
   })
 }
@@ -58,10 +59,10 @@ export function useUpdateAppVolume(appId: string) {
       }),
     onSuccess: () => {
       queryClient.invalidateQueries({ queryKey: appVolumesKey(appId) })
-      toast.success("Volume updated")
+      toast.success(i18n.t("apps:toasts.volumeUpdated"))
     },
     onError: (err: Error) => {
-      toast.error(`Volume update failed: ${err.message}`)
+      toast.error(i18n.t("apps:toasts.volumeUpdateFailed", { message: err.message }))
     },
   })
 }
@@ -75,10 +76,10 @@ export function useDeleteAppVolume(appId: string) {
       }),
     onSuccess: () => {
       queryClient.invalidateQueries({ queryKey: appVolumesKey(appId) })
-      toast.success("Volume deleted")
+      toast.success(i18n.t("apps:toasts.volumeDeleted"))
     },
     onError: (err: Error) => {
-      toast.error(`Volume deletion failed: ${err.message}`)
+      toast.error(i18n.t("apps:toasts.volumeDeleteFailed", { message: err.message }))
     },
   })
 }

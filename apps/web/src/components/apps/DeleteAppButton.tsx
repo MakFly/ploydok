@@ -13,6 +13,7 @@ import {
   AlertDialogHeader,
   AlertDialogTitle,
 } from "@workspace/ui/components/alert-dialog"
+import { useTranslation } from "react-i18next"
 import { useDeleteApp } from "../../lib/apps-mutations"
 import { useMe } from "../../lib/auth"
 import { useCurrentOrganizationSlug } from "../../lib/organizations"
@@ -25,6 +26,7 @@ interface DeleteAppButtonProps {
 export function DeleteAppButton({
   app,
 }: DeleteAppButtonProps): React.JSX.Element {
+  const { t } = useTranslation("apps")
   const router = useRouter()
   const orgSlug = useCurrentOrganizationSlug()
   const [open, setOpen] = React.useState(false)
@@ -34,9 +36,7 @@ export function DeleteAppButton({
   const deleteApp = useDeleteApp(app.id)
   const { data: me } = useMe()
   const needs2FA = Boolean(me?.needs_second_factor)
-  const lockTitle = needs2FA
-    ? "Configurez un second facteur pour débloquer cette action."
-    : "Delete app"
+  const lockTitle = needs2FA ? t("actions.need2fa") : t("actions.deleteApp")
 
   const close = (): void => {
     setOpen(false)
@@ -51,7 +51,9 @@ export function DeleteAppButton({
       const href = orgSlug ? `/orgs/${orgSlug}/apps` : "/apps"
       void router.navigate({ href })
     } catch (err) {
-      setActionError(err instanceof Error ? err.message : "Delete failed")
+      setActionError(
+        err instanceof Error ? err.message : t("actions.deleteFailed")
+      )
     }
   }
 
@@ -66,7 +68,7 @@ export function DeleteAppButton({
         className="gap-1.5 text-destructive hover:bg-destructive/10 hover:text-destructive"
       >
         <RiDeleteBinLine className="size-3.5" aria-hidden="true" />
-        Delete app
+        {t("actions.deleteApp")}
       </Button>
 
       <AlertDialog
@@ -77,14 +79,11 @@ export function DeleteAppButton({
       >
         <AlertDialogContent>
           <AlertDialogHeader>
-            <AlertDialogTitle>Delete {app.name}?</AlertDialogTitle>
+            <AlertDialogTitle>
+              {t("actions.deleteTitle", { name: app.name })}
+            </AlertDialogTitle>
             <AlertDialogDescription>
-              This permanently removes the containers, registry images, build
-              artifacts, Caddy route, and database row. Type{" "}
-              <span className="font-mono font-semibold text-foreground">
-                {app.name}
-              </span>{" "}
-              to confirm.
+              {t("actions.deleteHint", { name: app.name })}
             </AlertDialogDescription>
           </AlertDialogHeader>
 
@@ -105,7 +104,7 @@ export function DeleteAppButton({
 
           <AlertDialogFooter>
             <AlertDialogCancel onClick={close} disabled={deleteApp.isPending}>
-              Cancel
+              {t("common:cancel")}
             </AlertDialogCancel>
             <AlertDialogAction
               onClick={() => void handleDelete()}
@@ -113,7 +112,9 @@ export function DeleteAppButton({
               disabled={confirmName !== app.name}
               className="bg-destructive bg-none text-white hover:bg-destructive/90"
             >
-              {deleteApp.isPending ? "Deleting…" : "Delete app"}
+              {deleteApp.isPending
+                ? t("actions.deleting")
+                : t("actions.deleteApp")}
             </AlertDialogAction>
           </AlertDialogFooter>
         </AlertDialogContent>

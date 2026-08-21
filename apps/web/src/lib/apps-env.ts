@@ -1,6 +1,7 @@
 // SPDX-License-Identifier: AGPL-3.0-only
 import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query"
 import { apiFetch } from "./api"
+import i18n from "./i18n"
 import { notifyMutationError } from "./second-factor-toast"
 import type { ApiError } from "./api"
 
@@ -70,7 +71,7 @@ export function useUpdateEnvVars(appId: string) {
       qc.setQueryData(envVarsQueryKey(appId), freshVars)
     },
     onError: (error) => {
-      notifyMutationError(error, "Env vars save failed")
+      notifyMutationError(error, i18n.t("apps:toasts.envSaveFailed"))
     },
   })
 }

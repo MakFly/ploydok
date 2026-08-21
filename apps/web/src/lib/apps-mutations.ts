@@ -210,7 +210,7 @@ export function useDeployApp(appId: string) {
       return { snapshot }
     },
     onError: (err, _vars, context) => {
-      notifyMutationError(err, "Deployment failed to start")
+      notifyMutationError(err, i18n.t("apps:toasts.deployFailed"))
       const ctx = context as { snapshot?: AppDetail } | undefined
       if (ctx?.snapshot) {
         qc.setQueryData(["apps", appId], ctx.snapshot)
@@ -218,7 +218,7 @@ export function useDeployApp(appId: string) {
       void qc.invalidateQueries({ queryKey: ["apps"] })
     },
     onSuccess: () => {
-      toast.success("Deployment queued")
+      toast.success(i18n.t("apps:toasts.queued"))
       void qc.invalidateQueries({ queryKey: ["apps", appId] })
       void qc.invalidateQueries({ queryKey: ["apps", appId, "builds"] })
       void qc.invalidateQueries({ queryKey: ["apps"] })
@@ -244,12 +244,12 @@ export function useRollbackApp(appId: string) {
         body: opts?.buildId ? { buildId: opts.buildId } : undefined,
       }),
     onSuccess: () => {
-      toast.success("Rollback started")
+      toast.success(i18n.t("apps:toasts.rollbackStarted"))
       void qc.invalidateQueries({ queryKey: ["apps", appId] })
       void qc.invalidateQueries({ queryKey: ["apps", appId, "builds"] })
     },
     onError: (error) => {
-      notifyMutationError(error, "Rollback failed")
+      notifyMutationError(error, i18n.t("apps:toasts.rollbackFailed"))
     },
   })
 }
@@ -266,12 +266,12 @@ export function useCancelBuild(appId: string) {
         method: "POST",
       }),
     onSuccess: () => {
-      toast.success("Deployment cancelled")
+      toast.success(i18n.t("apps:toasts.cancelled"))
       void qc.invalidateQueries({ queryKey: ["apps", appId] })
       void qc.invalidateQueries({ queryKey: ["apps", appId, "builds"] })
     },
     onError: (error) => {
-      notifyMutationError(error, "Cancel deployment failed")
+      notifyMutationError(error, i18n.t("apps:toasts.cancelFailed"))
     },
   })
 }
@@ -302,7 +302,7 @@ export function useStopApp(appId: string) {
     },
     onError: (err, _vars, context) => {
       toast.dismiss(`stop-app:${appId}`)
-      notifyMutationError(err, "Stop failed")
+      notifyMutationError(err, i18n.t("apps:toasts.stopFailed"))
       const ctx =
         context as
           | { snapshot?: AppDetail; listSnapshot?: AppListCacheSnapshot }
@@ -347,7 +347,7 @@ export function useRestartApp(appId: string) {
       return { snapshot }
     },
     onError: (err, _vars, context) => {
-      notifyMutationError(err, "Restart failed")
+      notifyMutationError(err, i18n.t("apps:toasts.restartFailed"))
       const ctx = context as { snapshot?: AppDetail } | undefined
       if (ctx?.snapshot) {
         qc.setQueryData(["apps", appId], ctx.snapshot)
@@ -485,7 +485,7 @@ export function useDeleteApp(appId: string) {
     },
     onError: (error, _vars, context) => {
       toast.dismiss(`delete-app:${appId}`)
-      notifyMutationError(error, "Delete failed")
+      notifyMutationError(error, i18n.t("apps:toasts.deleteFailed"))
       const ctx =
         context as { listSnapshot?: AppListCacheSnapshot } | undefined
       restoreAppListCaches(qc, ctx?.listSnapshot)
@@ -514,7 +514,7 @@ export function usePruneRegistry(appId: string) {
       void qc.invalidateQueries({ queryKey: ["apps", appId, "builds"] })
     },
     onError: (error) => {
-      notifyMutationError(error, "Registry GC failed")
+      notifyMutationError(error, i18n.t("apps:toasts.registryGcFailed"))
     },
   })
 }
@@ -554,11 +554,11 @@ export function useUpdateAppSettings(appId: string) {
     },
     onMutate: () => {
       const toastId = `app-settings-${appId}`
-      toast.loading("Saving settings…", { id: toastId })
+      toast.loading(i18n.t("apps:toasts.savingSettings"), { id: toastId })
       return { toastId }
     },
     onSuccess: ({ app, restartTriggered }, _vars, ctx) => {
-      toast.success("Settings saved", { id: ctx.toastId })
+      toast.success(i18n.t("apps:toasts.settingsSaved"), { id: ctx.toastId })
       qc.setQueryData<AppDetail | undefined>(["apps", appId], (previous) =>
         previous ? { ...previous, ...app } : app
       )
@@ -570,7 +570,7 @@ export function useUpdateAppSettings(appId: string) {
     },
     onError: (error, _vars, ctx) => {
       if (ctx?.toastId) toast.dismiss(ctx.toastId)
-      notifyMutationError(error, "Settings save failed")
+      notifyMutationError(error, i18n.t("apps:toasts.settingsSaveFailed"))
     },
   })
 }

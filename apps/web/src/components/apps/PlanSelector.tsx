@@ -4,7 +4,8 @@ import { RiCpuLine, RiDatabase2Line, RiGitBranchLine } from "@remixicon/react"
 import { PLANS, PLAN_NAMES  } from "@ploydok/shared"
 import { Input } from "@workspace/ui/components/input"
 import { cn } from "@workspace/ui/lib/utils"
-import type {PlanName} from "@ploydok/shared";
+import { useTranslation } from "react-i18next"
+import type { PlanName } from "@ploydok/shared"
 
 export interface PlanSelectorValue {
   plan: PlanName
@@ -18,26 +19,11 @@ interface PlanSelectorProps {
   onChange: (value: PlanSelectorValue) => void
 }
 
-const PLAN_LABELS: Record<PlanName, string> = {
-  nano: "Nano",
-  small: "Small",
-  medium: "Medium",
-  large: "Large",
-  custom: "Custom",
-}
-
-const PLAN_SUBTITLES: Record<PlanName, string> = {
-  nano: "tests / static sites",
-  small: "petits services web",
-  medium: "apps moyennes",
-  large: "workloads CPU-intensifs",
-  custom: "limites explicites",
-}
-
 export function PlanSelector({ value, onChange }: PlanSelectorProps): React.JSX.Element {
+  const { t } = useTranslation("apps")
   return (
     <div className="space-y-3">
-      <div role="radiogroup" aria-label="Plan" className="grid gap-2 sm:grid-cols-2 lg:grid-cols-5">
+      <div role="radiogroup" aria-label={t("plan.aria")} className="grid gap-2 sm:grid-cols-2 lg:grid-cols-5">
         {PLAN_NAMES.map((name) => (
           <PlanOption
             key={name}
@@ -67,6 +53,7 @@ function PlanOption({
   active: boolean
   onSelect: () => void
 }): React.JSX.Element {
+  const { t } = useTranslation("apps")
   const limits = PLANS[name]
   return (
     <button
@@ -82,7 +69,7 @@ function PlanOption({
       )}
     >
       <div className="flex w-full items-center justify-between">
-        <span className="text-sm font-medium">{PLAN_LABELS[name]}</span>
+        <span className="text-sm font-medium">{t(`plan.${name}`)}</span>
         {active ? (
           <span className="size-2 rounded-full bg-primary" />
         ) : (
@@ -90,7 +77,7 @@ function PlanOption({
         )}
       </div>
       <span className="font-mono text-[10px] tracking-wide text-muted-foreground uppercase">
-        {PLAN_SUBTITLES[name]}
+        {t(`plan.${name}Hint`)}
       </span>
       {limits ? (
         <dl className="grid w-full grid-cols-3 gap-1 text-[11px]">
@@ -99,7 +86,7 @@ function PlanOption({
           <PlanStat icon={RiGitBranchLine} label={`${limits.pids} pids`} />
         </dl>
       ) : (
-        <span className="text-[11px] text-muted-foreground">À définir ci-dessous.</span>
+        <span className="text-[11px] text-muted-foreground">{t("plan.defineBelow")}</span>
       )}
     </button>
   )
@@ -131,15 +118,14 @@ function CustomLimits({
   value: PlanSelectorValue
   onChange: (value: PlanSelectorValue) => void
 }): React.JSX.Element {
+  const { t } = useTranslation("apps")
   return (
     <div className="space-y-3 rounded-lg border border-border bg-muted/30 p-3">
-      <p className="text-xs text-muted-foreground">
-        Laisse vide pour désactiver la contrainte correspondante.
-      </p>
+      <p className="text-xs text-muted-foreground">{t("plan.leaveEmpty")}</p>
       <div className="grid gap-3 sm:grid-cols-3">
         <NumberField
           id="custom-cpu"
-          label="CPU (cores, fractions ok)"
+          label={t("plan.cpuCores")}
           placeholder="0.5"
           step="0.1"
           min={0}
@@ -148,7 +134,7 @@ function CustomLimits({
         />
         <NumberField
           id="custom-mem"
-          label="Mémoire (MB)"
+          label={t("plan.memoryMb")}
           placeholder="512"
           step="1"
           min={0}
@@ -157,7 +143,7 @@ function CustomLimits({
         />
         <NumberField
           id="custom-pids"
-          label="PIDs"
+          label={t("plan.pids")}
           placeholder="256"
           step="1"
           min={0}

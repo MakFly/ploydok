@@ -25,6 +25,7 @@ import {
   useRollbackApp,
   useStopApp,
 } from "../../lib/apps-mutations"
+import { useTranslation } from "react-i18next"
 import type { AppDetail } from "../../lib/apps"
 import type { AppStatus } from "@ploydok/shared"
 
@@ -47,6 +48,7 @@ export function AppHeaderActions({
 }: {
   app: AppDetail
 }): React.JSX.Element {
+  const { t } = useTranslation("apps")
   const { data: builds } = useBuilds(app.id, { initialData: app.builds })
 
   const deploy = useDeployApp(app.id)
@@ -68,24 +70,24 @@ export function AppHeaderActions({
         onClick={() => deploy.mutate()}
         loading={deploy.isPending}
         disabled={inFlight}
-        title="Pull source from git, build, and deploy"
+        title={t("actions.deployHint")}
         className="gap-1.5"
       >
         <RiRocketLine className="size-4" aria-hidden="true" />
-        {useDeployLabel ? "Deploy" : "Redeploy"}
+        {useDeployLabel ? t("actions.deploy") : t("actions.redeploy")}
       </Button>
 
       <ConfirmButton
         size="sm"
         variant="secondary"
         icon={<RiRefreshLine className="size-4" />}
-        label="Restart"
-        title="Restart the container without rebuilding (uses the last successful image)"
+        label={t("actions.restart")}
+        title={t("actions.restartHint")}
         disabled={restart.isPending || useDeployLabel || inFlight}
         loading={restart.isPending}
-        confirmTitle="Restart application?"
-        confirmDescription="The current container will be replaced by a fresh instance running the last successful image. The app will be briefly unavailable."
-        confirmActionLabel="Restart"
+        confirmTitle={t("actions.restartConfirm")}
+        confirmDescription={t("actions.restartConfirmHint")}
+        confirmActionLabel={t("actions.restart")}
         onConfirm={() => restart.mutate()}
       />
 
@@ -93,17 +95,15 @@ export function AppHeaderActions({
         size="sm"
         variant="secondary"
         icon={<RiHistoryLine className="size-4" />}
-        label="Rollback"
+        label={t("actions.rollback")}
         title={
-          canRollback
-            ? "Roll back to the previous successful build"
-            : "Need at least two successful builds to roll back"
+          canRollback ? t("actions.rollbackHint") : t("actions.rollbackNeedTwo")
         }
         disabled={rollback.isPending || !canRollback || inFlight}
         loading={rollback.isPending}
-        confirmTitle="Roll back to previous build?"
-        confirmDescription="The app will be redeployed using the build immediately before the current one. The previous build remains available — you can roll forward later from the deployments tab."
-        confirmActionLabel="Roll back"
+        confirmTitle={t("actions.rollbackConfirmTitle")}
+        confirmDescription={t("actions.rollbackConfirmHint")}
+        confirmActionLabel={t("actions.rollbackAction")}
         onConfirm={() => rollback.mutate()}
       />
 
@@ -112,25 +112,22 @@ export function AppHeaderActions({
           size="sm"
           variant="destructive"
           icon={<RiStopCircleLine className="size-4" />}
-          label="Stop"
-          title="Stop all runtime containers and remove the public route"
+          label={t("actions.stop")}
+          title={t("actions.stopHint")}
           disabled={stop.isPending || inFlight}
           loading={stop.isPending}
-          confirmTitle="Stop this application?"
+          confirmTitle={t("actions.stopConfirmTitle")}
           confirmDescription={
             <>
-              <span className="mb-2 block">
-                All runtime containers for this app, including stale blue/green
-                slots, will be stopped and the public route removed from Caddy.
-              </span>
+              <span className="mb-2 block">{t("actions.stopConfirmBody")}</span>
               <ul className="list-disc space-y-1 pl-5 text-xs text-muted-foreground">
-                <li>The app will become unreachable on its public domain.</li>
-                <li>Non-persistent in-memory data will be lost.</li>
-                <li>Volumes and registry images are preserved.</li>
+                <li>{t("actions.stopConfirm")}</li>
+                <li>{t("actions.stopLost")}</li>
+                <li>{t("actions.stopPreserved")}</li>
               </ul>
             </>
           }
-          confirmActionLabel="Stop application"
+          confirmActionLabel={t("actions.stopApplication")}
           onConfirm={() => stop.mutate()}
         />
       )}
@@ -165,6 +162,7 @@ function ConfirmButton({
   confirmActionLabel,
   onConfirm,
 }: ConfirmButtonProps): React.JSX.Element {
+  const { t } = useTranslation("common")
   const [open, setOpen] = React.useState(false)
   return (
     <>
@@ -191,7 +189,7 @@ function ConfirmButton({
             </AlertDialogDescription>
           </AlertDialogHeader>
           <AlertDialogFooter>
-            <AlertDialogCancel>Cancel</AlertDialogCancel>
+            <AlertDialogCancel>{t("cancel")}</AlertDialogCancel>
             <AlertDialogAction
               onClick={() => {
                 setOpen(false)

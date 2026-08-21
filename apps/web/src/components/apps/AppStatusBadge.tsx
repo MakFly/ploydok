@@ -1,60 +1,58 @@
 // SPDX-License-Identifier: AGPL-3.0-only
 import * as React from "react"
+import { useTranslation } from "react-i18next"
 import type { AppStatus } from "@ploydok/shared"
+import type { TFunction } from "i18next"
 
 // ---------------------------------------------------------------------------
 // Styles per status
 // ---------------------------------------------------------------------------
 
-const STATUS_CONFIG: Record<
+const STATUS_STYLE: Record<
   AppStatus,
-  { label: string; className: string; pulse: boolean }
+  { className: string; pulse: boolean }
 > = {
   created: {
-    label: "Created",
     className: "bg-muted text-muted-foreground",
     pulse: false,
   },
   running: {
-    label: "Running",
     className: "bg-green-500/10 text-green-600 dark:text-green-400",
     pulse: false,
   },
   serving: {
-    label: "Serving",
     className: "bg-emerald-500/10 text-emerald-600 dark:text-emerald-400",
     pulse: false,
   },
   building: {
-    label: "Building",
     className: "bg-blue-500/10 text-blue-600 dark:text-blue-400",
     pulse: true,
   },
   restarting: {
-    label: "Restarting",
     className: "bg-yellow-500/10 text-yellow-600 dark:text-yellow-400",
     pulse: true,
   },
   deleting: {
-    label: "Deleting",
     className: "bg-orange-500/10 text-orange-600 dark:text-orange-400",
     pulse: true,
   },
   failed: {
-    label: "Failed",
     className: "bg-destructive/10 text-destructive",
     pulse: false,
   },
   stopped: {
-    label: "Stopped",
     className: "bg-muted text-muted-foreground",
     pulse: false,
   },
   pending: {
-    label: "Pending",
     className: "bg-muted text-muted-foreground",
     pulse: false,
   },
+}
+
+function statusLabel(status: AppStatus, t: TFunction<"apps">): string {
+  const key = `status.${status}` as const
+  return t(key)
 }
 
 // ---------------------------------------------------------------------------
@@ -63,17 +61,15 @@ const STATUS_CONFIG: Record<
 
 type Health = "healthy" | "unhealthy"
 
-const HEALTH_CONFIG: Record<
+const HEALTH_STYLE: Record<
   Health,
-  { label: string; className: string; pulse: boolean }
+  { className: string; pulse: boolean }
 > = {
   healthy: {
-    label: "Healthy",
     className: "bg-green-500/10 text-green-600 dark:text-green-400",
     pulse: false,
   },
   unhealthy: {
-    label: "Unhealthy",
     className: "bg-orange-500/10 text-orange-600 dark:text-orange-400",
     pulse: true,
   },
@@ -126,8 +122,11 @@ export function AppStatusBadge({
   health,
   className,
 }: AppStatusBadgeProps): React.JSX.Element {
-  const config = STATUS_CONFIG[status] ?? STATUS_CONFIG.pending
-  const healthCfg = health ? HEALTH_CONFIG[health] : null
+  const { t } = useTranslation("apps")
+  const style = STATUS_STYLE[status] ?? STATUS_STYLE.pending
+  const label = statusLabel(status, t)
+  const healthStyle = health ? HEALTH_STYLE[health] : null
+  const healthLabel = health ? t(`status.${health}`) : null
 
   return (
     <span
@@ -136,17 +135,17 @@ export function AppStatusBadge({
         .join(" ")}
     >
       <Pill
-        label={config.label}
-        className={config.className}
-        pulse={config.pulse}
-        ariaLabel={`App status: ${config.label}`}
+        label={label}
+        className={style.className}
+        pulse={style.pulse}
+        ariaLabel={t("status.aria", { label })}
       />
-      {healthCfg ? (
+      {healthStyle && healthLabel ? (
         <Pill
-          label={healthCfg.label}
-          className={healthCfg.className}
-          pulse={healthCfg.pulse}
-          ariaLabel={`App health: ${healthCfg.label}`}
+          label={healthLabel}
+          className={healthStyle.className}
+          pulse={healthStyle.pulse}
+          ariaLabel={t("status.healthAria", { label: healthLabel })}
         />
       ) : null}
     </span>

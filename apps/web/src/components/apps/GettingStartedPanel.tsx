@@ -2,6 +2,7 @@
 import * as React from "react"
 import { Link } from "@tanstack/react-router"
 import { RiArrowRightUpLine } from "@remixicon/react"
+import { useTranslation } from "react-i18next"
 import { ShellPanel } from "../layout/AppShell"
 
 export function GettingStartedPanel({
@@ -11,27 +12,31 @@ export function GettingStartedPanel({
   githubConnected: boolean
   onCreateApp: () => void
 }): React.JSX.Element {
+  const { t } = useTranslation("apps")
   return (
-    <ShellPanel title="Get started" description="Les premières étapes utiles.">
+    <ShellPanel
+      title={t("gettingStarted.title")}
+      description={t("gettingStarted.description")}
+    >
       <div className="space-y-2">
         <MiniStep
-          label="Connect GitHub"
+          label={t("gettingStarted.connectGithub")}
           body={
             githubConnected
-              ? "GitHub App is already configured."
-              : "Install the GitHub App to unlock repository selection."
+              ? t("gettingStarted.githubConnected")
+              : t("gettingStarted.githubInstall")
           }
           to="/settings/git-providers/$slug"
           params={{ slug: "github" }}
         />
         <MiniButton
-          label="Create a new app"
-          body="Open the modal and start from a repository or template."
+          label={t("gettingStarted.createApp")}
+          body={t("gettingStarted.createBody")}
           onClick={onCreateApp}
         />
         <MiniStep
-          label="Review the guide"
-          body="Operational notes for app setup and callback flow."
+          label={t("gettingStarted.reviewGuide")}
+          body={t("gettingStarted.guideBody")}
           to="/guide"
         />
       </div>

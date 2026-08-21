@@ -8,6 +8,7 @@ import {
 } from "@tanstack/react-query"
 import { toast } from "sonner"
 import { apiFetch, criticalQueryDefaults, invalidateGetCache } from "../api"
+import i18n from "../i18n"
 import { useEventsSubscription } from "../events-provider"
 import {
   applyAppStatus,
@@ -144,7 +145,7 @@ export function useCreateApp() {
         headers: { "content-type": "application/json" },
       }),
     onSuccess: (_, vars) => {
-      toast.success("App created")
+      toast.success(i18n.t("apps:toasts.created"))
       // The new app's auto-deploy emits build.started immediately — but the
       // GET cache from a prior /apps?organizationId=… read would replay
       // stale data and hide the new row until hard refresh. Same fix as
@@ -491,7 +492,7 @@ export function useUpdateAppCaddyExtra() {
         }
       ),
     onSuccess: (data, { appId }) => {
-      toast.success("Caddy handlers updated")
+      toast.success(i18n.t("apps:toasts.caddyUpdated"))
       qc.setQueryData(["apps", appId, "caddy-extra"], data)
     },
     onError: (error) => {
@@ -529,9 +530,9 @@ export function useUpdateAppCdn() {
       }),
     onSuccess: (data, { appId }) => {
       if (data.ready === false) {
-        toast.warning("CDN saved, Caddy sync is pending")
+        toast.warning(i18n.t("apps:toasts.cdnSavedPending"))
       } else {
-        toast.success("CDN configuration updated")
+        toast.success(i18n.t("apps:toasts.cdnUpdated"))
       }
       qc.setQueryData(["apps", appId, "cdn"], data)
       invalidateGetCache(`/apps/${appId}`)
@@ -571,9 +572,9 @@ export function useUpdateAppCloudflareCdn() {
       ),
     onSuccess: (data, { appId }) => {
       if (data.cloudflare.status === "failed") {
-        toast.warning("Cloudflare configuration saved, sync failed")
+        toast.warning(i18n.t("apps:toasts.cloudflareSavedFailed"))
       } else {
-        toast.success("Cloudflare CDN configured")
+        toast.success(i18n.t("apps:toasts.cloudflareConfigured"))
       }
       qc.setQueryData(["apps", appId, "cdn"], data)
       qc.setQueryData(["apps", appId, "cdn", "cloudflare"], data.cloudflare)
@@ -593,7 +594,7 @@ export function usePurgeAppCloudflareCdn(appId: string) {
         method: "POST",
       }),
     onSuccess: () => {
-      toast.success("Cloudflare cache purge requested")
+      toast.success(i18n.t("apps:toasts.cachePurgeRequested"))
     },
     onError: (error) => {
       toast.error(error.message)

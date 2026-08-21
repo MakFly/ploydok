@@ -33,6 +33,7 @@ import {
   SelectValue,
 } from "@workspace/ui/components/select"
 import { useTranslation } from "react-i18next"
+import i18n from "../../lib/i18n"
 import { cn } from "@workspace/ui/lib/utils"
 import { PLANS } from "@ploydok/shared"
 import { useCreateApp } from "../../lib/apps"
@@ -315,17 +316,53 @@ export function CreateAppModal({
   const steps: Array<{ id: StepId; label: string; hint: string }> =
     form.source === "image"
       ? [
-          { id: "source", label: "Source", hint: "Image OCI" },
-          { id: "database", label: "Database", hint: "Link DB" },
-          { id: "env", label: "Env", hint: "Variables" },
-          { id: "resources", label: "Ressources", hint: "Plan & quotas" },
+          {
+            id: "source",
+            label: t("create.steps.source"),
+            hint: t("create.hints.sourceImage"),
+          },
+          {
+            id: "database",
+            label: t("create.steps.database"),
+            hint: t("create.hints.database"),
+          },
+          {
+            id: "env",
+            label: t("create.steps.env"),
+            hint: t("create.hints.env"),
+          },
+          {
+            id: "resources",
+            label: t("create.steps.resources"),
+            hint: t("create.hints.resources"),
+          },
         ]
       : [
-          { id: "source", label: "Source", hint: "Repo & branche" },
-          { id: "build", label: "Build", hint: "Méthode & options" },
-          { id: "database", label: "Database", hint: "Link DB" },
-          { id: "env", label: "Env", hint: "Variables" },
-          { id: "resources", label: "Ressources", hint: "Plan & quotas" },
+          {
+            id: "source",
+            label: t("create.steps.source"),
+            hint: t("create.hints.sourceGit"),
+          },
+          {
+            id: "build",
+            label: t("create.steps.build"),
+            hint: t("create.hints.build"),
+          },
+          {
+            id: "database",
+            label: t("create.steps.database"),
+            hint: t("create.hints.database"),
+          },
+          {
+            id: "env",
+            label: t("create.steps.env"),
+            hint: t("create.hints.env"),
+          },
+          {
+            id: "resources",
+            label: t("create.steps.resources"),
+            hint: t("create.hints.resources"),
+          },
         ]
 
   const currentStep = steps[stepIdx]?.id ?? "source"
@@ -666,10 +703,14 @@ export function CreateAppModal({
                 id="create-app-title"
                 className="text-base leading-none font-semibold"
               >
-                Nouvelle application
+                {t("create.newApp")}
               </h2>
               <p className="mt-1 text-xs text-muted-foreground">
-                Étape {stepIdx + 1} sur {totalSteps} · {steps[stepIdx]?.hint}
+                {t("create.stepOf", {
+                  current: stepIdx + 1,
+                  total: totalSteps,
+                })}{" "}
+                · {steps[stepIdx]?.hint}
               </p>
             </div>
           </div>
@@ -677,7 +718,7 @@ export function CreateAppModal({
             onClick={requestClose}
             disabled={isSubmitting}
             className="flex size-9 shrink-0 items-center justify-center rounded-md text-muted-foreground transition-colors hover:bg-muted hover:text-foreground"
-            aria-label="Fermer la fenêtre"
+            aria-label={t("create.closeWindow")}
           >
             <RiCloseLine className="size-5" />
           </button>
@@ -952,14 +993,14 @@ export function BranchSelectionDialog({
               type="search"
               value={search}
               onChange={(event) => setSearch(event.target.value)}
-              placeholder="Rechercher une branche…"
-              aria-label="Rechercher une branche"
+              placeholder={t("create.searchBranch")}
+              aria-label={t("create.searchBranchAria")}
               autoFocus
             />
           )}
 
           {isLoading ? (
-            <div className="space-y-2" aria-label="Chargement des branches">
+            <div className="space-y-2" aria-label={t("create.loadingBranches")}>
               {[0, 1, 2, 3].map((item) => (
                 <div
                   key={item}
@@ -972,21 +1013,24 @@ export function BranchSelectionDialog({
               className="rounded-md border border-destructive/30 bg-destructive/10 px-3 py-2 text-sm text-destructive"
               role="alert"
             >
-              Impossible de charger les branches
-              {repo ? " de " + repo.fullName : ""} : {error.message}
+              {repo
+                ? t("create.loadBranchesFailedFor", {
+                    repo: repo.fullName,
+                    message: error.message,
+                  })
+                : `${t("create.loadBranchesFailed")} : ${error.message}`}
             </p>
           ) : needsInstall ? (
             <p
               className="rounded-md border border-amber-500/30 bg-amber-500/10 px-3 py-2 text-sm text-foreground"
               role="alert"
             >
-              L'application GitHub Ploydok doit être installée avant de pouvoir
-              lire les branches.{" "}
+              {t("create.githubAppRequired")}{" "}
               <a
                 href="/settings/git-providers/github"
                 className="font-medium underline underline-offset-2"
               >
-                Installer l'application GitHub
+                {t("create.installGitHubApp")}
               </a>
               .
             </p>
@@ -995,17 +1039,17 @@ export function BranchSelectionDialog({
               className="rounded-md border border-border bg-muted/40 px-3 py-6 text-center text-sm text-muted-foreground"
               role="status"
             >
-              Aucune branche trouvée pour ce dépôt.
+              {t("create.noBranches")}
             </p>
           ) : visibleBranches.length === 0 ? (
             <p className="py-6 text-center text-sm text-muted-foreground">
-              Aucune branche ne correspond à « {search.trim()} ».
+              {t("create.noBranchMatch", { query: search.trim() })}
             </p>
           ) : (
             <ul
               className="scrollbar-thin max-h-[24rem] divide-y divide-border overflow-y-auto rounded-lg border border-border"
               role="listbox"
-              aria-label={`Branches ${providerLabel}`}
+              aria-label={t("create.branchesAria", { provider: providerLabel })}
             >
               {visibleBranches.map((branch) => {
                 const selected = branch.name === value
@@ -1061,73 +1105,79 @@ export function BranchSelectionDialog({
 // ---------------------------------------------------------------------------
 
 function SummaryCard({ form }: { form: FormState }): React.JSX.Element {
+  const { t } = useTranslation("apps")
   const sourceLabel: Record<SourceKind, string> = {
-    github: "GitHub",
-    gitlab: "GitLab",
-    image: "Image OCI",
+    github: t("create.github"),
+    gitlab: t("create.gitlab"),
+    image: t("create.ociImage"),
   }
+  const envCount = form.initialEnvVars.filter((item) => item.key.trim()).length
+  const databaseValue =
+    form.database.mode === "none"
+      ? "—"
+      : form.database.mode === "existing"
+        ? t("create.existingValue")
+        : form.database.newDatabaseName || t("create.newValue")
+  const buildValue =
+    form.buildMethod === "auto"
+      ? t("create.auto")
+      : form.buildMethod === "docker"
+        ? t("create.dockerfile")
+        : form.buildMethod === "static"
+          ? t("create.staticSite")
+          : t("create.nixpacks")
 
   return (
     <div className="space-y-2.5">
       <p className="text-[10px] font-semibold tracking-wider text-muted-foreground uppercase">
-        Récapitulatif
+        {t("create.summaryTitle")}
       </p>
-      <SummaryRow label="Nom" value={form.name || "—"} mono={!!form.name} />
-      <SummaryRow label="Source" value={sourceLabel[form.source]} />
+      <SummaryRow
+        label={t("create.name")}
+        value={form.name || "—"}
+        mono={!!form.name}
+      />
+      <SummaryRow label={t("create.source")} value={sourceLabel[form.source]} />
       {form.source !== "image" && (
         <>
           <SummaryRow
-            label="Repo"
+            label={t("create.repo")}
             value={form.selectedRepo?.fullName ?? "—"}
             mono={!!form.selectedRepo}
             truncate
           />
           <SummaryRow
-            label="Branche"
+            label={t("create.branch")}
             value={form.branch || "—"}
             mono={!!form.branch}
           />
-          <SummaryRow
-            label="Build"
-            value={
-              form.buildMethod === "auto"
-                ? "auto"
-                : form.buildMethod === "docker"
-                  ? "Dockerfile"
-                  : form.buildMethod === "static"
-                    ? "Static site"
-                    : "Nixpacks"
-            }
-          />
+          <SummaryRow label={t("create.build")} value={buildValue} />
           {form.buildMethod === "static" && (
             <SummaryRow
-              label="Output"
+              label={t("create.output")}
               value={form.staticOutputDir || "dist"}
               mono
             />
           )}
           {form.laravelSeedOnFirstDeploy && (
-            <SummaryRow label="Laravel seed" value="first deploy" />
+            <SummaryRow
+              label={t("create.laravelRuntime")}
+              value={t("create.firstDeploy")}
+            />
           )}
           <SummaryRow
-            label="Env"
-            value={`${form.initialEnvVars.filter((item) => item.key.trim()).length} vars`}
+            label={t("create.steps.env")}
+            value={t("create.varsCount", { count: envCount })}
           />
           <SummaryRow
-            label="Database"
-            value={
-              form.database.mode === "none"
-                ? "—"
-                : form.database.mode === "existing"
-                  ? "existing"
-                  : form.database.newDatabaseName || "new"
-            }
+            label={t("create.steps.database")}
+            value={databaseValue}
           />
         </>
       )}
       {form.source === "image" && (
         <SummaryRow
-          label="Image"
+          label={t("create.image")}
           value={form.imageRef || "—"}
           mono={!!form.imageRef}
           truncate
@@ -1135,23 +1185,17 @@ function SummaryCard({ form }: { form: FormState }): React.JSX.Element {
       )}
       {form.source === "image" && (
         <SummaryRow
-          label="Env"
-          value={`${form.initialEnvVars.filter((item) => item.key.trim()).length} vars`}
+          label={t("create.steps.env")}
+          value={t("create.varsCount", { count: envCount })}
         />
       )}
       {form.source === "image" && (
         <SummaryRow
-          label="Database"
-          value={
-            form.database.mode === "none"
-              ? "—"
-              : form.database.mode === "existing"
-                ? "existing"
-                : form.database.newDatabaseName || "new"
-          }
+          label={t("create.steps.database")}
+          value={databaseValue}
         />
       )}
-      <SummaryRow label="Plan" value={form.plan.plan} />
+      <SummaryRow label={t("create.plan")} value={form.plan.plan} />
     </div>
   )
 }
@@ -1218,6 +1262,7 @@ function SourceStep({
   onOpenBranchDialog,
   gitLabAvailability,
 }: SourceStepProps): React.JSX.Element {
+  const { t } = useTranslation("apps")
   const slug = form.name
     .trim()
     .toLowerCase()
@@ -1228,12 +1273,12 @@ function SourceStep({
     <div className="space-y-6">
       <section className="space-y-2">
         <label htmlFor="app-name" className="text-sm font-medium">
-          Nom de l'application
+          {t("create.appName")}
         </label>
         <Input
           id="app-name"
           type="text"
-          placeholder="my-app"
+          placeholder={t("create.namePlaceholder")}
           value={form.name}
           onChange={(e) => setField("name", e.target.value)}
           autoFocus
@@ -1241,23 +1286,20 @@ function SourceStep({
         <p className="text-xs text-muted-foreground">
           {slug ? (
             <>
-              URL interne :{" "}
+              {t("create.internalUrl")}{" "}
               <code className="rounded bg-muted px-1 py-0.5 font-mono text-[11px]">
                 {slug}
               </code>
             </>
           ) : (
-            <>
-              Identifiant unique au sein de l'organisation. Slug auto-généré
-              depuis le nom.
-            </>
+            t("create.slugHint")
           )}
         </p>
       </section>
 
       <section className="space-y-2">
         <label htmlFor="app-public-url" className="text-sm font-medium">
-          URL publique
+          {t("create.publicUrl")}
         </label>
         <Input
           id="app-public-url"
@@ -1269,7 +1311,7 @@ function SourceStep({
       </section>
 
       <section className="space-y-2">
-        <p className="text-sm font-medium">Source du déploiement</p>
+        <p className="text-sm font-medium">{t("create.source")}</p>
         <ProviderTabs
           source={form.source}
           onChange={onSourceChange}
@@ -1282,7 +1324,7 @@ function SourceStep({
               className="text-primary underline-offset-4 hover:underline"
               href="/settings/git-providers/gitlab"
             >
-              Ouvrir les réglages GitLab
+              {t("create.openGitLabSettings")}
             </a>
           </p>
         ) : null}
@@ -1352,6 +1394,7 @@ function ProviderTabs({
   onChange: (s: SourceKind) => void
   gitLabAvailability: { enabled: boolean; reason: string | null }
 }): React.JSX.Element {
+  const { t } = useTranslation("apps")
   const tabs: Array<{
     id: SourceKind
     label: string
@@ -1362,23 +1405,23 @@ function ProviderTabs({
   }> = [
     {
       id: "github",
-      label: "GitHub",
-      hint: "Auto-deploy sur push",
+      label: t("create.github"),
+      hint: t("create.autoDeployHint"),
       maturity: "Beta",
       icon: <RiGithubFill className="size-5" />,
     },
     {
       id: "gitlab",
-      label: "GitLab",
-      hint: "Auto-deploy sur push",
+      label: t("create.gitlab"),
+      hint: t("create.autoDeployHint"),
       maturity: "Beta",
       icon: <RiGitlabFill className="size-5 text-[#FC6D26]" />,
       disabled: !gitLabAvailability.enabled,
     },
     {
       id: "image",
-      label: "Image",
-      hint: "Docker / OCI",
+      label: t("create.image"),
+      hint: t("create.dockerOci"),
       maturity: "Beta",
       icon: <DockerIcon className="size-5 text-[#1D63ED]" />,
     },
@@ -1387,22 +1430,22 @@ function ProviderTabs({
   return (
     <div
       role="tablist"
-      aria-label="Source"
+      aria-label={t("create.source")}
       className="grid gap-2 sm:grid-cols-3"
     >
-      {tabs.map((t) => {
-        const active = source === t.id && !t.disabled
-        const disabled = Boolean(t.disabled)
+      {tabs.map((tab) => {
+        const active = source === tab.id && !tab.disabled
+        const disabled = Boolean(tab.disabled)
         return (
           <button
-            key={t.id}
+            key={tab.id}
             type="button"
             role="tab"
             aria-selected={active}
             aria-disabled={disabled}
             disabled={disabled}
             onClick={() => {
-              if (!disabled) onChange(t.id)
+              if (!disabled) onChange(tab.id)
             }}
             title={
               disabled ? (gitLabAvailability.reason ?? undefined) : undefined
@@ -1424,18 +1467,18 @@ function ProviderTabs({
                   : "border-border bg-muted/40"
               )}
             >
-              {t.icon}
+              {tab.icon}
             </span>
             <span className="flex min-w-0 flex-col">
               <span className="text-sm leading-none font-medium">
-                {t.label}
+                {tab.label}
               </span>
               <span className="mt-1 truncate text-[11px] text-muted-foreground">
-                {t.hint}
+                {tab.hint}
               </span>
             </span>
             <span className="ml-auto shrink-0 rounded-full border border-border bg-background px-1.5 py-0.5 font-mono text-[9px] tracking-wide text-muted-foreground uppercase">
-              {t.maturity}
+              {tab.maturity}
             </span>
             {active ? (
               <RiCheckLine className="size-4 shrink-0 text-primary" />
@@ -1470,13 +1513,16 @@ function GitSection({
   onOpenBranchDialog?: () => void
   children: React.ReactNode
 }): React.JSX.Element {
+  const { t } = useTranslation("apps")
   const selectedBranch = branches.find((b) => b.name === branch)
   const selectedCommitSha = selectedBranch?.commitSha ?? ""
 
   return (
     <div className="space-y-4">
       <div className="space-y-2">
-        <p className="text-sm font-medium">Dépôt {providerLabel}</p>
+        <p className="text-sm font-medium">
+          {t("create.repoLabel", { provider: providerLabel })}
+        </p>
         {children}
       </div>
 
@@ -1487,9 +1533,11 @@ function GitSection({
               <div className="flex min-w-0 items-center gap-2.5">
                 <RiGitBranchLine className="size-4 shrink-0 text-muted-foreground" />
                 <div className="min-w-0">
-                  <p className="text-xs text-muted-foreground">Branche</p>
+                  <p className="text-xs text-muted-foreground">
+                    {t("create.branch")}
+                  </p>
                   <p className="truncate text-sm font-medium">
-                    {branch || "Aucune branche sélectionnée"}
+                    {branch || t("create.noBranchSelected")}
                   </p>
                 </div>
               </div>
@@ -1499,7 +1547,7 @@ function GitSection({
                 variant="outline"
                 onClick={onOpenBranchDialog}
               >
-                {branch ? "Modifier" : "Choisir"}
+                {branch ? t("create.change") : t("create.choose")}
               </Button>
             </div>
           ) : branchesLoading ? (
@@ -1509,22 +1557,22 @@ function GitSection({
               className="rounded-md border border-destructive/30 bg-destructive/10 px-3 py-2 text-sm text-destructive"
               role="alert"
             >
-              Impossible de charger les branches de {selectedRepo.fullName} :{" "}
-              {branchesError.message}
+              {t("create.loadBranchesFailedFor", {
+                repo: selectedRepo.fullName,
+                message: branchesError.message,
+              })}
             </p>
           ) : branchesNeedInstall ? (
             <p
               className="rounded-md border border-amber-500/30 bg-amber-500/10 px-3 py-2 text-sm text-foreground"
               role="alert"
             >
-              L'application GitHub Ploydok n'est installée sur aucun compte. La
-              liste des dépôts vient du cache local, mais aucune branche ne peut
-              être lue tant que l'installation n'est pas faite.{" "}
+              {t("create.githubAppNotInstalled")}{" "}
               <a
                 href="/settings/git-providers/github"
                 className="font-medium underline underline-offset-2"
               >
-                Installer l'application GitHub
+                {t("create.installGitHubApp")}
               </a>
               .
             </p>
@@ -1533,12 +1581,12 @@ function GitSection({
               className="rounded-md border border-border bg-muted/40 px-3 py-2 text-sm text-muted-foreground"
               role="status"
             >
-              Aucune branche trouvée pour {selectedRepo.fullName}.
+              {t("create.noBranchesFor", { repo: selectedRepo.fullName })}
             </p>
           ) : (
             <Select value={branch} onValueChange={onBranchChange}>
               <SelectTrigger id="branch-select">
-                <SelectValue placeholder="Sélectionner une branche…" />
+                <SelectValue placeholder={t("create.selectBranch")} />
               </SelectTrigger>
               <SelectContent>
                 <SelectGroup>
@@ -1553,7 +1601,7 @@ function GitSection({
           )}
           {selectedCommitSha && (
             <p className="text-xs text-muted-foreground">
-              Commit courant :{" "}
+              {t("create.currentCommit")}{" "}
               <code className="rounded bg-muted px-1 py-0.5 font-mono text-[11px] text-foreground">
                 {selectedCommitSha.slice(0, 12)}
               </code>
@@ -1586,32 +1634,34 @@ function ImageSection({
   trackLatest,
   onTrackLatestChange,
 }: ImageSectionProps): React.JSX.Element {
+  const { t } = useTranslation("apps")
   const { data: credentials, isLoading } = useRegistryCredentials()
 
   return (
     <div className="space-y-4">
       <div className="space-y-1.5">
         <label htmlFor="image-ref" className="text-sm font-medium">
-          Référence de l'image
+          {t("create.imageRef")}
         </label>
         <Input
           id="image-ref"
           type="text"
-          placeholder="nginx:alpine"
+          placeholder={t("create.imagePlaceholder")}
           value={imageRef}
           onChange={(e) => onImageRefChange(e.target.value)}
           className="font-mono"
           autoFocus
         />
         <p className="text-xs text-muted-foreground">
-          Exemples : <code className="font-mono text-[11px]">nginx:alpine</code>
+          {t("create.imageExamples")}{" "}
+          <code className="font-mono text-[11px]">nginx:alpine</code>
           , <code className="font-mono text-[11px]">ghcr.io/org/app:v1</code>.
         </p>
       </div>
 
       <div className="space-y-1.5">
         <label htmlFor="registry-cred" className="text-sm font-medium">
-          Credentials du registry
+          {t("create.registryCredentials")}
         </label>
         <Select
           value={registryCredentialId || "public"}
@@ -1621,11 +1671,11 @@ function ImageSection({
           disabled={isLoading}
         >
           <SelectTrigger id="registry-cred">
-            <SelectValue placeholder="Public / anonyme" />
+            <SelectValue placeholder={t("create.publicAnonymous")} />
           </SelectTrigger>
           <SelectContent>
             <SelectGroup>
-              <SelectItem value="public">Public / anonyme</SelectItem>
+              <SelectItem value="public">{t("create.publicAnonymous")}</SelectItem>
               {(credentials ?? []).map((c) => (
                 <SelectItem key={c.id} value={c.id}>
                   {c.label} ({c.registryHost})
@@ -1635,28 +1685,28 @@ function ImageSection({
           </SelectContent>
         </Select>
         <p className="text-xs text-muted-foreground">
-          Gérer les credentials dans{" "}
+          {t("create.manageCredentials")}{" "}
           <a className="underline underline-offset-2" href="/settings/registry">
-            Settings — Registry
+            {t("create.settingsRegistry")}
           </a>
           .
         </p>
       </div>
 
       <fieldset className="space-y-2">
-        <legend className="text-sm font-medium">Politique de pull</legend>
+        <legend className="text-sm font-medium">{t("create.pullPolicy")}</legend>
         <div className="grid gap-2 sm:grid-cols-2">
           <ChoiceCard
             active={imagePullPolicy === "always"}
             onSelect={() => onImagePullPolicyChange("always")}
-            label="Always"
-            hint="Pull avant chaque déploiement"
+            label={t("create.pullAlways")}
+            hint={t("create.pullAlwaysHint")}
           />
           <ChoiceCard
             active={imagePullPolicy === "if_not_present"}
             onSelect={() => onImagePullPolicyChange("if_not_present")}
-            label="If not present"
-            hint="Pull uniquement si absent localement"
+            label={t("create.pullIfNotPresent")}
+            hint={t("create.pullIfNotPresentHint")}
           />
         </div>
       </fieldset>
@@ -1664,11 +1714,10 @@ function ImageSection({
       <div className="flex items-center justify-between gap-4 rounded-md border border-border bg-muted/30 p-3">
         <div className="space-y-1">
           <label htmlFor="create-track-latest" className="text-sm font-medium">
-            Suivre les mises à jour de l'image
+            {t("create.trackLatest")}
           </label>
           <p className="text-xs text-muted-foreground">
-            Redéploie automatiquement quand ce tag pointe vers un nouveau
-            digest.
+            {t("create.trackLatestHint")}
           </p>
         </div>
         <Switch
@@ -1709,6 +1758,7 @@ function BuildStep({
   classification,
   onRootDirChange,
 }: BuildStepProps): React.JSX.Element {
+  const { t } = useTranslation("apps")
   const selectMethod = (method: BuildMethod): void => {
     setField("buildMethod", method)
     setField("buildMethodTouched", true)
@@ -1717,31 +1767,30 @@ function BuildStep({
   const isStaticBuild = form.buildMethod === "static"
 
   const nixpacksHint = ((): string => {
-    if (hasDockerfile !== false) return "Force auto-pack (ignore le Dockerfile)"
-    if (!classification)
-      return "Auto-pack zero-config (Node / Next / Python / Rust / …)"
+    if (hasDockerfile !== false) return t("create.nixpacksForce")
+    if (!classification) return t("create.nixpacksDefault")
     switch (classification.stack) {
       case "laravel":
-        return "Auto-pack PHP (nginx + php-fpm, Laravel-aware). Recipe managée recommandée pour la prod."
+        return t("create.nixpacksLaravel")
       case "symfony":
       case "php":
-        return "Auto-pack PHP (nginx + php-fpm). Recipe managée recommandée pour la prod."
+        return t("create.nixpacksPhp")
       case "next":
-        return "Auto-pack Next.js (standalone output si configuré)."
+        return t("create.nixpacksNext")
       case "hono":
-        return "Auto-pack Hono (serveur Node/Bun écoutant sur PORT)."
+        return t("create.nixpacksHono")
       case "node":
       case "bun":
-        return "Auto-pack Node — pense à fixer NIXPACKS_NODE_VERSION."
+        return t("create.nixpacksNode")
       case "django":
       case "flask":
       case "fastapi":
       case "python":
-        return "Auto-pack Python (gunicorn/uvicorn selon framework)."
+        return t("create.nixpacksPython")
       case "compose":
-        return "Compose détecté — support natif indisponible. Sélectionne Nixpacks uniquement si le dépôt est aussi compatible sans Compose."
+        return t("create.nixpacksCompose")
       default:
-        return "Auto-pack zero-config (Node / Next / Python / Rust / …)"
+        return t("create.nixpacksDefault")
     }
   })()
 
@@ -1762,38 +1811,38 @@ function BuildStep({
 
       <section className="space-y-2">
         <div className="flex items-center justify-between">
-          <p className="text-sm font-medium">Méthode de build</p>
+          <p className="text-sm font-medium">{t("create.buildMethod")}</p>
           {detectionLoading && (
             <span className="inline-flex items-center gap-1 text-[11px] text-muted-foreground">
               <span className="size-1.5 animate-pulse rounded-full bg-primary" />
-              Détection…
+              {t("create.detecting")}
             </span>
           )}
         </div>
         <div className="grid gap-2 sm:grid-cols-2">
           <BuildMethodCard
-            label="Dockerfile"
+            label={t("create.dockerfile")}
             hint={
               hasDockerfile === true
-                ? "Build via le Dockerfile à la racine"
+                ? t("create.dockerfileHintRoot")
                 : hasDockerfile === false
-                  ? "Aucun Dockerfile détecté sur cette branche"
-                  : "Build via Dockerfile"
+                  ? t("create.noDockerfile")
+                  : t("create.dockerfileGeneric")
             }
             active={form.buildMethod === "docker"}
             detected={hasDockerfile === true}
             onSelect={() => selectMethod("docker")}
           />
           <BuildMethodCard
-            label="Nixpacks"
+            label={t("create.nixpacks")}
             hint={nixpacksHint}
             active={form.buildMethod === "nixpacks"}
             detected={hasDockerfile === false}
             onSelect={() => selectMethod("nixpacks")}
           />
           <BuildMethodCard
-            label="Static site"
-            hint="Build un dossier statique puis sert l'output via Caddy, sans container runtime"
+            label={t("create.staticSite")}
+            hint={t("create.staticSiteHint")}
             active={form.buildMethod === "static"}
             detected={classification?.recommendedBuild === "static"}
             onSelect={() => selectMethod("static")}
@@ -1804,14 +1853,14 @@ function BuildStep({
       <div className="grid gap-3 sm:grid-cols-2">
         <ConfigField
           id="root-dir"
-          label="Répertoire racine"
+          label={t("create.rootDir")}
           placeholder="./"
           value={form.rootDir}
           onChange={onRootDirChange}
         />
         <ConfigField
           id="dockerfile-path"
-          label="Chemin du Dockerfile"
+          label={t("create.dockerfile")}
           placeholder="Dockerfile"
           value={form.dockerfilePath}
           onChange={(v) => setField("dockerfilePath", v)}
@@ -1822,7 +1871,7 @@ function BuildStep({
         <section className="space-y-3">
           <ConfigField
             id="static-output-dir"
-            label="Output directory"
+            label={t("create.outputDir")}
             placeholder="dist"
             value={form.staticOutputDir}
             onChange={(v) => setField("staticOutputDir", v)}
@@ -1835,10 +1884,11 @@ function BuildStep({
               className="mt-0.5 size-4 rounded border-input text-primary focus:ring-2 focus:ring-ring"
             />
             <span className="min-w-0">
-              <span className="block text-sm font-medium">SPA fallback</span>
+              <span className="block text-sm font-medium">
+                {t("create.spaFallback")}
+              </span>
               <span className="mt-0.5 block text-xs text-muted-foreground">
-                Sert <code className="font-mono">index.html</code> pour les
-                routes client-side.
+                {t("create.spaFallbackHint", { file: "index.html" })}
               </span>
             </span>
           </label>
@@ -1856,7 +1906,7 @@ function BuildStep({
             showAdvanced && "rotate-90"
           )}
         />
-        Options avancées
+        {t("create.advancedOptions")}
       </button>
 
       {showAdvanced && (
@@ -1864,14 +1914,14 @@ function BuildStep({
           <div className="grid gap-3 sm:grid-cols-2">
             <ConfigField
               id="install-cmd"
-              label="Commande install"
+              label={t("create.installCommand")}
               placeholder="npm install"
               value={form.installCommand}
               onChange={(v) => setField("installCommand", v)}
             />
             <ConfigField
               id="build-cmd"
-              label="Commande build"
+              label={t("create.buildCommand")}
               placeholder="npm run build"
               value={form.buildCommand}
               onChange={(v) => setField("buildCommand", v)}
@@ -1879,7 +1929,7 @@ function BuildStep({
             {!isStaticBuild && (
               <ConfigField
                 id="start-cmd"
-                label="Commande start"
+                label={t("create.startCommand")}
                 placeholder="node dist/index.js"
                 value={form.startCommand}
                 onChange={(v) => setField("startCommand", v)}
@@ -1887,7 +1937,7 @@ function BuildStep({
             )}
             <ConfigField
               id="watch-paths"
-              label="Watch paths (séparés par virgule)"
+              label={t("create.watchPathsComma")}
               placeholder="src/,package.json"
               value={form.watchPaths}
               onChange={(v) => setField("watchPaths", v)}
@@ -1897,12 +1947,12 @@ function BuildStep({
           {!isStaticBuild && (
             <div className="space-y-2 border-t border-border/60 pt-3">
               <p className="text-[10px] font-semibold tracking-wider text-muted-foreground uppercase">
-                Healthcheck
+                {t("create.healthcheck")}
               </p>
               <div className="grid gap-3 sm:grid-cols-2">
                 <ConfigField
                   id="healthcheck-path"
-                  label="Path"
+                  label={t("create.path")}
                   placeholder="/health"
                   value={form.healthcheckPath}
                   onChange={(v) => setField("healthcheckPath", v)}
@@ -1912,7 +1962,7 @@ function BuildStep({
                     htmlFor="healthcheck-port"
                     className="block text-xs font-medium"
                   >
-                    Port
+                    {t("create.port")}
                   </label>
                   <Input
                     id="healthcheck-port"
@@ -1950,6 +2000,7 @@ function ResourcesStep({
   value: PlanSelectorValue
   onChange: (v: PlanSelectorValue) => void
 }): React.JSX.Element {
+  const { t } = useTranslation("apps")
   const envCount = form.initialEnvVars.filter((item) => item.key.trim()).length
   const dbVars =
     form.database.mode === "none"
@@ -1961,18 +2012,21 @@ function ResourcesStep({
       : (form.selectedRepo?.fullName ?? "—")
   const buildValue =
     form.source === "image"
-      ? "Image OCI"
+      ? t("create.ociImage")
       : form.buildMethod === "docker"
-        ? "Dockerfile"
+        ? t("create.dockerfile")
         : form.buildMethod === "static"
-          ? "Static site"
+          ? t("create.staticSite")
           : form.buildMethod
   const databaseValue =
     form.database.mode === "none"
-      ? "Aucune"
+      ? t("create.noneValue")
       : form.database.mode === "existing"
-        ? "Database existante"
-        : `${form.database.newDatabaseName || "Nouvelle database"} (${form.database.newDatabaseKind})`
+        ? t("create.existingDatabaseValue")
+        : t("create.newDatabaseValue", {
+            name: form.database.newDatabaseName || t("create.newDatabaseFallback"),
+            kind: form.database.newDatabaseKind,
+          })
   const selectedLimits =
     value.plan === "custom"
       ? {
@@ -1986,51 +2040,56 @@ function ResourcesStep({
     <div className="space-y-4">
       <div className="flex items-start gap-2 rounded-lg border border-border bg-muted/30 px-3 py-2 text-xs text-muted-foreground">
         <RiInformationLine className="mt-0.5 size-4 shrink-0 text-primary" />
-        <p>
-          Choisis un plan prédéfini ou bascule en « Custom » pour déclarer les
-          limites CPU / mémoire / PIDs à la main. Les quotas peuvent être
-          modifiés après création.
-        </p>
+        <p>{t("create.planHint")}</p>
       </div>
 
       <section className="rounded-2xl bg-panel">
         <div className="border-b border-border px-4 py-3">
-          <h3 className="text-sm font-semibold">Résumé avant création</h3>
+          <h3 className="text-sm font-semibold">{t("create.summary")}</h3>
           <p className="mt-1 text-xs text-muted-foreground">
-            Vérifie les valeurs qui seront utilisées pour créer l'application.
+            {t("create.reviewHint")}
           </p>
         </div>
         <div className="grid gap-0 sm:grid-cols-2 xl:grid-cols-4">
-          <ReviewTile label="Nom" value={form.name || "—"} mono />
-          <ReviewTile label="Source" value={sourceValue} mono />
-          <ReviewTile label="Branche" value={form.branch || "—"} mono />
+          <ReviewTile label={t("create.name")} value={form.name || "—"} mono />
+          <ReviewTile label={t("create.source")} value={sourceValue} mono />
           <ReviewTile
-            label="Stack"
+            label={t("create.branch")}
+            value={form.branch || "—"}
+            mono
+          />
+          <ReviewTile
+            label={t("create.stack")}
             value={classification?.framework ?? classification?.stack ?? "—"}
           />
-          <ReviewTile label="Build" value={buildValue} />
+          <ReviewTile label={t("create.build")} value={buildValue} />
           <ReviewTile
-            label="Healthcheck"
+            label={t("create.healthcheck")}
             value={
               form.buildMethod === "static"
-                ? "Static"
+                ? t("create.staticLabel")
                 : `${form.healthcheckPath || "/"}${form.healthcheckPort ? `:${form.healthcheckPort}` : ""}`
             }
             mono
           />
-          <ReviewTile label="Database" value={databaseValue} />
-          <ReviewTile label="Env prefix" value={form.database.envPrefix} mono />
+          <ReviewTile
+            label={t("create.steps.database")}
+            value={databaseValue}
+          />
+          <ReviewTile
+            label={t("create.envPrefix")}
+            value={form.database.envPrefix}
+            mono
+          />
         </div>
       </section>
 
       <section className="grid gap-3 lg:grid-cols-2">
         <div className="rounded-2xl bg-panel p-4">
-          <h3 className="text-sm font-semibold">Variables</h3>
+          <h3 className="text-sm font-semibold">{t("create.variables")}</h3>
           <p className="mt-1 text-xs text-muted-foreground">
-            {envCount} variable{envCount > 1 ? "s" : ""} manuelle
-            {dbVars.length > 0
-              ? ` + ${dbVars.length} variable${dbVars.length > 1 ? "s" : ""} DB générée${dbVars.length > 1 ? "s" : ""}`
-              : ""}
+            {t("create.manualVars", { count: envCount })}
+            {dbVars.length > 0 ? t("create.plusDbVars", { count: dbVars.length }) : ""}
             .
           </p>
           <div className="mt-3 flex flex-wrap gap-1">
@@ -2055,30 +2114,32 @@ function ResourcesStep({
             ))}
             {envCount + dbVars.length === 0 && (
               <span className="text-xs text-muted-foreground">
-                Aucune variable
+                {t("create.noVariables")}
               </span>
             )}
           </div>
         </div>
 
         <div className="rounded-2xl bg-panel p-4">
-          <h3 className="text-sm font-semibold">Ressources sélectionnées</h3>
+          <h3 className="text-sm font-semibold">
+            {t("create.selectedResources")}
+          </h3>
           <div className="mt-3 grid gap-2 text-sm">
-            <ReviewLine label="Plan" value={value.plan} />
+            <ReviewLine label={t("create.plan")} value={value.plan} />
             <ReviewLine
               label="CPU"
               value={
                 selectedLimits?.cpu === undefined
                   ? "—"
-                  : `${selectedLimits.cpu} CPU`
+                  : t("create.cpuValue", { count: selectedLimits.cpu })
               }
             />
             <ReviewLine
-              label="Mémoire"
+              label={t("create.memory")}
               value={
                 selectedLimits?.memMB === undefined
                   ? "—"
-                  : `${selectedLimits.memMB} MB`
+                  : t("create.memoryValue", { count: selectedLimits.memMB })
               }
             />
             <ReviewLine
@@ -2149,10 +2210,11 @@ function DetectedPanel({
 }: {
   classification: StackClassification
 }): React.JSX.Element {
+  const { t } = useTranslation("apps")
   const labelByConfidence: Record<StackClassification["confidence"], string> = {
-    high: "Détecté",
-    medium: "Probable",
-    low: "Estimation",
+    high: t("create.detected"),
+    medium: t("create.probable"),
+    low: t("create.estimate"),
   }
   return (
     <div className="space-y-2 rounded-lg border border-primary/30 bg-primary/5 p-3">
@@ -2199,14 +2261,14 @@ function LaravelRuntimePanel({
   seedOnFirstDeploy: boolean
   onSeedOnFirstDeployChange: (value: boolean) => void
 }): React.JSX.Element {
+  const { t } = useTranslation("apps")
   return (
     <section className="space-y-2 rounded-lg border border-border bg-muted/20 p-3">
       <div className="flex items-start justify-between gap-3">
         <div className="min-w-0">
-          <p className="text-sm font-medium">Laravel runtime</p>
+          <p className="text-sm font-medium">{t("create.laravelRuntime")}</p>
           <p className="mt-1 text-xs text-muted-foreground">
-            Pour les apps Laravel en SQLite, Ploydok prépare le fichier et lance
-            les migrations au démarrage.
+            {t("create.laravelSqliteHint")}
           </p>
         </div>
         <span className="rounded-full bg-primary/10 px-1.5 py-0.5 font-mono text-[9px] font-semibold tracking-wide text-primary uppercase">
@@ -2223,12 +2285,10 @@ function LaravelRuntimePanel({
         />
         <span className="min-w-0">
           <span className="block text-sm font-medium">
-            Seeder la base SQLite au premier déploiement
+            {t("create.laravelSeed")}
           </span>
           <span className="mt-0.5 block text-xs text-muted-foreground">
-            Ajoute <code className="font-mono">PLOYDOK_LARAVEL_SEED=true</code>{" "}
-            et lance <code className="font-mono">php artisan db:seed</code>{" "}
-            seulement si le fichier SQLite vient d'être créé.
+            {t("create.laravelSeedBody")}
           </span>
         </span>
       </label>
@@ -2325,15 +2385,15 @@ async function waitForDatabaseRunning(databaseId: string): Promise<Database> {
       return database
     }
     if (database.status === "failed") {
-      throw new Error("Database creation failed")
+      throw new Error(i18n.t("apps:create.dbCreationFailed"))
     }
     await new Promise((resolve) => setTimeout(resolve, 2_000))
   }
 
   throw new Error(
     last
-      ? `Database is not running yet (${last.status})`
-      : "Database readiness check timed out"
+      ? i18n.t("apps:create.dbNotRunningYet", { status: last.status })
+      : i18n.t("apps:create.dbReadinessTimeout")
   )
 }
 
@@ -2361,13 +2421,13 @@ async function resolveDatabaseForCreate({
     const id = form.database.existingDatabaseId
     const database = await apiFetch<Database>(`/databases/${id}`)
     if (database.status !== "running") {
-      throw new Error("La base sélectionnée doit être running avant le link")
+      throw new Error(i18n.t("apps:create.dbMustBeRunning"))
     }
     return id
   }
 
   if (!organizationId) {
-    throw new Error("Organization id is required to create a database")
+    throw new Error(i18n.t("apps:create.orgIdRequired"))
   }
 
   const created = await createDatabase({
@@ -2393,6 +2453,7 @@ function DatabaseStep({
   databases: Array<Database>
   isLoading: boolean
 }): React.JSX.Element {
+  const { t } = useTranslation("apps")
   const runningDatabases = databases.filter((db) => db.status === "running")
 
   const update = (patch: Partial<DatabaseSelection>): void => {
@@ -2402,11 +2463,8 @@ function DatabaseStep({
   return (
     <div className="flex flex-col gap-4">
       <section className="flex flex-col gap-2">
-        <p className="text-sm font-medium">Database</p>
-        <p className="text-xs text-muted-foreground">
-          Lie une base avant le premier déploiement. Ploydok vérifie que la base
-          est running avant d'injecter les variables.
-        </p>
+        <p className="text-sm font-medium">{t("create.steps.database")}</p>
+        <p className="text-xs text-muted-foreground">{t("create.linkDbHint")}</p>
         <Select
           value={value.mode}
           onValueChange={(mode) => update({ mode: mode as DatabaseMode })}
@@ -2416,11 +2474,9 @@ function DatabaseStep({
           </SelectTrigger>
           <SelectContent>
             <SelectGroup>
-              <SelectItem value="none">Aucune database</SelectItem>
-              <SelectItem value="existing">
-                Lier une database existante
-              </SelectItem>
-              <SelectItem value="new">Créer puis lier une database</SelectItem>
+              <SelectItem value="none">{t("create.noDatabase")}</SelectItem>
+              <SelectItem value="existing">{t("create.linkExisting")}</SelectItem>
+              <SelectItem value="new">{t("create.createThenLink")}</SelectItem>
             </SelectGroup>
           </SelectContent>
         </Select>
@@ -2429,7 +2485,7 @@ function DatabaseStep({
       {value.mode !== "none" && (
         <section className="flex flex-col gap-2">
           <label htmlFor="database-env-prefix" className="text-sm font-medium">
-            Préfixe des variables
+            {t("create.envPrefixLabel")}
           </label>
           <Input
             id="database-env-prefix"
@@ -2442,9 +2498,7 @@ function DatabaseStep({
             className="font-mono"
           />
           <p className="text-xs text-muted-foreground">
-            Génère <code>{"${prefix}_URL"}</code>,{" "}
-            <code>{"${prefix}_HOST"}</code>, etc. Par défaut,{" "}
-            <code>DATABASE</code> génère <code>DATABASE_URL</code>.
+            {t("create.envPrefixHint")}
           </p>
         </section>
       )}
@@ -2452,13 +2506,13 @@ function DatabaseStep({
       {value.mode === "existing" && (
         <section className="flex flex-col gap-2">
           <label htmlFor="database-select" className="text-sm font-medium">
-            Database existante
+            {t("create.existingDatabase")}
           </label>
           {isLoading ? (
             <Skeleton className="h-9 w-full rounded-md" />
           ) : runningDatabases.length === 0 ? (
             <div className="rounded-md border border-border bg-muted/30 px-3 py-2 text-sm text-muted-foreground">
-              Aucune database running dans ce projet.
+              {t("create.noRunningDb")}
             </div>
           ) : (
             <Select
@@ -2468,7 +2522,7 @@ function DatabaseStep({
               }
             >
               <SelectTrigger id="database-select">
-                <SelectValue placeholder="Choisir une database running" />
+                <SelectValue placeholder={t("create.chooseRunningDb")} />
               </SelectTrigger>
               <SelectContent>
                 <SelectGroup>
@@ -2488,7 +2542,7 @@ function DatabaseStep({
         <section className="grid gap-3 sm:grid-cols-3">
           <div className="flex flex-col gap-1">
             <label htmlFor="database-name" className="text-sm font-medium">
-              Nom
+              {t("create.name")}
             </label>
             <Input
               id="database-name"
@@ -2509,7 +2563,7 @@ function DatabaseStep({
           </div>
           <div className="flex flex-col gap-1">
             <label htmlFor="database-kind" className="text-sm font-medium">
-              Type
+              {t("create.dbType")}
             </label>
             <Select
               value={value.newDatabaseKind}
@@ -2533,7 +2587,7 @@ function DatabaseStep({
           </div>
           <div className="flex flex-col gap-1">
             <label htmlFor="database-plan" className="text-sm font-medium">
-              Plan
+              {t("create.plan")}
             </label>
             <Select
               value={value.newDatabasePlan}
@@ -2582,6 +2636,7 @@ function EnvStep({
   database: DatabaseSelection
   databases: Array<Database>
 }): React.JSX.Element {
+  const { t } = useTranslation("apps")
   const envFiles = detectedEnvFiles(probes)
   const selectedDatabase = databases.find(
     (item) => item.id === database.existingDatabaseId
@@ -2773,7 +2828,7 @@ function EnvStep({
       setIgnoredDatabaseImportKeys(Array.from(ignoredKeys).sort())
     } catch (err) {
       setEnvImportError(
-        err instanceof Error ? err.message : "Impossible d'importer ce fichier"
+        err instanceof Error ? err.message : t("create.importFailed")
       )
     } finally {
       setIsImportingEnv(false)
@@ -2790,29 +2845,27 @@ function EnvStep({
       <section className="space-y-2">
         <div className="flex items-start justify-between gap-3">
           <div>
-            <p className="text-sm font-medium">Variables d'environnement</p>
+            <p className="text-sm font-medium">{t("create.envVars")}</p>
             <p className="mt-1 text-xs text-muted-foreground">
-              Ces variables sont créées avant le premier déploiement.
+              {t("create.envCreatedBefore")}
             </p>
           </div>
           <Button type="button" size="sm" variant="outline" onClick={addVar}>
             <RiAddLine className="size-4" />
-            Ajouter
+            {t("common:add")}
           </Button>
         </div>
 
         {classification?.stack === "symfony" && (
           <div className="rounded-md border border-primary/20 bg-primary/5 px-3 py-2 text-xs text-muted-foreground">
-            Symfony détecté : <code className="font-mono">APP_ENV=prod</code> et{" "}
-            <code className="font-mono">APP_DEBUG=0</code> sont préremplis pour
-            éviter les logs debug en production.
+            {t("create.symfonyDetected")}
           </div>
         )}
 
         {envFiles.length > 0 && (
           <div className="rounded-md border border-border bg-muted/30 px-3 py-2">
             <p className="text-xs text-muted-foreground">
-              Fichiers env détectés dans le repo :
+              {t("create.detectedEnvFiles")}
             </p>
             <div className="mt-1 flex flex-wrap gap-1">
               {envFiles.map((path) => (
@@ -2830,7 +2883,7 @@ function EnvStep({
                 onValueChange={setSelectedEnvFile}
               >
                 <SelectTrigger className="min-w-0 flex-1 font-mono">
-                  <SelectValue placeholder="Choisir un fichier env" />
+                  <SelectValue placeholder={t("create.chooseEnvFile")} />
                 </SelectTrigger>
                 <SelectContent>
                   <SelectGroup>
@@ -2855,7 +2908,7 @@ function EnvStep({
                 }
                 onClick={() => void importSelectedEnvFile()}
               >
-                {isImportingEnv ? "Import…" : "Importer les vars"}
+                {isImportingEnv ? t("create.importing") : t("create.importVars")}
               </Button>
             </div>
             {envImportError && (
@@ -2868,36 +2921,28 @@ function EnvStep({
 
         {overriddenEnvVars.length > 0 && (
           <div className="rounded-md border border-border bg-muted/30 px-3 py-2 text-xs text-muted-foreground">
-            Le lien database va override ces variables importées au premier
-            déploiement :{" "}
-            <span className="font-mono">
-              {overriddenEnvVars.map((item) => item.key).join(", ")}
-            </span>
-            .
+            {t("create.dbOverrideImported", {
+              keys: overriddenEnvVars.map((item) => item.key).join(", "),
+            })}
           </div>
         )}
 
         {ignoredDatabaseImportKeys.length > 0 && (
           <div className="rounded-md border border-primary/20 bg-primary/5 px-3 py-2 text-xs text-muted-foreground">
-            Variables DB ignorées depuis le fichier env :{" "}
-            <span className="font-mono">
-              {ignoredDatabaseImportKeys.join(", ")}
-            </span>
-            . Le lien database les génère automatiquement.
+            {t("create.dbIgnoredFromEnv", {
+              keys: ignoredDatabaseImportKeys.join(", "),
+            })}
           </div>
         )}
 
         {databaseValuesError && (
           <div className="rounded-md border border-destructive/30 bg-destructive/5 px-3 py-2 text-xs text-destructive">
-            Impossible de lire les valeurs DB : {databaseValuesError}
+            {t("create.cannotReadDb", { message: databaseValuesError })}
           </div>
         )}
 
         <div className="rounded-md border border-border bg-muted/20 px-3 py-2 text-xs text-muted-foreground">
-          <span className="font-medium text-foreground">Phase</span> :{" "}
-          <code>Runtime</code> injecte la variable uniquement dans le conteneur
-          lancé ; <code>Build</code> uniquement pendant la construction de
-          l'image ; <code>Both</code> dans les deux phases.
+          {t("create.phaseHint")}
         </div>
       </section>
 
@@ -2907,7 +2952,7 @@ function EnvStep({
           onClick={addVar}
           className="flex min-h-28 w-full items-center justify-center rounded-lg border border-dashed border-panel-border bg-panel-inset px-4 text-sm text-muted-foreground transition-colors hover:bg-muted/40"
         >
-          Ajouter une variable
+          {t("create.addVariable")}
         </button>
       ) : (
         <div className="space-y-2">
@@ -2921,32 +2966,36 @@ function EnvStep({
                 className="grid gap-2 rounded-lg border border-primary/20 bg-primary/5 p-3 sm:grid-cols-[minmax(0,1fr)_minmax(0,1.4fr)_8rem_2.25rem]"
               >
                 <div className="space-y-1">
-                  <label className="text-xs font-medium">Key</label>
+                  <label className="text-xs font-medium">{t("create.key")}</label>
                   <Input value={key} readOnly className="font-mono" />
                   {importedConflict && (
                     <p className="text-[11px] text-muted-foreground">
-                      Override la valeur importée
+                      {t("create.overrideImported")}
                     </p>
                   )}
                 </div>
                 <div className="space-y-1">
-                  <label className="text-xs font-medium">Value</label>
+                  <label className="text-xs font-medium">
+                    {t("create.value")}
+                  </label>
                   <Input
                     value={
                       databaseValuesLoading
-                        ? "Chargement…"
+                        ? t("common:loading")
                         : (databaseValues?.[key] ??
                           (database.mode === "new"
-                            ? "Générée après création de la database"
-                            : "Générée depuis la database liée"))
+                            ? t("create.generatedAfterCreate")
+                            : t("create.generatedFromLinked")))
                     }
                     readOnly
                     className="font-mono"
                   />
                 </div>
                 <div className="space-y-1">
-                  <label className="text-xs font-medium">Phase</label>
-                  <Input value="Runtime" readOnly />
+                  <label className="text-xs font-medium">
+                    {t("create.phase")}
+                  </label>
+                  <Input value={t("create.runtime")} readOnly />
                 </div>
                 <div className="flex items-end">
                   <span className="rounded-md border border-primary/20 px-2 py-1 text-[11px] text-primary">
@@ -2974,7 +3023,7 @@ function EnvStep({
                     className="text-xs font-medium"
                     htmlFor={`${item.id}-key`}
                   >
-                    Key
+                    {t("create.key")}
                   </label>
                   <Input
                     id={`${item.id}-key`}
@@ -2991,12 +3040,14 @@ function EnvStep({
                   />
                   {(invalidKey || duplicate) && (
                     <p className="text-[11px] text-destructive">
-                      {duplicate ? "Key dupliquée" : "Format KEY_NAME requis"}
+                      {duplicate
+                        ? t("create.duplicateKey")
+                        : t("create.keyFormat")}
                     </p>
                   )}
                   {databaseOverridden && (
                     <p className="text-[11px] text-muted-foreground">
-                      Overridée par la database
+                      {t("create.overriddenByDb")}
                     </p>
                   )}
                 </div>
@@ -3005,7 +3056,7 @@ function EnvStep({
                     className="text-xs font-medium"
                     htmlFor={`${item.id}-value`}
                   >
-                    Value
+                    {t("create.value")}
                   </label>
                   <Input
                     id={`${item.id}-value`}
@@ -3022,7 +3073,7 @@ function EnvStep({
                     className="text-xs font-medium"
                     htmlFor={`${item.id}-phase`}
                   >
-                    Phase
+                    {t("create.phase")}
                   </label>
                   <Select
                     value={item.phase}
@@ -3037,9 +3088,11 @@ function EnvStep({
                     </SelectTrigger>
                     <SelectContent>
                       <SelectGroup>
-                        <SelectItem value="runtime">Runtime</SelectItem>
-                        <SelectItem value="build">Build</SelectItem>
-                        <SelectItem value="both">Both</SelectItem>
+                        <SelectItem value="runtime">
+                          {t("create.runtime")}
+                        </SelectItem>
+                        <SelectItem value="build">{t("create.build")}</SelectItem>
+                        <SelectItem value="both">{t("create.both")}</SelectItem>
                       </SelectGroup>
                     </SelectContent>
                   </Select>
@@ -3049,7 +3102,9 @@ function EnvStep({
                     type="button"
                     onClick={() => removeVar(item.id)}
                     className="flex size-9 items-center justify-center rounded-md text-muted-foreground transition-colors hover:bg-muted hover:text-destructive"
-                    aria-label={`Supprimer ${item.key || "la variable"}`}
+                    aria-label={t("create.deleteVar", {
+                      name: item.key || t("create.deleteVarFallback"),
+                    })}
                   >
                     <RiDeleteBinLine className="size-4" />
                   </button>
@@ -3076,6 +3131,7 @@ function BuildMethodCard({
   detected: boolean
   onSelect: () => void
 }): React.JSX.Element {
+  const { t } = useTranslation("apps")
   return (
     <button
       type="button"
@@ -3093,7 +3149,7 @@ function BuildMethodCard({
         <span className="text-sm font-medium">{label}</span>
         {detected && (
           <span className="rounded-full bg-primary/10 px-1.5 py-0.5 font-mono text-[9px] font-medium tracking-wide text-primary uppercase">
-            Détecté
+            {t("create.detected")}
           </span>
         )}
       </div>
