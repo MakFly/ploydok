@@ -69,7 +69,8 @@ export function validateInvitationPasswords(
   password: string,
   confirmation: string
 ): string | null {
-  if (password !== confirmation) return "Passwords do not match"
+  if (password !== confirmation)
+    return i18n.t("auth:invitation.passwordsMismatch")
   return null
 }
 

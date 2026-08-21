@@ -1,6 +1,7 @@
 // SPDX-License-Identifier: AGPL-3.0-only
 import * as React from "react"
 import { Badge } from "@workspace/ui/components/badge"
+import { useTranslation } from "react-i18next"
 import type { ServiceStatus } from "../../lib/services"
 
 const STATUS_VARIANTS: Record<
@@ -22,6 +23,8 @@ interface ServiceStatusBadgeProps {
 export function ServiceStatusBadge({
   status,
 }: ServiceStatusBadgeProps): React.JSX.Element {
-  const label = status ?? "unknown"
-  return <Badge variant={STATUS_VARIANTS[label] ?? "outline"}>{label}</Badge>
+  const { t } = useTranslation("services")
+  const key = status ?? "unknown"
+  const label = t(`statuses.${key}`, { defaultValue: key })
+  return <Badge variant={STATUS_VARIANTS[key] ?? "outline"}>{label}</Badge>
 }

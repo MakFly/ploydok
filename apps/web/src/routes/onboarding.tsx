@@ -47,6 +47,8 @@ import {
 import { apiBaseUrl } from "../lib/api/base"
 import type { GitProviderStatus } from "../lib/git-providers"
 import type { OnboardingDeploymentSource } from "../lib/onboarding"
+import { useTranslation } from "react-i18next"
+import i18n from "../lib/i18n"
 import type { Me } from "@ploydok/shared"
 
 /** Every external round-trip started here is told to come back to this path. */
@@ -105,7 +107,8 @@ function OnboardingPage(): React.JSX.Element {
     React.useCallback(async (): Promise<GitProviderStatus> => {
       const result = await statusQuery.refetch()
       if (result.error) throw result.error
-      if (!result.data) throw new Error("Provider status is unavailable")
+      if (!result.data)
+        throw new Error(i18n.t("onboarding:provider.statusUnavailable"))
       return result.data
     }, [statusQuery])
 
@@ -157,6 +160,7 @@ function ProviderStep({
   onUseImage: () => void
   onLogout: () => void
 }): React.JSX.Element {
+  const { t } = useTranslation("onboarding")
   // Derived from the server on first render: when exactly one provider is
   // already configured, the choice has effectively been made for the user.
   const preselected: ProviderKey | null = providers.github.configured
@@ -185,49 +189,48 @@ function ProviderStep({
             </div>
           ) : null}
           <StepHeading
-            title={`Welcome, ${me.display_name}.`}
-            description="Connect a Git provider to import a repository, or continue with an existing OCI image. You can configure another source later."
+            title={t("provider.welcome", { name: me.display_name })}
+            description={t("provider.welcomeHint")}
           />
 
           <fieldset>
             <legend className="text-sm font-medium">
-              Choose a deployment source
+              {t("provider.chooseSource")}
             </legend>
             <p className="mt-1 text-sm text-muted-foreground">
-              Everything happens here. You stay in this wizard through the whole
-              setup.
+              {t("provider.chooseSourceHint")}
             </p>
             <div className="mt-3 flex flex-col gap-2">
               <ProviderChoice
-                name="GitHub"
-                maturity="Beta"
-                description="Install the Ploydok GitHub App on an account or organization."
+                name={t("provider.github")}
+                maturity={t("provider.beta")}
+                description={t("provider.githubDesc")}
                 icon={RiGithubFill}
                 configured={providers.github.configured}
                 onSelect={() => setSelected("github")}
               />
               <ProviderChoice
-                name="GitLab"
-                maturity="Beta"
-                description="Authorize your GitLab account through the instance OAuth app."
+                name={t("provider.gitlab")}
+                maturity={t("provider.beta")}
+                description={t("provider.gitlabDesc")}
                 icon={RiGitlabFill}
                 iconClassName="text-[#fc6d26]"
                 configured={providers.gitlab.configured}
                 onSelect={() => setSelected("gitlab")}
               />
               <ProviderChoice
-                name="Docker / OCI image"
-                maturity="Beta"
-                description="Deploy an existing public or private container image without connecting Git."
+                name={t("provider.imageName")}
+                maturity={t("provider.beta")}
+                description={t("provider.imageDesc")}
                 icon={RiBox3Line}
-                status="No Git provider required"
+                status={t("provider.noGitRequired")}
                 onSelect={onUseImage}
               />
             </div>
           </fieldset>
         </div>
 
-        <StepFooter hint="Pick one source to continue. Git providers stay available in settings.">
+        <StepFooter hint={t("provider.pickHint")}>
           <EncryptionNote />
         </StepFooter>
       </OnboardingStepShell>
@@ -256,10 +259,10 @@ function ProviderStep({
           <StepHeading
             title={
               selected === "github"
-                ? "Set up the GitHub App"
-                : "Set up the GitLab OAuth app"
+                ? t("provider.setupGithub")
+                : t("provider.setupGitlab")
             }
-            description="This is an instance-wide setup, done once. Everyone on this Ploydok will connect through it."
+            description={t("provider.setupHint")}
           />
           {me.is_instance_admin ? (
             selected === "github" ? (
@@ -278,8 +281,8 @@ function ProviderStep({
         <StepFooter
           hint={
             me.is_instance_admin
-              ? "Once saved, you will come straight back here to connect your account."
-              : "This screen updates as soon as an administrator finishes the setup."
+              ? t("provider.adminHint")
+              : t("provider.waitingHint")
           }
         >
           <EncryptionNote />
@@ -302,13 +305,13 @@ function ProviderStep({
       }
       const refreshed = await onRefreshStatus()
       if (!refreshed[selected].connected) {
-        throw new Error("The provider is configured but not connected yet")
+        throw new Error(t("provider.configuredNotConnected"))
       }
     } catch (error) {
       setCheckError(
         error instanceof Error
           ? error.message
-          : "Unable to verify the provider connection"
+          : t("provider.verifyFailed")
       )
     } finally {
       setChecking(false)
@@ -333,13 +336,13 @@ function ProviderStep({
         <StepHeading
           title={
             selected === "github"
-              ? "Connect your GitHub account"
-              : "Connect your GitLab account"
+              ? t("provider.connectGithub")
+              : t("provider.connectGitlab")
           }
           description={
             selected === "github"
-              ? "Install the Ploydok GitHub App on the account or organization holding the repositories you want to deploy."
-              : "Authorize Ploydok on your GitLab account so it can list your projects and read your repositories."
+              ? t("provider.connectGithubHint")
+              : t("provider.connectGitlabHint")
           }
         />
 
@@ -349,20 +352,20 @@ function ProviderStep({
           <Button asChild size="sm" className="w-fit gap-2" disabled={!href}>
             <a href={href ?? "#"}>
               {selected === "github"
-                ? "Install on GitHub"
-                : "Authorize on GitLab"}
+                ? t("provider.installGithub")
+                : t("provider.authorizeGitlab")}
               <RiArrowRightLine className="size-4" />
             </a>
           </Button>
           <p className="text-xs leading-5 text-muted-foreground">
-            You will be sent to{" "}
-            {selected === "github" ? "github.com" : "gitlab.com"} and returned
-            to this page automatically.
+            {t("provider.redirectHint", {
+              host: selected === "github" ? "github.com" : "gitlab.com",
+            })}
           </p>
         </div>
       </div>
 
-      <StepFooter hint="Already installed? We check the link and reopen GitHub only if confirmation is still needed.">
+      <StepFooter hint={t("provider.alreadyInstalled")}>
         {checkError ? (
           <p className="text-sm text-destructive" role="alert">
             {checkError}
@@ -377,7 +380,9 @@ function ProviderStep({
           loading={checking || refreshing}
         >
           {!checking && !refreshing && <RiRefreshLine className="size-3.5" />}
-          {checking || refreshing ? "Checking…" : "Check again"}
+          {checking || refreshing
+            ? t("provider.checking")
+            : t("provider.checkAgain")}
         </Button>
         <EncryptionNote />
       </StepFooter>
@@ -433,15 +438,12 @@ function WaitingForAdmin({
   onRefresh: () => void | Promise<GitProviderStatus>
   refreshing: boolean
 }): React.JSX.Element {
+  const { t } = useTranslation("onboarding")
   return (
     <div className="flex flex-col items-start gap-3 rounded-2xl bg-panel p-5">
-      <p className="text-sm">
-        An instance administrator has to register this provider before you can
-        connect your account.
-      </p>
+      <p className="text-sm">{t("provider.waitingAdmin")}</p>
       <p className="text-xs leading-5 text-muted-foreground">
-        Nothing is lost. Come back to this page once they are done, or check
-        again now.
+        {t("provider.waitingAdminHint")}
       </p>
       <Button
         type="button"
@@ -452,7 +454,7 @@ function WaitingForAdmin({
         loading={refreshing}
       >
         {!refreshing && <RiRefreshLine className="size-3.5" />}
-        {refreshing ? "Checking…" : "Check again"}
+        {refreshing ? t("provider.checking") : t("provider.checkAgain")}
       </Button>
     </div>
   )
@@ -469,7 +471,7 @@ function ProviderChoice({
   onSelect,
 }: {
   name: string
-  maturity: "Beta"
+  maturity: string
   description: string
   icon: React.ComponentType<{ className?: string }>
   iconClassName?: string
@@ -477,6 +479,7 @@ function ProviderChoice({
   status?: string
   onSelect: () => void
 }): React.JSX.Element {
+  const { t } = useTranslation("onboarding")
   return (
     <ChoiceCard selected={false} className="items-start gap-3 p-0">
       <button
@@ -503,7 +506,9 @@ function ProviderChoice({
           </span>
           <span className="mt-1.5 block text-xs text-muted-foreground">
             {status ??
-              (configured ? "Ready to connect" : "Needs instance setup first")}
+              (configured
+                ? t("provider.readyToConnect")
+                : t("provider.needsSetup"))}
           </span>
         </span>
         <RiArrowRightLine
@@ -540,6 +545,7 @@ function ProjectStep({
   source: OnboardingDeploymentSource
   onLogout: () => void
 }): React.JSX.Element {
+  const { t } = useTranslation("onboarding")
   const router = useRouter()
   const organization = me.default_organization
   const rename = useRenameOrganization()
@@ -596,13 +602,13 @@ function ProjectStep({
       >
         <div className="flex flex-col gap-8">
           <StepHeading
-            title="Name your workspace."
-            description="A workspace groups your applications, databases and domains. Ploydok already created one for you, so this only renames it."
+            title={t("project.title")}
+            description={t("project.subtitle")}
           />
 
           <div className="flex flex-col gap-2">
             <label className="text-sm font-medium" htmlFor="workspace-name">
-              Workspace name
+              {t("project.name")}
             </label>
             <Input
               id="workspace-name"
@@ -612,7 +618,7 @@ function ProjectStep({
               autoFocus
             />
             <p className="text-xs text-muted-foreground">
-              URL:{" "}
+              {t("project.url")}{" "}
               <code className="font-mono">
                 /orgs/
                 {unchanged
@@ -630,12 +636,14 @@ function ProjectStep({
           <p className="flex items-center gap-2 text-xs text-muted-foreground">
             <RiCheckLine aria-hidden className="size-3.5" />
             {source === "image"
-              ? "OCI image deployment selected."
-              : `${source === "gitlab" ? "GitLab" : "GitHub"} connected.`}
+              ? t("project.imageSelected")
+              : source === "gitlab"
+                ? t("project.gitlabConnected")
+                : t("project.githubConnected")}
           </p>
         </div>
 
-        <StepFooter hint="You can rename it later, and create more workspaces from the sidebar.">
+        <StepFooter hint={t("project.renameHint")}>
           <div className="flex flex-wrap items-center gap-2">
             <Button
               type="submit"
@@ -643,7 +651,7 @@ function ProjectStep({
               loading={submit.pending}
               disabled={!canSubmit}
             >
-              {submit.pending ? "Saving…" : "Continue"}
+              {submit.pending ? t("project.saving") : t("project.continue")}
               {!submit.pending && <RiArrowRightLine className="size-4" />}
             </Button>
             <Button
@@ -654,7 +662,7 @@ function ProjectStep({
               loading={skip.pending}
               disabled={submit.pending}
             >
-              Skip
+              {t("project.skip")}
             </Button>
           </div>
         </StepFooter>
@@ -664,10 +672,11 @@ function ProjectStep({
 }
 
 function EncryptionNote(): React.JSX.Element {
+  const { t } = useTranslation("onboarding")
   return (
     <p className="flex items-center gap-2 text-xs text-muted-foreground">
       <RiLock2Line aria-hidden className="size-3.5" />
-      Provider credentials are encrypted on this instance.
+      {t("provider.encrypted")}
     </p>
   )
 }

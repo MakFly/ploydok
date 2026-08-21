@@ -16,6 +16,7 @@ import {
   organizationPath,
   useCurrentOrganization,
 } from "../../../../../lib/organizations"
+import { useTranslation } from "react-i18next"
 import type { ServiceSummary } from "../../../../../lib/services"
 
 export const Route = createFileRoute("/_authed/orgs/$orgSlug/services/")({
@@ -23,18 +24,19 @@ export const Route = createFileRoute("/_authed/orgs/$orgSlug/services/")({
 })
 
 function ServicesPage(): React.JSX.Element {
+  const { t } = useTranslation("services")
   const organization = useCurrentOrganization()
   const { data: services = [], isLoading, error } = useServices()
 
   return (
     <ShellPage
-      title="Services"
-      description="Services installés depuis la Marketplace — containers Docker managés sur ton host."
-      eyebrow={organization?.name ?? "Workspace"}
+      title={t("title")}
+      description={t("description")}
+      eyebrow={organization?.name ?? t("workspace:eyebrow")}
     >
       <ShellPanel
-        title="Services installés"
-        description="Tous les services actifs de ton workspace."
+        title={t("installed")}
+        description={t("installedHint")}
       >
         {isLoading ? (
           <ServicesGridSkeleton />
@@ -43,7 +45,7 @@ function ServicesPage(): React.JSX.Element {
             role="alert"
             className="rounded-md border border-destructive/30 bg-destructive/10 px-4 py-3 text-sm text-destructive"
           >
-            Impossible de charger les services.
+            {t("listFailed")}
           </p>
         ) : services.length === 0 ? (
           <EmptyState orgSlug={organization?.slug ?? ""} />
@@ -64,13 +66,17 @@ function ServiceCard({
 }: {
   service: ServiceSummary
 }): React.JSX.Element {
+  const { t, i18n } = useTranslation("services")
   const { orgSlug } = Route.useParams()
   const detailPath = organizationPath(orgSlug, `services/${service.id}`)
-  const installedAt = new Date(service.created_at).toLocaleDateString("fr-FR", {
-    day: "2-digit",
-    month: "short",
-    year: "numeric",
-  })
+  const installedAt = new Date(service.created_at).toLocaleDateString(
+    i18n.language,
+    {
+      day: "2-digit",
+      month: "short",
+      year: "numeric",
+    }
+  )
 
   return (
     <Link
@@ -99,7 +105,7 @@ function ServiceCard({
 
       <div className="mt-4 flex items-center justify-between border-t border-border pt-4">
         <span className="text-xs text-muted-foreground">
-          Installé le {installedAt}
+          {t("installedOn", { date: installedAt })}
         </span>
         <RiArrowRightUpLine className="size-4 text-muted-foreground transition-transform group-hover:translate-x-0.5 group-hover:-translate-y-0.5" />
       </div>
@@ -108,23 +114,24 @@ function ServiceCard({
 }
 
 function EmptyState({ orgSlug }: { orgSlug: string }): React.JSX.Element {
+  const { t } = useTranslation("services")
   const marketplacePath = organizationPath(orgSlug, "marketplace")
   return (
     <div className="flex flex-col items-center justify-center gap-3 rounded-lg border border-dashed border-panel-border bg-panel-inset px-6 py-12 text-center">
       <RiShapesLine className="size-6 text-muted-foreground" />
       <div>
         <p className="text-sm font-semibold text-foreground">
-          Aucun service installé
+          {t("empty")}
         </p>
         <p className="mt-1 text-sm text-muted-foreground">
-          Va sur la{" "}
+          {t("emptyHint")}{" "}
           <Link
             to={marketplacePath as never}
             className="text-primary underline underline-offset-2"
           >
-            Marketplace
-          </Link>{" "}
-          pour en installer un.
+            {t("marketplaceLink")}
+          </Link>
+          .
         </p>
       </div>
     </div>

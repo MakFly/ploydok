@@ -7,6 +7,7 @@ import {
 } from "@tanstack/react-query";
 import { toast } from "sonner";
 import { apiFetch, criticalRetryDelay, shouldRetryCriticalQuery } from "./api";
+import i18n from "./i18n";
 import type { ApiError} from "./api";
 import type {UseQueryResult} from "@tanstack/react-query";
 import type { Me } from "@ploydok/shared";
@@ -47,7 +48,7 @@ export function useLogin() {
     mutationFn: (payload) =>
       apiFetch<Me>("/auth/login/verify", { method: "POST", body: payload }),
     onSuccess: (data) => {
-      toast.success("Signed in");
+      toast.success(i18n.t("auth:login.signedIn"));
       qc.setQueryData(["me"], data);
     },
     onError: (error) => {
@@ -72,7 +73,7 @@ export function useRegister() {
     mutationFn: (payload) =>
       apiFetch<Me>("/auth/register/verify", { method: "POST", body: payload }),
     onSuccess: (data) => {
-      toast.success("Account created");
+      toast.success(i18n.t("auth:accountCreated"));
       qc.setQueryData(["me"], data);
     },
     onError: (error) => {
@@ -90,7 +91,7 @@ export function useLogout() {
   return useMutation<void, ApiError, void>({
     mutationFn: () => apiFetch<void>("/auth/logout", { method: "POST" }),
     onSuccess: () => {
-      toast.success("Signed out");
+      toast.success(i18n.t("auth:signedOut"));
       qc.setQueryData(["me"], null);
       qc.invalidateQueries({ queryKey: ["me"] });
     },

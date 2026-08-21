@@ -4,6 +4,7 @@ import { startAuthentication } from "@simplewebauthn/browser"
 import { Button } from "@workspace/ui/components/button"
 import { apiFetch } from "../../lib/api"
 import { useLogin } from "../../lib/auth"
+import { useTranslation } from "react-i18next"
 import { usePendingAction } from "../../lib/hooks/use-pending-action"
 
 interface LoginOptionsResponse {
@@ -23,6 +24,7 @@ export function PasskeyButton({
   onSuccess,
   onError,
 }: PasskeyButtonProps): React.JSX.Element {
+  const { t } = useTranslation("auth")
   const login = useLogin()
   const [error, setError] = React.useState<string | null>(null)
 
@@ -46,7 +48,7 @@ export function PasskeyButton({
   const handleClick = async (): Promise<void> => {
     const normalizedEmail = email.trim().toLowerCase()
     if (!normalizedEmail) {
-      setError("Enter your email first")
+      setError(t("passkey.enterEmail"))
       return
     }
 
@@ -54,7 +56,7 @@ export function PasskeyButton({
     try {
       await run(normalizedEmail)
     } catch (err) {
-      const msg = err instanceof Error ? err.message : "Authentication failed"
+      const msg = err instanceof Error ? err.message : t("login.authFailed")
       setError(msg)
       onError?.(err instanceof Error ? err : new Error(msg))
     }
@@ -69,7 +71,7 @@ export function PasskeyButton({
         size="lg"
       >
         {loading ? (
-          "Authenticating…"
+          t("passkey.authenticating")
         ) : (
           <span className="flex items-center gap-2">
             <svg
@@ -87,7 +89,7 @@ export function PasskeyButton({
               <path d="M2 18v3c0 .6.4 1 1 1h4v-3h3v-3h2l1.4-1.4a6.5 6.5 0 1 0-4-4Z" />
               <circle cx="16.5" cy="7.5" r=".5" fill="currentColor" />
             </svg>
-            Sign in with passkey
+            {t("passkey.signIn")}
           </span>
         )}
       </Button>
