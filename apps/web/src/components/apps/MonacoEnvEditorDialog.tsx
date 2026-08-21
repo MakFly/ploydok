@@ -1,5 +1,6 @@
 // SPDX-License-Identifier: AGPL-3.0-only
 import * as React from "react"
+import { useTranslation } from "react-i18next"
 import {
   Dialog,
   DialogContent,
@@ -47,6 +48,7 @@ export function MonacoEnvEditorDialog({
   initialValue,
   onSave,
 }: MonacoEnvEditorDialogProps): React.JSX.Element {
+  const { t } = useTranslation(["apps", "common"])
   const [draft, setDraft] = React.useState(initialValue)
 
   // Reset draft whenever dialog opens with a new value.
@@ -84,7 +86,7 @@ export function MonacoEnvEditorDialog({
       >
         <DialogHeader className="border-b px-4 py-3">
           <DialogTitle className="font-mono text-sm">
-            Edit{" "}
+            {t("common:edit")}{" "}
             <span className="rounded bg-muted px-1.5 py-0.5 text-xs">{envKey}</span>
           </DialogTitle>
         </DialogHeader>
@@ -98,7 +100,7 @@ export function MonacoEnvEditorDialog({
                   className="h-full w-full resize-none bg-[#1e1e1e] p-3 font-mono text-xs text-[#d4d4d4] outline-none"
                   value={draft}
                   onChange={(e) => setDraft(e.target.value)}
-                  aria-label="Edit value (loading editor…)"
+                  aria-label={t("env.loadingEditor")}
                 />
               }
             >
@@ -144,16 +146,16 @@ export function MonacoEnvEditorDialog({
             </kbd>
             {"+"}
             <kbd className="rounded border px-1 py-0.5 font-mono text-[10px]">S</kbd>
-            {" to save · "}
+            {t("env.saveShortcut")}
             <kbd className="rounded border px-1 py-0.5 font-mono text-[10px]">Esc</kbd>
-            {" to cancel"}
+            {t("env.cancelShortcut")}
           </span>
           <div className="flex gap-2">
             <Button variant="outline" size="sm" onClick={handleCancel}>
-              Cancel
+              {t("common:cancel")}
             </Button>
             <Button size="sm" onClick={handleSave}>
-              Save
+              {t("common:save")}
             </Button>
           </div>
         </DialogFooter>

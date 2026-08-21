@@ -1,5 +1,6 @@
 // SPDX-License-Identifier: AGPL-3.0-only
 import * as React from "react"
+import { useTranslation } from "react-i18next"
 import { useEventsSubscription } from "../../lib/events-provider"
 import { selectAppSnapshot } from "../../lib/app-runtime"
 import { getContainerHealthSnapshot, useMonitoring } from "../../lib/monitoring"
@@ -30,11 +31,12 @@ function pushToHistory(history: Array<number>, value: number): Array<number> {
 // ---------------------------------------------------------------------------
 
 function MonitoringSkeleton(): React.JSX.Element {
+  const { t } = useTranslation("apps")
   return (
     <div
       className="flex flex-col gap-3 rounded-2xl bg-panel p-4"
       aria-busy="true"
-      aria-label="Loading monitoring"
+      aria-label={t("monitoring.loading")}
     >
       <div className="flex items-start justify-between gap-2">
         <div className="flex min-w-0 items-center gap-2">
@@ -68,15 +70,18 @@ function MonitoringSkeleton(): React.JSX.Element {
 // ---------------------------------------------------------------------------
 
 function NotRunning(): React.JSX.Element {
+  const { t } = useTranslation("apps")
   return (
     <div className="flex flex-col gap-2 rounded-2xl bg-panel p-5">
-      <h3 className="text-sm font-medium text-foreground">Resource monitoring</h3>
+      <h3 className="text-sm font-medium text-foreground">
+        {t("monitoring.title")}
+      </h3>
       <div className="flex items-center gap-2 py-4">
         <span className="inline-block size-2 rounded-full bg-muted-foreground/40" />
-        <p className="text-sm text-muted-foreground">Not running</p>
+        <p className="text-sm text-muted-foreground">{t("monitoring.notRunning")}</p>
       </div>
       <p className="text-xs text-muted-foreground">
-        Start or deploy the app to see live CPU and memory usage.
+        {t("monitoring.startToSee")}
       </p>
     </div>
   )
@@ -87,13 +92,14 @@ function NotRunning(): React.JSX.Element {
 // ---------------------------------------------------------------------------
 
 function RestartingOverlay(): React.JSX.Element {
+  const { t } = useTranslation("apps")
   return (
     <div className="flex items-center gap-2 rounded-md border border-border bg-muted/60 px-3 py-2 text-sm text-foreground">
       <span
         className="inline-block size-2 animate-pulse rounded-full bg-primary"
         aria-hidden="true"
       />
-      Restarting…
+      {t("monitoring.restarting")}
     </div>
   )
 }
@@ -117,6 +123,7 @@ export function AppMonitoringCard({
   appId,
   appStatus,
 }: AppMonitoringCardProps): React.JSX.Element {
+  const { t } = useTranslation("apps")
   const { data: monitoring, isLoading: monitoringLoading } = useMonitoring()
   const [snapshot, setSnapshot] = React.useState<ContainerSnapshot | null>(null)
   const [cpuHistory, setCpuHistory] = React.useState<Array<number>>([])
@@ -179,7 +186,7 @@ export function AppMonitoringCard({
       return (
         <div className="flex flex-col gap-2 rounded-2xl bg-panel p-5">
           <h3 className="text-sm font-medium text-foreground">
-            Resource monitoring
+            {t("monitoring.title")}
           </h3>
           <RestartingOverlay />
         </div>

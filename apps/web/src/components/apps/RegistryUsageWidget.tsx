@@ -13,6 +13,7 @@ import {
 } from "@workspace/ui/components/alert-dialog"
 import { Button } from "@workspace/ui/components/button"
 import { toast } from "sonner"
+import { useTranslation } from "react-i18next"
 import { apiFetch } from "../../lib/api"
 import { usePruneRegistry } from "../../lib/apps-mutations"
 
@@ -66,6 +67,7 @@ interface Props {
 }
 
 export function RegistryUsageWidget({ appId }: Props): React.JSX.Element {
+  const { t } = useTranslation(["apps", "common"])
   const { data, isLoading, error } = useRegistryUsage(appId)
   const prune = usePruneRegistry(appId)
   const [confirmOpen, setConfirmOpen] = React.useState(false)
@@ -75,19 +77,22 @@ export function RegistryUsageWidget({ appId }: Props): React.JSX.Element {
     try {
       const result = await prune.mutateAsync()
       toast.success(
-        `Pruned ${result.tagsDeleted} image(s) across ${result.reposScanned} repo(s).`,
+        t("registry.pruned", {
+          tags: result.tagsDeleted,
+          repos: result.reposScanned,
+        }),
       )
     } catch (err) {
-      toast.error(err instanceof Error ? err.message : "GC failed")
+      toast.error(err instanceof Error ? err.message : t("registry.gcFailed"))
     }
   }
 
   return (
     <div className="flex h-full flex-col gap-3 rounded-2xl bg-panel p-4">
-      <h3 className="text-sm font-medium text-foreground">Registry storage</h3>
+      <h3 className="text-sm font-medium text-foreground">{t("registry.storage")}</h3>
 
       {isLoading && (
-        <div className="space-y-2" aria-busy="true" aria-label="Loading registry storage">
+        <div className="space-y-2" aria-busy="true" aria-label={t("registry.loading")}>
           <div className="h-5 w-24 rounded skeleton-surface" />
           <div className="h-2 w-full rounded skeleton-surface" />
         </div>
@@ -106,7 +111,7 @@ export function RegistryUsageWidget({ appId }: Props): React.JSX.Element {
               {data.tags}
             </span>
             <span className="text-xs text-muted-foreground">
-              image{data.tags !== 1 ? "s" : ""}
+              {t("registry.images", { count: data.tags })}
             </span>
             {data.bytes > 0 && (
               <span className="ml-auto font-mono text-xs text-muted-foreground">
@@ -117,7 +122,7 @@ export function RegistryUsageWidget({ appId }: Props): React.JSX.Element {
 
           <div className="space-y-1">
             <div className="flex justify-between text-xs text-muted-foreground">
-              <span>Host disk</span>
+              <span>{t("registry.hostDisk")}</span>
               <span className="tabular-nums">{data.diskPct}%</span>
             </div>
             <div
@@ -144,7 +149,7 @@ export function RegistryUsageWidget({ appId }: Props): React.JSX.Element {
           loading={prune.isPending || isLoading}
           onClick={() => setConfirmOpen(true)}
         >
-          {prune.isPending ? "Pruning…" : "Prune now"}
+          {prune.isPending ? t("registry.pruning") : t("registry.pruneNow")}
         </Button>
       </div>
 
@@ -156,18 +161,17 @@ export function RegistryUsageWidget({ appId }: Props): React.JSX.Element {
       >
         <AlertDialogContent>
           <AlertDialogHeader>
-            <AlertDialogTitle>Prune registry images?</AlertDialogTitle>
+            <AlertDialogTitle>{t("registry.pruneConfirm")}</AlertDialogTitle>
             <AlertDialogDescription>
-              This will delete all but the 3 most recent images for this app.
-              Running containers are not affected.
+              {t("registry.pruneHint")}
             </AlertDialogDescription>
           </AlertDialogHeader>
           <AlertDialogFooter>
             <AlertDialogCancel onClick={() => setConfirmOpen(false)}>
-              Cancel
+              {t("common:cancel")}
             </AlertDialogCancel>
             <AlertDialogAction onClick={() => void handlePrune()}>
-              Prune
+              {t("registry.prune")}
             </AlertDialogAction>
           </AlertDialogFooter>
         </AlertDialogContent>

@@ -1,5 +1,6 @@
 // SPDX-License-Identifier: AGPL-3.0-only
 import * as React from "react"
+import { useTranslation } from "react-i18next"
 import {
   Dialog,
   DialogContent,
@@ -8,6 +9,7 @@ import {
   DialogTitle,
 } from "../i18n/dialog"
 import { Button } from "@workspace/ui/components/button"
+import i18n from "../../lib/i18n"
 import { looksSecret, parseDotenv } from "../../lib/env-parser"
 import type { ParseEnvError, ParsedEnvEntry } from "../../lib/env-parser"
 import type { EnvVarPatch } from "../../lib/apps-env"
@@ -35,6 +37,7 @@ export function EnvImportDialog({
   existingKeys,
   onConfirm,
 }: EnvImportDialogProps): React.JSX.Element {
+  const { t } = useTranslation(["apps", "common"])
   const [strategy, setStrategy] = React.useState<ImportStrategy>("merge")
   const [overrides, setOverrides] = React.useState<Map<string, { value: string; secret: boolean; skip: boolean }>>(
     new Map(),
@@ -101,7 +104,7 @@ export function EnvImportDialog({
       <DialogContent className="flex max-h-[85vh] max-w-3xl flex-col gap-0 p-0 sm:max-w-3xl">
         <DialogHeader className="border-b px-5 py-4">
           <DialogTitle className="flex items-center gap-2 text-sm">
-            Import environment variables
+            {t("env.importTitle")}
             {filename && (
               <span className="rounded bg-muted px-1.5 py-0.5 font-mono text-xs text-muted-foreground">
                 {filename}
@@ -109,36 +112,36 @@ export function EnvImportDialog({
             )}
           </DialogTitle>
           <div className="mt-2 flex flex-wrap items-center gap-3 text-xs text-muted-foreground">
-            <Stat label="Total" value={parsed.entries.length} />
-            <Stat label="New" value={additions.length} tone="success" />
-            <Stat label="Conflicts" value={conflicts.length} tone={conflicts.length > 0 ? "warning" : "muted"} />
+            <Stat label={t("env.total")} value={parsed.entries.length} />
+            <Stat label={t("env.new")} value={additions.length} tone="success" />
+            <Stat label={t("env.conflicts")} value={conflicts.length} tone={conflicts.length > 0 ? "warning" : "muted"} />
             {parsed.errors.length > 0 && (
-              <Stat label="Errors" value={parsed.errors.length} tone="destructive" />
+              <Stat label={t("env.errors")} value={parsed.errors.length} tone="destructive" />
             )}
           </div>
         </DialogHeader>
 
         {conflicts.length > 0 && (
           <div className="border-b bg-muted/30 px-5 py-3">
-            <p className="mb-2 text-xs font-medium">On conflict</p>
+            <p className="mb-2 text-xs font-medium">{t("env.onConflict")}</p>
             <div className="flex flex-wrap gap-2">
               <StrategyChip
                 active={strategy === "merge"}
                 onClick={() => setStrategy("merge")}
-                label="Overwrite"
-                hint="Replace existing values with imported ones"
+                label={t("env.overwrite")}
+                hint={t("env.overwriteHint")}
               />
               <StrategyChip
                 active={strategy === "append"}
                 onClick={() => setStrategy("append")}
-                label="Keep existing"
-                hint="Only add new keys, skip conflicts"
+                label={t("env.keepExisting")}
+                hint={t("env.keepHint")}
               />
               <StrategyChip
                 active={strategy === "replace"}
                 onClick={() => setStrategy("replace")}
-                label="Replace all"
-                hint="Delete current variables, keep only imported ones"
+                label={t("env.replaceAll")}
+                hint={t("env.replaceHint")}
               />
             </div>
           </div>
@@ -147,17 +150,17 @@ export function EnvImportDialog({
         <div className="flex-1 overflow-y-auto">
           {!hasEntries && parsed.errors.length === 0 && (
             <div className="px-5 py-10 text-center text-sm text-muted-foreground">
-              No variables found in the file.
+              {t("env.noVars")}
             </div>
           )}
 
           {parsed.errors.length > 0 && (
             <div className="border-b px-5 py-3">
-              <p className="mb-1.5 text-xs font-medium text-destructive">Parse errors</p>
+              <p className="mb-1.5 text-xs font-medium text-destructive">{t("env.parseErrors")}</p>
               <ul className="space-y-1 text-xs">
                 {parsed.errors.map((err, i) => (
                   <li key={i} className="font-mono text-destructive/90">
-                    <span className="text-muted-foreground">line {err.line}:</span> {err.message}
+                    <span className="text-muted-foreground">{t("env.line", { line: err.line })}</span> {err.message}
                   </li>
                 ))}
               </ul>
@@ -184,14 +187,14 @@ export function EnvImportDialog({
                       checked={!isSkipped}
                       onChange={() => toggleSkip(entry.key)}
                       className="size-3.5 cursor-pointer accent-primary"
-                      aria-label={`Include ${entry.key}`}
+                      aria-label={t("env.includeKey", { key: entry.key })}
                     />
                     <div className="min-w-0">
                       <div className="flex items-center gap-2">
                         <span className="truncate font-mono font-medium">{entry.key}</span>
                         {isConflict && (
                           <span className="rounded-full bg-amber-100 px-1.5 py-px text-[10px] font-medium text-amber-700 dark:bg-amber-900/30 dark:text-amber-400">
-                            conflict
+                            {t("env.conflict")}
                           </span>
                         )}
                       </div>
@@ -202,7 +205,7 @@ export function EnvImportDialog({
                     <button
                       type="button"
                       onClick={() => toggleSecret(entry.key)}
-                      title={isSecret ? "Mark as plain" : "Mark as secret"}
+                      title={isSecret ? t("env.markPlain") : t("env.markSecret")}
                       className={[
                         "rounded px-2 py-0.5 text-[10px] font-medium transition-colors",
                         isSecret
@@ -210,7 +213,7 @@ export function EnvImportDialog({
                           : "bg-muted text-muted-foreground hover:bg-muted/70",
                       ].join(" ")}
                     >
-                      {isSecret ? "secret" : "plain"}
+                      {isSecret ? t("env.secret") : t("env.plain")}
                     </button>
                   </li>
                 )
@@ -221,14 +224,19 @@ export function EnvImportDialog({
 
         <DialogFooter className="items-center justify-between rounded-b-xl border-t bg-muted/40 px-5 py-3">
           <span className="text-xs text-muted-foreground">
-            {selectedCount} of {parsed.entries.length} will be imported
+            {t("env.willImport", {
+              selected: selectedCount,
+              total: parsed.entries.length,
+            })}
           </span>
           <div className="flex gap-2">
             <Button variant="outline" size="sm" onClick={() => onOpenChange(false)}>
-              Cancel
+              {t("common:cancel")}
             </Button>
             <Button size="sm" onClick={handleConfirm} disabled={selectedCount === 0}>
-              Import {selectedCount > 0 && `(${selectedCount})`}
+              {selectedCount > 0
+                ? t("env.importCount", { count: selectedCount })
+                : t("env.import")}
             </Button>
           </div>
         </DialogFooter>
@@ -240,7 +248,7 @@ export function EnvImportDialog({
 function preview(value: string): string {
   if (value.length > 80) return value.slice(0, 80) + "…"
   if (value.includes("\n")) return value.replace(/\n/g, "⏎").slice(0, 80)
-  return value || "(empty)"
+  return value || i18n.t("apps:env.emptyValue")
 }
 
 function Stat({

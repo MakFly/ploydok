@@ -1,6 +1,7 @@
 // SPDX-License-Identifier: AGPL-3.0-only
 import { createFileRoute } from "@tanstack/react-router"
 import { useState } from "react"
+import { useTranslation } from "react-i18next"
 import {
 
   CaddyExtraHandlersSchema
@@ -22,6 +23,7 @@ export const Route = createFileRoute(
 })
 
 function AdvancedSettingsPage() {
+  const { t } = useTranslation(["apps", "common"])
   const { id: appId } = Route.useParams()
   const { data, isLoading } = useAppCaddyExtra(appId)
   const updateMutation = useUpdateAppCaddyExtra()
@@ -105,19 +107,21 @@ function AdvancedSettingsPage() {
   return (
     <div className="w-full space-y-6 px-4 py-6 md:px-8 md:py-8">
       <div>
-        <h2 className="mb-2 text-lg font-semibold">Caddy Extra Handlers</h2>
+        <h2 className="mb-2 text-lg font-semibold">{t("advanced.title")}</h2>
         <p className="mb-4 text-sm text-muted-foreground">
-          Add custom Caddy handlers (headers, rewrite, redir, static_response,
-          request_body, vars) to your app route. Learn more in the{" "}
+          {t("advanced.description", {
+            docs: t("advanced.docs"),
+          })}{" "}
+          (
           <a
             href="https://caddyserver.com/docs/json/apps/http/servers/routes/handle/"
             target="_blank"
             rel="noopener noreferrer"
             className="text-primary underline hover:text-primary/80"
           >
-            Caddy documentation
+            {t("advanced.docs")}
           </a>
-          .
+          )
         </p>
       </div>
 
@@ -126,17 +130,13 @@ function AdvancedSettingsPage() {
         className="border-orange-200 bg-orange-50 dark:border-orange-900 dark:bg-orange-950"
       >
         <AlertDescription className="text-sm text-orange-900 dark:text-orange-100">
-          <strong>⚠️ How it works:</strong> the JSON below is merged into the
-          Caddy route handler chain for this app, in front of the reverse
-          proxy. The Caddy Admin API rejects invalid JSON server-side — your
-          previous handler chain stays in place if validation fails, so a bad
-          paste never takes the app offline. Save again with a corrected
-          config to re-apply.
+          <strong>⚠️ {t("advanced.howItWorks")}</strong>
+          {t("advanced.howItWorksBody")}
         </AlertDescription>
       </Alert>
 
       <div className="space-y-2">
-        <label className="block text-sm font-medium">JSON Configuration</label>
+        <label className="block text-sm font-medium">{t("advanced.jsonConfig")}</label>
         <Textarea
           value={jsonText}
           onChange={(e: React.ChangeEvent<HTMLTextAreaElement>) =>
@@ -147,19 +147,19 @@ function AdvancedSettingsPage() {
         />
         {validationError && (
           <div className="text-sm text-destructive">
-            <strong>Validation error:</strong> {validationError}
+            <strong>{t("advanced.validationError")}</strong> {validationError}
           </div>
         )}
       </div>
 
       <details className="rounded-lg border border-border bg-muted/20 p-4 text-sm">
         <summary className="cursor-pointer font-medium">
-          Examples — copy &amp; paste
+          {t("advanced.examples")}
         </summary>
         <div className="mt-3 space-y-4">
           <div>
             <p className="mb-1 font-medium">
-              1. Add a security header to every response
+              {t("advanced.example1")}
             </p>
             <pre className="overflow-x-auto rounded-md bg-muted p-3 font-mono text-xs">{`[
   {
@@ -173,7 +173,7 @@ function AdvancedSettingsPage() {
 ]`}</pre>
           </div>
           <div>
-            <p className="mb-1 font-medium">2. Permanent redirect to /docs</p>
+            <p className="mb-1 font-medium">{t("advanced.example2")}</p>
             <pre className="overflow-x-auto rounded-md bg-muted p-3 font-mono text-xs">{`[
   {
     "handler": "static_response",
@@ -183,7 +183,7 @@ function AdvancedSettingsPage() {
 ]`}</pre>
           </div>
           <div>
-            <p className="mb-1 font-medium">3. Rewrite /api/* to /v1/*</p>
+            <p className="mb-1 font-medium">{t("advanced.example3")}</p>
             <pre className="overflow-x-auto rounded-md bg-muted p-3 font-mono text-xs">{`[
   {
     "handler": "rewrite",
@@ -200,7 +200,7 @@ function AdvancedSettingsPage() {
           loading={updateMutation.isPending} disabled={!isValid}
           className="w-fit"
         >
-          {updateMutation.isPending ? "Saving..." : "Save"}
+          {updateMutation.isPending ? t("advanced.saving") : t("common:save")}
         </Button>
         <Button
           variant="outline"
@@ -212,7 +212,7 @@ function AdvancedSettingsPage() {
           }}
           className="w-fit"
         >
-          Reset
+          {t("advanced.reset")}
         </Button>
       </div>
     </div>

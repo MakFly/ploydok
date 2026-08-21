@@ -2,6 +2,7 @@
 import { useMutation, useQueryClient } from "@tanstack/react-query"
 import { toast } from "sonner"
 import { apiFetch } from "./api"
+import i18n from "./i18n"
 import type { ApiError } from "./api"
 
 export interface UploadCertResult {
@@ -21,7 +22,7 @@ export function useUploadCert(appId: string, domain: string) {
         headers: { "content-type": "application/json" },
       }),
     onSuccess: () => {
-      toast.success("Certificate uploaded successfully")
+      toast.success(i18n.t("apps:toasts.certUploaded"))
       qc.invalidateQueries({ queryKey: ["apps", appId, "domains"] })
     },
     onError: (err) => {
@@ -38,7 +39,7 @@ export function useDeleteCustomCert(appId: string, domain: string) {
         method: "DELETE",
       }),
     onSuccess: () => {
-      toast.success("Custom certificate removed — reverting to ACME")
+      toast.success(i18n.t("apps:toasts.customCertRemoved"))
       qc.invalidateQueries({ queryKey: ["apps", appId, "domains"] })
     },
     onError: (err) => {

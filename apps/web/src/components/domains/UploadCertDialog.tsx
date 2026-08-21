@@ -1,5 +1,6 @@
 // SPDX-License-Identifier: AGPL-3.0-only
 import * as React from "react"
+import { useTranslation } from "react-i18next"
 import {
   Dialog,
   DialogContent,
@@ -21,6 +22,7 @@ interface UploadCertDialogProps {
 }
 
 export function UploadCertDialog({ appId, domain, children }: UploadCertDialogProps): React.JSX.Element {
+  const { t } = useTranslation(["apps", "common"])
   const [open, setOpen] = React.useState(false)
   const [cert, setCert] = React.useState("")
   const [key, setKey] = React.useState("")
@@ -44,16 +46,15 @@ export function UploadCertDialog({ appId, domain, children }: UploadCertDialogPr
       <DialogTrigger asChild>{children}</DialogTrigger>
       <DialogContent className="max-w-xl">
         <DialogHeader>
-          <DialogTitle>Upload TLS Certificate</DialogTitle>
+          <DialogTitle>{t("domains.uploadTitle")}</DialogTitle>
           <DialogDescription>
-            Paste your PEM certificate and private key for <strong>{domain}</strong>.
-            The certificate must be valid and not expired.
+            {t("domains.uploadHint", { domain })}
           </DialogDescription>
         </DialogHeader>
 
         <div className="flex flex-col gap-4">
           <div className="flex flex-col gap-1.5">
-            <Label htmlFor="cert-pem">Certificate (PEM)</Label>
+            <Label htmlFor="cert-pem">{t("domains.certPem")}</Label>
             <Textarea
               id="cert-pem"
               value={cert}
@@ -63,7 +64,7 @@ export function UploadCertDialog({ appId, domain, children }: UploadCertDialogPr
             />
           </div>
           <div className="flex flex-col gap-1.5">
-            <Label htmlFor="key-pem">Private Key (PEM)</Label>
+            <Label htmlFor="key-pem">{t("domains.keyPem")}</Label>
             <Textarea
               id="key-pem"
               value={key}
@@ -79,23 +80,23 @@ export function UploadCertDialog({ appId, domain, children }: UploadCertDialogPr
 
           {upload.isSuccess && upload.data && (
             <div className="rounded-md bg-muted p-3 text-xs">
-              <p className="font-medium text-green-600">Certificate validated</p>
-              <p>Valid from: {upload.data.notBefore ?? "—"}</p>
-              <p>Valid until: {upload.data.notAfter ?? "—"}</p>
-              <p>SANs: {upload.data.sans.join(", ")}</p>
+              <p className="font-medium text-green-600">{t("domains.validated")}</p>
+              <p>{t("domains.validFrom", { value: upload.data.notBefore ?? "—" })}</p>
+              <p>{t("domains.validUntil", { value: upload.data.notAfter ?? "—" })}</p>
+              <p>{t("domains.sans", { value: upload.data.sans.join(", ") })}</p>
             </div>
           )}
         </div>
 
         <DialogFooter>
           <Button variant="outline" onClick={() => setOpen(false)}>
-            Cancel
+            {t("common:cancel")}
           </Button>
           <Button
             onClick={handleUpload}
             loading={upload.isPending} disabled={!cert.trim() || !key.trim()}
           >
-            {upload.isPending ? "Uploading..." : "Validate & Upload"}
+            {upload.isPending ? t("domains.uploading") : t("domains.validateUpload")}
           </Button>
         </DialogFooter>
       </DialogContent>

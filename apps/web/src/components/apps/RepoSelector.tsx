@@ -1,5 +1,6 @@
 // SPDX-License-Identifier: AGPL-3.0-only
 import * as React from "react"
+import { useTranslation } from "react-i18next"
 import { Button } from "@workspace/ui/components/button"
 import { useGitHubAppConfig, useGitHubRepos } from "../../lib/github"
 import type { GitRepo } from "@ploydok/shared"
@@ -24,6 +25,7 @@ export function RepoSelector({
   selected,
   onSelect,
 }: RepoSelectorProps): React.JSX.Element {
+  const { t } = useTranslation("apps")
   const [search, setSearch] = React.useState("")
   const debouncedSearch = useDebounce(search, 200)
 
@@ -41,7 +43,7 @@ export function RepoSelector({
     return (
       <div className="flex flex-col items-center gap-3 rounded-lg border border-border bg-muted/30 p-6 text-center">
         <p className="text-sm text-muted-foreground">
-          Set up the GitHub App first to browse repositories.
+          {t("repo.setupGithub")}
         </p>
         <Button
           size="sm"
@@ -50,7 +52,7 @@ export function RepoSelector({
             window.location.href = "/settings/git-providers/github"
           }}
         >
-          Set up GitHub App
+          {t("repo.setupGithubCta")}
         </Button>
       </div>
     )
@@ -62,30 +64,30 @@ export function RepoSelector({
     <div className="space-y-3">
       <input
         type="search"
-        placeholder="Search repositories..."
+        placeholder={t("create.searchRepos")}
         value={search}
         onChange={(e) => setSearch(e.target.value)}
         className="w-full rounded-md border border-input bg-background px-3 py-2 text-sm focus:ring-2 focus:ring-ring focus:outline-none"
-        aria-label="Search repositories"
+        aria-label={t("repo.searchAria")}
       />
 
       {isLoading ? (
         <RepoListSkeleton />
       ) : error ? (
         <p className="text-sm text-destructive" role="alert">
-          Failed to load repositories: {error.message}
+          {t("repo.loadFailed", { message: error.message })}
         </p>
       ) : repos.length === 0 ? (
         <p className="py-6 text-center text-sm text-muted-foreground">
           {debouncedSearch
-            ? `No repositories found matching "${debouncedSearch}".`
-            : "No repositories found."}
+            ? t("repo.noMatch", { query: debouncedSearch })
+            : t("repo.none")}
         </p>
       ) : (
         <ul
           className="scrollbar-thin max-h-[clamp(14rem,88dvh_-_40rem,34rem)] divide-y divide-border overflow-y-auto rounded-md border border-border"
           role="listbox"
-          aria-label="Repositories"
+          aria-label={t("repo.repositories")}
         >
           {repos.map((repo) => (
             <RepoItem
@@ -106,7 +108,7 @@ export function RepoSelector({
             onClick={() => void fetchNextPage()}
             disabled={isFetchingNextPage}
           >
-            {isFetchingNextPage ? "Loading..." : "Load more"}
+            {isFetchingNextPage ? t("repo.loading") : t("repo.loadMore")}
           </Button>
         </div>
       )}
@@ -129,6 +131,7 @@ function RepoItem({
   isSelected,
   onSelect,
 }: RepoItemProps): React.JSX.Element {
+  const { t } = useTranslation("apps")
   const [owner, repoName] = repo.fullName.split("/")
 
   return (
@@ -165,7 +168,7 @@ function RepoItem({
           </span>
           {repo.private && (
             <span className="ml-auto shrink-0 rounded-full bg-muted px-1.5 py-0.5 text-[10px] font-medium tracking-wide text-muted-foreground uppercase">
-              private
+              {t("repo.private")}
             </span>
           )}
         </div>

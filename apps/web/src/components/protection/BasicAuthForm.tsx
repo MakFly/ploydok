@@ -1,5 +1,6 @@
 // SPDX-License-Identifier: AGPL-3.0-only
 import * as React from "react"
+import { useTranslation } from "react-i18next"
 import { Switch } from "@workspace/ui/components/switch"
 import { Input } from "@workspace/ui/components/input"
 import { Label } from "@workspace/ui/components/label"
@@ -11,6 +12,7 @@ interface BasicAuthFormProps {
 }
 
 export function BasicAuthForm({ appId }: BasicAuthFormProps): React.JSX.Element {
+  const { t } = useTranslation(["apps", "common"])
   const { data: protection } = useProtection(appId)
   const update = useUpdateProtection(appId)
   const reveal = useRevealBasicAuth(appId)
@@ -48,9 +50,9 @@ export function BasicAuthForm({ appId }: BasicAuthFormProps): React.JSX.Element 
     <div className="flex flex-col gap-4">
       <div className="flex items-center justify-between">
         <div>
-          <p className="text-sm font-medium">Basic Authentication</p>
+          <p className="text-sm font-medium">{t("protection.basicAuth")}</p>
           <p className="text-xs text-muted-foreground">
-            Require username and password to access this app.
+            {t("protection.basicAuthDesc")}
           </p>
         </div>
         <Switch
@@ -66,23 +68,23 @@ export function BasicAuthForm({ appId }: BasicAuthFormProps): React.JSX.Element 
         <div className="flex flex-col gap-3 rounded-md border border-border p-4">
           <div className="grid grid-cols-2 gap-3">
             <div className="flex flex-col gap-1.5">
-              <Label htmlFor="ba-user">Username</Label>
+              <Label htmlFor="ba-user">{t("protection.username")}</Label>
               <Input
                 id="ba-user"
                 value={user}
                 onChange={(e) => setUser(e.target.value)}
-                placeholder="username"
+                placeholder={t("protection.username")}
                 autoComplete="off"
               />
             </div>
             <div className="flex flex-col gap-1.5">
-              <Label htmlFor="ba-pass">Password</Label>
+              <Label htmlFor="ba-pass">{t("protection.password")}</Label>
               <Input
                 id="ba-pass"
                 type="password"
                 value={pass}
                 onChange={(e) => setPass(e.target.value)}
-                placeholder="leave blank to keep current"
+                placeholder={t("protection.keepPassword")}
                 autoComplete="new-password"
               />
             </div>
@@ -94,7 +96,7 @@ export function BasicAuthForm({ appId }: BasicAuthFormProps): React.JSX.Element 
               onClick={handleSave}
               loading={update.isPending} disabled={!user}
             >
-              Save
+              {t("common:save")}
             </Button>
             {protection?.basicAuth.enabled && (
               <Button
@@ -103,15 +105,19 @@ export function BasicAuthForm({ appId }: BasicAuthFormProps): React.JSX.Element 
                 onClick={handleReveal}
                 loading={reveal.isPending}
               >
-                Reveal current
+                {t("protection.revealCurrent")}
               </Button>
             )}
           </div>
 
           {revealed && (
             <div className="rounded-md bg-muted p-3 text-xs font-mono">
-              <p>Username: {revealed.user}</p>
-              <p>Password: {revealed.pass}</p>
+              <p>
+                {t("protection.username")}: {revealed.user}
+              </p>
+              <p>
+                {t("protection.password")}: {revealed.pass}
+              </p>
             </div>
           )}
         </div>

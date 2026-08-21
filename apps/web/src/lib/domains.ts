@@ -2,6 +2,7 @@
 import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query"
 import { toast } from "sonner"
 import { apiFetch } from "./api"
+import i18n from "./i18n"
 import { notifyMutationError } from "./second-factor-toast"
 import type { ApiError } from "./api"
 
@@ -81,11 +82,11 @@ export function useCreateDomain(appId: string) {
       return data.domain
     },
     onSuccess: () => {
-      toast.success("Domain added — add the TXT record to verify ownership")
+      toast.success(i18n.t("apps:toasts.domainAddedVerify"))
       void qc.invalidateQueries({ queryKey: domainsQueryKey(appId) })
     },
     onError: (error) => {
-      notifyMutationError(error, "Add domain failed")
+      notifyMutationError(error, i18n.t("apps:toasts.addDomainFailed"))
     },
   })
 }
@@ -110,7 +111,7 @@ export function useDeleteDomain(appId: string) {
       void qc.invalidateQueries({ queryKey: domainsQueryKey(appId) })
     },
     onError: (error) => {
-      notifyMutationError(error, "Delete domain failed")
+      notifyMutationError(error, i18n.t("apps:toasts.deleteDomainFailed"))
     },
   })
 }
@@ -135,11 +136,11 @@ export function useSwitchTlsMode(appId: string) {
       return data.domain
     },
     onSuccess: () => {
-      toast.success("TLS mode updated")
+      toast.success(i18n.t("apps:toasts.tlsModeUpdated"))
       void qc.invalidateQueries({ queryKey: domainsQueryKey(appId) })
     },
     onError: (error) => {
-      notifyMutationError(error, "Switch TLS mode failed")
+      notifyMutationError(error, i18n.t("apps:toasts.switchTlsFailed"))
     },
   })
 }
@@ -160,7 +161,7 @@ export function useRetryVerification(appId: string) {
       return data.domain
     },
     onSuccess: (updatedDomain) => {
-      toast.success("Verification re-queued")
+      toast.success(i18n.t("apps:toasts.verificationRequeued"))
       qc.setQueryData<Array<Domain>>(domainsQueryKey(appId), (prev) => {
         if (!prev) return prev
         return prev.map((d) => (d.id === updatedDomain.id ? updatedDomain : d))

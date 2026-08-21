@@ -1,6 +1,8 @@
 // SPDX-License-Identifier: AGPL-3.0-only
 import * as React from "react"
+import { useTranslation } from "react-i18next"
 import { Button } from "@workspace/ui/components/button"
+import i18n from "../../lib/i18n"
 import { MonacoEnvEditorDialog } from "./MonacoEnvEditorDialog"
 import { EnvImportDialog } from "./EnvImportDialog"
 import type { ImportStrategy } from "./EnvImportDialog"
@@ -40,8 +42,8 @@ export function shouldOfferMultilineEdit(value: string): boolean {
 }
 
 export function validateKey(key: string): string | undefined {
-  if (!key) return "Key is required"
-  if (!ENV_KEY_REGEX.test(key)) return "UPPER_SNAKE_CASE only (e.g. MY_VAR)"
+  if (!key) return i18n.t("apps:env.keyRequired")
+  if (!ENV_KEY_REGEX.test(key)) return i18n.t("apps:env.upperSnake")
   return undefined
 }
 
@@ -94,6 +96,7 @@ export function EnvTable({
   onSave,
   lockReason,
 }: EnvTableProps): React.JSX.Element {
+  const { t } = useTranslation(["apps", "common"])
   const [rows, setRows] = React.useState<Array<EditableVar>>(() =>
     initEditable(serverVars)
   )
@@ -231,7 +234,7 @@ export function EnvTable({
     setImportError(null)
     if (file.size > MAX_IMPORT_BYTES) {
       setImportError(
-        `File too large (${(file.size / 1024).toFixed(0)} KB, max 512 KB)`
+        t("env.fileTooLarge", { size: (file.size / 1024).toFixed(0) })
       )
       return
     }
@@ -239,7 +242,7 @@ export function EnvTable({
       const text = await file.text()
       setImportDialog({ open: true, rawContent: text, filename: file.name })
     } catch {
-      setImportError("Could not read the file")
+      setImportError(t("env.couldNotRead"))
     }
   }
 
@@ -337,15 +340,15 @@ export function EnvTable({
       <div className="flex flex-wrap items-center justify-between gap-3">
         <div className="flex items-center gap-3">
           <div>
-            <h2 className="text-sm font-medium">Environment Variables</h2>
+            <h2 className="text-sm font-medium">{t("env.title")}</h2>
             <p className="text-xs text-muted-foreground">
-              {rows.length} {rows.length === 1 ? "variable" : "variables"}
-              {" · drag a .env file here or use Import"}
+              {t("env.variables", { count: rows.length })}
+              {t("env.dragHint")}
             </p>
           </div>
           {diff && pendingCount > 0 && (
             <span className="rounded-full bg-amber-100 px-2 py-0.5 text-xs font-medium text-amber-700 dark:bg-amber-900/30 dark:text-amber-400">
-              {pendingCount} unsaved {pendingCount === 1 ? "change" : "changes"}
+              {t("env.unsaved", { count: pendingCount })}
             </span>
           )}
         </div>
@@ -367,7 +370,7 @@ export function EnvTable({
             className="gap-1.5 text-xs"
           >
             <UploadIcon className="size-3.5" />
-            Import .env
+            {t("env.importEnv")}
           </Button>
           {rows.some((r) => r.secret) && (
             <Button
@@ -382,7 +385,7 @@ export function EnvTable({
               ) : (
                 <EyeIcon className="size-3.5" />
               )}
-              {revealAll ? "Hide all" : "Reveal all"}
+              {revealAll ? t("env.hideAll") : t("env.revealAll")}
             </Button>
           )}
           <Button
@@ -393,7 +396,7 @@ export function EnvTable({
             onClick={handleSave}
             title={lockReason}
           >
-            {isSaving ? "Saving…" : "Save"}
+            {isSaving ? t("common:saving") : t("common:save")}
           </Button>
         </div>
       </div>
@@ -415,9 +418,9 @@ export function EnvTable({
         >
           <div className="flex flex-col items-center gap-2 text-primary">
             <UploadIcon className="size-8" />
-            <p className="text-sm font-medium">Drop your .env file here</p>
+            <p className="text-sm font-medium">{t("env.dropFile")}</p>
             <p className="text-xs text-primary/70">
-              We'll parse and let you review before import
+              {t("env.dropReview")}
             </p>
           </div>
         </div>
@@ -430,9 +433,9 @@ export function EnvTable({
         ) : (
           <>
             <div className="grid grid-cols-[minmax(200px,1.1fr)_minmax(260px,2fr)_auto_auto_auto] gap-0 border-b border-border bg-muted/40 px-4 py-2.5 text-[11px] font-medium tracking-wide text-muted-foreground uppercase">
-              <span>Key</span>
-              <span>Value</span>
-              <span className="px-3">Secret</span>
+              <span>{t("env.key")}</span>
+              <span>{t("env.value")}</span>
+              <span className="px-3">{t("env.secret")}</span>
               <span />
               <span />
             </div>
@@ -457,7 +460,7 @@ export function EnvTable({
                           updateRow(idx, { key: e.target.value.toUpperCase() })
                         }
                         placeholder="MY_VAR"
-                        aria-label="Variable key"
+                        aria-label={t("env.variableKey")}
                         className={[
                           "w-full rounded-md border px-2.5 py-1.5 font-mono text-xs",
                           "bg-background outline-none focus:ring-1",
@@ -481,17 +484,17 @@ export function EnvTable({
                         onChange={(e) =>
                           updateRow(idx, { value: e.target.value })
                         }
-                        placeholder={isSecret ? SECRET_MASK : "value"}
-                        aria-label="Variable value"
+                        placeholder={isSecret ? SECRET_MASK : t("env.valuePlaceholder")}
+                        aria-label={t("env.variableValue")}
                         className="w-full rounded-md border border-border bg-background px-2.5 py-1.5 font-mono text-xs outline-none focus:border-ring focus:ring-1 focus:ring-ring"
                       />
                       {isSecret && (
                         <button
                           type="button"
                           onClick={() => toggleRevealRow(idx)}
-                          title={isRevealed ? "Hide" : "Reveal"}
+                          title={isRevealed ? t("common:hide") : t("common:reveal")}
                           aria-label={
-                            isRevealed ? "Hide value" : "Reveal value"
+                            isRevealed ? t("env.hideValue") : t("env.revealValue")
                           }
                           className="flex-shrink-0 rounded p-1.5 text-muted-foreground transition-colors hover:bg-muted hover:text-foreground"
                         >
@@ -512,7 +515,7 @@ export function EnvTable({
                         aria-checked={isSecret}
                         onClick={() => updateRow(idx, { secret: !isSecret })}
                         title={
-                          isSecret ? "Mark as plain text" : "Mark as secret"
+                          isSecret ? t("env.markPlainText") : t("env.markSecret")
                         }
                         className={[
                           "relative inline-flex h-4 w-7 flex-shrink-0 cursor-pointer rounded-full border-2 border-transparent",
@@ -535,8 +538,8 @@ export function EnvTable({
                       <button
                         type="button"
                         onClick={() => openMonacoEditor(idx)}
-                        title="Edit as text"
-                        aria-label={`Edit ${row.key || "variable"} as text`}
+                        title={t("env.editAsText")}
+                        aria-label={t("env.editKey", { key: row.key || t("env.deleteVariableFallback") })}
                         className={[
                           "rounded p-1.5 transition-colors",
                           multiline
@@ -553,7 +556,7 @@ export function EnvTable({
                       <button
                         type="button"
                         onClick={() => deleteRow(idx)}
-                        aria-label={`Delete ${row.key || "variable"}`}
+                        aria-label={t("env.deleteVariable", { name: row.key || t("env.deleteVariableFallback") })}
                         className="rounded p-1.5 text-muted-foreground transition-colors hover:bg-destructive/10 hover:text-destructive"
                       >
                         <TrashIcon className="size-3.5" />
@@ -571,7 +574,7 @@ export function EnvTable({
                 className="flex items-center gap-1.5 text-xs text-muted-foreground transition-colors hover:text-foreground"
               >
                 <PlusIcon className="size-3.5" />
-                Add variable
+                {t("env.addVariable")}
               </button>
               <button
                 type="button"
@@ -579,7 +582,7 @@ export function EnvTable({
                 className="flex items-center gap-1.5 text-xs text-muted-foreground transition-colors hover:text-foreground"
               >
                 <UploadIcon className="size-3.5" />
-                Import .env
+                {t("env.importEnv")}
               </button>
             </div>
           </>
@@ -617,24 +620,24 @@ function EmptyDropArea({
   onPickFile: () => void
   onAddManually: () => void
 }): React.JSX.Element {
+  const { t } = useTranslation("apps")
   return (
     <div className="flex flex-col items-center justify-center gap-3 px-6 py-16 text-center">
       <div className="flex size-12 items-center justify-center rounded-full bg-muted">
         <UploadIcon className="size-6 text-muted-foreground" />
       </div>
       <div>
-        <p className="text-sm font-medium">Drop a .env file to get started</p>
+        <p className="text-sm font-medium">{t("env.dropToStart")}</p>
         <p className="mt-1 text-xs text-muted-foreground">
-          Or paste variables manually. KEY=value syntax, comments and quotes are
-          supported.
+          {t("env.emptyHint")}
         </p>
       </div>
       <div className="mt-1 flex items-center gap-2">
         <Button size="sm" variant="outline" onClick={onPickFile}>
-          Choose file
+          {t("env.chooseFile")}
         </Button>
         <Button size="sm" variant="ghost" onClick={onAddManually}>
-          Add manually
+          {t("env.addManually")}
         </Button>
       </div>
     </div>

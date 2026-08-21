@@ -2,6 +2,7 @@
 import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query"
 import { toast } from "sonner"
 import { apiFetch } from "./api"
+import i18n from "./i18n"
 import type { ApiError } from "./api"
 
 export interface ProtectionConfig {
@@ -43,7 +44,7 @@ export function useUpdateProtection(appId: string) {
       }),
     onSuccess: (data) => {
       qc.setQueryData(["apps", appId, "protection"], data)
-      toast.success("Protection settings saved")
+      toast.success(i18n.t("apps:toasts.protectionSaved"))
     },
     onError: (err) => {
       toast.error(err.message)

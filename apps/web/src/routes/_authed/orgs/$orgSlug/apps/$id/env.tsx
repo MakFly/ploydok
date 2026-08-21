@@ -1,6 +1,7 @@
 // SPDX-License-Identifier: AGPL-3.0-only
 import * as React from "react"
 import { createFileRoute, useParams } from "@tanstack/react-router"
+import { useTranslation } from "react-i18next"
 import {
   RiAddLine,
   RiDatabase2Line,
@@ -54,26 +55,15 @@ import type {
 const SCOPES: Array<SecretScope> = ["shared", "prod", "preview", "dev"]
 const PHASES: Array<SecretPhase> = ["runtime", "build", "both"]
 
-const SCOPE_LABELS: Record<SecretScope, { label: string; hint: string }> = {
-  shared: {
-    label: "All environments",
-    hint: "Injected into production, preview and development builds.",
-  },
-  prod: {
-    label: "Production",
-    hint: "Only injected when the app is deployed on the production branch.",
-  },
-  preview: {
-    label: "Preview",
-    hint: "Only injected into preview deployments (PR / feature branches).",
-  },
-  dev: {
-    label: "Development",
-    hint: "Only injected when running the app locally with the Ploydok CLI.",
-  },
+const SCOPE_KEYS: Record<SecretScope, { label: string; hint: string }> = {
+  shared: { label: "env.scopeShared", hint: "env.scopeSharedHint" },
+  prod: { label: "env.scopeProd", hint: "env.scopeProdHint" },
+  preview: { label: "env.scopePreview", hint: "env.scopePreviewHint" },
+  dev: { label: "env.scopeDev", hint: "env.scopeDevHint" },
 }
 
 function AppEnvTab(): React.JSX.Element {
+  const { t } = useTranslation("apps")
   const { id: routeAppId } = useParams({ strict: false })
   const appId = routeAppId!
   const [activeScope, setActiveScope] = React.useState<SecretScope>("shared")
@@ -101,10 +91,10 @@ function AppEnvTab(): React.JSX.Element {
     return (
       <div className="flex flex-col items-center justify-center rounded-lg border border-dashed border-destructive/40 bg-destructive/5 py-12 text-center">
         <p className="text-sm font-medium text-destructive">
-          Failed to load secrets
+          {t("env.loadFailed")}
         </p>
         <p className="mt-1 text-xs text-muted-foreground">
-          Check your connection and try refreshing.
+          {t("env.loadFailedHint")}
         </p>
       </div>
     )
@@ -115,7 +105,7 @@ function AppEnvTab(): React.JSX.Element {
       {/* Toolbar */}
       <div className="flex flex-col gap-3 sm:flex-row sm:items-center sm:justify-between">
         <h2 className="text-sm font-medium text-muted-foreground">
-          Encrypted secrets — AES-256-GCM at rest
+          {t("env.encryptedTitle")}
         </h2>
         <div className="flex flex-wrap items-center gap-2">
           <div className="flex rounded-md border bg-background p-0.5">
@@ -126,7 +116,7 @@ function AppEnvTab(): React.JSX.Element {
               className="h-7 gap-1.5"
             >
               <RiTableLine className="size-3.5" />
-              Normal
+              {t("env.normal")}
             </Button>
             <Button
               variant={viewMode === "developer" ? "secondary" : "ghost"}
@@ -135,7 +125,7 @@ function AppEnvTab(): React.JSX.Element {
               className="h-7 gap-1.5"
             >
               <RiFileList3Line className="size-3.5" />
-              Developer
+              {t("env.developer")}
             </Button>
           </div>
           <Button
@@ -145,7 +135,7 @@ function AppEnvTab(): React.JSX.Element {
             className="gap-1.5"
           >
             <RiUploadLine className="size-3.5" />
-            Import .env
+            {t("env.importEnv")}
           </Button>
           <Button
             variant="outline"
@@ -154,7 +144,7 @@ function AppEnvTab(): React.JSX.Element {
             className="gap-1.5"
           >
             <RiDatabase2Line className="size-3.5" />
-            Link database
+            {t("env.linkDatabase")}
           </Button>
           <Button
             size="sm"
@@ -162,7 +152,7 @@ function AppEnvTab(): React.JSX.Element {
             className="gap-1.5"
           >
             <RiAddLine className="size-3.5" />
-            Add secret
+            {t("env.addSecret")}
           </Button>
         </div>
       </div>
@@ -174,14 +164,14 @@ function AppEnvTab(): React.JSX.Element {
       >
         <TabsList>
           {SCOPES.map((s) => (
-            <TabsTrigger key={s} value={s} title={SCOPE_LABELS[s].hint}>
-              {SCOPE_LABELS[s].label}
+            <TabsTrigger key={s} value={s} title={t(SCOPE_KEYS[s].hint)}>
+              {t(SCOPE_KEYS[s].label)}
             </TabsTrigger>
           ))}
         </TabsList>
 
         <p className="mt-2 text-xs text-muted-foreground">
-          {SCOPE_LABELS[activeScope].hint}
+          {t(SCOPE_KEYS[activeScope].hint)}
         </p>
 
         {SCOPES.map((s) => (

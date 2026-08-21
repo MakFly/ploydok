@@ -1,6 +1,7 @@
 // SPDX-License-Identifier: AGPL-3.0-only
 import * as React from "react"
 import { Link, createFileRoute } from "@tanstack/react-router"
+import { useTranslation } from "react-i18next"
 import { Button } from "@workspace/ui/components/button"
 import { Skeleton } from "@workspace/ui/components/skeleton"
 import {
@@ -33,6 +34,7 @@ import type { AppHealth } from "../../../../../lib/app-runtime"
 import type { AppListItem } from "../../../../../lib/apps"
 
 function AppsPage(): React.JSX.Element {
+  const { t } = useTranslation(["apps", "common"])
   const [modalOpen, setModalOpen] = React.useState(false)
   const organization = useCurrentOrganization()
   const currentOrgSlug = useCurrentOrganizationSlug()
@@ -58,18 +60,18 @@ function AppsPage(): React.JSX.Element {
 
   return (
     <ShellPage
-      title="Applications"
-      description="Tes applications déployées — build, run et monitoring depuis un seul endroit."
+      title={t("list.title")}
+      description={t("list.description")}
       actions={
         <Button size="sm" onClick={() => setModalOpen(true)}>
           <RiAddLine className="size-4" />
-          New app
+          {t("list.newApp")}
         </Button>
       }
     >
       <ShellPanel
-        title="Applications"
-        description="Toutes tes apps déployées et leur état actuel."
+        title={t("list.title")}
+        description={t("list.panelDescription")}
       >
         {isLoading ? (
           <AppsGridSkeleton />
@@ -78,7 +80,7 @@ function AppsPage(): React.JSX.Element {
             className="rounded-md border border-destructive/30 bg-destructive/10 px-4 py-3 text-sm text-destructive"
             role="alert"
           >
-            Failed to load apps: {error.message}
+            {t("list.loadFailed", { message: error.message })}
           </p>
         ) : appsWithRuntimeStatus.length > 0 ? (
           <div className="grid gap-4 md:grid-cols-2 xl:grid-cols-3">
@@ -113,6 +115,7 @@ function AppCard({
   }
   currentOrgSlug: string | null
 }): React.JSX.Element {
+  const { t } = useTranslation("apps")
   const isDeleting = app.status === "deleting"
   const quickLinks = (app.quickLinks ?? []).slice(0, 3)
   const settingsPath = currentOrgSlug
@@ -128,7 +131,7 @@ function AppCard({
               {app.name}
             </p>
             <p className="mt-1 truncate text-xs text-muted-foreground">
-              {app.repoFullName ?? app.imageRef ?? "Repository pending"}
+              {app.repoFullName ?? app.imageRef ?? t("list.repoPending")}
             </p>
           </div>
         </div>
@@ -142,13 +145,13 @@ function AppCard({
         </div>
         <div className="flex items-center gap-2">
           <RiGlobalLine className="size-4" />
-          <span className="truncate">{app.domain ?? "Domain pending"}</span>
+          <span className="truncate">{app.domain ?? t("list.domainPending")}</span>
         </div>
       </div>
 
       <div className="mt-4 flex items-center justify-between border-t border-border pt-4">
         <span className="text-xs text-muted-foreground">
-          {isDeleting ? "Deletion in progress" : "Open deployment"}
+          {isDeleting ? t("empty.deletionInProgress") : t("list.openDeployment")}
         </span>
         <RiArrowRightUpLine
           className={[
@@ -209,20 +212,21 @@ function EmptyState({
   isGitHubConnected: boolean
   onCreateApp: () => void
 }): React.JSX.Element {
+  const { t } = useTranslation("apps")
   return (
     <div className="rounded-lg border border-dashed border-panel-border bg-panel-inset px-6 py-12 text-center">
       <p className="text-sm font-semibold text-foreground">
-        No applications yet
+        {t("list.emptyTitle")}
       </p>
       <p className="mt-2 text-sm leading-6 text-muted-foreground">
         {isGitHubConnected
-          ? "Start the first deployment and this grid will fill up."
-          : "Connect GitHub first so Ploydok can read repositories and create deployments."}
+          ? t("list.emptyConnected")
+          : t("list.emptyDisconnected")}
       </p>
       <div className="mt-5 flex justify-center gap-2">
         {isGitHubConnected ? (
           <Button size="sm" onClick={onCreateApp}>
-            Create app
+            {t("gettingStarted.createApp")}
           </Button>
         ) : (
           <Button size="sm" variant="outline" asChild>
@@ -230,7 +234,7 @@ function EmptyState({
               to="/settings/git-providers/$slug"
               params={{ slug: "github" }}
             >
-              Connect GitHub
+              {t("gettingStarted.connectGithub")}
             </Link>
           </Button>
         )}
@@ -240,11 +244,12 @@ function EmptyState({
 }
 
 function AppsGridSkeleton(): React.JSX.Element {
+  const { t } = useTranslation("apps")
   return (
     <div
       className="grid gap-4 md:grid-cols-2 xl:grid-cols-3"
       aria-busy="true"
-      aria-label="Loading applications"
+      aria-label={t("list.loading")}
     >
       {Array.from({ length: 6 }).map((_, index) => (
         <div

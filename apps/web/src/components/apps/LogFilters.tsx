@@ -1,5 +1,6 @@
 // SPDX-License-Identifier: AGPL-3.0-only
 import * as React from "react"
+import { useTranslation } from "react-i18next"
 import {
   RiArrowDownLine,
   RiArrowUpLine,
@@ -146,6 +147,7 @@ function CountChip({
   active: boolean
   onClick: () => void
 }): React.JSX.Element {
+  const { t } = useTranslation("apps")
   if (count === 0) {
     return (
       <span
@@ -153,7 +155,7 @@ function CountChip({
           "inline-flex items-center gap-1 rounded px-1.5 py-0.5 text-[11px] font-medium",
           "bg-white/5 text-white/40"
         )}
-        title={`No ${level}s`}
+        title={level === "error" ? t("logs.noErrors") : t("logs.noWarns")}
       >
         {level === "error" ? "0E" : "0W"}
       </span>
@@ -173,8 +175,12 @@ function CountChip({
       onClick={onClick}
       title={
         active
-          ? `Clear ${level} filter`
-          : `Show only ${level === "error" ? "errors" : "warnings"} (${count})`
+          ? level === "error"
+            ? t("logs.clearErrorFilter")
+            : t("logs.clearWarnFilter")
+          : level === "error"
+            ? t("logs.showOnlyErrors", { count })
+            : t("logs.showOnlyWarnings", { count })
       }
       className={cn(
         "inline-flex items-center gap-1 rounded px-1.5 py-0.5 text-[11px] font-medium tabular-nums transition-colors",
@@ -203,6 +209,7 @@ export function LogFilters({
   className,
   searchInputRef,
 }: LogFiltersProps): React.JSX.Element {
+  const { t } = useTranslation(["apps", "common"])
   const [searchDraft, setSearchDraft] = React.useState(state.search)
   const debounceRef = React.useRef<ReturnType<typeof setTimeout> | null>(null)
   const [copied, setCopied] = React.useState(false)
@@ -275,7 +282,7 @@ export function LogFilters({
         className
       )}
       role="toolbar"
-      aria-label="Log filters"
+      aria-label={t("logs.filters")}
     >
       {/* Volume select */}
       <div className="flex shrink-0 items-center gap-1.5">
@@ -283,13 +290,13 @@ export function LogFilters({
           htmlFor="log-volume"
           className="text-xs text-white/55 select-none"
         >
-          Lines
+          {t("logs.lines")}
         </label>
         <DarkSelect
           id="log-volume"
           value={state.volume}
           onChange={handleVolumeChange}
-          aria-label="Maximum lines to display"
+          aria-label={t("logs.maxLines")}
         >
           {VOLUME_OPTIONS.map((v) => (
             <option key={v} value={v}>
@@ -305,19 +312,19 @@ export function LogFilters({
           htmlFor="log-level"
           className="text-xs text-white/55 select-none"
         >
-          Level
+          {t("logs.level")}
         </label>
         <DarkSelect
           id="log-level"
           value={state.level}
           onChange={handleLevelChange}
-          aria-label="Log level filter"
+          aria-label={t("logs.levelFilter")}
         >
-          <option value="all">All</option>
-          <option value="debug">Debug</option>
-          <option value="info">Info</option>
-          <option value="warn">Warn</option>
-          <option value="error">Error</option>
+          <option value="all">{t("logs.all")}</option>
+          <option value="debug">{t("logs.debug")}</option>
+          <option value="info">{t("logs.info")}</option>
+          <option value="warn">{t("logs.warn")}</option>
+          <option value="error">{t("logs.error")}</option>
         </DarkSelect>
       </div>
 
@@ -332,15 +339,15 @@ export function LogFilters({
           type="search"
           value={searchDraft}
           onChange={handleSearchChange}
-          placeholder="Search…  (press / to focus)"
+          placeholder={t("logs.searchPlaceholder")}
           className="h-7 w-56 rounded border border-white/15 bg-white/10 pr-6 pl-6 text-xs text-[#e5e7eb] placeholder:text-white/40 focus:ring-1 focus:ring-white/30 focus:outline-none"
-          aria-label="Search log lines"
+          aria-label={t("logs.search")}
         />
         {searchDraft && (
           <button
             type="button"
             onClick={handleClearSearch}
-            aria-label="Clear search"
+            aria-label={t("logs.clearSearch")}
             className="absolute right-1.5 flex items-center justify-center rounded p-0.5 text-white/45 transition-colors hover:text-[#e5e7eb]"
           >
             <RiCloseLine className="size-3" aria-hidden="true" />
@@ -370,8 +377,8 @@ export function LogFilters({
           <button
             type="button"
             onClick={() => onJumpError("prev")}
-            title="Previous error (Shift+N)"
-            aria-label="Jump to previous error"
+            title={t("logs.prevErrorTitle")}
+            aria-label={t("logs.prevError")}
             className="inline-flex h-7 w-6 items-center justify-center text-white/55 hover:bg-white/10 hover:text-[#e5e7eb]"
           >
             <RiArrowUpLine className="size-3.5" aria-hidden="true" />
@@ -380,8 +387,8 @@ export function LogFilters({
           <button
             type="button"
             onClick={() => onJumpError("next")}
-            title="Next error (N)"
-            aria-label="Jump to next error"
+            title={t("logs.nextErrorTitle")}
+            aria-label={t("logs.nextError")}
             className="inline-flex h-7 w-6 items-center justify-center text-white/55 hover:bg-white/10 hover:text-[#e5e7eb]"
           >
             <RiArrowDownLine className="size-3.5" aria-hidden="true" />
@@ -395,7 +402,7 @@ export function LogFilters({
       {/* Buffered count badge (visible when paused and buffer > 0) */}
       {state.paused && bufferedCount > 0 && (
         <span className="shrink-0 rounded bg-amber-500/20 px-1.5 py-0.5 text-[11px] font-medium text-amber-400">
-          +{bufferedCount.toLocaleString()} buffered
+          {t("logs.buffered", { count: bufferedCount.toLocaleString() })}
         </span>
       )}
 
@@ -404,16 +411,16 @@ export function LogFilters({
         <IconToggle
           active={state.wrap}
           onClick={() => onChange({ wrap: !state.wrap })}
-          title="Toggle word-wrap (W)"
-          ariaLabel="Toggle word-wrap"
+          title={t("logs.wrapTitle")}
+          ariaLabel={t("logs.wrap")}
         >
           <RiTextWrap className="size-3.5" aria-hidden="true" />
         </IconToggle>
         <IconToggle
           active={state.timestamps}
           onClick={() => onChange({ timestamps: !state.timestamps })}
-          title="Toggle timestamps (T)"
-          ariaLabel="Toggle timestamps"
+          title={t("logs.timestampsTitle")}
+          ariaLabel={t("logs.timestamps")}
         >
           <RiTimeLine className="size-3.5" aria-hidden="true" />
         </IconToggle>
@@ -426,8 +433,8 @@ export function LogFilters({
           onClick={handleTogglePause}
           title={
             state.paused
-              ? "Resume and flush buffered lines (P)"
-              : "Pause display (P)"
+              ? t("logs.resumeFlush")
+              : t("logs.pauseDisplay")
           }
           aria-pressed={state.paused}
           className={cn(
@@ -440,12 +447,12 @@ export function LogFilters({
           {state.paused ? (
             <>
               <RiPlayLine className="size-3" aria-hidden="true" />
-              Resume
+              {t("logs.resume")}
             </>
           ) : (
             <>
               <RiPauseLine className="size-3" aria-hidden="true" />
-              Pause
+              {t("logs.pause")}
             </>
           )}
         </button>
@@ -454,8 +461,8 @@ export function LogFilters({
           <IconToggle
             active={false}
             onClick={handleCopy}
-            title="Copy visible lines to clipboard"
-            ariaLabel="Copy logs"
+            title={t("logs.copyVisible")}
+            ariaLabel={t("logs.copyLogs")}
           >
             {copied ? (
               <RiCheckLine
@@ -471,8 +478,8 @@ export function LogFilters({
         <IconToggle
           active={false}
           onClick={onDownload}
-          title="Download logs (.log)"
-          ariaLabel="Download logs"
+          title={t("logs.download")}
+          ariaLabel={t("logs.downloadLogs")}
         >
           <RiDownloadLine className="size-3.5" aria-hidden="true" />
         </IconToggle>

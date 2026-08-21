@@ -1,5 +1,6 @@
 // SPDX-License-Identifier: AGPL-3.0-only
 import { createFileRoute } from "@tanstack/react-router"
+import { useTranslation } from "react-i18next"
 import {
   Card,
   CardContent,
@@ -31,6 +32,7 @@ interface PreviewDeployment {
 }
 
 function PreviewsPage() {
+  const { t } = useTranslation("apps")
   const { id: appId } = Route.useParams()
 
   const {
@@ -57,7 +59,7 @@ function PreviewsPage() {
     return (
       <div className="flex items-center justify-center p-8">
         <p className="text-sm text-red-600">
-          Failed to load preview deployments
+          {t("previews.loadFailed")}
         </p>
       </div>
     )
@@ -69,9 +71,9 @@ function PreviewsPage() {
   return (
     <div className="w-full space-y-6 px-4 py-6 md:px-8 md:py-8">
       <div>
-        <h1 className="text-2xl font-bold">Preview Deployments</h1>
+        <h1 className="text-2xl font-bold">{t("previews.title")}</h1>
         <p className="text-sm text-gray-600">
-          Automatic deployments for pull requests
+          {t("previews.description")}
         </p>
       </div>
 
@@ -105,19 +107,13 @@ function PreviewsPage() {
 
             <div className="space-y-1.5">
               <p className="text-sm font-medium">
-                Preview deployments — not yet wired up
+                {t("previews.notWired")}
               </p>
               <p className="text-xs leading-relaxed text-muted-foreground">
-                The plan is one ephemeral deploy per open pull request, served on
-                its own subdomain (e.g. <code className="rounded bg-muted px-1 py-0.5 font-mono">pr-42.your-app.example.com</code>),
-                automatically torn down when the PR is merged or closed.
+                {t("previews.plan")}
               </p>
               <p className="text-xs leading-relaxed text-muted-foreground">
-                The backend table and routes are in place, but the
-                <code className="mx-1 rounded bg-muted px-1 py-0.5 font-mono">pull_request</code>
-                webhook handler, the wildcard DNS routing and the teardown GC
-                are not implemented yet — only <code className="mx-1 rounded bg-muted px-1 py-0.5 font-mono">push</code>
-                events trigger builds today.
+                {t("previews.backendHint")}
               </p>
             </div>
 
@@ -127,7 +123,7 @@ function PreviewsPage() {
                 className="h-1.5 w-1.5 rounded-full bg-amber-500"
               />
               <span className="text-muted-foreground">
-                Planned — post-MVP roadmap
+                {t("previews.planned")}
               </span>
             </div>
           </div>
@@ -136,7 +132,7 @@ function PreviewsPage() {
 
       {activePreview.length > 0 && (
         <div>
-          <h2 className="mb-3 text-lg font-semibold">Active</h2>
+          <h2 className="mb-3 text-lg font-semibold">{t("previews.active")}</h2>
           <div className="space-y-3">
             {activePreview.map((p) => (
               <PreviewCard key={p.id} preview={p} appId={appId} />
@@ -147,7 +143,7 @@ function PreviewsPage() {
 
       {inactivePreview.length > 0 && (
         <div>
-          <h2 className="mb-3 text-lg font-semibold">Inactive</h2>
+          <h2 className="mb-3 text-lg font-semibold">{t("previews.inactive")}</h2>
           <div className="space-y-3">
             {inactivePreview.map((p) => (
               <PreviewCard key={p.id} preview={p} appId={appId} />
@@ -166,6 +162,7 @@ function PreviewCard({
   preview: PreviewDeployment
   appId: string
 }) {
+  const { t } = useTranslation("apps")
   const queryClient = useQueryClient()
   const teardownPreview = useMutation({
     mutationFn: () =>
@@ -212,7 +209,7 @@ function PreviewCard({
       <CardContent className="space-y-4">
         {preview.domain && preview.status === "running" && (
           <div className="space-y-2">
-            <p className="text-xs font-semibold text-gray-600">Preview URL</p>
+            <p className="text-xs font-semibold text-gray-600">{t("previews.previewUrl")}</p>
             <a
               href={`https://${preview.domain}`}
               target="_blank"
@@ -244,7 +241,7 @@ function PreviewCard({
             loading={teardownPreview.isPending}
             className="w-full"
           >
-            {teardownPreview.isPending ? "Tearing down..." : "Teardown"}
+            {teardownPreview.isPending ? t("previews.teardown") : t("previews.teardown")}
           </Button>
         )}
       </CardContent>

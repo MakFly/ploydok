@@ -1,6 +1,9 @@
 // SPDX-License-Identifier: AGPL-3.0-only
 import * as React from "react"
+import { useTranslation } from "react-i18next"
+import type { TFunction } from "i18next"
 import { RiLoader4Line, RiMoreLine } from "@remixicon/react"
+import i18n from "../../lib/i18n"
 import { DataTable } from "@workspace/ui/components/data-table"
 import {
   DropdownMenu,
@@ -36,13 +39,13 @@ const BUILD_STATUS_CLASS: Record<BuildStatus, string> = {
   cancelled: "bg-muted text-muted-foreground",
 }
 
-const BUILD_STATUS_LABEL: Record<BuildStatus, string> = {
-  pending: "Pending",
-  running: "Running",
-  succeeded: "Succeeded",
-  succeeded_with_warning: "Succeeded (warning)",
-  failed: "Failed",
-  cancelled: "Cancelled",
+const BUILD_STATUS_KEY: Record<BuildStatus, string> = {
+  pending: "deployments.statusPending",
+  running: "deployments.statusRunning",
+  succeeded: "deployments.statusSucceeded",
+  succeeded_with_warning: "deployments.statusWarning",
+  failed: "deployments.statusFailed",
+  cancelled: "deployments.statusCancelled",
 }
 
 const IN_PROGRESS_STATUSES: ReadonlySet<BuildStatus> = new Set([
@@ -66,15 +69,15 @@ const BUILD_METHOD_CLASS: Record<string, string> = {
   railpack: "bg-emerald-500/10 text-emerald-600 dark:text-emerald-400",
 }
 
-const TRIGGER_SOURCE_LABEL: Record<string, string> = {
-  api: "Manual",
-  "webhook:github": "GitHub",
-  "webhook:gitlab": "GitLab",
-  "auto:push": "Auto push",
-  "auto:tag": "Auto tag",
-  "cron:gc": "Cleanup",
-  "cron:cleanup": "Cleanup",
-  system: "System",
+const TRIGGER_SOURCE_KEY: Record<string, string> = {
+  api: "deployments.sources.api",
+  "webhook:github": "deployments.sources.github",
+  "webhook:gitlab": "deployments.sources.gitlab",
+  "auto:push": "deployments.sources.autoPush",
+  "auto:tag": "deployments.sources.autoTag",
+  "cron:gc": "deployments.sources.cleanup",
+  "cron:cleanup": "deployments.sources.cleanup",
+  system: "deployments.sources.system",
 }
 
 const TRIGGER_SOURCE_CLASS: Record<string, string> = {
@@ -104,8 +107,9 @@ export function truncate(text: string, maxLen: number): string {
 }
 
 export function formatBuildTriggerSource(source?: string | null): string {
-  if (!source) return "Unknown"
-  return TRIGGER_SOURCE_LABEL[source] ?? source
+  if (!source) return i18n.t("apps:deployments.sources.unknown")
+  const key = TRIGGER_SOURCE_KEY[source]
+  return key ? i18n.t(`apps:${key}`) : source
 }
 
 function triggerSourceClass(source?: string | null): string {
@@ -199,6 +203,7 @@ function RowActions({
   onCancel,
   canManage,
 }: RowActionsProps): React.JSX.Element {
+  const { t } = useTranslation(["apps", "common"])
   const canRollback =
     build.status === "succeeded" || build.status === "succeeded_with_warning"
   const canCancel = IN_PROGRESS_STATUSES.has(build.status)
@@ -208,41 +213,37 @@ function RowActions({
       <DropdownMenuTrigger asChild>
         <button
           className="inline-flex h-7 w-7 items-center justify-center rounded-md text-muted-foreground hover:bg-accent hover:text-accent-foreground focus:outline-none"
-          aria-label="Row actions"
+          aria-label={t("deployments.rowActions")}
         >
           <RiMoreLine className="size-4" aria-hidden="true" />
         </button>
       </DropdownMenuTrigger>
       <DropdownMenuContent align="end">
         <DropdownMenuItem onClick={() => onSelectBuild(build.id)}>
-          View logs
+          {t("deployments.viewLogs")}
         </DropdownMenuItem>
         {canManage ? <DropdownMenuSeparator /> : null}
         {canManage && canCancel && onCancel ? (
           <AlertDialog>
             <AlertDialogTrigger asChild>
               <DropdownMenuItem onSelect={(e) => e.preventDefault()}>
-                Cancel deployment
+                {t("deployments.cancelDeployment")}
               </DropdownMenuItem>
             </AlertDialogTrigger>
             <AlertDialogContent>
               <AlertDialogHeader>
-                <AlertDialogTitle>Cancel this deployment?</AlertDialogTitle>
+                <AlertDialogTitle>{t("deployments.cancelConfirm")}</AlertDialogTitle>
                 <AlertDialogDescription>
-                  Mark build{" "}
-                  <span className="font-mono">{build.id.slice(0, 8)}</span> as
-                  cancelled and stop scheduling new work. A build already mid
-                  push will finish its current phase, but no further steps will
-                  run.
+                  {t("deployments.cancelBody", { id: build.id.slice(0, 8) })}
                 </AlertDialogDescription>
               </AlertDialogHeader>
               <AlertDialogFooter>
-                <AlertDialogCancel>Keep running</AlertDialogCancel>
+                <AlertDialogCancel>{t("deployments.keepRunning")}</AlertDialogCancel>
                 <AlertDialogAction
                   variant="destructive"
                   onClick={() => onCancel(build)}
                 >
-                  Cancel deployment
+                  {t("deployments.cancelDeployment")}
                 </AlertDialogAction>
               </AlertDialogFooter>
             </AlertDialogContent>
@@ -252,32 +253,36 @@ function RowActions({
           <AlertDialog>
             <AlertDialogTrigger asChild>
               <DropdownMenuItem onSelect={(e) => e.preventDefault()}>
-                Rollback to this build
+                {t("deployments.rollbackToThis")}
               </DropdownMenuItem>
             </AlertDialogTrigger>
             <AlertDialogContent>
               <AlertDialogHeader>
-                <AlertDialogTitle>Rollback to this build?</AlertDialogTitle>
+                <AlertDialogTitle>{t("deployments.rollbackConfirm")}</AlertDialogTitle>
                 <AlertDialogDescription>
-                  This will roll the app back to build{" "}
-                  <span className="font-mono">{build.id.slice(0, 8)}</span>
-                  {build.commitSha ? ` (${build.commitSha.slice(0, 7)})` : ""}.
-                  The current container will be replaced immediately.
+                  {t("deployments.rollbackBody", {
+                    id: build.id.slice(0, 8),
+                    commit: build.commitSha
+                      ? ` (${build.commitSha.slice(0, 7)})`
+                      : "",
+                  })}
                 </AlertDialogDescription>
               </AlertDialogHeader>
               <AlertDialogFooter>
-                <AlertDialogCancel>Cancel</AlertDialogCancel>
+                <AlertDialogCancel>{t("common:cancel")}</AlertDialogCancel>
                 <AlertDialogAction
                   variant="destructive"
                   onClick={() => onRollback(build)}
                 >
-                  Rollback
+                  {t("actions.rollback")}
                 </AlertDialogAction>
               </AlertDialogFooter>
             </AlertDialogContent>
           </AlertDialog>
         ) : canManage ? (
-          <DropdownMenuItem disabled>Rollback (unavailable)</DropdownMenuItem>
+          <DropdownMenuItem disabled>
+            {t("deployments.rollbackUnavailable")}
+          </DropdownMenuItem>
         ) : null}
       </DropdownMenuContent>
     </DropdownMenu>
@@ -289,6 +294,7 @@ function RowActions({
 // ---------------------------------------------------------------------------
 
 function makeColumns(
+  t: TFunction,
   onSelectBuild: (id: string) => void,
   onRollback: (build: Build) => void,
   onCancel?: (build: Build) => void,
@@ -301,7 +307,7 @@ function makeColumns(
       ? [
           {
             id: "application",
-            header: "Application",
+            header: t("deployments.application"),
             cell: ({ row }) => {
               const app = row.original.app
               if (!app) {
@@ -328,7 +334,7 @@ function makeColumns(
     ...applicationColumn,
     {
       id: "commit",
-      header: "Commit",
+      header: t("deployments.commit"),
       cell: ({ row }) => {
         const sha = row.original.commitSha
         const msg = row.original.commitMessage
@@ -353,7 +359,7 @@ function makeColumns(
     },
     {
       id: "status",
-      header: "Status",
+      header: t("common:status"),
       cell: ({ row }) => {
         const status = row.original.status
         const inProgress = IN_PROGRESS_STATUSES.has(status)
@@ -370,14 +376,14 @@ function makeColumns(
                 aria-hidden="true"
               />
             )}
-            {BUILD_STATUS_LABEL[status]}
+            {t(BUILD_STATUS_KEY[status])}
           </span>
         )
       },
     },
     {
       id: "duration",
-      header: "Duration",
+      header: t("deployments.duration"),
       cell: ({ row }) => {
         const inProgress = IN_PROGRESS_STATUSES.has(row.original.status)
         return (
@@ -391,7 +397,7 @@ function makeColumns(
     },
     {
       id: "method",
-      header: "Method",
+      header: t("deployments.method"),
       cell: ({ row }) => {
         const method = row.original.buildMethod
         if (!method) {
@@ -414,7 +420,7 @@ function makeColumns(
     },
     {
       id: "triggered-by",
-      header: "Triggered by",
+      header: t("deployments.triggeredBy"),
       cell: ({ row }) => {
         const source = row.original.source
         const requestedBy = shortenUserId(row.original.requestedByUserId)
@@ -442,7 +448,7 @@ function makeColumns(
     },
     {
       id: "started",
-      header: "Started",
+      header: t("deployments.started"),
       cell: ({ row }) => (
         <span className="text-muted-foreground">
           {row.original.startedAt
@@ -484,9 +490,11 @@ export function DeploymentsTable({
   canManage = true,
   paginate = true,
 }: DeploymentsTableProps): React.JSX.Element {
+  const { t } = useTranslation(["apps", "common"])
   const columns = React.useMemo(
     () =>
       makeColumns(
+        t,
         onSelectBuild,
         onRollback,
         onCancel,
@@ -495,6 +503,7 @@ export function DeploymentsTable({
         canManage
       ),
     [
+      t,
       onSelectBuild,
       onRollback,
       onCancel,
@@ -511,9 +520,9 @@ export function DeploymentsTable({
   if (builds.length === 0) {
     return (
       <div className="flex flex-col items-center justify-center rounded-lg border border-dashed border-panel-border bg-panel-inset py-16 text-center">
-        <p className="mb-1 text-sm font-medium">No deployments yet</p>
+        <p className="mb-1 text-sm font-medium">{t("empty.noDeployments")}</p>
         <p className="text-sm text-muted-foreground">
-          Trigger a deploy to start your first deployment.
+          {t("deployments.emptyHint")}
         </p>
       </div>
     )

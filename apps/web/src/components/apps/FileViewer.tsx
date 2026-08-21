@@ -1,5 +1,6 @@
 // SPDX-License-Identifier: AGPL-3.0-only
 import * as React from "react"
+import { useTranslation } from "react-i18next"
 import { RiAlertLine, RiFileLine, RiLoader4Line } from "@remixicon/react"
 import {
   Dialog,
@@ -44,6 +45,7 @@ export function FileViewer({
   path,
   onClose,
 }: FileViewerProps): React.JSX.Element {
+  const { t } = useTranslation("apps")
   const [state, setState] = React.useState<ViewerState>(INITIAL)
 
   React.useEffect(() => {
@@ -67,7 +69,7 @@ export function FileViewer({
         const text = decodeFileContent(res.content_b64)
         setState({
           loading: false,
-          error: text === null ? "Failed to decode UTF-8 content" : null,
+          error: text === null ? t("files.decodeFailed") : null,
           text,
           size: res.total_size,
           truncated: res.truncated,
@@ -77,7 +79,7 @@ export function FileViewer({
       .catch((err) => {
         if (cancelled) return
         const message =
-          err instanceof Error ? err.message : "Failed to read file"
+          err instanceof Error ? err.message : t("files.readFailed")
         setState({
           loading: false,
           error: message,
@@ -90,7 +92,7 @@ export function FileViewer({
     return () => {
       cancelled = true
     }
-  }, [appId, path])
+  }, [appId, path, t])
 
   const open = path !== null
   const basename = path?.split("/").filter(Boolean).pop() ?? ""
@@ -116,12 +118,12 @@ export function FileViewer({
             <div className="ml-auto flex items-center gap-2">
               {state.truncated && (
                 <Badge variant="outline" className="text-[10px]">
-                  truncated
+                  {t("files.truncated")}
                 </Badge>
               )}
               {state.isBinary && (
                 <Badge variant="outline" className="text-[10px]">
-                  binary
+                  {t("files.binary")}
                 </Badge>
               )}
               {!state.loading && state.size > 0 && (
@@ -143,7 +145,7 @@ export function FileViewer({
           {state.loading && (
             <div className="flex h-full items-center justify-center text-xs text-muted-foreground">
               <RiLoader4Line size={14} className="mr-2 animate-spin" />
-              Loading…
+              {t("files.loading")}
             </div>
           )}
 
@@ -157,7 +159,7 @@ export function FileViewer({
           {!state.loading && !state.error && state.isBinary && (
             <div className="flex h-full flex-col items-center justify-center gap-2 text-xs text-muted-foreground">
               <RiFileLine size={28} className="text-muted-foreground/60" />
-              <div className="font-medium">Binary file</div>
+              <div className="font-medium">{t("files.binary")}</div>
               <div className="text-[11px]">{formatBytes(state.size)}</div>
             </div>
           )}

@@ -1,5 +1,6 @@
 // SPDX-License-Identifier: AGPL-3.0-only
 import * as React from "react"
+import { useTranslation } from "react-i18next"
 import {
   AlertDialog,
   AlertDialogAction,
@@ -27,11 +28,12 @@ import type { Domain, TlsStatus } from "../../lib/domains"
 // ---------------------------------------------------------------------------
 
 function TlsBadge({ status }: { status: TlsStatus }): React.JSX.Element {
+  const { t } = useTranslation("apps")
   if (status === "issued") {
     return (
       <span className="inline-flex items-center gap-1 rounded-full bg-emerald-100 px-2 py-0.5 text-xs font-medium text-emerald-800 dark:bg-emerald-900/30 dark:text-emerald-400">
         <span className="size-1.5 rounded-full bg-emerald-500" />
-        Issued
+        {t("domains.issued")}
       </span>
     )
   }
@@ -39,14 +41,14 @@ function TlsBadge({ status }: { status: TlsStatus }): React.JSX.Element {
     return (
       <span className="inline-flex items-center gap-1 rounded-full bg-red-100 px-2 py-0.5 text-xs font-medium text-red-800 dark:bg-red-900/30 dark:text-red-400">
         <span className="size-1.5 rounded-full bg-red-500" />
-        Failed
+        {t("domains.failed")}
       </span>
     )
   }
   return (
     <span className="inline-flex items-center gap-1 rounded-full bg-amber-100 px-2 py-0.5 text-xs font-medium text-amber-800 dark:bg-amber-900/30 dark:text-amber-400">
       <span className="size-1.5 animate-pulse rounded-full bg-amber-500" />
-      Pending
+      {t("domains.pending")}
     </span>
   )
 }
@@ -93,13 +95,14 @@ export function DomainCard({
   isRetrying,
   lockReason,
 }: DomainCardProps): React.JSX.Element {
+  const { t } = useTranslation(["apps", "common"])
   const verificationHost = domain.hostname.replace(/^\*\./, "")
   const verificationName = `_ploydok-verify.${verificationHost}`
   const actionLocked = Boolean(lockReason)
 
   async function copyTxtValue(value: string, label: string) {
     await navigator.clipboard.writeText(value)
-    toast.success(`${label} copied`)
+    toast.success(t("domains.copied", { label }))
   }
 
   return (
@@ -123,10 +126,10 @@ export function DomainCard({
               className="h-7 w-7 px-0"
               disabled={isRetrying || actionLocked}
               onClick={() => onRetry(domain.id)}
-              title={lockReason ?? "Re-check domain verification"}
+              title={lockReason ?? t("domains.recheckVerification")}
             >
               <RiLoopRightLine className="size-4" aria-hidden="true" />
-              <span className="sr-only">Re-check verification</span>
+              <span className="sr-only">{t("domains.recheckVerificationSr")}</span>
             </Button>
           )}
 
@@ -136,10 +139,10 @@ export function DomainCard({
             className="h-7 w-7 px-0"
             disabled={actionLocked}
             onClick={() => onSwitchMode(domain.id)}
-            title={lockReason ?? "Switch TLS mode"}
+            title={lockReason ?? t("domains.switchTls")}
           >
             <RiShuffleLine className="size-4" aria-hidden="true" />
-            <span className="sr-only">Switch TLS mode</span>
+            <span className="sr-only">{t("domains.switchTls")}</span>
           </Button>
 
           <AlertDialog>
@@ -149,28 +152,26 @@ export function DomainCard({
                 variant="ghost"
                 className="h-7 w-7 px-0 text-destructive hover:text-destructive"
                 loading={isDeleting} disabled={actionLocked}
-                title={lockReason ?? `Remove ${domain.hostname}`}
+                title={lockReason ?? t("domains.removeHostname", { hostname: domain.hostname })}
               >
                 <RiDeleteBinLine className="size-4" aria-hidden="true" />
-                <span className="sr-only">Remove domain</span>
+                <span className="sr-only">{t("domains.removeDomain")}</span>
               </Button>
             </AlertDialogTrigger>
             <AlertDialogContent>
               <AlertDialogHeader>
-                <AlertDialogTitle>Remove custom domain?</AlertDialogTitle>
+                <AlertDialogTitle>{t("domains.removeConfirm")}</AlertDialogTitle>
                 <AlertDialogDescription>
-                  <strong className="font-mono">{domain.hostname}</strong> will
-                  be removed from this app and its Caddy route will be cleaned
-                  up. This action cannot be undone.
+                  {t("domains.removeHint", { hostname: domain.hostname })}
                 </AlertDialogDescription>
               </AlertDialogHeader>
               <AlertDialogFooter>
-                <AlertDialogCancel>Cancel</AlertDialogCancel>
+                <AlertDialogCancel>{t("common:cancel")}</AlertDialogCancel>
                 <AlertDialogAction
                   className="bg-none bg-destructive text-white hover:bg-destructive/90"
                   onClick={() => onDelete(domain.id)}
                 >
-                  Remove
+                  {t("domains.remove")}
                 </AlertDialogAction>
               </AlertDialogFooter>
             </AlertDialogContent>
@@ -182,18 +183,20 @@ export function DomainCard({
         <div className="rounded border border-amber-200 bg-amber-50 px-3 py-2 text-xs dark:border-amber-800/50 dark:bg-amber-900/10">
           <div className="mb-2 flex items-center gap-1.5 font-medium text-amber-800 dark:text-amber-400">
             <RiShieldKeyholeLine className="size-3.5" aria-hidden="true" />
-            Ownership verification required
+            {t("domains.ownershipRequired")}
           </div>
           <div className="grid gap-2 sm:grid-cols-[minmax(0,1fr)_minmax(0,1fr)]">
             <TxtRecordField
-              label="TXT name"
+              label={t("domains.txtName")}
               value={verificationName}
-              onCopy={() => copyTxtValue(verificationName, "TXT name")}
+              onCopy={() => copyTxtValue(verificationName, t("domains.txtName"))}
             />
             <TxtRecordField
-              label="TXT value"
+              label={t("domains.txtValue")}
               value={domain.verifyToken}
-              onCopy={() => copyTxtValue(domain.verifyToken ?? "", "TXT value")}
+              onCopy={() =>
+                copyTxtValue(domain.verifyToken ?? "", t("domains.txtValue"))
+              }
             />
           </div>
         </div>
@@ -215,6 +218,7 @@ function TxtRecordField({
   value: string
   onCopy: () => void
 }): React.JSX.Element {
+  const { t } = useTranslation("apps")
   return (
     <div className="min-w-0 rounded border border-amber-200/80 bg-background/70 p-2 dark:border-amber-800/50 dark:bg-background/40">
       <div className="mb-1 flex items-center justify-between gap-2">
@@ -227,10 +231,10 @@ function TxtRecordField({
           variant="ghost"
           className="h-6 w-6 px-0"
           onClick={() => void onCopy()}
-          title={`Copy ${label}`}
+          title={t("domains.copyLabel", { label })}
         >
           <RiFileCopyLine className="size-3.5" aria-hidden="true" />
-          <span className="sr-only">Copy {label}</span>
+          <span className="sr-only">{t("domains.copyLabel", { label })}</span>
         </Button>
       </div>
       <code className="block break-all font-mono text-amber-950 dark:text-amber-300">

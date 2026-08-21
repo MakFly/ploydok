@@ -1,6 +1,7 @@
 // SPDX-License-Identifier: AGPL-3.0-only
 import * as React from "react"
 import { createFileRoute, useParams } from "@tanstack/react-router"
+import { useTranslation } from "react-i18next"
 import { Skeleton } from "@workspace/ui/components/skeleton"
 import { Separator } from "@workspace/ui/components/separator"
 import { Button } from "@workspace/ui/components/button"
@@ -23,6 +24,7 @@ import type { Domain } from "../../../../../../lib/domains"
 const DOCS_BASE_URL = import.meta.env.VITE_DOCS_URL ?? "http://localhost:4321"
 
 function AppDomainsTab(): React.JSX.Element {
+  const { t } = useTranslation("apps")
   const { id: routeAppId } = useParams({ strict: false })
   const appId = routeAppId!
 
@@ -36,7 +38,7 @@ function AppDomainsTab(): React.JSX.Element {
   const { data: me } = useMe()
 
   const lockReason = me?.needs_second_factor
-    ? "Configurez un second facteur pour modifier les domaines."
+    ? t("domains.need2fa")
     : undefined
 
   const [switchTarget, setSwitchTarget] = React.useState<Domain | null>(null)
@@ -45,10 +47,10 @@ function AppDomainsTab(): React.JSX.Element {
     return (
       <div className="flex flex-col items-center justify-center rounded-lg border border-dashed border-destructive/40 bg-destructive/5 py-12 text-center">
         <p className="text-sm font-medium text-destructive">
-          Failed to load domains
+          {t("domains.loadFailed")}
         </p>
         <p className="mt-1 text-xs text-muted-foreground">
-          Check your connection and try refreshing.
+          {t("domains.loadFailedHint")}
         </p>
       </div>
     )
@@ -58,9 +60,9 @@ function AppDomainsTab(): React.JSX.Element {
     <div className="w-full space-y-4 px-4 py-6 md:px-8 md:py-8">
       <div className="flex items-center justify-between">
         <div>
-          <h2 className="text-sm font-semibold">Custom domains</h2>
+          <h2 className="text-sm font-semibold">{t("domains.customTitle")}</h2>
           <p className="mt-0.5 text-xs text-muted-foreground">
-            Point your DNS to this app and manage TLS certificates here.
+            {t("domains.customHint")}
           </p>
         </div>
 
@@ -70,7 +72,7 @@ function AppDomainsTab(): React.JSX.Element {
             size="sm"
             variant="outline"
             className="gap-1.5"
-            title="Open the Domains documentation in a new tab"
+            title={t("domains.docsTitle")}
           >
             <a
               href={`${DOCS_BASE_URL}/docs/domains-tls`}
@@ -78,7 +80,7 @@ function AppDomainsTab(): React.JSX.Element {
               rel="noopener noreferrer"
             >
               <RiBookOpenLine className="size-4" aria-hidden="true" />
-              Documentation
+              {t("domains.docs")}
             </a>
           </Button>
           <AddDomainDialog
@@ -132,17 +134,16 @@ function AppDomainsTab(): React.JSX.Element {
       ) : (
         <div className="flex flex-col items-center justify-center rounded-lg border border-dashed border-panel-border bg-panel-inset py-12 text-center">
           <p className="text-sm font-medium text-muted-foreground">
-            No custom domains yet
+            {t("domains.emptyCustomTitle")}
           </p>
           <p className="mt-1 text-xs text-muted-foreground">
-            Add a domain to expose your app on a custom URL.
+            {t("domains.emptyCustomHint")}
           </p>
         </div>
       )}
 
       <p className="px-1 text-[11px] text-muted-foreground">
-        After adding a domain, verify ownership by adding the TXT record shown.
-        TLS certificates are provisioned automatically via Caddy.
+        {t("domains.verifyHint")}
       </p>
 
       {switchTarget && (
@@ -163,10 +164,9 @@ function AppDomainsTab(): React.JSX.Element {
 
       <section className="flex flex-col gap-3">
         <header>
-          <h2 className="text-sm font-semibold">CDN &amp; caching</h2>
+          <h2 className="text-sm font-semibold">{t("domains.cdnSection")}</h2>
           <p className="mt-0.5 text-xs text-muted-foreground">
-            Configure caching, compression, and delivery optimization at the
-            edge.
+            {t("domains.cdnSectionHint")}
           </p>
         </header>
         <CdnSection appId={appId} />
@@ -176,9 +176,9 @@ function AppDomainsTab(): React.JSX.Element {
 
       <section className="flex flex-col gap-3">
         <header>
-          <h2 className="text-sm font-semibold">Access protection</h2>
+          <h2 className="text-sm font-semibold">{t("domains.protectionSection")}</h2>
           <p className="mt-0.5 text-xs text-muted-foreground">
-            Caddy-level guards applied before traffic reaches your app.
+            {t("domains.protectionSectionHint")}
           </p>
         </header>
         <ProtectionSection appId={appId} />
