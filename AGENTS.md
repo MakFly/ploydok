@@ -121,6 +121,16 @@ The perceived wait ends when the next page paints, not when the request resolves
 - Every client navigation is also covered globally by `NavigationProgress` (`apps/web/src/components/layout/NavigationProgress.tsx`), mounted in `__root.tsx`. It reads `useRouterState({ select: (s) => s.isLoading })`. Do not use `s.isTransitioning`: it exists in the router types but is never set in this build.
 - A confirm button inside an `AlertDialog` unmounts with the dialog on click, so its spinner is never seen. Put the pending state on the trigger, which stays on screen.
 
+## i18n (mandatory)
+
+`apps/web` is localized EN/FR via i18next. Cookie `ploydok-locale`. Catalogs: `apps/web/src/locales/{en,fr}/*.json`. Detail: `.claude/rules/i18n.md`.
+
+- Any **new or changed** user-visible copy (JSX, toasts, aria-labels, placeholders, empty states, nav, command palette) must go through `t()` / `i18n.t()`. Do not leave a hardcoded English or French string in the UI.
+- Add the key to **both** `en` and `fr` of the matching namespace in the same change. Identical `{{var}}` interpolations. No empty values.
+- Do not translate: env var names, technical tokens (`Dockerfile`, `TOTP`, `OAuth`), raw logs, comments, changelog markdown, unmapped API `error.message`.
+- Dialog/Sheet close labels: use the wrappers in `apps/web/src/components/i18n/` (they inject `t("common:close")`). Do not import i18next from `@workspace/ui`.
+- After catalog edits, from `apps/web`: `bun test src/lib/i18n/`.
+
 ## Validation Commands
 
 - Prefer targeted validation for the area you changed before broader checks.
@@ -159,6 +169,7 @@ The perceived wait ends when the next page paints, not when the request resolves
   - `.claude/rules/style.md`
   - `.claude/rules/agent-rust.md`
   - `.claude/rules/infra.md`
+  - `.claude/rules/i18n.md`
 
 ## What Good Agent Work Looks Like Here
 

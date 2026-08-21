@@ -1,6 +1,6 @@
 # Ploydok — `.claude/rules/`
 
-Rules projet. Le `CLAUDE.md` racine charge les règles de haut niveau ; ces fichiers sont des références topiques à consulter quand tu touches un domaine.
+Rules projet. `CLAUDE.md` à la racine est un symlink vers `AGENTS.md` (source unique). Ces fichiers sont des références topiques à consulter quand tu touches un domaine.
 
 | Fichier         | Quand le lire                                                                 |
 | --------------- | ----------------------------------------------------------------------------- |
@@ -13,5 +13,6 @@ Rules projet. Le `CLAUDE.md` racine charge les règles de haut niveau ; ces fich
 | `style.md`      | Prettier, ESLint (`@tanstack/eslint-config`), conventions TS/TSX.             |
 | `agent-rust.md` | Toute modif sous `agent/` (Rust, unix socket, gRPC).                          |
 | `infra.md`      | Docker Compose (Caddy / BuildKit / Registry), réseau `ploydok-public`.        |
+| `i18n.md`       | Toute copy UI dans `apps/web` — `t()`, catalogues EN+FR, pas de littéral.     |
 
 Convention : règles courtes, en français, action-first. Si une règle devient obsolète, **corrige-la** — on fait confiance au repo.
