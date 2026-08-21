@@ -141,7 +141,10 @@ function MarketplacePage(): React.JSX.Element {
               {isFetchingNextPage ? (
                 <span className="flex items-center gap-2">
                   <span className="size-3 animate-spin rounded-full border-2 border-muted-foreground/30 border-t-muted-foreground" />
-                  Chargement… ({templates.length} sur {total})
+                  {t("marketplace.loadingCount", {
+                    count: templates.length,
+                    total,
+                  })}
                 </span>
               ) : hasNextPage ? (
                 // Fallback when IntersectionObserver never fires (no JS scroll,
@@ -152,7 +155,10 @@ function MarketplacePage(): React.JSX.Element {
                   size="sm"
                   onClick={() => void fetchNextPage()}
                 >
-                  Charger plus ({templates.length} sur {total})
+                  {t("marketplace.loadMore", {
+                    count: templates.length,
+                    total,
+                  })}
                 </Button>
               ) : (
                 `${total} template${total > 1 ? "s" : ""}`
@@ -417,7 +423,7 @@ function TemplateDialog({
                 </div>
                 <div className="flex gap-2">
                   <Button type="button" variant="outline" onClick={onClose}>
-                    Fermer
+                    {t("common:close")}
                   </Button>
                   <Button
                     type="button"
@@ -425,7 +431,9 @@ function TemplateDialog({
                     loading={installService.isPending}
                     disabled={!data?.dockerCompose || !organization}
                   >
-                    {installService.isPending ? "Installation…" : "Install"}
+                    {installService.isPending
+                      ? t("install.installing")
+                      : t("install.submit")}
                   </Button>
                 </div>
               </DialogFooter>

@@ -8,6 +8,7 @@ import { Alert, AlertDescription } from "@workspace/ui/components/alert"
 import { toast } from "sonner"
 import { useTranslation } from "react-i18next"
 import { SetupAdminFormSchema, fieldErrors } from "@ploydok/shared"
+import i18n from "../../lib/i18n"
 import { apiFetch } from "../../lib/api"
 import { ApiError } from "../../lib/api/errors"
 import { usePendingAction } from "../../lib/hooks/use-pending-action"
@@ -213,7 +214,7 @@ function SetupPage(): React.JSX.Element {
       )
       setBackupCodes(created.backup_codes)
       setStep("totp")
-      toast.success("Admin account created")
+      toast.success(t("setup.accountCreated"))
     } catch (err) {
       // Une validation refusée par le serveur (bornes divergentes, corps
       // altéré) revient annotée par champ : la réafficher au bon endroit
@@ -242,8 +243,7 @@ function SetupPage(): React.JSX.Element {
         if (!cancelled) setTotpData(data)
       } catch (err) {
         if (cancelled) return
-        const msg =
-          err instanceof Error ? err.message : "Failed to start TOTP enrollment"
+        const msg = err instanceof Error ? err.message : t("totp.enrollFailed")
         setTotpError(msg)
         totpEnrollStarted.current = false
       } finally {
@@ -258,7 +258,7 @@ function SetupPage(): React.JSX.Element {
   const handleTotpVerify = async (e: React.FormEvent): Promise<void> => {
     e.preventDefault()
     if (!/^\d{6}$/.test(totpCode)) {
-      setTotpError("Enter the 6-digit code from your authenticator app")
+      setTotpError(t("setup.totp.hint"))
       return
     }
     setTotpVerifying(true)
@@ -268,10 +268,10 @@ function SetupPage(): React.JSX.Element {
         method: "POST",
         body: { code: totpCode },
       })
-      toast.success("TOTP enabled")
+      toast.success(t("setup.totp.enabled"))
       setStep("codes")
     } catch (err) {
-      const msg = err instanceof Error ? err.message : "Invalid TOTP code"
+      const msg = err instanceof Error ? err.message : t("totp.invalid")
       setTotpError(msg)
       toast.error(msg)
     } finally {
@@ -286,7 +286,7 @@ function SetupPage(): React.JSX.Element {
       setTotpCopied(true)
       setTimeout(() => setTotpCopied(false), 2000)
     } catch {
-      toast.error("Clipboard unavailable")
+      toast.error(t("clipboardUnavailable"))
     }
   }
 
@@ -339,7 +339,7 @@ function SetupPage(): React.JSX.Element {
       >
         {totpEnrolling || !totpData ? (
           <p className="text-sm text-muted-foreground">
-            {totpError ?? "Generating your TOTP secret…"}
+            {totpError ?? t("setup.totp.generating")}
           </p>
         ) : (
           <form
@@ -354,7 +354,7 @@ function SetupPage(): React.JSX.Element {
             </div>
             <div className="space-y-1">
               <p className="font-mono text-[10px] tracking-wide text-muted-foreground uppercase">
-                Manual entry
+                {t("setup.totp.manualEntry")}
               </p>
               <div className="flex items-center gap-2">
                 <code className="flex-1 truncate rounded border border-border bg-muted px-2 py-1.5 font-mono text-xs">
@@ -367,20 +367,22 @@ function SetupPage(): React.JSX.Element {
                   onClick={() => void handleCopyTotpSecret()}
                   className="shrink-0 font-mono text-[11px]"
                 >
-                  {totpCopied ? "Copied!" : "Copy"}
+                  {totpCopied
+                    ? t("setup.totp.copied")
+                    : t("setup.totp.copySecret")}
                 </Button>
               </div>
             </div>
             <Field
               id="totp_code"
-              label="Verification code"
+              label={t("setup.totp.code")}
               inputMode="numeric"
               autoComplete="one-time-code"
               pattern="[0-9]{6}"
               maxLength={6}
               value={totpCode}
               onChange={(v) => setTotpCode(v.replace(/\D/g, "").slice(0, 6))}
-              placeholder="000000"
+              placeholder={t("setup.totp.codePlaceholder")}
               inputClassName="text-center font-mono text-lg tracking-[0.4em]"
             />
             {totpError && (
@@ -394,7 +396,9 @@ function SetupPage(): React.JSX.Element {
               disabled={!/^\d{6}$/.test(totpCode)}
               className="h-11 w-full rounded-[10px]"
             >
-              {totpVerifying ? "Verifying…" : "Verify and continue"}
+              {totpVerifying
+                ? t("setup.totp.verifying")
+                : t("setup.totp.verify")}
             </Button>
           </form>
         )}
@@ -406,7 +410,7 @@ function SetupPage(): React.JSX.Element {
           loading={finish.pending}
           disabled={totpVerifying}
         >
-          Skip for now — enable later in Settings
+          {t("setup.totp.skip")}
         </Button>
       </AuthShell>
     )
@@ -434,7 +438,7 @@ function SetupPage(): React.JSX.Element {
             className="flex-1"
             onClick={() => downloadBackupCodes(backupCodes, email)}
           >
-            Download .txt
+            {t("setup.codes.download")}
           </Button>
           <Button
             type="button"
@@ -442,7 +446,7 @@ function SetupPage(): React.JSX.Element {
             className="flex-1"
             onClick={() => void copyBackupCodes(backupCodes)}
           >
-            Copy
+            {t("setup.codes.copy")}
           </Button>
         </div>
         <label className="flex items-center gap-2 text-sm">
@@ -452,7 +456,7 @@ function SetupPage(): React.JSX.Element {
             onChange={(e) => setAcknowledged(e.target.checked)}
             className="size-4 rounded border-input accent-primary"
           />
-          I have saved these codes in a safe place
+          {t("setup.codes.acknowledge")}
         </label>
         <Button
           className="h-11 w-full rounded-[10px]"
@@ -460,7 +464,7 @@ function SetupPage(): React.JSX.Element {
           loading={finish.pending}
           onClick={() => void finish.run()}
         >
-          Continue
+          {t("setup.codes.continue")}
         </Button>
       </AuthShell>
     )
@@ -485,7 +489,7 @@ function SetupPage(): React.JSX.Element {
               variant="ghost"
               size="xs"
               className="text-muted-foreground"
-              title={`Dev seulement — remplit ${DEV_SEED_EMAIL}`}
+              title={t("login.devOnly", { email: DEV_SEED_EMAIL })}
               onClick={() => {
                 setEmail(DEV_SEED_EMAIL)
                 setDisplayName(DEV_SEED_NAME)
@@ -495,40 +499,40 @@ function SetupPage(): React.JSX.Element {
                 setError(null)
               }}
             >
-              Autofill
+              {t("setup.fillDev")}
             </Button>
           </div>
         ) : null}
         <Field
           id="email"
           error={errors["email"]}
-          label="Email"
+          label={t("setup.email")}
           type="email"
           value={email}
           onChange={setEmail}
           autoComplete="email"
-          placeholder="you@example.com"
+          placeholder={t("login.emailPlaceholder")}
         />
         <Field
           id="display_name"
           error={errors["display_name"]}
-          label="Display name"
+          label={t("setup.displayName")}
           value={displayName}
           onChange={setDisplayName}
           autoComplete="name"
-          placeholder="Kevin"
+          placeholder={t("setup.displayNamePlaceholder")}
         />
         <Field
           id="password"
           error={errors["password"]}
-          label="Password"
+          label={t("setup.password")}
           type={showPassword ? "text" : "password"}
           value={password}
           onChange={setPassword}
           autoComplete="new-password"
           minLength={12}
           maxLength={72}
-          placeholder="At least 12 characters"
+          placeholder={t("setup.passwordPlaceholder")}
           adornment={
             <PasswordToggle
               visible={showPassword}
@@ -539,14 +543,14 @@ function SetupPage(): React.JSX.Element {
         <Field
           id="password_confirm"
           error={errors["password_confirm"]}
-          label="Confirm password"
+          label={t("setup.confirmPassword")}
           type={showPasswordConfirm ? "text" : "password"}
           value={passwordConfirm}
           onChange={setPasswordConfirm}
           autoComplete="new-password"
           minLength={12}
           maxLength={72}
-          placeholder="Repeat password"
+          placeholder={t("setup.confirmPasswordPlaceholder")}
           adornment={
             <PasswordToggle
               visible={showPasswordConfirm}
@@ -564,7 +568,7 @@ function SetupPage(): React.JSX.Element {
           loading={loading}
           className="h-11 w-full rounded-[10px]"
         >
-          {loading ? "Creating admin…" : "Create admin account"}
+          {loading ? t("setup.creatingAccount") : t("setup.createAccount")}
         </Button>
       </form>
     </AuthShell>
@@ -578,7 +582,8 @@ function PasswordToggle({
   visible: boolean
   onToggle: () => void
 }): React.JSX.Element {
-  const label = visible ? "Hide password" : "Show password"
+  const { t } = useTranslation("auth")
+  const label = visible ? t("setup.hidePassword") : t("setup.showPassword")
   return (
     <button
       type="button"
@@ -623,8 +628,8 @@ function downloadBackupCodes(codes: Array<string>, email: string): void {
 async function copyBackupCodes(codes: Array<string>): Promise<void> {
   try {
     await navigator.clipboard.writeText(codes.join("\n"))
-    toast.success("Backup codes copied")
+    toast.success(i18n.t("auth:setup.codes.copied"))
   } catch {
-    toast.error("Clipboard unavailable — use the download instead")
+    toast.error(i18n.t("auth:setup.codes.clipboardUnavailable"))
   }
 }

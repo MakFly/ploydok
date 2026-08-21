@@ -41,19 +41,17 @@ export function DiscordForm({
         {error ? (
           <FieldError>{error}</FieldError>
         ) : (
-          <FieldDescription>
-            {t("notifications.discordHowTo")}
-          </FieldDescription>
+          <FieldDescription>{t("notifications.discordHowTo")}</FieldDescription>
         )}
       </Field>
       <p className="text-xs text-muted-foreground">
         <a
-          href="https://support.discord.com/hc/fr/articles/228383668-Intro-aux-Webhooks"
+          href={t("notifications.discordDocsUrl")}
           target="_blank"
           rel="noopener noreferrer"
           className="underline underline-offset-4 hover:text-foreground"
         >
-          Documentation Discord
+          {t("notifications.discordDocs")}
         </a>
       </p>
     </div>

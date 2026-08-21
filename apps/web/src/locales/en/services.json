@@ -50,7 +50,9 @@
     "copy": "Copy",
     "copied": "Copied",
     "filesFailed": "Could not load template files ({{message}}).",
-    "emptyCatalog": "The catalog is empty for now."
+    "emptyCatalog": "The catalog is empty for now.",
+    "loadingCount": "Loading… ({{count}} of {{total}})",
+    "loadMore": "Load more ({{count}} of {{total}})"
   },
   "install": {
     "title": "Install {{name}}",

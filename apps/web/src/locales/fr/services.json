@@ -50,7 +50,9 @@
     "copy": "Copier",
     "copied": "Copié",
     "filesFailed": "Impossible de charger les fichiers du modèle ({{message}}).",
-    "emptyCatalog": "Le catalogue est vide pour le moment."
+    "emptyCatalog": "Le catalogue est vide pour le moment.",
+    "loadingCount": "Chargement… ({{count}} sur {{total}})",
+    "loadMore": "Charger plus ({{count}} sur {{total}})"
   },
   "install": {
     "title": "Installer {{name}}",

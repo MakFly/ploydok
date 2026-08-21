@@ -48,9 +48,26 @@ import {
 
 type NavSection = "Navigation" | "Integrations" | "Account" | "Instance"
 
+const PALETTE_NAV_KEYS = {
+  "nav-dashboard": "dashboard",
+  "nav-apps": "applications",
+  "nav-databases": "databases",
+  "nav-services": "services",
+  "nav-deployments": "deployments",
+  "nav-marketplace": "marketplace",
+  "nav-monitoring": "monitoring",
+  "nav-members": "members",
+  "nav-audit": "audit",
+  "nav-integrations-git-providers": "gitProviders",
+  "nav-integrations-registry": "registry",
+  "nav-integrations-notifications": "notifications",
+  "nav-settings": "settings",
+  "nav-settings-security": "security",
+  "nav-admin-disk": "disk",
+} as const
+
 interface NavEntry {
-  id: string
-  label: string
+  id: keyof typeof PALETTE_NAV_KEYS
   section: NavSection
   icon: React.ComponentType<{ className?: string }>
   to: string
@@ -98,7 +115,6 @@ export function matchesQuery(item: FilterableItem, query: string): boolean {
 const NAV_ITEMS: Array<NavEntry> = [
   {
     id: "nav-dashboard",
-    label: "Dashboard",
     section: "Navigation",
     icon: RiDashboardLine,
     to: "/dashboard",
@@ -106,7 +122,6 @@ const NAV_ITEMS: Array<NavEntry> = [
   },
   {
     id: "nav-apps",
-    label: "Applications",
     section: "Navigation",
     icon: RiApps2Line,
     to: "/apps",
@@ -114,7 +129,6 @@ const NAV_ITEMS: Array<NavEntry> = [
   },
   {
     id: "nav-databases",
-    label: "Databases",
     section: "Navigation",
     icon: RiDatabase2Line,
     to: "/databases",
@@ -122,7 +136,6 @@ const NAV_ITEMS: Array<NavEntry> = [
   },
   {
     id: "nav-services",
-    label: "Services",
     section: "Navigation",
     icon: RiCodeBoxLine,
     to: "/dashboard",
@@ -130,7 +143,6 @@ const NAV_ITEMS: Array<NavEntry> = [
   },
   {
     id: "nav-deployments",
-    label: "Deployments",
     section: "Navigation",
     icon: RiRocketLine,
     to: "/dashboard",
@@ -138,7 +150,6 @@ const NAV_ITEMS: Array<NavEntry> = [
   },
   {
     id: "nav-marketplace",
-    label: "Marketplace",
     section: "Navigation",
     icon: RiShapesLine,
     to: "/dashboard",
@@ -146,7 +157,6 @@ const NAV_ITEMS: Array<NavEntry> = [
   },
   {
     id: "nav-monitoring",
-    label: "Monitoring",
     section: "Navigation",
     icon: RiPulseLine,
     to: "/dashboard",
@@ -154,7 +164,6 @@ const NAV_ITEMS: Array<NavEntry> = [
   },
   {
     id: "nav-members",
-    label: "Members",
     section: "Navigation",
     icon: RiTeamLine,
     to: "/dashboard",
@@ -162,7 +171,6 @@ const NAV_ITEMS: Array<NavEntry> = [
   },
   {
     id: "nav-audit",
-    label: "Audit log",
     section: "Navigation",
     icon: RiFileListLine,
     to: "/dashboard",
@@ -170,42 +178,36 @@ const NAV_ITEMS: Array<NavEntry> = [
   },
   {
     id: "nav-integrations-git-providers",
-    label: "Git providers",
     section: "Integrations",
     icon: RiPlugLine,
     to: "/settings/git-providers",
   },
   {
     id: "nav-integrations-registry",
-    label: "Registry",
     section: "Integrations",
     icon: RiArchiveLine,
     to: "/settings/registry",
   },
   {
     id: "nav-integrations-notifications",
-    label: "Notifications",
     section: "Integrations",
     icon: RiNotificationLine,
     to: "/settings/notifications",
   },
   {
     id: "nav-settings",
-    label: "Settings",
     section: "Account",
     icon: RiSettings3Line,
     to: "/settings",
   },
   {
     id: "nav-settings-security",
-    label: "Security",
     section: "Account",
     icon: RiShieldCheckLine,
     to: "/settings/security",
   },
   {
     id: "nav-admin-disk",
-    label: "Disk",
     section: "Instance",
     icon: RiHardDriveLine,
     to: "/admin/disk",
@@ -369,6 +371,7 @@ function CommandPaletteContent({
           >
             {items.map((item) => {
               const Icon = item.icon
+              const label = t(`nav.${PALETTE_NAV_KEYS[item.id]}`)
               const target =
                 currentOrgSlug && item.orgPathSuffix
                   ? organizationPath(currentOrgSlug, item.orgPathSuffix)
@@ -379,11 +382,11 @@ function CommandPaletteContent({
               return (
                 <CommandItem
                   key={item.id}
-                  value={`nav ${section} ${item.label} ${hint}`}
+                  value={`nav ${section} ${label} ${hint}`}
                   onSelect={() => handleNavSelect(target, item.params)}
                 >
                   <Icon className="size-4" />
-                  <span className="flex-1 truncate">{item.label}</span>
+                  <span className="flex-1 truncate">{label}</span>
                   <CommandMeta>{hint}</CommandMeta>
                 </CommandItem>
               )

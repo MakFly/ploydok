@@ -54,10 +54,7 @@ export function SlackForm({
         {error ? (
           <FieldError>{error}</FieldError>
         ) : (
-          <FieldDescription>
-            Dans ton workspace Slack : Apps → Incoming Webhooks → Add to
-            Workspace → Choisir un canal → Copier l&apos;URL
-          </FieldDescription>
+          <FieldDescription>{t("notifications.slackHowTo")}</FieldDescription>
         )}
       </Field>
       <p className="text-xs text-muted-foreground">
@@ -67,7 +64,7 @@ export function SlackForm({
           rel="noopener noreferrer"
           className="underline underline-offset-4 hover:text-foreground"
         >
-          Documentation Slack
+          {t("notifications.slackDocs")}
         </a>
       </p>
     </div>
