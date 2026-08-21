@@ -1,6 +1,7 @@
 // SPDX-License-Identifier: AGPL-3.0-only
 import * as React from "react"
 import { Link, useRouterState } from "@tanstack/react-router"
+import { useTranslation } from "react-i18next"
 import { Button } from "@workspace/ui/components/button"
 import { RiExternalLinkLine, RiTerminalBoxLine } from "@remixicon/react"
 import { Tabs, TabsList, TabsTrigger } from "@workspace/ui/components/tabs"
@@ -20,25 +21,26 @@ import type { AppHealth } from "../../lib/app-runtime"
 
 interface NavItem {
   value: string
-  label: string
+  labelKey: string
   segment: string
   /** When true, the tab requires app.status === "running" to be active. */
   requiresRunning?: boolean
 }
 
 const NAV_ITEMS: Array<NavItem> = [
-  { value: "settings", label: "General", segment: "settings" },
-  { value: "deployments", label: "Deployments", segment: "deployments" },
-  { value: "logs", label: "Logs", segment: "logs", requiresRunning: true },
-  { value: "env", label: "Env", segment: "env" },
-  { value: "domains", label: "Domains", segment: "domains" },
-  { value: "storage", label: "Storage", segment: "storage" },
-  { value: "previews", label: "Previews", segment: "previews" },
-  { value: "security", label: "Security", segment: "security" },
-  { value: "advanced", label: "Advanced", segment: "advanced" },
+  { value: "settings", labelKey: "nav.general", segment: "settings" },
+  { value: "deployments", labelKey: "nav.deployments", segment: "deployments" },
+  { value: "logs", labelKey: "nav.logs", segment: "logs", requiresRunning: true },
+  { value: "env", labelKey: "nav.env", segment: "env" },
+  { value: "domains", labelKey: "nav.domains", segment: "domains" },
+  { value: "storage", labelKey: "nav.storage", segment: "storage" },
+  { value: "previews", labelKey: "nav.previews", segment: "previews" },
+  { value: "security", labelKey: "nav.security", segment: "security" },
+  { value: "advanced", labelKey: "nav.advanced", segment: "advanced" },
 ]
 
 export function AppBar({ app }: { app: AppDetail }): React.JSX.Element {
+  const { t } = useTranslation("apps")
   const currentOrgSlug = useCurrentOrganizationSlug()
   useTabShortcuts(app.id, currentOrgSlug)
   const pathname = useRouterState({ select: (s) => s.location.pathname })
@@ -85,16 +87,18 @@ export function AppBar({ app }: { app: AppDetail }): React.JSX.Element {
               variant="ghost"
               disabled
               className="gap-1.5"
-              title={`Available when the app is running (current: ${displayedApp.status})`}
+              title={t("nav.availableWhenRunning", {
+                status: displayedApp.status,
+              })}
             >
               <RiTerminalBoxLine className="size-4" aria-hidden="true" />
-              Shell
+              {t("nav.shell")}
             </Button>
           ) : (
             <Button size="sm" variant="ghost" asChild className="gap-1.5">
               <Link to={shellHref as never}>
                 <RiTerminalBoxLine className="size-4" aria-hidden="true" />
-                Shell
+                {t("nav.shell")}
               </Link>
             </Button>
           )}
@@ -110,13 +114,15 @@ export function AppBar({ app }: { app: AppDetail }): React.JSX.Element {
                 key={item.value}
                 value={item.value}
                 disabled
-                title={`Available when the app is running (current: ${displayedApp.status})`}
+                title={t("nav.availableWhenRunning", {
+                  status: displayedApp.status,
+                })}
               >
-                {item.label}
+                {t(item.labelKey)}
               </TabsTrigger>
             ) : (
               <TabsTrigger key={item.value} value={item.value} asChild>
-                <Link to={item.to as never}>{item.label}</Link>
+                <Link to={item.to as never}>{t(item.labelKey)}</Link>
               </TabsTrigger>
             )
           )}
@@ -133,6 +139,7 @@ function AppIdentity({
   app: AppDetail
   health: AppHealth | null
 }): React.JSX.Element {
+  const { t } = useTranslation("apps")
   return (
     <div className="flex min-w-0 items-center gap-3">
       <AppIcon name={app.name} src={app.iconUrl} className="size-10" />
@@ -157,7 +164,9 @@ function AppIdentity({
             />
           </a>
         ) : (
-          <span className="text-xs text-muted-foreground">No domain yet</span>
+          <span className="text-xs text-muted-foreground">
+            {t("empty.noDomain")}
+          </span>
         )}
       </div>
     </div>

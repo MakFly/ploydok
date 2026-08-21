@@ -1,5 +1,6 @@
 // SPDX-License-Identifier: AGPL-3.0-only
 import * as React from "react"
+import { useTranslation } from "react-i18next"
 import { Button } from "@workspace/ui/components/button"
 import {
   Dialog,
@@ -37,22 +38,27 @@ function normalizeHostname(rawHostname: string, wildcard: boolean) {
   return wildcard && !lower.startsWith("*.") ? `*.${lower}` : lower
 }
 
-function validateHostname(hostname: string, tlsMode: TlsMode): string | null {
-  if (hostname.length > 253) return "Hostname is too long"
+function validateHostname(
+  hostname: string,
+  tlsMode: TlsMode,
+  t: (key: string) => string
+): string | null {
+  if (hostname.length > 253) return t("domains.tooLong")
   if (hostname.startsWith("*.")) {
     if (tlsMode !== "dns01") {
-      return "Wildcard domains require DNS-01 mode"
+      return t("domains.wildcardRequiresDns")
     }
     return WILDCARD_HOSTNAME_REGEX.test(hostname)
       ? null
-      : "Invalid wildcard hostname format (e.g. *.example.com)"
+      : t("domains.invalidWildcard")
   }
   return HOSTNAME_REGEX.test(hostname)
     ? null
-    : "Invalid hostname format (e.g. app.example.com)"
+    : t("domains.invalidHostname")
 }
 
 export function AddDomainDialog({ onAdd, isAdding, lockReason }: AddDomainDialogProps): React.JSX.Element {
+  const { t } = useTranslation(["apps", "common"])
   const [open, setOpen] = React.useState(false)
   const [hostname, setHostname] = React.useState("")
   const [tlsMode, setTlsMode] = React.useState<TlsMode>("http01")
@@ -63,13 +69,13 @@ export function AddDomainDialog({ onAdd, isAdding, lockReason }: AddDomainDialog
   function handleSubmit(e: React.FormEvent) {
     e.preventDefault()
     const normalized = normalizeHostname(hostname, wildcard)
-    const validationError = validateHostname(normalized, tlsMode)
+    const validationError = validateHostname(normalized, tlsMode, t)
     if (validationError) {
       setError(validationError)
       return
     }
     if (tlsMode === "dns01" && !dns01Provider) {
-      setError("Select a DNS provider for DNS-01 mode")
+      setError(t("domains.selectDnsProvider"))
       return
     }
     setError(null)
@@ -89,20 +95,20 @@ export function AddDomainDialog({ onAdd, isAdding, lockReason }: AddDomainDialog
     <Dialog open={open} onOpenChange={setOpen}>
       <DialogTrigger asChild>
         <Button size="sm" disabled={Boolean(lockReason)}>
-          Add domain
+          {t("domains.addDomain")}
         </Button>
       </DialogTrigger>
       <DialogContent className="sm:max-w-md">
         <DialogHeader>
-          <DialogTitle>Add custom domain</DialogTitle>
+          <DialogTitle>{t("domains.addCustom")}</DialogTitle>
         </DialogHeader>
 
         <form onSubmit={handleSubmit} className="space-y-4">
           <div className="space-y-1.5">
-            <Label htmlFor="hostname">Hostname</Label>
+            <Label htmlFor="hostname">{t("domains.hostname")}</Label>
             <Input
               id="hostname"
-              placeholder="app.example.com"
+              placeholder={t("domains.placeholder")}
               value={hostname}
               onChange={(e) => setHostname(e.target.value)}
               autoFocus
@@ -110,7 +116,7 @@ export function AddDomainDialog({ onAdd, isAdding, lockReason }: AddDomainDialog
           </div>
 
           <div className="space-y-1.5">
-            <Label>TLS mode</Label>
+            <Label>{t("domains.tlsMode")}</Label>
             <div className="flex gap-2">
               {(["http01", "dns01"] as Array<TlsMode>).map((mode) => (
                 <button
@@ -128,7 +134,7 @@ export function AddDomainDialog({ onAdd, isAdding, lockReason }: AddDomainDialog
                     if (error) setError(null)
                   }}
                 >
-                  {mode === "http01" ? "HTTP-01 (standard)" : "DNS-01 (wildcard)"}
+                  {mode === "http01" ? t("domains.http01") : t("domains.dns01")}
                 </button>
               ))}
             </div>
@@ -136,7 +142,7 @@ export function AddDomainDialog({ onAdd, isAdding, lockReason }: AddDomainDialog
 
           {tlsMode === "dns01" && (
             <div className="space-y-1.5">
-              <Label htmlFor="provider">DNS provider</Label>
+              <Label htmlFor="provider">{t("domains.dnsProvider")}</Label>
               <select
                 id="provider"
                 className="w-full rounded-md border border-input bg-background px-3 py-1.5 text-sm"
@@ -157,7 +163,9 @@ export function AddDomainDialog({ onAdd, isAdding, lockReason }: AddDomainDialog
                   onChange={(e) => setWildcard(e.target.checked)}
                   className="rounded"
                 />
-                Wildcard certificate (*.{hostname || "example.com"})
+                {t("domains.wildcardCert", {
+                  hostname: hostname || t("domains.exampleCom"),
+                })}
               </label>
             </div>
           )}
@@ -166,10 +174,10 @@ export function AddDomainDialog({ onAdd, isAdding, lockReason }: AddDomainDialog
 
           <div className="flex justify-end gap-2">
             <Button type="button" variant="outline" size="sm" onClick={() => setOpen(false)}>
-              Cancel
+              {t("common:cancel")}
             </Button>
             <Button type="submit" size="sm" disabled={isAdding || !hostname}>
-              {isAdding ? "Adding…" : "Add domain"}
+              {isAdding ? t("domains.adding") : t("domains.addDomain")}
             </Button>
           </div>
         </form>

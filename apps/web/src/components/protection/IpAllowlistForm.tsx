@@ -1,5 +1,6 @@
 // SPDX-License-Identifier: AGPL-3.0-only
 import * as React from "react"
+import { useTranslation } from "react-i18next"
 import { Textarea } from "@workspace/ui/components/textarea"
 import { Button } from "@workspace/ui/components/button"
 import { Label } from "@workspace/ui/components/label"
@@ -16,6 +17,7 @@ function validateLines(lines: Array<string>): Array<string> {
 }
 
 export function IpAllowlistForm({ appId }: IpAllowlistFormProps): React.JSX.Element {
+  const { t } = useTranslation(["apps", "common"])
   const { data: protection } = useProtection(appId)
   const update = useUpdateProtection(appId)
   const [value, setValue] = React.useState("")
@@ -41,14 +43,14 @@ export function IpAllowlistForm({ appId }: IpAllowlistFormProps): React.JSX.Elem
   return (
     <div className="flex flex-col gap-3">
       <div>
-        <p className="text-sm font-medium">IP Allowlist</p>
+        <p className="text-sm font-medium">{t("protection.ipAllowlist")}</p>
         <p className="text-xs text-muted-foreground">
-          Only allow traffic from these IPs or CIDR ranges. One per line. Leave empty to allow all.
+          {t("protection.ipAllowlistDesc")}
         </p>
       </div>
 
       <div className="flex flex-col gap-1.5">
-        <Label htmlFor="ip-allowlist">CIDR ranges / IPs</Label>
+        <Label htmlFor="ip-allowlist">{t("protection.cidrLabel")}</Label>
         <Textarea
           id="ip-allowlist"
           value={value}
@@ -59,7 +61,7 @@ export function IpAllowlistForm({ appId }: IpAllowlistFormProps): React.JSX.Elem
         />
         {invalid.length > 0 && (
           <p className="text-xs text-destructive">
-            Invalid entries: {invalid.join(", ")}
+            {t("protection.invalidEntries", { entries: invalid.join(", ") })}
           </p>
         )}
       </div>
@@ -70,7 +72,7 @@ export function IpAllowlistForm({ appId }: IpAllowlistFormProps): React.JSX.Elem
         loading={update.isPending} disabled={invalid.length > 0}
         className="self-start"
       >
-        Save
+        {t("common:save")}
       </Button>
     </div>
   )

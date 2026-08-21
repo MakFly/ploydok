@@ -1,5 +1,6 @@
 // SPDX-License-Identifier: AGPL-3.0-only
 import * as React from "react"
+import { useTranslation } from "react-i18next"
 import {
   RiCheckboxCircleLine,
   RiCloseCircleLine,
@@ -29,6 +30,7 @@ import {
   useEventsSubscription,
 } from "../../../../../../lib/events-provider"
 import type { Build } from "@ploydok/shared"
+import i18n from "../../../../../../lib/i18n"
 import type { BuildStatusEventPayload } from "../../../../../../lib/apps"
 
 interface DeploymentsSearch {
@@ -48,12 +50,12 @@ interface DeploymentLiveEvent {
   t: number
 }
 
-const LIVE_EVENT_LABELS: Record<DeploymentLiveEventType, string> = {
-  "build.started": "Build started",
-  "build.succeeded": "Build succeeded",
-  "build.failed": "Build failed",
-  "build.cancelled": "Build cancelled",
-  "deploy.status_change": "Deployment updated",
+const LIVE_EVENT_KEYS: Record<DeploymentLiveEventType, string> = {
+  "build.started": "deployments.buildStarted",
+  "build.succeeded": "deployments.buildSucceeded",
+  "build.failed": "deployments.buildFailed",
+  "build.cancelled": "deployments.buildCancelled",
+  "deploy.status_change": "deployments.deployUpdated",
 }
 
 function validateDeploymentsSearch(
@@ -76,7 +78,7 @@ function useDeploymentLiveEvent(appId: string): DeploymentLiveEvent | null {
       if (payload.appId !== appId) return
       setLatest({
         type,
-        message: payload.message ?? LIVE_EVENT_LABELS[type],
+        message: payload.message ?? i18n.t(`apps:${LIVE_EVENT_KEYS[type]}`),
         t: typeof payload.t === "number" ? payload.t : Date.now(),
       })
     },
@@ -108,6 +110,7 @@ function useDeploymentLiveEvent(appId: string): DeploymentLiveEvent | null {
 }
 
 function DeploymentLiveBanner({ appId }: { appId: string }): React.JSX.Element {
+  const { t } = useTranslation("apps")
   const status = useEventsStatus()
   const latest = useDeploymentLiveEvent(appId)
   const isTerminal =
@@ -130,12 +133,12 @@ function DeploymentLiveBanner({ appId }: { appId: string }): React.JSX.Element {
         : "bg-amber-500 animate-pulse"
   const label =
     status === "open"
-      ? "Live connected"
+      ? t("deployments.liveConnected")
       : status === "offline"
-        ? "Live offline"
+        ? t("deployments.liveOffline")
         : status === "reconnecting"
-          ? "Live reconnecting…"
-          : "Live connecting…"
+          ? t("deployments.liveReconnecting")
+          : t("deployments.liveConnecting")
 
   return (
     <div
@@ -168,6 +171,7 @@ function DeploymentLiveBanner({ appId }: { appId: string }): React.JSX.Element {
 }
 
 function AppDeploymentsTab(): React.JSX.Element {
+  const { t } = useTranslation("apps")
   const { id: routeAppId } = useParams({ strict: false })
   const appId = routeAppId!
   const { build: selectedBuildId } = useSearch({
@@ -190,13 +194,13 @@ function AppDeploymentsTab(): React.JSX.Element {
   const selectedFailure =
     selectedBuild?.status === "failed" && selectedBuild.errorMessage
       ? {
-          label: "Build failed",
+          label: t("deployments.buildFailed"),
           message: selectedBuild.errorMessage,
         }
       : selectedBuild?.status === "succeeded_with_warning" &&
           selectedBuild.postDeployError
         ? {
-            label: "Post-deploy hook failed",
+            label: t("deployments.postDeployFailed"),
             message: selectedBuild.postDeployError,
           }
         : null
@@ -232,7 +236,7 @@ function AppDeploymentsTab(): React.JSX.Element {
     return (
       <div className="w-full space-y-4 px-4 py-6 md:px-8 md:py-8">
         <p className="text-sm text-destructive" role="alert">
-          Failed to load deployments: {error.message}
+          {t("deployments.loadFailed", { message: error.message })}
         </p>
       </div>
     )
@@ -289,9 +293,9 @@ function AppDeploymentsTab(): React.JSX.Element {
 
       <section className="flex flex-col gap-3">
         <header>
-          <h2 className="text-sm font-semibold">Triggers</h2>
+          <h2 className="text-sm font-semibold">{t("deployments.triggersTitle")}</h2>
           <p className="text-xs leading-5 text-muted-foreground">
-            How a push or a webhook becomes a deploy.
+            {t("deployments.triggersHint")}
           </p>
         </header>
         <DeploymentTriggers appId={appId} />
@@ -301,9 +305,9 @@ function AppDeploymentsTab(): React.JSX.Element {
 
       <section className="flex flex-col gap-3">
         <header>
-          <h2 className="text-sm font-semibold">Webhooks</h2>
+          <h2 className="text-sm font-semibold">{t("deployments.webhooksTitle")}</h2>
           <p className="text-xs leading-5 text-muted-foreground">
-            Inbound provider deliveries and signing secret.
+            {t("deployments.webhooksHint")}
           </p>
         </header>
         <WebhooksPanel appId={appId} />

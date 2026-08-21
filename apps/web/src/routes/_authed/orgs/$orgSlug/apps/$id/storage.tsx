@@ -1,6 +1,7 @@
 // SPDX-License-Identifier: AGPL-3.0-only
 import * as React from "react"
 import { createFileRoute } from "@tanstack/react-router"
+import { useTranslation } from "react-i18next"
 import {
   RiArchiveLine,
   RiBookOpenLine,
@@ -30,6 +31,7 @@ import {
   useUpdateAppVolume,
 } from "../../../../../../lib/app-volumes"
 import { useTargetBackupNow } from "../../../../../../lib/backups"
+import i18n from "../../../../../../lib/i18n"
 import type { AppVolume } from "../../../../../../lib/app-volumes"
 
 export const Route = createFileRoute(
@@ -39,7 +41,7 @@ export const Route = createFileRoute(
 })
 
 function formatBytes(bytes: number | null): string {
-  if (bytes === null) return "No limit"
+  if (bytes === null) return i18n.t("apps:storage.noLimit")
   if (bytes < 1024 * 1024) return `${Math.round(bytes / 1024)} KB`
   if (bytes < 1024 * 1024 * 1024) {
     return `${(bytes / 1024 / 1024).toFixed(1)} MB`
@@ -48,6 +50,7 @@ function formatBytes(bytes: number | null): string {
 }
 
 function AppStoragePage(): React.JSX.Element {
+  const { t } = useTranslation(["apps", "common"])
   const { id: appId } = Route.useParams()
   const { data: volumes = [], isLoading } = useAppVolumes(appId)
   const createVolume = useCreateAppVolume(appId)
@@ -74,9 +77,9 @@ function AppStoragePage(): React.JSX.Element {
     <div className="w-full space-y-6 px-4 py-6 md:px-8 md:py-8">
       <div className="flex flex-wrap items-end justify-between gap-3">
         <div>
-          <h1 className="text-2xl font-semibold tracking-normal">Storage</h1>
+          <h1 className="text-2xl font-semibold tracking-normal">{t("storage.title")}</h1>
           <p className="text-sm text-muted-foreground">
-            Persistent app volumes and their local or S3-compatible backups.
+            {t("storage.description")}
           </p>
         </div>
         <div className="flex flex-wrap items-center gap-2">
@@ -88,22 +91,19 @@ function AppStoragePage(): React.JSX.Element {
             onClick={() => setGuideOpen(true)}
           >
             <RiBookOpenLine className="size-3.5" aria-hidden="true" />
-            Guide
+            {t("storage.guide")}
           </Button>
           <Badge variant="secondary" className="gap-1.5">
             <RiHardDrive3Line className="size-3.5" aria-hidden="true" />
-            {volumes.length} volume{volumes.length === 1 ? "" : "s"}
+            {t("storage.volumes", { count: volumes.length })}
           </Badge>
         </div>
       </div>
 
       <Card>
         <CardHeader>
-          <CardTitle>Create volume</CardTitle>
-          <CardDescription>
-            Volumes are mounted into the app container and retained across
-            redeploys. Deleting a volume requires the app to be stopped.
-          </CardDescription>
+          <CardTitle>{t("storage.createTitle")}</CardTitle>
+          <CardDescription>{t("storage.createDesc")}</CardDescription>
         </CardHeader>
         <CardContent>
           <form
@@ -111,7 +111,7 @@ function AppStoragePage(): React.JSX.Element {
             className="grid gap-3 md:grid-cols-[minmax(140px,1fr)_minmax(180px,1fr)_minmax(140px,0.8fr)_auto]"
           >
             <div className="space-y-1.5">
-              <Label htmlFor="volume-name">Name</Label>
+              <Label htmlFor="volume-name">{t("storage.name")}</Label>
               <Input
                 id="volume-name"
                 value={name}
@@ -121,7 +121,7 @@ function AppStoragePage(): React.JSX.Element {
               />
             </div>
             <div className="space-y-1.5">
-              <Label htmlFor="volume-mount-path">Mount path</Label>
+              <Label htmlFor="volume-mount-path">{t("storage.mountPath")}</Label>
               <Input
                 id="volume-mount-path"
                 value={mountPath}
@@ -131,19 +131,19 @@ function AppStoragePage(): React.JSX.Element {
               />
             </div>
             <div className="space-y-1.5">
-              <Label htmlFor="volume-size-limit">Limit MB</Label>
+              <Label htmlFor="volume-size-limit">{t("storage.limitMb")}</Label>
               <Input
                 id="volume-size-limit"
                 type="number"
                 min={1}
                 value={sizeLimitMb}
                 onChange={(event) => setSizeLimitMb(event.target.value)}
-                placeholder="Optional"
+                placeholder={t("storage.optional")}
               />
             </div>
             <div className="flex items-end">
               <Button type="submit" loading={createVolume.isPending}>
-                {createVolume.isPending ? "Creating..." : "Create"}
+                {createVolume.isPending ? t("storage.creating") : t("storage.create")}
               </Button>
             </div>
           </form>
@@ -155,7 +155,7 @@ function AppStoragePage(): React.JSX.Element {
       ) : volumes.length === 0 ? (
         <div className="rounded-lg border border-dashed border-panel-border bg-panel-inset py-10 text-center">
           <p className="text-sm text-muted-foreground">
-            No persistent volumes yet.
+            {t("storage.empty")}
           </p>
         </div>
       ) : (
@@ -181,6 +181,7 @@ function StorageGuideAside({
   open: boolean
   onClose: () => void
 }): React.JSX.Element | null {
+  const { t } = useTranslation("apps")
   React.useEffect(() => {
     if (!open) return
     const handleKeyDown = (event: KeyboardEvent): void => {
@@ -196,7 +197,7 @@ function StorageGuideAside({
     <div className="fixed inset-0 z-50 flex justify-end">
       <button
         type="button"
-        aria-label="Close storage guide"
+        aria-label={t("storage.closeGuide")}
         className="hidden flex-1 cursor-default bg-background/20 md:block"
         onClick={onClose}
       />
@@ -204,10 +205,10 @@ function StorageGuideAside({
         <div className="flex items-start justify-between gap-4 border-b px-5 py-4">
           <div className="min-w-0">
             <p className="text-xs font-medium tracking-wide text-muted-foreground uppercase">
-              Storage guide
+              {t("storage.guideKicker")}
             </p>
             <h2 className="mt-1 text-lg font-semibold tracking-normal">
-              App volumes and backups
+              {t("storage.guideTitle")}
             </h2>
           </div>
           <Button
@@ -215,7 +216,7 @@ function StorageGuideAside({
             variant="ghost"
             size="icon"
             onClick={onClose}
-            aria-label="Close storage guide"
+            aria-label={t("storage.closeGuide")}
           >
             <RiCloseLine className="size-4" aria-hidden="true" />
           </Button>
@@ -224,18 +225,15 @@ function StorageGuideAside({
         <div className="min-h-0 flex-1 overflow-y-auto px-5 py-5">
           <div className="space-y-5 text-sm">
             <GuideSection
-              title="1. Create a volume"
-              body="Choose a short name and an absolute mount path. The path is where your app reads and writes persistent files inside the container, for example /data, /uploads, or /var/www/html/storage."
+              title={t("storage.step1Title")}
+              body={t("storage.step1Body")}
             />
             <div className="rounded-md border border-primary/20 bg-primary/5 p-4">
               <h3 className="text-sm font-semibold">
-                Choosing the mount path
+                {t("storage.mountTitle")}
               </h3>
               <p className="mt-2 text-sm leading-6 text-muted-foreground">
-                The mount path is the folder inside the app container that
-                becomes persistent. Use the folder your framework already writes
-                user files to; files written elsewhere can disappear after a
-                rebuild or redeploy.
+                {t("storage.mountBody")}
               </p>
               <div className="mt-4 space-y-3">
                 <StackMountGuide
@@ -265,32 +263,24 @@ function StorageGuideAside({
               </div>
             </div>
             <GuideSection
-              title="2. Redeploy or restart the app"
-              body="A volume is attached when the runtime container is created. Existing containers keep their current mounts until the next restart or deploy."
+              title={t("storage.step2Title")}
+              body={t("storage.step2Body")}
             />
             <GuideSection
-              title="3. Back up the volume"
-              body="Use Backup now for an immediate snapshot, or configure a policy. Local backups stay on this machine; S3-compatible backups can target R2, AWS S3, Scaleway, OVH, or another compatible endpoint."
+              title={t("storage.step3Title")}
+              body={t("storage.step3Body")}
             />
             <GuideSection
-              title="4. Delete safely"
-              body="Stop the app before deleting a volume. Ploydok keeps the delete action explicit because removing a volume can remove user-generated data."
+              title={t("storage.step4Title")}
+              body={t("storage.step4Body")}
             />
 
             <div className="rounded-md border bg-muted/35 p-4">
-              <h3 className="text-sm font-semibold">Operational notes</h3>
+              <h3 className="text-sm font-semibold">{t("storage.notesTitle")}</h3>
               <ul className="mt-3 space-y-2 text-sm text-muted-foreground">
-                <li>
-                  Keep database data in managed databases, not app volumes.
-                </li>
-                <li>
-                  Prefer one volume per concern, such as uploads, cache, or
-                  application storage.
-                </li>
-                <li>
-                  Test restore procedures before relying on a backup policy in
-                  production.
-                </li>
+                <li>{t("storage.noteDb")}</li>
+                <li>{t("storage.noteOne")}</li>
+                <li>{t("storage.noteRestore")}</li>
               </ul>
             </div>
           </div>
@@ -366,6 +356,7 @@ function VolumePanel({
   appId: string
   volume: AppVolume
 }): React.JSX.Element {
+  const { t } = useTranslation(["apps", "common"])
   const updateVolume = useUpdateAppVolume(appId)
   const deleteVolume = useDeleteAppVolume(appId)
   const backupNow = useTargetBackupNow({
@@ -507,7 +498,7 @@ function VolumePanel({
                 min={1}
                 value={sizeLimitMb}
                 onChange={(event) => setSizeLimitMb(event.target.value)}
-                placeholder="Optional"
+                placeholder={t("storage.optional")}
               />
             </div>
             <div className="flex items-end gap-2">

@@ -1,5 +1,6 @@
 // SPDX-License-Identifier: AGPL-3.0-only
 import * as React from "react"
+import { useTranslation } from "react-i18next"
 import {
   Card,
   CardAction,
@@ -427,6 +428,7 @@ export function AppBuildRuntimeSettings({
 }: {
   app: AppDetail
 }): React.JSX.Element {
+  const { t } = useTranslation(["apps", "common"])
   const update = useUpdateAppSettings(app.id)
   const repoSource = getRepoSource(app.gitProvider)
   const stackClassification = useStackClassification(
@@ -481,17 +483,15 @@ export function AppBuildRuntimeSettings({
       await update.mutateAsync(formData)
       setEditing(false)
     } catch (err) {
-      setFormError(err instanceof Error ? err.message : "Save failed")
+      setFormError(err instanceof Error ? err.message : t("build.saveFailed"))
     }
   }
 
   return (
     <Card>
       <CardHeader>
-        <CardTitle>Build & runtime</CardTitle>
-        <CardDescription>
-          Commands, paths, ports, and health checks used by deployments.
-        </CardDescription>
+        <CardTitle>{t("build.title")}</CardTitle>
+        <CardDescription>{t("build.description")}</CardDescription>
         <CardAction>
           {!editing ? (
             <Button
@@ -499,7 +499,7 @@ export function AppBuildRuntimeSettings({
               variant="outline"
               onClick={() => setEditing(true)}
             >
-              Edit
+              {t("common:edit")}
             </Button>
           ) : null}
         </CardAction>
@@ -508,14 +508,11 @@ export function AppBuildRuntimeSettings({
       <CardContent className="grid gap-4 md:grid-cols-2 xl:grid-cols-3">
         {showPhpNixpacksSupport ? (
           <Alert className="md:col-span-2 xl:col-span-3">
-            <AlertTitle>Nixpacks PHP support</AlertTitle>
+            <AlertTitle>{t("build.phpSupport")}</AlertTitle>
             <AlertDescription>
-              Supported PHP versions are{" "}
-              <span className="font-mono">
-                {NIXPACKS_SUPPORTED_PHP_VERSIONS_LABEL}
-              </span>
-              . For PHP 7.4 or older, switch to Dockerfile or deploy a custom
-              image.
+              {t("build.phpSupportBody", {
+                versions: NIXPACKS_SUPPORTED_PHP_VERSIONS_LABEL,
+              })}
             </AlertDescription>
           </Alert>
         ) : null}
@@ -538,8 +535,8 @@ export function AppBuildRuntimeSettings({
         {isStatic ? (
           <BooleanField
             inputId="setting-static-spa-fallback"
-            label="SPA fallback"
-            hint="Serve index.html for deep client routes."
+            label={t("create.spaFallback")}
+            hint={t("build.spaHint")}
             checked={formData.staticSpaFallback ?? true}
             editing={editing}
             onChange={(value) =>
@@ -553,7 +550,7 @@ export function AppBuildRuntimeSettings({
           <>
             <PortField
               inputId="setting-runtime-port"
-              label="Runtime port"
+              label={t("build.runtimePort")}
               placeholder={placeholders.runtimePort}
               value={formData.runtimePort ?? null}
               editing={editing}
@@ -564,8 +561,8 @@ export function AppBuildRuntimeSettings({
 
             <PortField
               inputId="setting-healthcheck-port"
-              label="Healthcheck port"
-              hint="Leave empty to reuse runtime port"
+              label={t("build.healthcheckPort")}
+              hint={t("build.healthcheckPortHint")}
               placeholder={placeholders.healthcheckPort}
               value={formData.healthcheckPort ?? null}
               editing={editing}
@@ -579,7 +576,7 @@ export function AppBuildRuntimeSettings({
 
             <RuntimeSelectField
               inputId="setting-runtime-mode"
-              label="Runtime mode"
+              label={t("build.runtimeMode")}
               value={formData.runtime?.runtimeMode ?? "swarm"}
               editing={editing}
               onChange={(value) =>
@@ -595,7 +592,7 @@ export function AppBuildRuntimeSettings({
 
             <PortField
               inputId="setting-runtime-replicas"
-              label="Replicas"
+              label={t("build.replicas")}
               placeholder="1"
               value={formData.runtime?.replicas ?? 1}
               editing={editing}
@@ -612,12 +609,12 @@ export function AppBuildRuntimeSettings({
 
             <RuntimeSelectField
               inputId="setting-update-order"
-              label="Update order"
+              label={t("build.updateOrder")}
               value={formData.runtime?.updateOrder ?? "start-first"}
               editing={editing}
               options={[
-                { value: "start-first", label: "Start first" },
-                { value: "stop-first", label: "Stop first" },
+                { value: "start-first", label: t("build.startFirst") },
+                { value: "stop-first", label: t("build.stopFirst") },
               ]}
               onChange={(value) =>
                 setFormData((previous) => ({
@@ -634,7 +631,7 @@ export function AppBuildRuntimeSettings({
 
         {formError ? (
           <Alert variant="destructive" className="md:col-span-2 xl:col-span-3">
-            <AlertTitle>Could not save</AlertTitle>
+            <AlertTitle>{t("build.couldNotSave")}</AlertTitle>
             <AlertDescription>{formError}</AlertDescription>
           </Alert>
         ) : null}
@@ -648,14 +645,14 @@ export function AppBuildRuntimeSettings({
             onClick={handleCancel}
             disabled={update.isPending}
           >
-            Cancel
+            {t("common:cancel")}
           </Button>
           <Button
             size="sm"
             onClick={() => void handleSave()}
             loading={update.isPending}
           >
-            {update.isPending ? "Saving…" : "Save"}
+            {update.isPending ? t("common:saving") : t("common:save")}
           </Button>
         </CardFooter>
       ) : null}
@@ -840,10 +837,7 @@ function RuntimeSelectField({
   value,
   editing,
   onChange,
-  options = [
-    { value: "swarm", label: "Swarm" },
-    { value: "docker", label: "Docker legacy" },
-  ],
+  options,
 }: {
   inputId: string
   label: string
@@ -852,7 +846,12 @@ function RuntimeSelectField({
   onChange: (value: string) => void
   options?: Array<FieldOption>
 }): React.JSX.Element {
-  const selected = options.find((option) => option.value === value)
+  const { t } = useTranslation("apps")
+  const resolvedOptions = options ?? [
+    { value: "swarm", label: t("build.swarm") },
+    { value: "docker", label: t("build.dockerLegacy") },
+  ]
+  const selected = resolvedOptions.find((option) => option.value === value)
   return (
     <div className="flex flex-col gap-1.5">
       <Label htmlFor={inputId}>{label}</Label>
@@ -863,7 +862,7 @@ function RuntimeSelectField({
           </SelectTrigger>
           <SelectContent>
             <SelectGroup>
-              {options.map((option) => (
+              {resolvedOptions.map((option) => (
                 <SelectItem key={option.value} value={option.value}>
                   {option.label}
                 </SelectItem>
@@ -874,7 +873,7 @@ function RuntimeSelectField({
       ) : (
         <ReadOnlyValue
           value={selected?.label ?? value}
-          placeholder={options[0]?.label ?? ""}
+          placeholder={resolvedOptions[0]?.label ?? ""}
         />
       )}
     </div>
@@ -896,6 +895,7 @@ function BooleanField({
   editing: boolean
   onChange: (value: boolean) => void
 }): React.JSX.Element {
+  const { t } = useTranslation("common")
   return (
     <div className="flex flex-col gap-1.5">
       <Label htmlFor={inputId}>{label}</Label>
@@ -905,8 +905,8 @@ function BooleanField({
         </div>
       ) : (
         <ReadOnlyValue
-          value={checked ? "Enabled" : "Disabled"}
-          placeholder="Enabled"
+          value={checked ? t("enabled") : t("disabled")}
+          placeholder={t("enabled")}
         />
       )}
       {hint ? <p className="text-xs text-muted-foreground">{hint}</p> : null}

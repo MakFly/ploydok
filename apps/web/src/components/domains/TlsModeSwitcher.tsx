@@ -1,5 +1,6 @@
 // SPDX-License-Identifier: AGPL-3.0-only
 import * as React from "react"
+import { useTranslation } from "react-i18next"
 import { Button } from "@workspace/ui/components/button"
 import {
   Dialog,
@@ -36,6 +37,7 @@ export function TlsModeSwitcher({
   onSwitch,
   isSwitching,
 }: TlsModeSwitcherProps): React.JSX.Element {
+  const { t } = useTranslation(["apps", "common"])
   const [tlsMode, setTlsMode] = React.useState<TlsMode>(currentMode)
   const [dns01Provider, setDns01Provider] = React.useState<Dns01Provider>(
     currentProvider ?? "cloudflare"
@@ -61,12 +63,12 @@ export function TlsModeSwitcher({
     <Dialog open={open} onOpenChange={onOpenChange}>
       <DialogContent className="sm:max-w-sm">
         <DialogHeader>
-          <DialogTitle>Switch TLS mode</DialogTitle>
+          <DialogTitle>{t("domains.switchTitle")}</DialogTitle>
         </DialogHeader>
 
         <form onSubmit={handleSubmit} className="space-y-4">
           <div className="space-y-1.5">
-            <Label>TLS challenge mode</Label>
+            <Label>{t("domains.challengeMode")}</Label>
             <div className="flex gap-2">
               {(["http01", "dns01"] as Array<TlsMode>).map((mode) => (
                 <button
@@ -80,7 +82,7 @@ export function TlsModeSwitcher({
                   ].join(" ")}
                   onClick={() => setTlsMode(mode)}
                 >
-                  {mode === "http01" ? "HTTP-01" : "DNS-01"}
+                  {mode === "http01" ? t("domains.http01Short") : t("domains.dns01Short")}
                 </button>
               ))}
             </div>
@@ -88,7 +90,7 @@ export function TlsModeSwitcher({
 
           {tlsMode === "dns01" && (
             <div className="space-y-1.5">
-              <Label htmlFor="switch-provider">DNS provider</Label>
+              <Label htmlFor="switch-provider">{t("domains.dnsProvider")}</Label>
               <select
                 id="switch-provider"
                 className="w-full rounded-md border border-input bg-background px-3 py-1.5 text-sm"
@@ -106,10 +108,10 @@ export function TlsModeSwitcher({
 
           <div className="flex justify-end gap-2">
             <Button type="button" variant="outline" size="sm" onClick={() => onOpenChange(false)}>
-              Cancel
+              {t("common:cancel")}
             </Button>
             <Button type="submit" size="sm" disabled={isSwitching}>
-              {isSwitching ? "Switching…" : "Apply"}
+              {isSwitching ? t("domains.switching") : t("domains.apply")}
             </Button>
           </div>
         </form>

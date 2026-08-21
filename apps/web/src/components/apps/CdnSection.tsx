@@ -1,5 +1,7 @@
 // SPDX-License-Identifier: AGPL-3.0-only
 import * as React from "react"
+import { useTranslation } from "react-i18next"
+import i18n from "../../lib/i18n"
 import {
   RiCloseLine,
   RiCloudLine,
@@ -82,13 +84,13 @@ function parseHeaders(value: string): Record<string, string> {
   if (!value.trim()) return {}
   const parsed = JSON.parse(value) as unknown
   if (!parsed || typeof parsed !== "object" || Array.isArray(parsed)) {
-    throw new Error("Headers must be a JSON object")
+    throw new Error(i18n.t("apps:cdn.headersMustBeObject"))
   }
 
   const headers: Record<string, string> = {}
   for (const [key, headerValue] of Object.entries(parsed)) {
     if (typeof headerValue !== "string") {
-      throw new Error(`Header ${key} must be a string`)
+      throw new Error(i18n.t("apps:cdn.headerMustBeString", { key }))
     }
     headers[key] = headerValue
   }
@@ -96,6 +98,7 @@ function parseHeaders(value: string): Record<string, string> {
 }
 
 export function CdnSection({ appId }: { appId: string }): React.JSX.Element {
+  const { t } = useTranslation(["apps", "common"])
   const { data, isLoading, error } = useAppCdn(appId)
   const { data: cloudflare } = useAppCloudflareCdn(appId)
   const update = useUpdateAppCdn()
@@ -140,20 +143,24 @@ export function CdnSection({ appId }: { appId: string }): React.JSX.Element {
   }, [cloudflare])
 
   const statusLabel =
-    mode === "internal" ? "Internal" : mode === "external" ? "External" : "Off"
+    mode === "internal"
+      ? t("cdn.statusInternal")
+      : mode === "external"
+        ? t("cdn.statusExternal")
+        : t("cdn.off")
 
   const handleSave = async (): Promise<void> => {
     setFormError(null)
     const ttlSeconds = Number.parseInt(ttl, 10)
     if (!Number.isInteger(ttlSeconds) || ttlSeconds < 0 || ttlSeconds > 86400) {
-      setFormError("TTL must be between 0 and 86400 seconds.")
+      setFormError(t("cdn.ttlRange"))
       return
     }
 
     const cachePaths = parsePaths(pathsText)
     const invalidPath = cachePaths.find((path) => !path.startsWith("/"))
     if (invalidPath) {
-      setFormError(`Cache path must start with /: ${invalidPath}`)
+      setFormError(t("cdn.cachePathMustStart", { path: invalidPath }))
       return
     }
 
@@ -161,25 +168,25 @@ export function CdnSection({ appId }: { appId: string }): React.JSX.Element {
     try {
       headers = parseHeaders(headersText)
     } catch (err) {
-      setFormError(err instanceof Error ? err.message : "Invalid headers JSON")
+      setFormError(err instanceof Error ? err.message : t("cdn.invalidHeaders"))
       return
     }
 
     if (mode === "external") {
       if (!cloudflareZoneId.trim()) {
-        setFormError("Cloudflare zone ID is required.")
+        setFormError(t("cdn.zoneIdRequired"))
         return
       }
       if (!cloudflareHostname.trim()) {
-        setFormError("Cloudflare hostname is required.")
+        setFormError(t("cdn.hostnameRequired"))
         return
       }
       if (!cloudflareOrigin.trim()) {
-        setFormError("Cloudflare origin is required.")
+        setFormError(t("cdn.originRequired"))
         return
       }
       if (!cloudflare?.configured && !cloudflareToken.trim()) {
-        setFormError("Cloudflare API token is required for first setup.")
+        setFormError(t("cdn.tokenRequiredFirst"))
         return
       }
 
@@ -230,15 +237,13 @@ export function CdnSection({ appId }: { appId: string }): React.JSX.Element {
 
   return (
     <>
-      <Card data-app-id={appId} aria-label="CDN configuration">
+      <Card data-app-id={appId} aria-label={t("cdn.title")}>
         <CardHeader>
           <CardTitle className="flex items-center gap-2">
             <RiCloudLine className="size-4" aria-hidden="true" />
-            CDN & caching
+            {t("cdn.cachingTitle")}
           </CardTitle>
-          <CardDescription>
-            Configure route-level edge behavior for this application.
-          </CardDescription>
+          <CardDescription>{t("cdn.description")}</CardDescription>
           <CardAction className="flex items-center gap-2">
             <Button
               type="button"
@@ -247,7 +252,7 @@ export function CdnSection({ appId }: { appId: string }): React.JSX.Element {
               onClick={() => setGuideOpen(true)}
             >
               <RiQuestionLine className="size-4" aria-hidden="true" />
-              Guide
+              {t("cdn.guide")}
             </Button>
             <Badge variant={mode === "off" ? "outline" : "secondary"}>
               {statusLabel}
@@ -264,7 +269,7 @@ export function CdnSection({ appId }: { appId: string }): React.JSX.Element {
 
           <div className="grid gap-4 md:grid-cols-[220px_1fr]">
             <div className="space-y-2">
-              <Label>Mode</Label>
+              <Label>{t("cdn.mode")}</Label>
               <Select
                 value={mode}
                 onValueChange={(value) => setMode(value as CdnMode)}
@@ -273,9 +278,9 @@ export function CdnSection({ appId }: { appId: string }): React.JSX.Element {
                   <SelectValue />
                 </SelectTrigger>
                 <SelectContent>
-                  <SelectItem value="off">Off</SelectItem>
-                  <SelectItem value="internal">Internal cache</SelectItem>
-                  <SelectItem value="external">External CDN</SelectItem>
+                  <SelectItem value="off">{t("cdn.off")}</SelectItem>
+                  <SelectItem value="internal">{t("cdn.internal")}</SelectItem>
+                  <SelectItem value="external">{t("cdn.external")}</SelectItem>
                 </SelectContent>
               </Select>
             </div>
@@ -283,14 +288,14 @@ export function CdnSection({ appId }: { appId: string }): React.JSX.Element {
             {mode === "external" ? (
               <div className="grid gap-4 md:grid-cols-2">
                 <div className="space-y-2">
-                  <Label>Provider</Label>
-                  <Input value="Cloudflare managed" disabled readOnly />
+                  <Label>{t("cdn.provider")}</Label>
+                  <Input value={t("cdn.cloudflareManaged")} disabled readOnly />
                 </div>
                 <div className="space-y-2">
-                  <Label htmlFor="cloudflare-status">Sync status</Label>
+                  <Label htmlFor="cloudflare-status">{t("cdn.syncStatus")}</Label>
                   <Input
                     id="cloudflare-status"
-                    value={cloudflare?.status ?? "not configured"}
+                    value={cloudflare?.status ?? t("cdn.notConfigured")}
                     disabled
                     readOnly
                   />
@@ -300,18 +305,18 @@ export function CdnSection({ appId }: { appId: string }): React.JSX.Element {
               <div className="grid gap-4 sm:grid-cols-3">
                 <Metric
                   icon={<RiFlashlightLine className="size-4" />}
-                  label="Cache"
-                  value={mode === "internal" ? "Caddy" : "Disabled"}
+                  label={t("cdn.cache")}
+                  value={mode === "internal" ? t("cdn.caddy") : t("cdn.disabled")}
                 />
                 <Metric
                   icon={<RiSave3Line className="size-4" />}
-                  label="Compression"
-                  value={compression ? "On" : "Off"}
+                  label={t("cdn.compression")}
+                  value={compression ? t("common:on") : t("common:off")}
                 />
                 <Metric
                   icon={<RiExternalLinkLine className="size-4" />}
-                  label="Image variants"
-                  value={imageOptim ? "On" : "Off"}
+                  label={t("cdn.imageVariants")}
+                  value={imageOptim ? t("common:on") : t("common:off")}
                 />
               </div>
             )}
@@ -320,21 +325,21 @@ export function CdnSection({ appId }: { appId: string }): React.JSX.Element {
           {mode === "external" ? (
             <div className="grid gap-4 md:grid-cols-2">
               <div className="space-y-2">
-                <Label htmlFor="cloudflare-token">Cloudflare API token</Label>
+                <Label htmlFor="cloudflare-token">{t("cdn.apiToken")}</Label>
                 <Input
                   id="cloudflare-token"
                   type="password"
                   value={cloudflareToken}
                   placeholder={
                     cloudflare?.configured
-                      ? "Leave blank to keep current token"
-                      : "Required for first setup"
+                      ? t("cdn.keepToken")
+                      : t("cdn.tokenRequired")
                   }
                   onChange={(event) => setCloudflareToken(event.target.value)}
                 />
               </div>
               <div className="space-y-2">
-                <Label htmlFor="cloudflare-zone-id">Zone ID</Label>
+                <Label htmlFor="cloudflare-zone-id">{t("cdn.zoneId")}</Label>
                 <Input
                   id="cloudflare-zone-id"
                   value={cloudflareZoneId}
@@ -343,7 +348,7 @@ export function CdnSection({ appId }: { appId: string }): React.JSX.Element {
                 />
               </div>
               <div className="space-y-2">
-                <Label htmlFor="cloudflare-zone-name">Zone name</Label>
+                <Label htmlFor="cloudflare-zone-name">{t("cdn.zoneName")}</Label>
                 <Input
                   id="cloudflare-zone-name"
                   value={cloudflareZoneName}
@@ -354,7 +359,7 @@ export function CdnSection({ appId }: { appId: string }): React.JSX.Element {
                 />
               </div>
               <div className="space-y-2">
-                <Label htmlFor="cloudflare-hostname">Proxied hostname</Label>
+                <Label htmlFor="cloudflare-hostname">{t("cdn.proxiedHostname")}</Label>
                 <Input
                   id="cloudflare-hostname"
                   value={cloudflareHostname}
@@ -365,11 +370,11 @@ export function CdnSection({ appId }: { appId: string }): React.JSX.Element {
                 />
               </div>
               <div className="space-y-2 md:col-span-2">
-                <Label htmlFor="cloudflare-origin">Origin target</Label>
+                <Label htmlFor="cloudflare-origin">{t("cdn.originTarget")}</Label>
                 <Input
                   id="cloudflare-origin"
                   value={cloudflareOrigin}
-                  placeholder="origin.example.com or server IP"
+                  placeholder={t("cdn.originPlaceholder")}
                   onChange={(event) => setCloudflareOrigin(event.target.value)}
                 />
               </div>
@@ -383,7 +388,7 @@ export function CdnSection({ appId }: { appId: string }): React.JSX.Element {
 
           <div className="grid gap-4 md:grid-cols-2">
             <div className="space-y-2">
-              <Label htmlFor="cdn-ttl">Cache TTL seconds</Label>
+              <Label htmlFor="cdn-ttl">{t("cdn.ttl")}</Label>
               <Input
                 id="cdn-ttl"
                 type="number"
@@ -397,15 +402,15 @@ export function CdnSection({ appId }: { appId: string }): React.JSX.Element {
 
             <ToggleRow
               id="cdn-compression"
-              title="Compression"
-              description="Enable Brotli, Zstandard, and gzip on eligible responses."
+              title={t("cdn.compression")}
+              description={t("cdn.compressionDesc")}
               checked={compression}
               disabled={mode !== "internal"}
               onCheckedChange={setCompression}
             />
 
             <div className="space-y-2 md:col-span-2">
-              <Label htmlFor="cdn-paths">Cache paths</Label>
+              <Label htmlFor="cdn-paths">{t("cdn.cachePaths")}</Label>
               <Textarea
                 id="cdn-paths"
                 value={pathsText}
@@ -418,8 +423,8 @@ export function CdnSection({ appId }: { appId: string }): React.JSX.Element {
 
             <ToggleRow
               id="cdn-image-optim"
-              title="Image optimization"
-              description="Serve resized static images when the request includes a width query."
+              title={t("cdn.imageOptim")}
+              description={t("cdn.imageOptimDesc")}
               checked={imageOptim}
               disabled={mode !== "internal"}
               onCheckedChange={setImageOptim}
@@ -427,7 +432,7 @@ export function CdnSection({ appId }: { appId: string }): React.JSX.Element {
           </div>
 
           <div className="space-y-2">
-            <Label htmlFor="cdn-headers">Response headers JSON</Label>
+            <Label htmlFor="cdn-headers">{t("cdn.headersJson")}</Label>
             <Textarea
               id="cdn-headers"
               value={headersText}
@@ -449,7 +454,7 @@ export function CdnSection({ appId }: { appId: string }): React.JSX.Element {
               onClick={() => purgeCloudflare.mutate()}
               loading={purgeCloudflare.isPending}
             >
-              {purgeCloudflare.isPending ? "Purging..." : "Purge Cloudflare"}
+              {purgeCloudflare.isPending ? t("cdn.purging") : t("cdn.purgeCloudflare")}
             </Button>
           ) : null}
           <Button
@@ -457,8 +462,8 @@ export function CdnSection({ appId }: { appId: string }): React.JSX.Element {
             loading={update.isPending || updateCloudflare.isPending}
           >
             {update.isPending || updateCloudflare.isPending
-              ? "Saving..."
-              : "Save CDN"}
+              ? t("cdn.saving")
+              : t("cdn.saveCdn")}
           </Button>
         </CardFooter>
       </Card>

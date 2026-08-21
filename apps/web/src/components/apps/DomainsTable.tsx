@@ -1,5 +1,6 @@
 // SPDX-License-Identifier: AGPL-3.0-only
 import * as React from "react"
+import { useTranslation } from "react-i18next"
 import {
   AlertDialog,
   AlertDialogAction,
@@ -46,11 +47,12 @@ export interface DomainsTableProps {
 // ---------------------------------------------------------------------------
 
 function TlsBadge({ status }: { status: Domain["tlsStatus"] }): React.JSX.Element {
+  const { t } = useTranslation("apps")
   if (status === "issued") {
     return (
       <span className="inline-flex items-center gap-1 rounded-full bg-emerald-100 px-2 py-0.5 text-xs font-medium text-emerald-800 dark:bg-emerald-900/30 dark:text-emerald-400">
         <span className="size-1.5 rounded-full bg-emerald-500" />
-        Issued
+        {t("domains.issued")}
       </span>
     )
   }
@@ -58,15 +60,14 @@ function TlsBadge({ status }: { status: Domain["tlsStatus"] }): React.JSX.Elemen
     return (
       <span className="inline-flex items-center gap-1 rounded-full bg-red-100 px-2 py-0.5 text-xs font-medium text-red-800 dark:bg-red-900/30 dark:text-red-400">
         <span className="size-1.5 rounded-full bg-red-500" />
-        Failed
+        {t("domains.failed")}
       </span>
     )
   }
-  // pending
   return (
     <span className="inline-flex items-center gap-1 rounded-full bg-amber-100 px-2 py-0.5 text-xs font-medium text-amber-800 dark:bg-amber-900/30 dark:text-amber-400">
       <span className="size-1.5 animate-pulse rounded-full bg-amber-500" />
-      Pending
+      {t("domains.pending")}
     </span>
   )
 }
@@ -82,12 +83,13 @@ interface AddDomainRowProps {
 }
 
 function AddDomainRow({ isAdding, onAdd, lockReason }: AddDomainRowProps): React.JSX.Element {
+  const { t } = useTranslation("apps")
   const [value, setValue] = React.useState("")
   const [error, setError] = React.useState<string | undefined>()
 
   function validate(h: string): string | undefined {
-    if (!h) return "Hostname is required"
-    if (!HOSTNAME_REGEX.test(h)) return "Invalid hostname (e.g. app.example.com)"
+    if (!h) return t("domains.hostnameRequired")
+    if (!HOSTNAME_REGEX.test(h)) return t("domains.invalidHostname")
     return undefined
   }
 
@@ -117,8 +119,8 @@ function AddDomainRow({ isAdding, onAdd, lockReason }: AddDomainRowProps): React
               type="text"
               value={value}
               onChange={handleChange}
-              placeholder="app.example.com"
-              aria-label="New hostname"
+              placeholder={t("domains.placeholder")}
+              aria-label={t("domains.newHostname")}
               className="h-8 w-full rounded-md border border-input bg-background px-3 text-sm placeholder:text-muted-foreground focus-visible:outline-none focus-visible:ring-1 focus-visible:ring-ring disabled:opacity-50"
               disabled={isAdding || Boolean(lockReason)}
               title={lockReason}
@@ -134,7 +136,7 @@ function AddDomainRow({ isAdding, onAdd, lockReason }: AddDomainRowProps): React
             className="shrink-0"
             title={lockReason}
           >
-            {isAdding ? "Adding…" : "Add domain"}
+            {isAdding ? t("domains.adding") : t("domains.addDomain")}
           </Button>
         </form>
       </td>
@@ -157,6 +159,7 @@ export function DomainsTable({
   onRecheck,
   lockReason,
 }: DomainsTableProps): React.JSX.Element {
+  const { t } = useTranslation(["apps", "common"])
   return (
     <div className="w-full overflow-hidden rounded-lg border border-border">
       <table className="w-full table-fixed text-sm">
@@ -167,9 +170,9 @@ export function DomainsTable({
         </colgroup>
         <thead>
           <tr className="border-b border-border bg-muted/40 text-left text-xs font-medium text-muted-foreground uppercase tracking-wide">
-            <th className="px-4 py-2.5">Hostname</th>
-            <th className="px-4 py-2.5">TLS status</th>
-            <th className="px-4 py-2.5 text-right">Actions</th>
+            <th className="px-4 py-2.5">{t("domains.hostname")}</th>
+            <th className="px-4 py-2.5">{t("domains.tlsStatus")}</th>
+            <th className="px-4 py-2.5 text-right">{t("common:actions")}</th>
           </tr>
         </thead>
         <tbody>
@@ -181,7 +184,7 @@ export function DomainsTable({
                 colSpan={3}
                 className="px-4 py-8 text-center text-sm text-muted-foreground"
               >
-                No custom domains yet. Add one below.
+                {t("domains.emptyCustom")}
               </td>
             </tr>
           ) : (
@@ -204,10 +207,10 @@ export function DomainsTable({
                       className="h-7 px-2 text-xs"
                       loading={isRechecking}
                       onClick={() => onRecheck(domain.id)}
-                      title="Re-check TLS certificate"
+                      title={t("domains.recheckTls")}
                     >
                       <RecheckIcon className="size-3.5" />
-                      <span className="sr-only">Recheck</span>
+                      <span className="sr-only">{t("domains.recheck")}</span>
                     </Button>
 
                     <DeleteDomainButton
@@ -275,6 +278,7 @@ function DeleteDomainButton({
   onDelete,
   lockReason,
 }: DeleteDomainButtonProps): React.JSX.Element {
+  const { t } = useTranslation(["apps", "common"])
   return (
     <AlertDialog>
       <AlertDialogTrigger asChild>
@@ -283,27 +287,26 @@ function DeleteDomainButton({
           variant="ghost"
           className="h-7 px-2 text-xs text-destructive hover:bg-destructive/10 hover:text-destructive"
           loading={isDeleting} disabled={Boolean(lockReason)}
-          title={lockReason ?? `Remove ${hostname}`}
+          title={lockReason ?? t("domains.removeHostname", { hostname })}
         >
           <TrashIcon className="size-3.5" />
-          <span className="sr-only">Delete</span>
+          <span className="sr-only">{t("common:delete")}</span>
         </Button>
       </AlertDialogTrigger>
       <AlertDialogContent>
         <AlertDialogHeader>
-          <AlertDialogTitle>Remove custom domain?</AlertDialogTitle>
+          <AlertDialogTitle>{t("domains.removeConfirm")}</AlertDialogTitle>
           <AlertDialogDescription>
-            <strong className="font-mono">{hostname}</strong> will be removed and Caddy
-            routing will be cleaned up. This action cannot be undone.
+            {t("domains.removeHint", { hostname })}
           </AlertDialogDescription>
         </AlertDialogHeader>
         <AlertDialogFooter>
-          <AlertDialogCancel>Cancel</AlertDialogCancel>
+          <AlertDialogCancel>{t("common:cancel")}</AlertDialogCancel>
           <AlertDialogAction
             className="bg-none bg-destructive text-white hover:bg-destructive/90"
             onClick={() => onDelete(domainId)}
           >
-            Remove
+            {t("domains.remove")}
           </AlertDialogAction>
         </AlertDialogFooter>
       </AlertDialogContent>

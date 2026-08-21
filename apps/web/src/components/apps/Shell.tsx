@@ -1,7 +1,9 @@
 // SPDX-License-Identifier: AGPL-3.0-only
 import * as React from "react"
+import { useTranslation } from "react-i18next"
 import { apiWebSocketBaseUrl } from "../../lib/api/base"
 import { apiFetch } from "../../lib/api/client"
+import i18n from "../../lib/i18n"
 import { FileBrowser } from "./FileBrowser"
 
 // ---------------------------------------------------------------------------
@@ -25,21 +27,22 @@ type ShellMode = "ro" | "rw"
 function closeReason(code: number): string {
   switch (code) {
     case 4001:
-      return "Unauthorized"
+      return i18n.t("apps:shell.unauthorized")
     case 4003:
-      return "Write access requires a fresh second-factor check"
+      return i18n.t("apps:shell.writeNeeds2fa")
     case 4004:
-      return "App not found or no running container"
+      return i18n.t("apps:shell.appNotFound")
     case 1001:
-      return "Session expired (idle timeout)"
+      return i18n.t("apps:shell.idleTimeout")
     case 1011:
-      return "Internal error"
+      return i18n.t("apps:shell.internalError")
     default:
-      return `Connection closed (code ${code})`
+      return i18n.t("apps:shell.closed", { code })
   }
 }
 
 export function Shell({ appId }: ShellProps): React.JSX.Element {
+  const { t } = useTranslation("apps")
   const [mode, setMode] = React.useState<ShellMode>("ro")
   const containerRef = React.useRef<HTMLDivElement>(null)
   const termRef = React.useRef<unknown>(null)
@@ -108,7 +111,7 @@ export function Shell({ appId }: ShellProps): React.JSX.Element {
       const url = `${wsBase}/ws/apps/${appId}/exec?cols=${cols}&rows=${rows}&mode=${mode}`
 
       term.write(
-        `\x1b[2mConnecting to ${mode === "rw" ? "write" : "read-only"} shell…\x1b[0m\r\n`
+        `\x1b[2m${mode === "rw" ? t("shell.connectingRw") : t("shell.connectingRo")}\x1b[0m\r\n`
       )
 
       const ws = new WebSocket(url)
@@ -135,11 +138,11 @@ export function Shell({ appId }: ShellProps): React.JSX.Element {
               term.reset()
             } else if (msg.type === "exit") {
               term.write(
-                `\r\n\x1b[2m[process exited with code ${msg.code ?? 0}]\x1b[0m\r\n`
+                `\r\n\x1b[2m${t("shell.processExited", { code: msg.code ?? 0 })}\x1b[0m\r\n`
               )
             } else if (msg.type === "error") {
               term.write(
-                `\r\n\x1b[31m[error: ${msg.message ?? "unknown error"}]\x1b[0m\r\n`
+                `\r\n\x1b[31m${t("shell.errorPrefix", { message: msg.message ?? t("shell.unknownError") })}\x1b[0m\r\n`
               )
             }
           } catch {
@@ -160,7 +163,7 @@ export function Shell({ appId }: ShellProps): React.JSX.Element {
       ws.addEventListener("error", () => {
         if (disposed) return
         term.write(
-          "\r\n\x1b[31m[WebSocket error — connection failed]\x1b[0m\r\n"
+          `\r\n\x1b[31m${t("shell.wsError")}\x1b[0m\r\n`
         )
       })
 
@@ -214,7 +217,7 @@ export function Shell({ appId }: ShellProps): React.JSX.Element {
         termRef.current = null
       }
     }
-  }, [appId, mode])
+  }, [appId, mode, t])
 
   async function toggleWriteMode(): Promise<void> {
     if (mode === "rw") {
@@ -222,10 +225,10 @@ export function Shell({ appId }: ShellProps): React.JSX.Element {
       return
     }
 
-    const confirmed = window.confirm("Enable write access for this terminal?")
+    const confirmed = window.confirm(t("shell.enableWriteConfirm"))
     if (!confirmed) return
 
-    const code = window.prompt("TOTP code")
+    const code = window.prompt(t("shell.totpCode"))
     if (!code) return
 
     await apiFetch("/auth/second-factor/verify", {
@@ -240,20 +243,20 @@ export function Shell({ appId }: ShellProps): React.JSX.Element {
       <div className="flex min-w-0 flex-1 flex-col bg-[#09090b]">
         <div className="flex h-9 shrink-0 items-center justify-between border-b border-zinc-800 px-3">
           <span className="font-mono text-[12px] tracking-normal text-zinc-400 uppercase">
-            {mode === "rw" ? "write" : "read-only"}
+            {mode === "rw" ? t("shell.write") : t("shell.readOnly")}
           </span>
           <button
             type="button"
             onClick={() => void toggleWriteMode()}
             className="rounded-md border border-zinc-700 px-2.5 py-1 text-[12px] font-medium text-zinc-200 transition-colors hover:border-zinc-500 hover:bg-zinc-800"
           >
-            {mode === "rw" ? "Disable write" : "Enable write"}
+            {mode === "rw" ? t("shell.disableWrite") : t("shell.enableWrite")}
           </button>
         </div>
         <div
           ref={containerRef}
           className="min-h-0 min-w-0 flex-1 overflow-hidden p-1 [&_.xterm-viewport]:scrollbar-thin"
-          aria-label="Interactive shell terminal"
+          aria-label={t("shell.title")}
         />
       </div>
       <FileBrowser appId={appId} />

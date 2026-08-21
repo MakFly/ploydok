@@ -1,5 +1,6 @@
 // SPDX-License-Identifier: AGPL-3.0-only
 import * as React from "react"
+import { useTranslation } from "react-i18next"
 import { Switch } from "@workspace/ui/components/switch"
 import { Input } from "@workspace/ui/components/input"
 import { Label } from "@workspace/ui/components/label"
@@ -11,6 +12,7 @@ interface RateLimitFormProps {
 }
 
 export function RateLimitForm({ appId }: RateLimitFormProps): React.JSX.Element {
+  const { t } = useTranslation(["apps", "common"])
   const { data: protection } = useProtection(appId)
   const update = useUpdateProtection(appId)
   const [enabled, setEnabled] = React.useState(false)
@@ -32,9 +34,9 @@ export function RateLimitForm({ appId }: RateLimitFormProps): React.JSX.Element 
     <div className="flex flex-col gap-4">
       <div className="flex items-center justify-between">
         <div>
-          <p className="text-sm font-medium">Rate Limiting</p>
+          <p className="text-sm font-medium">{t("protection.rateLimit")}</p>
           <p className="text-xs text-muted-foreground">
-            Limit requests per second per IP address.
+            {t("protection.rateLimitDesc")}
           </p>
         </div>
         <Switch
@@ -49,7 +51,7 @@ export function RateLimitForm({ appId }: RateLimitFormProps): React.JSX.Element 
       {enabled && (
         <div className="flex flex-col gap-3 rounded-md border border-border p-4">
           <div className="flex flex-col gap-1.5">
-            <Label htmlFor="rl-rps">Requests per second per IP</Label>
+            <Label htmlFor="rl-rps">{t("protection.rpsLabel")}</Label>
             <Input
               id="rl-rps"
               type="number"
@@ -67,7 +69,7 @@ export function RateLimitForm({ appId }: RateLimitFormProps): React.JSX.Element 
             loading={update.isPending}
             className="self-start"
           >
-            Save
+            {t("common:save")}
           </Button>
         </div>
       )}

@@ -88,7 +88,7 @@ export function GitLabRepoSelector({
         value={search}
         onChange={(e) => setSearch(e.target.value)}
         className="w-full rounded-md border border-input bg-background px-3 py-2 text-sm focus:ring-2 focus:ring-ring focus:outline-none"
-        aria-label="Search GitLab projects"
+        aria-label={t("apps:repo.searchGitLabAria")}
       />
 
       {isLoading ? (
@@ -107,7 +107,7 @@ export function GitLabRepoSelector({
         <ul
           className="scrollbar-thin max-h-[clamp(14rem,88dvh_-_40rem,34rem)] divide-y divide-border overflow-y-auto rounded-md border border-border"
           role="listbox"
-          aria-label="GitLab projects"
+          aria-label={t("apps:repo.gitlabProjectsAria")}
         >
           {repos.map((repo) => (
             <RepoItem
@@ -128,7 +128,7 @@ export function GitLabRepoSelector({
             onClick={() => void fetchNextPage()}
             disabled={isFetchingNextPage}
           >
-            {isFetchingNextPage ? "Loading..." : "Load more"}
+            {isFetchingNextPage ? t("apps:repo.loading") : t("apps:repo.loadMore")}
           </Button>
         </div>
       ) : null}
@@ -151,6 +151,7 @@ export function RepoItem({
   isSelected,
   onSelect,
 }: RepoItemProps): React.JSX.Element {
+  const { t } = useTranslation(["settings", "apps"])
   const parts = repo.fullName.split("/")
   const repoName = parts.at(-1) ?? repo.fullName
   const namespace = parts.slice(0, -1).join("/")
@@ -184,7 +185,7 @@ export function RepoItem({
           </span>
           {repo.private ? (
             <span className="ml-auto shrink-0 rounded-full bg-muted px-1.5 py-0.5 text-[10px] font-medium tracking-wide text-muted-foreground uppercase">
-              private
+              {t("apps:repo.private")}
             </span>
           ) : null}
         </div>

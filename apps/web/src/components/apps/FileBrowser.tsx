@@ -1,5 +1,6 @@
 // SPDX-License-Identifier: AGPL-3.0-only
 import * as React from "react"
+import { useTranslation } from "react-i18next"
 import {
   RiArrowDownSLine,
   RiArrowRightSLine,
@@ -41,6 +42,7 @@ function makeInitial(): DirMap {
 }
 
 export function FileBrowser({ appId }: FileBrowserProps): React.JSX.Element {
+  const { t } = useTranslation(["apps", "common"])
   const [dirs, setDirs] = React.useState<DirMap>(makeInitial)
   const [selected, setSelected] = React.useState<string | null>(null)
 
@@ -77,7 +79,7 @@ export function FileBrowser({ appId }: FileBrowserProps): React.JSX.Element {
           return next
         })
       } catch (err) {
-        const message = err instanceof Error ? err.message : "Listing failed"
+        const message = err instanceof Error ? err.message : t("files.listingFailed")
         setDirs((prev) => {
           const next = new Map(prev)
           const cur = next.get(path) ?? {
@@ -91,7 +93,7 @@ export function FileBrowser({ appId }: FileBrowserProps): React.JSX.Element {
         })
       }
     },
-    [appId]
+    [appId, t]
   )
 
   React.useEffect(() => {
@@ -136,15 +138,15 @@ export function FileBrowser({ appId }: FileBrowserProps): React.JSX.Element {
           <div className="flex items-center gap-2">
             <RiFolderFill size={14} className="text-amber-400/80" />
             <span className="text-xs font-medium tracking-wide text-foreground">
-              Files
+              {t("files.title")}
             </span>
           </div>
           <button
             type="button"
             onClick={refresh}
             className="rounded p-1 text-muted-foreground transition-colors hover:bg-muted hover:text-foreground"
-            aria-label="Refresh file tree"
-            title="Refresh"
+            aria-label={t("files.refresh")}
+            title={t("common:refresh")}
           >
             <RiRefreshLine size={13} />
           </button>
@@ -252,6 +254,7 @@ function DirChildren({
   onSelectFile,
   selected,
 }: DirChildrenProps): React.JSX.Element {
+  const { t } = useTranslation("apps")
   const state = dirs.get(path)
 
   if (!state) return <></>
@@ -262,7 +265,7 @@ function DirChildren({
           size={12}
           className="shrink-0 animate-spin text-muted-foreground"
         />
-        <span className="text-muted-foreground italic">Loading…</span>
+        <span className="text-muted-foreground italic">{t("files.loading")}</span>
       </Row>
     )
   }
@@ -276,7 +279,7 @@ function DirChildren({
   if (!state.entries || state.entries.length === 0) {
     return (
       <Row depth={depth + 1} muted>
-        <span className="text-muted-foreground/70 italic">empty</span>
+        <span className="text-muted-foreground/70 italic">{t("files.empty")}</span>
       </Row>
     )
   }

@@ -1,6 +1,7 @@
 // SPDX-License-Identifier: AGPL-3.0-only
 import * as React from "react"
 import { createFileRoute, useParams } from "@tanstack/react-router"
+import { useTranslation } from "react-i18next"
 import { toast } from "sonner"
 import {
   RiAddLine,
@@ -39,6 +40,7 @@ import type { AppDetail } from "../../../../../../lib/apps"
 import type { AppQuickLink } from "@ploydok/shared"
 
 function AppSettingsGeneral(): React.JSX.Element {
+  const { t } = useTranslation("apps")
   const { id: routeAppId } = useParams({ strict: false })
   const appId = routeAppId!
   const { data: app, isLoading, error } = useApp(appId)
@@ -55,9 +57,9 @@ function AppSettingsGeneral(): React.JSX.Element {
     return (
       <div className="w-full px-4 py-6 md:px-8 md:py-8">
         <Alert variant="destructive">
-          <AlertTitle>Failed to load settings</AlertTitle>
+          <AlertTitle>{t("settings.loadFailed")}</AlertTitle>
           <AlertDescription>
-            {error?.message ?? "The application was not found."}
+            {error?.message ?? t("settings.notFound")}
           </AlertDescription>
         </Alert>
       </div>
@@ -77,13 +79,12 @@ function AppSettingsGeneral(): React.JSX.Element {
 }
 
 function NotificationsCard({ appId }: { appId: string }): React.JSX.Element {
+  const { t } = useTranslation("apps")
   return (
     <Card>
       <CardHeader>
-        <CardTitle>Notifications</CardTitle>
-        <CardDescription>
-          Where to send alerts about this app&apos;s builds and deployments.
-        </CardDescription>
+        <CardTitle>{t("settings.notifications")}</CardTitle>
+        <CardDescription>{t("settings.notificationsDesc")}</CardDescription>
       </CardHeader>
 
       <CardContent>
@@ -94,6 +95,7 @@ function NotificationsCard({ appId }: { appId: string }): React.JSX.Element {
 }
 
 function AppMetadataCard({ app }: { app: AppDetail }): React.JSX.Element {
+  const { t } = useTranslation(["apps", "common"])
   const updateMutation = useUpdateAppSettings(app.id)
   const [iconUrl, setIconUrl] = React.useState(app.iconUrl ?? "")
   const [quickLinks, setQuickLinks] = React.useState<Array<AppQuickLink>>(
@@ -128,7 +130,7 @@ function AppMetadataCard({ app }: { app: AppDetail }): React.JSX.Element {
       (link) => !link.label.trim() || !link.url.trim()
     )
     if (hasIncompleteLink) {
-      toast.error("Every quick link needs both a label and a URL")
+      toast.error(t("settings.incompleteLink"))
       return
     }
     const urls = [
@@ -136,7 +138,7 @@ function AppMetadataCard({ app }: { app: AppDetail }): React.JSX.Element {
       ...quickLinks.map((link) => link.url.trim()),
     ].filter(Boolean)
     if (urls.some((value) => !isSafeHttpUrl(value))) {
-      toast.error("Icon and quick-link URLs must use http:// or https://")
+      toast.error(t("settings.unsafeUrl"))
       return
     }
 
@@ -153,17 +155,14 @@ function AppMetadataCard({ app }: { app: AppDetail }): React.JSX.Element {
   return (
     <Card>
       <CardHeader>
-        <CardTitle>Icon & quick links</CardTitle>
-        <CardDescription>
-          How this app is shown on the dashboard, and the shortcuts listed under
-          it.
-        </CardDescription>
+        <CardTitle>{t("settings.iconLinks")}</CardTitle>
+        <CardDescription>{t("settings.iconLinksDesc")}</CardDescription>
       </CardHeader>
 
       <CardContent className="max-w-2xl space-y-6">
         <div className="flex items-start gap-3">
           <div className="min-w-0 flex-1 space-y-2">
-            <Label htmlFor="app-icon-url">Icon URL</Label>
+            <Label htmlFor="app-icon-url">{t("settings.iconUrl")}</Label>
             <Input
               id="app-icon-url"
               type="url"
@@ -181,7 +180,7 @@ function AppMetadataCard({ app }: { app: AppDetail }): React.JSX.Element {
 
         <div className="space-y-3">
           <div className="flex items-center justify-between gap-2">
-            <Label>Quick links</Label>
+            <Label>{t("settings.quickLinks")}</Label>
             <span className="text-xs text-muted-foreground">
               {quickLinks.length}/8
             </span>
@@ -189,8 +188,7 @@ function AppMetadataCard({ app }: { app: AppDetail }): React.JSX.Element {
 
           {quickLinks.length === 0 ? (
             <p className="text-xs text-muted-foreground">
-              No shortcuts yet. Add one to link a dashboard, a status page, or
-              anything you open often for this app.
+              {t("settings.noShortcuts")}
             </p>
           ) : (
             <div className="space-y-2">
@@ -204,10 +202,10 @@ function AppMetadataCard({ app }: { app: AppDetail }): React.JSX.Element {
                     onChange={(e) =>
                       updateQuickLink(idx, { label: e.target.value })
                     }
-                    placeholder="Label"
+                    placeholder={t("settings.label")}
                     maxLength={40}
                     className="sm:w-40"
-                    aria-label="Quick link label"
+                    aria-label={t("settings.quickLinkLabel")}
                   />
                   <Input
                     type="url"
@@ -217,14 +215,16 @@ function AppMetadataCard({ app }: { app: AppDetail }): React.JSX.Element {
                     }
                     placeholder="https://example.com"
                     className="min-w-0 flex-1"
-                    aria-label="Quick link URL"
+                    aria-label={t("settings.quickLinkUrl")}
                   />
                   <Button
                     type="button"
                     variant="ghost"
                     size="icon-sm"
                     onClick={() => removeQuickLink(idx)}
-                    aria-label={`Remove ${link.label || "quick link"}`}
+                    aria-label={t("settings.removeQuickLink", {
+                      label: link.label || t("settings.quickLinkFallback"),
+                    })}
                     className="shrink-0 self-end sm:self-auto"
                   >
                     <RiDeleteBinLine className="size-4" aria-hidden="true" />
@@ -243,24 +243,23 @@ function AppMetadataCard({ app }: { app: AppDetail }): React.JSX.Element {
             className="gap-1.5"
           >
             <RiAddLine className="size-3.5" aria-hidden="true" />
-            Add quick link
+            {t("settings.addQuickLink")}
           </Button>
         </div>
 
         {app.gitProvider === "image" ? (
           <div className="flex items-center justify-between gap-4 rounded-lg border border-panel-border/70 bg-panel-inset p-3">
             <div className="space-y-1">
-              <Label htmlFor="track-latest">Track image updates</Label>
+              <Label htmlFor="track-latest">{t("settings.trackLatest")}</Label>
               <p className="text-xs text-muted-foreground">
-                Redeploy this app when the configured image tag resolves to a
-                new registry digest.
+                {t("settings.trackLatestDesc")}
               </p>
             </div>
             <Switch
               id="track-latest"
               checked={trackLatest}
               onCheckedChange={setTrackLatest}
-              aria-label="Track image updates"
+              aria-label={t("settings.trackLatest")}
             />
           </div>
         ) : null}
@@ -268,7 +267,9 @@ function AppMetadataCard({ app }: { app: AppDetail }): React.JSX.Element {
 
       <CardFooter className="justify-end">
         <Button onClick={handleSave} loading={updateMutation.isPending}>
-          {updateMutation.isPending ? "Saving…" : "Save changes"}
+          {updateMutation.isPending
+            ? t("common:saving")
+            : t("settings.saveChanges")}
         </Button>
       </CardFooter>
     </Card>
@@ -285,6 +286,7 @@ function isSafeHttpUrl(value: string): boolean {
 }
 
 function SourceCard({ app }: { app: AppDetail }): React.JSX.Element {
+  const { t } = useTranslation("apps")
   const repoHref = buildRepoHref(app.gitProvider, app.repoFullName)
   const commitShort = app.currentCommitSha
     ? app.currentCommitSha.slice(0, 7)
@@ -301,28 +303,26 @@ function SourceCard({ app }: { app: AppDetail }): React.JSX.Element {
   return (
     <Card>
       <CardHeader>
-        <CardTitle>Source & domain</CardTitle>
-        <CardDescription>
-          Repository, current branch, latest deployed commit, and live URL.
-        </CardDescription>
+        <CardTitle>{t("settings.sourceDomain")}</CardTitle>
+        <CardDescription>{t("settings.sourceDomainDesc")}</CardDescription>
       </CardHeader>
 
       <CardContent className="grid gap-3 sm:grid-cols-2 xl:grid-cols-4">
         <InfoTile
-          label="Repository"
+          label={t("settings.repository")}
           value={app.repoFullName ?? "—"}
           href={repoHref}
           icon={<ProviderIcon className="size-3.5" aria-hidden="true" />}
         />
         <InfoTile
-          label="Branch"
+          label={t("create.branch")}
           value={app.branch ?? "main"}
           href={branchHref}
           mono
           icon={<RiGitBranchLine className="size-3.5" aria-hidden="true" />}
         />
         <InfoTile
-          label="Current commit"
+          label={t("settings.currentCommit")}
           value={commitShort ?? "—"}
           title={app.currentCommitSha ?? undefined}
           href={commitHref}
@@ -330,8 +330,8 @@ function SourceCard({ app }: { app: AppDetail }): React.JSX.Element {
           icon={<RiGitCommitLine className="size-3.5" aria-hidden="true" />}
         />
         <InfoTile
-          label="Domain"
-          value={app.domain ?? "Not set"}
+          label={t("settings.domain")}
+          value={app.domain ?? t("settings.notSet")}
           href={app.publicUrl ?? undefined}
           muted={!app.domain}
           icon={<RiGlobalLine className="size-3.5" aria-hidden="true" />}

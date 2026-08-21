@@ -1,5 +1,6 @@
 // SPDX-License-Identifier: AGPL-3.0-only
 import * as React from "react"
+import { useTranslation } from "react-i18next"
 import { toast } from "sonner"
 import {
   Alert,
@@ -41,6 +42,7 @@ export function DeploymentTriggers({
 }: {
   appId: string
 }): React.JSX.Element {
+  const { t } = useTranslation("apps")
   const { data: app, isLoading, error } = useApp(appId)
 
   if (isLoading) {
@@ -55,9 +57,9 @@ export function DeploymentTriggers({
   if (error || !app) {
     return (
       <Alert variant="destructive">
-        <AlertTitle>Failed to load triggers</AlertTitle>
+        <AlertTitle>{t("triggers.failed")}</AlertTitle>
         <AlertDescription>
-          {error?.message ?? "The application was not found."}
+          {error?.message ?? t("triggers.notFound")}
         </AlertDescription>
       </Alert>
     )
@@ -78,6 +80,7 @@ function AutoDeployCard({
   appId: string
   app: AppDetail
 }): React.JSX.Element {
+  const { t } = useTranslation("apps")
   const [autoSettings, setAutoSettings] = React.useState<AutoDeploySettings>(
     () => {
       const fields = app as AppDetail & AppAutoDeployFields
@@ -111,27 +114,25 @@ function AutoDeployCard({
     setAutoSettings(next)
     try {
       await patchAppSettings(appId, { [key]: value })
-      toast.success("Setting updated")
+      toast.success(t("triggers.updated"))
     } catch (err) {
       setAutoSettings(previous)
-      toast.error(err instanceof Error ? err.message : "Update failed")
+      toast.error(err instanceof Error ? err.message : t("triggers.updateFailed"))
     }
   }
 
   return (
     <Card>
       <CardHeader>
-        <CardTitle>Auto-deploy</CardTitle>
-        <CardDescription>
-          How pushes turn into deployments. Changes save instantly.
-        </CardDescription>
+        <CardTitle>{t("triggers.autoDeploy")}</CardTitle>
+        <CardDescription>{t("triggers.autoDeployDesc")}</CardDescription>
       </CardHeader>
 
       <CardContent className="flex flex-col divide-y divide-border">
         <ToggleRow
           id="auto-deploy-enabled"
-          title="Deploy on push"
-          description="Trigger a deployment whenever the tracked branch receives a commit."
+          title={t("triggers.deployOnPush")}
+          description={t("triggers.deployOnPushDesc")}
           checked={autoSettings.autoDeployEnabled}
           onCheckedChange={(value) =>
             void handleSwitchChange("autoDeployEnabled", value)
@@ -139,8 +140,8 @@ function AutoDeployCard({
         />
         <ToggleRow
           id="post-commit-status"
-          title="Post status on PR"
-          description="Report build outcome to the Git provider."
+          title={t("triggers.postStatus")}
+          description={t("triggers.postStatusDesc")}
           checked={autoSettings.postCommitStatus}
           onCheckedChange={(value) =>
             void handleSwitchChange("postCommitStatus", value)
@@ -148,8 +149,8 @@ function AutoDeployCard({
         />
         <ToggleRow
           id="coalesce-pushes"
-          title="Coalesce rapid pushes"
-          description="Collapse bursts of commits into a single deployment."
+          title={t("triggers.coalesce")}
+          description={t("triggers.coalesceDesc")}
           checked={autoSettings.coalescePushes}
           onCheckedChange={(value) =>
             void handleSwitchChange("coalescePushes", value)
@@ -157,8 +158,8 @@ function AutoDeployCard({
         />
         <ToggleRow
           id="deploy-on-tag"
-          title="Deploy on tag"
-          description="Also deploy when a matching tag is pushed."
+          title={t("triggers.deployOnTag")}
+          description={t("triggers.deployOnTagDesc")}
           checked={autoSettings.deployOnTag}
           onCheckedChange={(value) =>
             void handleSwitchChange("deployOnTag", value)
@@ -167,7 +168,7 @@ function AutoDeployCard({
 
         {autoSettings.deployOnTag ? (
           <div className="flex flex-col gap-2 pt-4">
-            <Label htmlFor="tag-pattern">Tag pattern</Label>
+            <Label htmlFor="tag-pattern">{t("triggers.tagPattern")}</Label>
             <Input
               id="tag-pattern"
               value={autoSettings.tagPattern ?? ""}
@@ -201,6 +202,7 @@ function DeployHooksCard({
   appId: string
   app: AppDetail
 }): React.JSX.Element {
+  const { t } = useTranslation(["apps", "common"])
   const update = useUpdateAppSettings(appId)
   const [editing, setEditing] = React.useState(false)
   const [preHook, setPreHook] = React.useState(app.hooksPreDeploy ?? "")
@@ -235,18 +237,15 @@ function DeployHooksCard({
       })
       setEditing(false)
     } catch (err) {
-      setFormError(err instanceof Error ? err.message : "Save failed")
+      setFormError(err instanceof Error ? err.message : t("build.saveFailed"))
     }
   }
 
   return (
     <Card>
       <CardHeader>
-        <CardTitle>Deploy hooks</CardTitle>
-        <CardDescription>
-          Shell commands run inside the new container around the blue-green
-          swap. Pre-deploy failure aborts the deploy.
-        </CardDescription>
+        <CardTitle>{t("triggers.hooks")}</CardTitle>
+        <CardDescription>{t("triggers.hooksDesc")}</CardDescription>
         <CardAction>
           {!editing ? (
             <Button
@@ -254,7 +253,7 @@ function DeployHooksCard({
               variant="outline"
               onClick={() => setEditing(true)}
             >
-              Edit
+              {t("common:edit")}
             </Button>
           ) : null}
         </CardAction>
@@ -262,7 +261,7 @@ function DeployHooksCard({
 
       <CardContent className="flex flex-col gap-4">
         <div className="flex flex-col gap-1.5">
-          <Label htmlFor="hook-pre">Pre-deploy</Label>
+          <Label htmlFor="hook-pre">{t("triggers.preDeploy")}</Label>
           {editing ? (
             <Textarea
               id="hook-pre"
@@ -273,12 +272,12 @@ function DeployHooksCard({
               onChange={(e) => setPreHook(e.target.value)}
             />
           ) : (
-            <ReadOnlyValue value={preHook} placeholder="None" mono />
+            <ReadOnlyValue value={preHook} placeholder={t("common:none")} mono />
           )}
         </div>
 
         <div className="flex flex-col gap-1.5">
-          <Label htmlFor="hook-post">Post-deploy</Label>
+          <Label htmlFor="hook-post">{t("triggers.postDeploy")}</Label>
           {editing ? (
             <Textarea
               id="hook-post"
@@ -289,12 +288,12 @@ function DeployHooksCard({
               onChange={(e) => setPostHook(e.target.value)}
             />
           ) : (
-            <ReadOnlyValue value={postHook} placeholder="None" mono />
+            <ReadOnlyValue value={postHook} placeholder={t("common:none")} mono />
           )}
         </div>
 
         <div className="flex flex-col gap-1.5">
-          <Label htmlFor="hook-timeout">Timeout (seconds)</Label>
+          <Label htmlFor="hook-timeout">{t("triggers.timeout")}</Label>
           {editing ? (
             <Input
               id="hook-timeout"
@@ -313,7 +312,7 @@ function DeployHooksCard({
 
         {formError ? (
           <Alert variant="destructive">
-            <AlertTitle>Could not save hooks</AlertTitle>
+            <AlertTitle>{t("triggers.saveFailed")}</AlertTitle>
             <AlertDescription>{formError}</AlertDescription>
           </Alert>
         ) : null}
@@ -327,14 +326,14 @@ function DeployHooksCard({
             onClick={handleCancel}
             disabled={update.isPending}
           >
-            Cancel
+            {t("common:cancel")}
           </Button>
           <Button
             size="sm"
             onClick={() => void handleSave()}
             loading={update.isPending}
           >
-            {update.isPending ? "Saving…" : "Save"}
+            {update.isPending ? t("common:saving") : t("common:save")}
           </Button>
         </CardFooter>
       ) : null}
