@@ -1,6 +1,7 @@
 // SPDX-License-Identifier: AGPL-3.0-only
 import * as React from "react";
 import { Skeleton } from "@workspace/ui/components/skeleton";
+import { useTranslation } from "react-i18next";
 import type { AppListItem } from "../../lib/apps";
 import type { Build } from "@ploydok/shared";
 
@@ -56,6 +57,7 @@ function StatCard({ label, value, sub, accent = "default", isLoading = false }: 
 // ---------------------------------------------------------------------------
 
 export function StatsCards({ apps, recentBuilds, isLoading }: StatsCardsProps): React.JSX.Element {
+  const { t } = useTranslation("workspace");
   const totalApps = apps.length;
   const runningApps = apps.filter((a) => a.status === "running").length;
   const failedApps = apps.filter((a) => a.status === "failed").length;
@@ -67,25 +69,31 @@ export function StatsCards({ apps, recentBuilds, isLoading }: StatsCardsProps): 
   return (
     <div className="grid gap-4 sm:grid-cols-2 lg:grid-cols-4">
       <StatCard
-        label="Total apps"
+        label={t("dashboard.totalApps")}
         value={totalApps}
         isLoading={isLoading}
       />
       <StatCard
-        label="Running"
+        label={t("dashboard.running")}
         value={runningApps}
-        sub={totalApps > 0 ? `${Math.round((runningApps / totalApps) * 100)}% of apps` : undefined}
+        sub={
+          totalApps > 0
+            ? t("dashboard.percentOfApps", {
+                percent: Math.round((runningApps / totalApps) * 100),
+              })
+            : undefined
+        }
         accent={runningApps > 0 ? "green" : "default"}
         isLoading={isLoading}
       />
       <StatCard
-        label="Failed"
+        label={t("dashboard.failed")}
         value={failedApps}
         accent={failedApps > 0 ? "red" : "default"}
         isLoading={isLoading}
       />
       <StatCard
-        label="Builds today"
+        label={t("dashboard.buildsToday")}
         value={buildsToday}
         accent={buildsToday > 0 ? "blue" : "default"}
         isLoading={isLoading}

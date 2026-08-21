@@ -15,6 +15,7 @@ import {
   useCurrentOrganizationSlug,
 } from "../../lib/organizations"
 import type { AppHealth } from "../../lib/app-runtime"
+import { useTranslation } from "react-i18next"
 import type { AppListItem } from "../../lib/apps"
 
 // ---------------------------------------------------------------------------
@@ -32,6 +33,7 @@ export function AppsGrid({
   isLoading,
   onCreateApp,
 }: AppsGridProps): React.JSX.Element {
+  const { t } = useTranslation("workspace")
   const { data: monitoring } = useMonitoring()
   const containers = monitoring?.containers ?? []
 
@@ -59,7 +61,7 @@ export function AppsGrid({
   return (
     <div className="space-y-3">
       <p className="text-xs font-medium tracking-wide text-muted-foreground uppercase">
-        Recent apps
+        {t("dashboard.recentApps")}
       </p>
       <div className="grid gap-3 sm:grid-cols-2">
         {recent.map((app) => (
@@ -82,6 +84,7 @@ function AppMiniCard({
     runtimeHealth: AppHealth | null
   }
 }): React.JSX.Element {
+  const { t } = useTranslation("workspace")
   const orgSlug = useCurrentOrganizationSlug()
   const isDeleting = app.status === "deleting"
   const quickLinks = (app.quickLinks ?? []).slice(0, 2)
@@ -111,7 +114,9 @@ function AppMiniCard({
         </div>
       )}
       {isDeleting ? (
-        <p className="text-xs text-muted-foreground">Deletion in progress</p>
+        <p className="text-xs text-muted-foreground">
+          {t("dashboard.deletionInProgress")}
+        </p>
       ) : null}
     </>
   )
@@ -163,21 +168,22 @@ function AppsEmptyState({
 }: {
   onCreateApp: () => void
 }): React.JSX.Element {
+  const { t } = useTranslation("workspace")
   return (
     <div className="flex flex-col items-center justify-center rounded-lg border border-dashed border-panel-border bg-panel-inset py-10 text-center">
       <div className="mb-3 rounded-full bg-muted p-3">
         <GridIcon className="size-5 text-muted-foreground" />
       </div>
-      <p className="mb-1 text-sm font-medium">No apps yet</p>
+      <p className="mb-1 text-sm font-medium">{t("dashboard.noAppsYet")}</p>
       <p className="mb-3 text-xs text-muted-foreground">
-        Create your first app to start deploying.
+        {t("dashboard.createFirstApp")}
       </p>
       <button
         type="button"
         onClick={onCreateApp}
         className="inline-flex items-center gap-1.5 rounded-md bg-primary px-3 py-1.5 text-xs font-medium text-primary-foreground transition-colors hover:bg-primary/90"
       >
-        New app
+        {t("dashboard.newApp")}
       </button>
     </div>
   )
@@ -188,8 +194,9 @@ function AppsEmptyState({
 // ---------------------------------------------------------------------------
 
 function AppsGridSkeleton(): React.JSX.Element {
+  const { t } = useTranslation("workspace")
   return (
-    <div className="space-y-3" aria-busy="true" aria-label="Loading apps">
+    <div className="space-y-3" aria-busy="true" aria-label={t("dashboard.loadingApps")}>
       <Skeleton className="h-3.5 w-24" />
       <div className="grid gap-3 sm:grid-cols-2">
         {[...Array<null>(4)].map((_, i) => (

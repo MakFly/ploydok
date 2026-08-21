@@ -26,6 +26,7 @@ import {
   useDeleteOrganization,
   useOrganizations,
 } from "../../../../../lib/organizations"
+import { useTranslation } from "react-i18next"
 
 export const Route = createFileRoute("/_authed/orgs/$orgSlug/settings/general")(
   {
@@ -34,6 +35,7 @@ export const Route = createFileRoute("/_authed/orgs/$orgSlug/settings/general")(
 )
 
 function GeneralSettingsPage(): React.JSX.Element {
+  const { t } = useTranslation("workspace")
   const { orgSlug } = Route.useParams()
   const organization = useCurrentOrganization()
   const { data: organizations } = useOrganizations()
@@ -72,14 +74,12 @@ function GeneralSettingsPage(): React.JSX.Element {
     <div className="flex flex-col gap-6">
       <Card>
         <CardHeader>
-          <CardTitle>Workspace identity</CardTitle>
-          <CardDescription>
-            Read-only summary. Renaming and slug changes are coming soon.
-          </CardDescription>
+          <CardTitle>{t("settings.identity")}</CardTitle>
+          <CardDescription>{t("settings.identityHint")}</CardDescription>
         </CardHeader>
         <CardContent className="grid gap-4 md:grid-cols-2">
           <div className="flex flex-col gap-1.5">
-            <Label htmlFor="ws-name">Name</Label>
+            <Label htmlFor="ws-name">{t("settings.name")}</Label>
             <Input
               id="ws-name"
               readOnly
@@ -88,7 +88,7 @@ function GeneralSettingsPage(): React.JSX.Element {
             />
           </div>
           <div className="flex flex-col gap-1.5">
-            <Label htmlFor="ws-slug">Slug</Label>
+            <Label htmlFor="ws-slug">{t("settings.slug")}</Label>
             <Input
               id="ws-slug"
               readOnly
@@ -101,11 +101,8 @@ function GeneralSettingsPage(): React.JSX.Element {
 
       <Card className="border-destructive/50">
         <CardHeader>
-          <CardTitle className="text-destructive">Danger zone</CardTitle>
-          <CardDescription>
-            Permanently delete this workspace and every app, database, env
-            variable, domain and audit entry attached to it. There is no undo.
-          </CardDescription>
+          <CardTitle className="text-destructive">{t("settings.danger")}</CardTitle>
+          <CardDescription>{t("settings.dangerHint")}</CardDescription>
         </CardHeader>
         <CardContent>
           <Button
@@ -116,7 +113,7 @@ function GeneralSettingsPage(): React.JSX.Element {
             }}
             disabled={!organization}
           >
-            Delete workspace
+            {t("settings.delete")}
           </Button>
         </CardContent>
       </Card>
@@ -129,24 +126,20 @@ function GeneralSettingsPage(): React.JSX.Element {
       >
         <AlertDialogContent>
           <AlertDialogHeader>
-            <AlertDialogTitle>Delete this workspace?</AlertDialogTitle>
+            <AlertDialogTitle>{t("settings.deleteConfirm")}</AlertDialogTitle>
             <AlertDialogDescription asChild>
               <div className="space-y-3 text-sm text-muted-foreground">
                 <p>
-                  Every resource owned by{" "}
-                  <strong className="text-foreground">
-                    {organization?.name ?? orgSlug}
-                  </strong>{" "}
-                  will be removed in cascade — apps, databases, domains, env
-                  vars, audit history. This cannot be undone.
+                  {t("settings.deleteBody", {
+                    name: organization?.name ?? orgSlug,
+                  })}
                 </p>
                 <div className="space-y-1.5">
                   <Label
                     htmlFor="confirm-name"
                     className="text-xs font-medium text-foreground"
                   >
-                    Type <span className="font-mono">{expectedConfirm}</span> to
-                    confirm
+                    {t("settings.typeToConfirm", { name: expectedConfirm })}
                   </Label>
                   <Input
                     id="confirm-name"
@@ -162,7 +155,7 @@ function GeneralSettingsPage(): React.JSX.Element {
           </AlertDialogHeader>
           <AlertDialogFooter>
             <AlertDialogCancel disabled={deleteOrg.isPending}>
-              Cancel
+              {t("common:cancel")}
             </AlertDialogCancel>
             <AlertDialogAction
               loading={deleteOrg.isPending} disabled={!canDelete}
@@ -172,7 +165,9 @@ function GeneralSettingsPage(): React.JSX.Element {
               }}
               className="bg-none bg-destructive text-white hover:bg-destructive/90"
             >
-              {deleteOrg.isPending ? "Deleting…" : "Delete workspace"}
+              {deleteOrg.isPending
+                ? t("settings.deleting")
+                : t("settings.delete")}
             </AlertDialogAction>
           </AlertDialogFooter>
         </AlertDialogContent>

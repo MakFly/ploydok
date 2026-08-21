@@ -3,6 +3,7 @@ import * as React from "react"
 import { useQuery } from "@tanstack/react-query"
 import { RiApps2Line, RiCpuLine, RiDatabase2Line, RiGitBranchLine } from "@remixicon/react"
 import { cn } from "@workspace/ui/lib/utils"
+import { useTranslation } from "react-i18next"
 import {  apiFetch } from "../../lib/api"
 import type {ApiError} from "../../lib/api";
 
@@ -31,19 +32,20 @@ export function useFleetQuotas() {
 // ---------------------------------------------------------------------------
 
 export function QuotaUsageCard(): React.JSX.Element {
+  const { t } = useTranslation("monitoring")
   const { data, isLoading, error } = useFleetQuotas()
 
   return (
     <section
-      aria-label="Quotas usage"
+      aria-label={t("quotas")}
       className="rounded-xl rounded-2xl bg-panel p-5"
     >
       <header className="mb-4 flex items-center justify-between gap-3">
         <div>
           <p className="font-mono text-[10px] tracking-wide text-muted-foreground uppercase">
-            Fleet quotas
+            {t("fleetQuotas")}
           </p>
-          <h2 className="text-sm font-medium">Déclaration par plan</h2>
+          <h2 className="text-sm font-medium">{t("planDeclaration")}</h2>
         </div>
         <CountPill value={data?.running ?? 0} total={data?.apps ?? 0} />
       </header>
@@ -58,21 +60,21 @@ export function QuotaUsageCard(): React.JSX.Element {
         <dl className="grid gap-3 sm:grid-cols-3">
           <Stat
             icon={RiCpuLine}
-            label="CPU déclaré"
-            value={`${data.cpu.declared.toFixed(2)} cores`}
-            hint="Somme plan/custom"
+            label={t("cpuDeclared")}
+            value={t("cores", { count: data.cpu.declared.toFixed(2) })}
+            hint={t("cpuHint")}
           />
           <Stat
             icon={RiDatabase2Line}
-            label="Mémoire déclarée"
+            label={t("memDeclared")}
             value={formatBytes(data.mem.declared_bytes)}
-            hint="Total apps"
+            hint={t("memHint")}
           />
           <Stat
             icon={RiGitBranchLine}
-            label="PIDs déclarés"
+            label={t("pidsDeclared")}
             value={String(data.pids.declared)}
-            hint="Cap des processus"
+            hint={t("pidsHint")}
           />
         </dl>
       )}
@@ -85,10 +87,11 @@ export function QuotaUsageCard(): React.JSX.Element {
 // ---------------------------------------------------------------------------
 
 function CountPill({ value, total }: { value: number; total: number }): React.JSX.Element {
+  const { t } = useTranslation("monitoring")
   return (
     <div className="inline-flex items-center gap-1.5 rounded-md border border-border bg-background px-2.5 py-1 font-mono text-[10px] tracking-wide text-muted-foreground uppercase">
       <RiApps2Line className="size-3" />
-      {value} running / {total} apps
+      {t("runningApps", { running: value, total })}
     </div>
   )
 }

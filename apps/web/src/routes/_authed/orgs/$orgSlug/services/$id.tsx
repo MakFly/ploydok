@@ -31,6 +31,7 @@ import {
   useStartService,
   useStopService,
 } from "../../../../../lib/services"
+import { useTranslation } from "react-i18next"
 import { useCurrentOrganization } from "../../../../../lib/organizations"
 
 export const Route = createFileRoute("/_authed/orgs/$orgSlug/services/$id")({
@@ -38,6 +39,7 @@ export const Route = createFileRoute("/_authed/orgs/$orgSlug/services/$id")({
 })
 
 function ServiceDetailPage(): React.JSX.Element {
+  const { t } = useTranslation("services")
   const { id } = Route.useParams()
   const organization = useCurrentOrganization()
   const { data: service, isLoading, error } = useService(id)
@@ -45,11 +47,11 @@ function ServiceDetailPage(): React.JSX.Element {
 
   if (isLoading) {
     return (
-      <ShellPage title="Service" eyebrow={organization?.name ?? "Workspace"}>
+      <ShellPage title={t("title")} eyebrow={organization?.name ?? t("workspace:eyebrow")}>
         <div
           className="space-y-4"
           aria-busy="true"
-          aria-label="Loading service"
+          aria-label={t("loading")}
         >
           <div className="h-8 w-48 skeleton-surface rounded" />
           <div className="h-40 skeleton-surface rounded-lg" />
@@ -60,12 +62,12 @@ function ServiceDetailPage(): React.JSX.Element {
 
   if (error || !service) {
     return (
-      <ShellPage title="Service" eyebrow={organization?.name ?? "Workspace"}>
+      <ShellPage title={t("title")} eyebrow={organization?.name ?? t("workspace:eyebrow")}>
         <p
           role="alert"
           className="rounded-md border border-destructive/30 bg-destructive/10 px-4 py-3 text-sm text-destructive"
         >
-          Impossible de charger le service.
+          {t("loadFailed")}
         </p>
       </ShellPage>
     )
@@ -77,7 +79,7 @@ function ServiceDetailPage(): React.JSX.Element {
   return (
     <ShellPage
       title={service.name}
-      eyebrow={organization?.name ?? "Workspace"}
+      eyebrow={organization?.name ?? t("workspace:eyebrow")}
       actions={
         <div className="flex items-center gap-2">
           {isStopped ? <StartButton id={id} /> : null}
@@ -89,7 +91,7 @@ function ServiceDetailPage(): React.JSX.Element {
             onClick={() => setDeleteOpen(true)}
           >
             <RiDeleteBin2Line className="size-4" />
-            Delete
+            {t("delete")}
           </Button>
         </div>
       }
@@ -114,6 +116,7 @@ function ServiceDetailPage(): React.JSX.Element {
 }
 
 function StartButton({ id }: { id: string }): React.JSX.Element {
+  const { t } = useTranslation("services")
   const start = useStartService()
   return (
     <Button
@@ -124,12 +127,13 @@ function StartButton({ id }: { id: string }): React.JSX.Element {
       loading={start.isPending}
     >
       <RiPlayLine className="size-4" />
-      Start
+      {t("start")}
     </Button>
   )
 }
 
 function StopButton({ id }: { id: string }): React.JSX.Element {
+  const { t } = useTranslation("services")
   const stop = useStopService()
   return (
     <Button
@@ -140,7 +144,7 @@ function StopButton({ id }: { id: string }): React.JSX.Element {
       loading={stop.isPending}
     >
       <RiStopLine className="size-4" />
-      Stop
+      {t("stop")}
     </Button>
   )
 }
@@ -156,20 +160,21 @@ function ServiceHeaderPanel({
     template_version: string | null
   }
 }): React.JSX.Element {
+  const { t } = useTranslation("services")
   return (
-    <ShellPanel title="Détails">
+    <ShellPanel title={t("details")}>
       <div className="grid gap-3 text-sm">
-        <Row label="Statut">
+        <Row label={t("status")}>
           <ServiceStatusBadge status={service.status as never} />
         </Row>
-        <Row label="Template">
+        <Row label={t("template")}>
           <span className="font-mono text-xs">
             {service.template_id}
             {service.template_version ? ` v${service.template_version}` : ""}
           </span>
         </Row>
         {service.domain ? (
-          <Row label="Domain">
+          <Row label={t("domain")}>
             <a
               href={`https://${service.domain}`}
               target="_blank"
@@ -201,19 +206,20 @@ function Row({
 }
 
 function LogsPanel({ id }: { id: string }): React.JSX.Element {
+  const { t } = useTranslation("services")
   const { data, isLoading } = useServiceLogs(id)
   const lines = data?.lines ?? []
 
   return (
     <ShellPanel
-      title="Logs"
-      description="Dernières 200 lignes — rafraîchissement automatique toutes les 5 s."
+      title={t("logs")}
+      description={t("logsHint")}
     >
       {isLoading ? (
         <div className="h-40 skeleton-surface rounded-md" />
       ) : lines.length === 0 ? (
         <p className="text-xs text-muted-foreground">
-          Aucune ligne de log disponible.
+          {t("noLogs")}
         </p>
       ) : (
         <pre className="max-h-80 overflow-auto rounded-md bg-muted p-3 text-[11px] leading-relaxed text-muted-foreground">
@@ -229,10 +235,11 @@ function LogsPanel({ id }: { id: string }): React.JSX.Element {
 }
 
 function ComposePanel({ compose }: { compose: string }): React.JSX.Element {
+  const { t } = useTranslation("services")
   return (
     <ShellPanel
-      title="Compose"
-      description="Contenu docker-compose.yml utilisé pour ce service."
+      title={t("compose")}
+      description={t("composeHint")}
     >
       <pre className="max-h-80 overflow-auto rounded-md bg-muted p-3 text-[11px] leading-relaxed text-muted-foreground">
         <code>{compose}</code>
@@ -246,6 +253,7 @@ function GeneratedEnvPanel({
 }: {
   env: Record<string, string>
 }): React.JSX.Element {
+  const { t } = useTranslation("services")
   const entries = Object.entries(env)
   const [revealed, setRevealed] = React.useState<Set<string>>(new Set())
   const [copied, setCopied] = React.useState<string | null>(null)
@@ -271,12 +279,12 @@ function GeneratedEnvPanel({
 
   return (
     <ShellPanel
-      title="Variables générées"
-      description="Variables d'environnement auto-générées à l'installation (lecture seule)."
+      title={t("generatedVars")}
+      description={t("generatedHint")}
     >
       {entries.length === 0 ? (
         <p className="text-xs text-muted-foreground">
-          Aucune variable générée.
+          {t("noGenerated")}
         </p>
       ) : (
         <div className="space-y-2">
@@ -298,7 +306,7 @@ function GeneratedEnvPanel({
                 <button
                   type="button"
                   onClick={() => toggleReveal(key)}
-                  aria-label={isRevealed ? "Masquer" : "Révéler"}
+                  aria-label={isRevealed ? t("hide") : t("reveal")}
                   className="shrink-0 text-muted-foreground hover:text-foreground"
                 >
                   {isRevealed ? (
@@ -310,13 +318,13 @@ function GeneratedEnvPanel({
                 <button
                   type="button"
                   onClick={() => void handleCopy(key, value)}
-                  aria-label="Copier"
+                  aria-label={t("copy")}
                   className="shrink-0 text-muted-foreground hover:text-foreground"
                 >
                   <RiFileCopyLine className="size-4" />
                 </button>
                 {copied === key ? (
-                  <span className="text-[10px] text-green-600">Copié</span>
+                  <span className="text-[10px] text-green-600">{t("copied")}</span>
                 ) : null}
               </div>
             )
@@ -338,6 +346,7 @@ function DeleteDialog({
   serviceId: string
   onClose: () => void
 }): React.JSX.Element {
+  const { t } = useTranslation("services")
   const router = useRouter()
   const { orgSlug } = Route.useParams()
   const deleteService = useDeleteService()
@@ -357,11 +366,9 @@ function DeleteDialog({
     <Dialog open={open} onOpenChange={(o) => (!o ? onClose() : undefined)}>
       <DialogContent className="sm:max-w-md">
         <DialogHeader>
-          <DialogTitle>Supprimer {serviceName}</DialogTitle>
+          <DialogTitle>{t("deleteTitle", { name: serviceName })}</DialogTitle>
           <DialogDescription>
-            Cette action est irréversible. Tous les containers et données
-            associés seront supprimés. Tape{" "}
-            <strong className="font-mono">{expected}</strong> pour confirmer.
+            {t("deleteBody", { expected })}
           </DialogDescription>
         </DialogHeader>
         <Input
@@ -377,7 +384,7 @@ function DeleteDialog({
             onClick={onClose}
             disabled={deleteService.isPending}
           >
-            Annuler
+            {t("common:cancel")}
           </Button>
           <Button
             type="button"
@@ -386,7 +393,7 @@ function DeleteDialog({
             loading={deleteService.isPending}
             disabled={confirm !== expected}
           >
-            {deleteService.isPending ? "Suppression…" : "Supprimer"}
+            {deleteService.isPending ? t("deleting") : t("delete")}
           </Button>
         </DialogFooter>
       </DialogContent>

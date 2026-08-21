@@ -7,6 +7,7 @@ import {
   RiServerLine,
 } from "@remixicon/react"
 import { cn } from "@workspace/ui/lib/utils"
+import { useTranslation } from "react-i18next"
 import { useHostStats } from "../../lib/host-stats"
 import type { HostStats } from "../../lib/host-stats"
 
@@ -37,6 +38,7 @@ function pctClass(pct: number): string {
 }
 
 export function HostHealthCard(): React.JSX.Element {
+  const { t } = useTranslation("monitoring")
   const { data, isLoading, error } = useHostStats()
 
   if (isLoading) {
@@ -59,8 +61,7 @@ export function HostHealthCard(): React.JSX.Element {
           host_stats_unavailable
         </p>
         <p className="mt-1 text-xs text-muted-foreground">
-          {error?.message ??
-            "Agent injoignable — le monitoring host requiert l'agent Rust en marche."}
+          {error?.message ?? t("host.unavailable")}
         </p>
       </div>
     )
@@ -70,6 +71,7 @@ export function HostHealthCard(): React.JSX.Element {
 }
 
 function HostHealthBody({ data }: { data: HostStats }): React.JSX.Element {
+  const { t } = useTranslation("monitoring")
   const memPct =
     data.mem_total_bytes > 0
       ? (data.mem_used_bytes / data.mem_total_bytes) * 100
@@ -83,35 +85,35 @@ function HostHealthBody({ data }: { data: HostStats }): React.JSX.Element {
   const inodesPct =
     data.inodes_total > 0 ? (data.inodes_used / data.inodes_total) * 100 : 0
 
-  const t = data.thresholds
+  const thresholds = data.thresholds
   const hasAlerts = data.alerts.length > 0
 
   return (
     <section
-      aria-label="Host server health"
+      aria-label={t("host.section")}
       className="rounded-2xl rounded-xl bg-panel"
     >
       <header className="flex items-center justify-between border-b border-border px-4 py-3">
         <div className="space-y-0.5">
           <p className="font-mono text-[10px] tracking-wide text-muted-foreground uppercase">
-            Host VPS
+            {t("host.vps")}
           </p>
           <p className="text-sm font-medium">
-            Server health{" "}
+            {t("host.serverHealth")}{" "}
             <span className="ml-1 font-mono text-[10px] text-muted-foreground">
-              uptime {formatUptime(data.uptime_seconds)}
+              {t("host.uptime", { value: formatUptime(data.uptime_seconds) })}
             </span>
           </p>
         </div>
         {hasAlerts ? (
           <span className="inline-flex h-6 items-center gap-1.5 rounded-full bg-destructive/10 px-2 text-[11px] font-medium text-destructive">
             <span className="size-1.5 rounded-full bg-destructive" />
-            {data.alerts.length} alert{data.alerts.length > 1 ? "s" : ""}
+            {t("host.alerts", { count: data.alerts.length })}
           </span>
         ) : (
           <span className="inline-flex h-6 items-center gap-1.5 rounded-full bg-emerald-500/10 px-2 text-[11px] font-medium text-emerald-600 dark:text-emerald-400">
             <span className="size-1.5 rounded-full bg-emerald-500" />
-            Healthy
+            {t("healthy")}
           </span>
         )}
       </header>
@@ -119,33 +121,33 @@ function HostHealthBody({ data }: { data: HostStats }): React.JSX.Element {
       <dl className="grid grid-cols-2 divide-x divide-y divide-border sm:grid-cols-4 sm:divide-y-0">
         <Cell
           icon={RiCpuLine}
-          label="CPU"
+          label={t("host.cpu")}
           value={`${data.cpu_percent.toFixed(1)}%`}
-          sub={`${data.cpu_count} cores`}
+          sub={t("cores", { count: data.cpu_count })}
         />
         <Cell
           icon={RiServerLine}
-          label="Memory"
+          label={t("host.memory")}
           value={`${memPct.toFixed(0)}%`}
           sub={`${formatBytes(data.mem_used_bytes)} / ${formatBytes(data.mem_total_bytes)}`}
           accent={pctClass(memPct)}
         />
         <Cell
           icon={RiHardDriveLine}
-          label="Disk /"
+          label={t("host.diskRoot")}
           value={`${diskPct.toFixed(0)}%`}
-          sub={`${formatBytes(data.disk_used_bytes)} / ${formatBytes(data.disk_total_bytes)} · inodes ${inodesPct.toFixed(0)}%`}
+          sub={`${formatBytes(data.disk_used_bytes)} / ${formatBytes(data.disk_total_bytes)} · ${t("host.inodes", { pct: inodesPct.toFixed(0) })}`}
           accent={pctClass(diskPct)}
         />
         <Cell
           icon={RiPulseLine}
-          label="Load avg"
+          label={t("host.loadAvg")}
           value={data.load_1.toFixed(2)}
           sub={`5m ${data.load_5.toFixed(2)} · 15m ${data.load_15.toFixed(2)} · ${loadPerCpu.toFixed(2)}/cpu`}
           accent={
-            loadPerCpu > t.load_warn_per_cpu
+            loadPerCpu > thresholds.load_warn_per_cpu
               ? "text-destructive"
-              : loadPerCpu > t.load_warn_per_cpu * 0.66
+              : loadPerCpu > thresholds.load_warn_per_cpu * 0.66
                 ? "text-amber-600 dark:text-amber-400"
                 : undefined
           }
@@ -153,7 +155,7 @@ function HostHealthBody({ data }: { data: HostStats }): React.JSX.Element {
         {data.gpu_count > 0 ? (
           <Cell
             icon={RiCpuLine}
-            label="GPU"
+            label={t("host.gpu")}
             value={`${data.gpu_utilization_pct.toFixed(0)}%`}
             sub={`${formatBytes(data.gpu_mem_used_bytes)} / ${formatBytes(data.gpu_mem_total_bytes)}${data.gpu_name ? ` · ${data.gpu_name}` : ""}${data.gpu_count > 1 ? ` · ${data.gpu_count} GPUs` : ""}`}
           />
@@ -168,7 +170,7 @@ function HostHealthBody({ data }: { data: HostStats }): React.JSX.Element {
 
       {data.error ? (
         <div className="border-t border-border bg-amber-500/5 px-4 py-2 font-mono text-[10px] text-amber-600 dark:text-amber-400">
-          partial: {data.error}
+          {t("host.partial", { error: data.error })}
         </div>
       ) : null}
     </section>

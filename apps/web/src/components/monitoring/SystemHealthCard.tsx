@@ -7,6 +7,7 @@ import {
   RiQuestionLine,
 } from "@remixicon/react"
 import { cn } from "@workspace/ui/lib/utils"
+import { useTranslation } from "react-i18next"
 import {  useSystemHealth } from "../../lib/system-health"
 import type {ComponentStatus} from "../../lib/system-health";
 
@@ -14,33 +15,34 @@ const STATUS_STYLES: Record<
   ComponentStatus,
   {
     icon: React.ComponentType<{ className?: string }>
-    text: string
+    textKey: "system.ok" | "system.degradedBadge" | "down" | "system.unknown"
     cls: string
   }
 > = {
   ok: {
     icon: RiCheckboxCircleFill,
-    text: "OK",
+    textKey: "system.ok",
     cls: "text-emerald-600 dark:text-emerald-400",
   },
   degraded: {
     icon: RiErrorWarningLine,
-    text: "Degraded",
+    textKey: "system.degradedBadge",
     cls: "text-amber-600 dark:text-amber-400",
   },
   down: {
     icon: RiCloseCircleFill,
-    text: "Down",
+    textKey: "down",
     cls: "text-destructive",
   },
   unknown: {
     icon: RiQuestionLine,
-    text: "Unknown",
+    textKey: "system.unknown",
     cls: "text-muted-foreground",
   },
 }
 
 export function SystemHealthCard(): React.JSX.Element {
+  const { t } = useTranslation("monitoring")
   const { data, isLoading, error } = useSystemHealth()
 
   if (isLoading) {
@@ -63,7 +65,7 @@ export function SystemHealthCard(): React.JSX.Element {
           system_health_unreachable
         </p>
         <p className="mt-1 text-xs">
-          {error?.message ?? "No data"} — check API and {`/health/ready`}.
+          {error?.message ?? t("system.noData")}
         </p>
       </div>
     )
@@ -71,16 +73,16 @@ export function SystemHealthCard(): React.JSX.Element {
 
   return (
     <section
-      aria-label="System status"
+      aria-label={t("system.title")}
       className="rounded-xl rounded-2xl bg-panel"
     >
       <header className="flex items-center justify-between border-b border-border px-4 py-3">
         <div className="space-y-0.5">
           <p className="font-mono text-[10px] tracking-wide text-muted-foreground uppercase">
-            System
+            {t("system.label")}
           </p>
           <p className="text-sm font-medium">
-            {data.ok ? "All systems operational" : "Some components degraded"}{" "}
+            {data.ok ? t("system.operational") : t("system.degraded")}{" "}
             <span className="ml-1 font-mono text-[10px] text-muted-foreground">
               v{data.version}
             </span>
@@ -100,12 +102,12 @@ export function SystemHealthCard(): React.JSX.Element {
               data.ok ? "bg-emerald-500" : "bg-amber-500"
             )}
           />
-          {data.ok ? "Operational" : "Degraded"}
+          {data.ok ? t("system.operationalBadge") : t("system.degradedBadge")}
         </span>
       </header>
       <dl className="grid grid-cols-1 divide-y divide-border sm:grid-cols-3 sm:divide-x sm:divide-y-0">
         <ComponentCell
-          label="Database"
+          label={t("system.database")}
           status={data.components.db.status}
           detail={
             data.components.db.latency_ms !== undefined
@@ -114,12 +116,12 @@ export function SystemHealthCard(): React.JSX.Element {
           }
         />
         <ComponentCell
-          label="Agent"
+          label={t("system.agent")}
           status={data.components.agent.status}
           detail={data.components.agent.socket ?? data.components.agent.error}
         />
         <ComponentCell
-          label="Caddy"
+          label={t("system.caddy")}
           status={data.components.caddy.status}
           detail={
             data.components.caddy.admin_url ?? data.components.caddy.error
@@ -139,6 +141,7 @@ function ComponentCell({
   status: ComponentStatus
   detail?: string
 }): React.JSX.Element {
+  const { t } = useTranslation("monitoring")
   const s = STATUS_STYLES[status]
   return (
     <div className="flex flex-col gap-1 px-4 py-3">
@@ -147,7 +150,7 @@ function ComponentCell({
       </dt>
       <dd className="flex items-center gap-1.5">
         <s.icon className={cn("size-4", s.cls)} />
-        <span className={cn("text-sm font-medium", s.cls)}>{s.text}</span>
+        <span className={cn("text-sm font-medium", s.cls)}>{t(s.textKey)}</span>
       </dd>
       {detail ? (
         <p

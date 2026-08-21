@@ -2,6 +2,7 @@
 import * as React from "react"
 import { createFileRoute } from "@tanstack/react-router"
 import { RiRefreshLine, RiShieldCheckLine } from "@remixicon/react"
+import { useTranslation } from "react-i18next"
 import { Button } from "@workspace/ui/components/button"
 import { Badge } from "@workspace/ui/components/badge"
 import { Skeleton } from "@workspace/ui/components/skeleton"
@@ -17,6 +18,7 @@ export const Route = createFileRoute("/_authed/admin/security/advisories")({
 })
 
 function AdminAdvisoriesPage(): React.JSX.Element {
+  const { t } = useTranslation("monitoring")
   const { data, isLoading, error } = useAdminAdvisories()
   const refresh = useRefreshAdvisories()
 
@@ -25,11 +27,10 @@ function AdminAdvisoriesPage(): React.JSX.Element {
       <div className="flex flex-wrap items-center justify-between gap-3">
         <div>
           <h1 className="text-2xl font-semibold text-foreground">
-            Security advisories
+            {t("advisories.title")}
           </h1>
           <p className="mt-1 max-w-3xl text-sm text-muted-foreground">
-            Ploydok sends dependency names and versions to OSV.dev during scans.
-            Source code, secrets and user identifiers are not sent.
+            {t("advisories.description")}
           </p>
         </div>
         <Button
@@ -40,19 +41,19 @@ function AdminAdvisoriesPage(): React.JSX.Element {
           loading={refresh.isPending}
         >
           <RiRefreshLine className="size-4" />
-          Refresh
+          {t("common:refresh")}
         </Button>
       </div>
 
       {data?.disabled ? (
         <div className="rounded-md border border-border bg-muted/40 p-4 text-sm text-muted-foreground">
-          CVE scanning is disabled by `PLOYDOK_CVE_SCAN=off`.
+          {t("advisories.disabled")}
         </div>
       ) : null}
 
       {error ? (
         <div className="rounded-md border border-destructive/30 bg-destructive/10 p-4 text-sm text-destructive">
-          Failed to load advisories.
+          {t("advisories.loadFailed")}
         </div>
       ) : null}
 
@@ -68,11 +69,12 @@ export function AdvisoryTable({
   rows: Array<AdvisoryRow>
   loading?: boolean
 }): React.JSX.Element {
+  const { t } = useTranslation("monitoring")
   const ack = useAcknowledgeAdvisory()
 
   if (loading) {
     return (
-      <div className="rounded-md border border-border p-4" aria-busy="true" aria-label="Loading advisories">
+      <div className="rounded-md border border-border p-4" aria-busy="true" aria-label={t("advisories.loading")}>
         <Skeleton className="h-16 w-full rounded-md" />
       </div>
     )
@@ -83,7 +85,7 @@ export function AdvisoryTable({
       <div className="flex min-h-48 items-center justify-center rounded-md border border-dashed border-panel-border bg-panel-inset text-sm text-muted-foreground">
         <div className="flex items-center gap-2">
           <RiShieldCheckLine className="size-4" />
-          No active advisories.
+          {t("advisories.empty")}
         </div>
       </div>
     )
@@ -94,11 +96,11 @@ export function AdvisoryTable({
       <table className="w-full text-left text-sm">
         <thead className="border-b border-border bg-muted/40 text-xs uppercase text-muted-foreground">
           <tr>
-            <th className="px-3 py-2">Severity</th>
-            <th className="px-3 py-2">Package</th>
-            <th className="px-3 py-2">Advisory</th>
-            <th className="px-3 py-2">Scope</th>
-            <th className="px-3 py-2 text-right">Action</th>
+            <th className="px-3 py-2">{t("advisories.severity")}</th>
+            <th className="px-3 py-2">{t("advisories.package")}</th>
+            <th className="px-3 py-2">{t("advisories.advisory")}</th>
+            <th className="px-3 py-2">{t("advisories.scope")}</th>
+            <th className="px-3 py-2 text-right">{t("advisories.action")}</th>
           </tr>
         </thead>
         <tbody>
@@ -130,7 +132,7 @@ export function AdvisoryTable({
               </td>
               <td className="px-3 py-3 text-xs text-muted-foreground">
                 {row.match.scope === "platform"
-                  ? "Platform"
+                  ? t("advisories.platform")
                   : `${row.org_slug ?? "org"} / ${row.app_name ?? row.match.app_id}`}
               </td>
               <td className="px-3 py-3 text-right">
@@ -140,7 +142,7 @@ export function AdvisoryTable({
                   loading={ack.isPending}
                   onClick={() => ack.mutate({ matchId: row.match.id })}
                 >
-                  Acknowledge
+                  {t("advisories.acknowledge")}
                 </Button>
               </td>
             </tr>

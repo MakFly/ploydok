@@ -1,5 +1,6 @@
 // SPDX-License-Identifier: AGPL-3.0-only
 import { apiFetch } from "./api/client"
+import i18n from "./i18n"
 import type {
   SSOConfigCreateBody,
   SSOConfigSummary,
@@ -93,7 +94,7 @@ export async function testSSOConnection(
       }
     )
   } catch {
-    return { ok: false, error: "Failed to test connection" }
+    return { ok: false, error: i18n.t("workspace:sso.testConnectionFailed") }
   }
 }
 

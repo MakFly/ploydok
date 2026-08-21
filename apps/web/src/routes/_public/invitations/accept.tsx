@@ -13,6 +13,7 @@ import {
   validateInvitationPasswords,
 } from "../../../lib/memberships"
 import { InvitationTokenLifecycle } from "../../../components/invitations/InvitationTokenLifecycle"
+import { useTranslation } from "react-i18next"
 import type { Me } from "@ploydok/shared"
 
 export const Route = createFileRoute("/_public/invitations/accept")({
@@ -25,6 +26,7 @@ export const Route = createFileRoute("/_public/invitations/accept")({
 })
 
 function AcceptInvitationPage(): React.JSX.Element {
+  const { t } = useTranslation("auth")
   const { token: urlToken } = useSearch({ from: Route.id })
   const [token] = React.useState(() => {
     if (urlToken) return urlToken
@@ -143,17 +145,17 @@ function AcceptInvitationPage(): React.JSX.Element {
             </div>
             <div className="space-y-1">
               <h1 className="text-2xl leading-tight font-semibold tracking-tight">
-                Invalid invitation
+                {t("invitation.invalidTitle")}
               </h1>
               <p className="text-sm text-muted-foreground">
-                This invitation is invalid or has expired.
+                {t("invitation.invalid")}
               </p>
             </div>
           </div>
 
           <div className="flex justify-center gap-2">
             <Button onClick={() => void router.navigate({ to: "/login" })}>
-              Back to login
+              {t("invitation.backToLogin")}
             </Button>
           </div>
         </div>
@@ -176,10 +178,10 @@ function AcceptInvitationPage(): React.JSX.Element {
           </div>
           <div className="space-y-1">
             <h1 className="text-2xl leading-tight font-semibold tracking-tight">
-              Join {preview.org_name}
+              {t("invitation.join", { org: preview.org_name })}
             </h1>
             <p className="text-sm text-muted-foreground">
-              You've been invited to collaborate.
+              {t("invitation.invitedToCollaborate")}
             </p>
           </div>
         </div>
@@ -188,21 +190,14 @@ function AcceptInvitationPage(): React.JSX.Element {
           <div className="space-y-4">
             <div className="space-y-2">
               <p className="text-sm text-muted-foreground">
-                <span className="font-medium text-foreground">
-                  {preview.inviter_email}
-                </span>{" "}
-                invited you to join{" "}
-                <span className="font-medium text-foreground">
-                  {preview.org_name}
-                </span>{" "}
-                as a{" "}
-                <span className="font-medium text-foreground">
-                  {preview.role}
-                </span>
-                .
+                {t("invitation.invitedBy", {
+                  inviter: preview.inviter_email,
+                  org: preview.org_name,
+                  role: preview.role,
+                })}
               </p>
               <p className="text-xs text-muted-foreground">
-                Invitation email:{" "}
+                {t("invitation.invitationEmail")}{" "}
                 <span className="font-mono">{preview.email}</span>
               </p>
             </div>
@@ -210,10 +205,11 @@ function AcceptInvitationPage(): React.JSX.Element {
             {emailMismatch && (
               <div className="rounded-md border border-yellow-600/30 bg-yellow-600/10 px-4 py-3">
                 <p className="text-sm text-yellow-600">
-                  <strong>Note:</strong> This invitation is for{" "}
-                  <strong>{preview.email}</strong>, but you're signed in as{" "}
-                  <strong>{authenticatedEmail}</strong>. Sign out to accept with
-                  the correct account.
+                  <strong>{t("invitation.note")}</strong>{" "}
+                  {t("invitation.wrongAccount", {
+                    expected: preview.email,
+                    actual: authenticatedEmail,
+                  })}
                 </p>
               </div>
             )}
@@ -225,13 +221,13 @@ function AcceptInvitationPage(): React.JSX.Element {
               >
                 <div className="space-y-2">
                   <label className="text-sm font-medium" htmlFor="invite-email">
-                    Email
+                    {t("login.email")}
                   </label>
                   <Input id="invite-email" value={preview.email} disabled />
                 </div>
                 <div className="space-y-2">
                   <label className="text-sm font-medium" htmlFor="display-name">
-                    Display name
+                    {t("invitation.displayName")}
                   </label>
                   <Input
                     id="display-name"
@@ -246,7 +242,7 @@ function AcceptInvitationPage(): React.JSX.Element {
                     className="text-sm font-medium"
                     htmlFor="invite-password"
                   >
-                    Password
+                    {t("invitation.password")}
                   </label>
                   <Input
                     id="invite-password"
@@ -258,7 +254,7 @@ function AcceptInvitationPage(): React.JSX.Element {
                     required
                   />
                   <p className="text-xs text-muted-foreground">
-                    Use at least 12 characters.
+                    {t("invitation.passwordHint")}
                   </p>
                 </div>
                 <div className="space-y-2">
@@ -266,7 +262,7 @@ function AcceptInvitationPage(): React.JSX.Element {
                     className="text-sm font-medium"
                     htmlFor="invite-password-confirmation"
                   >
-                    Confirm password
+                    {t("invitation.confirmPassword")}
                   </label>
                   <Input
                     id="invite-password-confirmation"
@@ -292,7 +288,7 @@ function AcceptInvitationPage(): React.JSX.Element {
                     registerMutation.isPending || acceptMutation.isPending
                   }
                 >
-                  Create account and accept
+                  {t("invitation.createAndAccept")}
                 </Button>
                 <Button
                   type="button"
@@ -303,13 +299,13 @@ function AcceptInvitationPage(): React.JSX.Element {
                     registerMutation.isPending || acceptMutation.isPending
                   }
                 >
-                  Back
+                  {t("common:back")}
                 </Button>
               </form>
             ) : !authenticatedEmail ? (
               <div className="space-y-2">
                 <Button onClick={handleSignIn} size="lg" className="w-full">
-                  Sign in to accept
+                  {t("invitation.signInToAccept")}
                 </Button>
                 <Button
                   onClick={() => setRegistering(true)}
@@ -317,7 +313,7 @@ function AcceptInvitationPage(): React.JSX.Element {
                   className="w-full"
                   variant="outline"
                 >
-                  Create account
+                  {t("invitation.createAccount")}
                 </Button>
               </div>
             ) : emailMismatch ? (
@@ -328,7 +324,7 @@ function AcceptInvitationPage(): React.JSX.Element {
                 variant="outline"
                 loading={logout.isPending}
               >
-                Sign out and switch accounts
+                {t("invitation.signOutSwitch")}
               </Button>
             ) : (
               <Button
@@ -338,8 +334,8 @@ function AcceptInvitationPage(): React.JSX.Element {
                 className="w-full"
               >
                 {acceptMutation.isPending
-                  ? "Accepting..."
-                  : "Accept invitation"}
+                  ? t("invitation.accepting")
+                  : t("invitation.accept")}
               </Button>
             )}
           </div>

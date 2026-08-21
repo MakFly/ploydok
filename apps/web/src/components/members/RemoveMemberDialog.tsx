@@ -9,6 +9,7 @@ import {
   AlertDialogHeader,
   AlertDialogTitle,
 } from "@workspace/ui/components/alert-dialog"
+import { useTranslation } from "react-i18next"
 import type { MemberListItem } from "@ploydok/shared"
 
 interface Member extends MemberListItem {
@@ -30,27 +31,26 @@ export function RemoveMemberDialog({
   onCancel,
   isLoading,
 }: RemoveMemberDialogProps): React.JSX.Element {
+  const { t } = useTranslation("workspace")
   return (
     <AlertDialog open={open} onOpenChange={(newOpen) => !newOpen && onCancel()}>
       <AlertDialogContent>
         <AlertDialogHeader>
-          <AlertDialogTitle>Remove member</AlertDialogTitle>
+          <AlertDialogTitle>{t("members.removeTitle")}</AlertDialogTitle>
           <AlertDialogDescription>
-            Are you sure you want to remove{" "}
-            <strong>{member.user.display_name}</strong> from this workspace?
-            They will lose access immediately.
+            {t("members.removeBody", { name: member.user.display_name })}
           </AlertDialogDescription>
         </AlertDialogHeader>
         <div className="flex gap-3">
           <AlertDialogCancel onClick={onCancel} disabled={isLoading}>
-            Cancel
+            {t("common:cancel")}
           </AlertDialogCancel>
           <AlertDialogAction
             onClick={onConfirm}
             loading={isLoading}
             variant="destructive"
           >
-            {isLoading ? "Removing..." : "Remove"}
+            {isLoading ? t("members.removing") : t("members.remove")}
           </AlertDialogAction>
         </div>
       </AlertDialogContent>

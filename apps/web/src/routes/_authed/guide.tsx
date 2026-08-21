@@ -24,28 +24,27 @@ function GuidePage(): React.JSX.Element {
     <ShellPage
       title={t("guide.title")}
       description={t("guide.description")}
-      eyebrow="Docs"
+      eyebrow={t("onboarding:guide.eyebrow")}
     >
       <div className="space-y-8">
         <header className="rounded-2xl rounded-2xl bg-panel p-8 shadow-sm">
           <div className="flex flex-col gap-6 lg:flex-row lg:items-start lg:justify-between">
             <div className="max-w-3xl space-y-3">
-              <p className="text-xs font-semibold uppercase tracking-[0.24em] text-primary">Operational Guide</p>
-              <h1 className="text-3xl font-semibold tracking-tight">GitHub App installation guide</h1>
+              <p className="text-xs font-semibold uppercase tracking-[0.24em] text-primary">{t("onboarding:guide.operational")}</p>
+              <h1 className="text-3xl font-semibold tracking-tight">{t("onboarding:guide.heading")}</h1>
               <p className="text-sm leading-6 text-muted-foreground">
-                This page documents the full Ploydok GitHub App setup, from app creation to installation verification and troubleshooting.
-                Follow it when you create a new local app, when the GitHub callback is broken, or when the install flow stays on GitHub instead of returning to Ploydok.
+                {t("onboarding:guide.intro")}
               </p>
             </div>
 
             <div className="grid min-w-[280px] gap-3 rounded-xl border border-border bg-background p-4 text-sm">
-              <StatusRow label="GitHub App created" value={appConfig?.configured ? "Yes" : "No"} />
+              <StatusRow label={t("onboarding:guide.appCreated")} value={appConfig?.configured ? t("onboarding:guide.yes") : t("onboarding:guide.no")} />
               <StatusRow
-                label="Active installations"
+                label={t("onboarding:guide.activeInstalls")}
                 value={String(installations?.installations.length ?? 0)}
               />
-              <StatusRow label="Expected setup URL" value={setupUrl} mono />
-              <StatusRow label="Expected callback URL" value={callbackUrl} mono />
+              <StatusRow label={t("onboarding:guide.expectedSetup")} value={setupUrl} mono />
+              <StatusRow label={t("onboarding:guide.expectedCallback")} value={callbackUrl} mono />
             </div>
           </div>
         </header>
