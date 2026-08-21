@@ -1,5 +1,6 @@
 // SPDX-License-Identifier: AGPL-3.0-only
 import * as React from "react"
+import { useTranslation } from "react-i18next"
 import { Button } from "@workspace/ui/components/button"
 import { Input } from "@workspace/ui/components/input"
 import { Textarea } from "@workspace/ui/components/textarea"
@@ -35,6 +36,7 @@ export function GitHubAppSetupCard({
   error,
   mode = "setup",
 }: GitHubAppSetupCardProps): React.JSX.Element {
+  const { t } = useTranslation("settings")
   const importApp = useImportGitHubApp()
   const [showImport, setShowImport] = React.useState(mode === "reconnect")
   const [form, setForm] = React.useState<ImportGitHubAppPayload>({
@@ -89,13 +91,13 @@ export function GitHubAppSetupCard({
         <div>
           <p className="text-sm font-medium">
             {mode === "reconnect"
-              ? "Reconnect the GitHub App"
-              : "No GitHub App configured"}
+              ? t("github.reconnectTitle")
+              : t("github.notConfigured")}
           </p>
           <p className="text-xs text-muted-foreground">
             {mode === "reconnect"
-              ? "Replace the unreadable local credentials with the values from the existing GitHub App."
-              : "Create a new GitHub App, or reconnect the existing one after a local DB reset."}
+              ? t("github.reconnectHint")
+              : t("github.notConfiguredHint")}
           </p>
         </div>
       </div>
@@ -112,7 +114,7 @@ export function GitHubAppSetupCard({
             loading={isPending}
             disabled={importApp.isPending}
           >
-            {isPending ? "Redirecting to GitHub..." : "Create GitHub App"}
+            {isPending ? t("github.redirecting") : t("github.createApp")}
           </Button>
           <Button
             type="button"
@@ -121,7 +123,7 @@ export function GitHubAppSetupCard({
             variant="outline"
             disabled={isPending || importApp.isPending}
           >
-            Reconnect existing App
+            {t("github.reconnectExisting")}
           </Button>
         </div>
       )}
@@ -136,7 +138,7 @@ export function GitHubAppSetupCard({
             webOrigin={reconnectUrls.webOrigin}
           />
           <label className="flex flex-col gap-1.5 text-xs font-medium">
-            App ID
+            {t("github.appId")}
             <Input
               value={form.appId}
               onChange={updateField("appId")}
@@ -144,11 +146,11 @@ export function GitHubAppSetupCard({
             />
           </label>
           <label className="flex flex-col gap-1.5 text-xs font-medium">
-            Client ID
+            {t("github.clientId")}
             <Input value={form.clientId} onChange={updateField("clientId")} />
           </label>
           <label className="flex flex-col gap-1.5 text-xs font-medium">
-            App slug
+            {t("github.appSlug")}
             <Input
               value={form.slug}
               onChange={updateField("slug")}
@@ -156,7 +158,7 @@ export function GitHubAppSetupCard({
             />
           </label>
           <label className="flex flex-col gap-1.5 text-xs font-medium">
-            App name
+            {t("github.appNameShort")}
             <Input
               value={form.name}
               onChange={updateField("name")}
@@ -164,7 +166,7 @@ export function GitHubAppSetupCard({
             />
           </label>
           <label className="flex flex-col gap-1.5 text-xs font-medium md:col-span-2">
-            Client secret
+            {t("github.clientSecret")}
             <Input
               value={form.clientSecret}
               onChange={updateField("clientSecret")}
@@ -173,7 +175,7 @@ export function GitHubAppSetupCard({
             />
           </label>
           <label className="flex flex-col gap-1.5 text-xs font-medium md:col-span-2">
-            Private key
+            {t("github.privateKeyShort")}
             <Textarea
               value={form.privateKey}
               onChange={updateField("privateKey")}
@@ -183,13 +185,13 @@ export function GitHubAppSetupCard({
             />
           </label>
           <label className="flex flex-col gap-1.5 text-xs font-medium md:col-span-2">
-            Webhook secret
+            {t("github.webhookSecret")}
             <Input
               value={form.webhookSecret}
               onChange={updateField("webhookSecret")}
               type="password"
               autoComplete="off"
-              placeholder="Optional for local recovery"
+              placeholder={t("github.webhookOptional")}
             />
           </label>
           {importError && (
@@ -204,7 +206,9 @@ export function GitHubAppSetupCard({
               loading={importApp.isPending}
               disabled={!canImport}
             >
-              {importApp.isPending ? "Reconnecting..." : "Save existing App"}
+              {importApp.isPending
+                ? t("github.reconnecting")
+                : t("github.saveExisting")}
             </Button>
           </div>
         </form>
@@ -240,6 +244,7 @@ function ReconnectGuide({
   apiOrigin: string
   webOrigin: string
 }): React.JSX.Element {
+  const { t } = useTranslation("settings")
   const appSettingsUrl = appSlug
     ? `https://github.com/settings/apps/${encodeURIComponent(appSlug)}`
     : "https://github.com/settings/apps"
@@ -251,30 +256,27 @@ function ReconnectGuide({
     <Dialog>
       <div className="flex items-center justify-between gap-3 rounded-lg border border-border bg-background p-3 md:col-span-2">
         <p className="text-xs text-muted-foreground">
-          Need help finding the GitHub App credentials?
+          {t("github.needHelpCredentials")}
         </p>
         <DialogTrigger asChild>
           <Button type="button" size="sm" variant="outline">
-            How to reconnect
+            {t("github.howToReconnect")}
           </Button>
         </DialogTrigger>
       </div>
       <DialogContent className="max-h-[calc(100vh-2rem)] overflow-y-auto sm:max-w-2xl">
         <DialogHeader>
-          <DialogTitle>How to reconnect the GitHub App</DialogTitle>
+          <DialogTitle>{t("github.howToReconnectTitle")}</DialogTitle>
           <DialogDescription>
-            Open the existing App on GitHub, align its URLs, then generate fresh
-            credentials. Existing secrets and private keys cannot be displayed
-            again by GitHub.
+            {t("github.howToReconnectHint")}
           </DialogDescription>
         </DialogHeader>
 
         <ol className="space-y-4 text-xs leading-5">
           <li className="space-y-2">
-            <p className="font-medium">1. Open the existing GitHub App</p>
+            <p className="font-medium">{t("github.guideStep1Title")}</p>
             <p className="text-muted-foreground">
-              Use the personal settings page, or open your organization and go
-              to Settings → Developer settings → GitHub Apps.
+              {t("github.guideStep1Body")}
             </p>
             <div className="flex flex-wrap gap-x-4 gap-y-1">
               <a
@@ -283,7 +285,7 @@ function ReconnectGuide({
                 rel="noreferrer"
                 className="font-medium text-primary underline-offset-2 hover:underline"
               >
-                Open personal App settings ↗
+                {t("github.openPersonalSettings")}
               </a>
               <a
                 href="https://github.com/settings/organizations"
@@ -291,52 +293,37 @@ function ReconnectGuide({
                 rel="noreferrer"
                 className="font-medium text-primary underline-offset-2 hover:underline"
               >
-                Choose an organization ↗
+                {t("github.chooseOrg")}
               </a>
             </div>
           </li>
 
           <li className="space-y-2">
-            <p className="font-medium">2. Align the General settings</p>
+            <p className="font-medium">{t("github.guideStep2Title")}</p>
             <p className="text-muted-foreground">
-              Keep OAuth during installation disabled, enable Redirect on
-              update, and use these exact values:
+              {t("github.guideStep2Body")}
             </p>
             <dl className="grid gap-2 rounded-md bg-muted/50 p-3">
-              <GuideValue label="Homepage URL" value={webOrigin} />
-              <GuideValue label="Callback URL" value={callbackUrl} />
-              <GuideValue label="Setup URL" value={setupUrl} />
-              <GuideValue label="Webhook URL" value={webhookUrl} />
+              <GuideValue label={t("github.homepageUrl")} value={webOrigin} />
+              <GuideValue label={t("github.callbackUrl")} value={callbackUrl} />
+              <GuideValue label={t("github.setupUrl")} value={setupUrl} />
+              <GuideValue label={t("github.webhookUrl")} value={webhookUrl} />
             </dl>
             {apiOrigin.includes("localhost") ||
             apiOrigin.includes("127.0.0.1") ? (
               <p className="text-muted-foreground">
-                GitHub cannot deliver webhooks to localhost. Use the public
-                HTTPS URL of your tunnel or deployed API instead of the local
-                webhook URL above.
+                {t("github.localhostHint")}
               </p>
             ) : null}
           </li>
 
           <li className="space-y-2">
-            <p className="font-medium">3. Collect the values below</p>
+            <p className="font-medium">{t("github.guideStep3Title")}</p>
             <ul className="list-disc space-y-1 pl-4 text-muted-foreground">
-              <li>
-                Copy App ID, Client ID and the App name from General. The slug
-                is the last part of the public App URL:
-                github.com/apps/&lt;slug&gt;.
-              </li>
-              <li>
-                Under Client secrets, generate a new secret and paste it now.
-              </li>
-              <li>
-                Under Private keys, generate a key, open the downloaded .pem
-                file and paste its complete contents, including BEGIN/END lines.
-              </li>
-              <li>
-                If webhooks are active, choose a new webhook secret, save it on
-                GitHub, and paste the same value here.
-              </li>
+              <li>{t("github.guideStep3AppId")}</li>
+              <li>{t("github.guideStep3Secret")}</li>
+              <li>{t("github.guideStep3Key")}</li>
+              <li>{t("github.guideStep3Webhook")}</li>
             </ul>
           </li>
         </ol>

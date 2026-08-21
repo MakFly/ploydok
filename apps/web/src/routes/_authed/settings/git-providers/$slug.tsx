@@ -7,36 +7,13 @@ import {
   RiGithubFill,
   RiGitlabFill,
 } from "@remixicon/react"
+import { useTranslation } from "react-i18next"
 import { ShellPage } from "../../../../components/layout/AppShell"
 import { GitHubPanel } from "../../../../components/settings/providers/GitHubPanel"
 import { GitLabPanel } from "../../../../components/settings/providers/GitLabPanel"
 import { useGitProviderStatus } from "../../../../lib/git-providers"
 
 type ProviderSlug = "github" | "gitlab"
-
-interface ProviderMeta {
-  title: string
-  description: string
-  icon: React.ComponentType<{ className?: string }>
-  accent: string
-}
-
-const PROVIDERS: Record<ProviderSlug, ProviderMeta> = {
-  github: {
-    title: "GitHub",
-    description:
-      "GitHub App — auto-deploy sur push, webhooks HMAC, accès par installation.",
-    icon: RiGithubFill,
-    accent: "text-foreground",
-  },
-  gitlab: {
-    title: "GitLab",
-    description:
-      "OAuth2 per-user. gitlab.com ou instance self-hosted. Webhook vérifié via X-Gitlab-Token.",
-    icon: RiGitlabFill,
-    accent: "text-[#fc6d26]",
-  },
-}
 
 function isSlug(v: string): v is ProviderSlug {
   return v === "github" || v === "gitlab"
@@ -52,15 +29,30 @@ export const Route = createFileRoute("/_authed/settings/git-providers/$slug")({
 })
 
 function ProviderDashboard(): React.JSX.Element {
+  const { t } = useTranslation("settings")
   const { slug } = Route.useParams()
-  const provider = PROVIDERS[slug as ProviderSlug]
+  const providers = {
+    github: {
+      title: t("github.title"),
+      description: t("gitProviders.githubHint"),
+      icon: RiGithubFill,
+      accent: "text-foreground",
+    },
+    gitlab: {
+      title: t("gitlab.title"),
+      description: t("gitProviders.gitlabHint"),
+      icon: RiGitlabFill,
+      accent: "text-[#fc6d26]",
+    },
+  } as const
+  const provider = providers[slug as ProviderSlug]
   const Icon = provider.icon
 
   return (
     <ShellPage title={provider.title} description={provider.description}>
       <div className="space-y-6">
         <section
-          aria-label="Provider header"
+          aria-label={t("gitProviders.header")}
           className="flex items-center gap-3 rounded-2xl rounded-xl bg-panel p-4"
         >
           <div className="flex size-10 items-center justify-center rounded-md border border-border bg-background">
@@ -87,6 +79,7 @@ function ProviderStatusBadge({
 }: {
   slug: ProviderSlug
 }): React.JSX.Element {
+  const { t } = useTranslation("settings")
   const providers = useGitProviderStatus()
   const status = providers.data?.[slug]
 
@@ -101,19 +94,19 @@ function ProviderStatusBadge({
     return (
       <span className="inline-flex items-center gap-1 font-mono text-[10px] tracking-wide text-amber-600 uppercase dark:text-amber-400">
         <RiCircleLine className="size-3" />
-        Unavailable
+        {t("gitlab.unavailableShort")}
       </span>
     )
   }
   return status?.connected ? (
     <span className="inline-flex items-center gap-1 font-mono text-[10px] tracking-wide text-emerald-600 uppercase dark:text-emerald-400">
       <RiCheckboxCircleFill className="size-3" />
-      Connected
+      {t("gitlab.connected")}
     </span>
   ) : (
     <span className="inline-flex items-center gap-1 font-mono text-[10px] tracking-wide text-muted-foreground uppercase">
       <RiCircleLine className="size-3" />
-      {status?.configured ? "Ready to connect" : "Not set"}
+      {status?.configured ? t("gitProviders.ready") : t("gitProviders.notSet")}
     </span>
   )
 }

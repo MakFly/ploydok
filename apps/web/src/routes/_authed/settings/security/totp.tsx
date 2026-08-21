@@ -23,22 +23,23 @@ import { Button } from "@workspace/ui/components/button"
 import { Skeleton } from "@workspace/ui/components/skeleton"
 import { Switch } from "@workspace/ui/components/switch"
 import { QRCodeSVG } from "qrcode.react"
+import { useTranslation } from "react-i18next"
 import { toast } from "sonner"
 import {
-
   useDeleteTotp,
   useEnrollTotp,
   useTotpStatus,
   useUpdateTotpPreferences,
-  useVerifyTotp
+  useVerifyTotp,
 } from "../../../../lib/totp"
-import type {TotpEnrollResponse} from "../../../../lib/totp";
+import type { TotpEnrollResponse } from "../../../../lib/totp"
 
 export const Route = createFileRoute("/_authed/settings/security/totp")({
   component: TotpPage,
 })
 
 function TotpPage(): React.JSX.Element {
+  const { t } = useTranslation("settings")
   const { data: status, isLoading } = useTotpStatus()
   const [enrollData, setEnrollData] = React.useState<TotpEnrollResponse | null>(
     null
@@ -62,7 +63,7 @@ function TotpPage(): React.JSX.Element {
         setCode("")
       },
       onError: (err) => {
-        toast.error("Failed to start enrollment", { description: err.message })
+        toast.error(t("totp.enrollFailed"), { description: err.message })
       },
     })
   }
@@ -75,13 +76,12 @@ function TotpPage(): React.JSX.Element {
           setLocalVerified(true)
           setEnrollData(null)
           setCode("")
-          toast.success("TOTP enabled", {
-            description:
-              "Your authenticator app is now linked. You will be prompted on next sign-in.",
+          toast.success(t("totp.enabledToast"), {
+            description: t("totp.enabledToastHint"),
           })
         },
         onError: (err) => {
-          toast.error("Invalid code", { description: err.message })
+          toast.error(t("totp.invalidCode"), { description: err.message })
         },
       }
     )
@@ -103,12 +103,12 @@ function TotpPage(): React.JSX.Element {
     deleteTotp.mutate(undefined, {
       onSuccess: () => {
         setLocalVerified(false)
-        toast.success("TOTP disabled", {
-          description: "Two-factor authentication has been removed.",
+        toast.success(t("totp.disabledToast"), {
+          description: t("totp.disabledToastHint"),
         })
       },
       onError: (err) => {
-        toast.error("Failed to disable TOTP", { description: err.message })
+        toast.error(t("totp.disableFailed"), { description: err.message })
       },
     })
   }
@@ -119,13 +119,11 @@ function TotpPage(): React.JSX.Element {
       {
         onSuccess: () => {
           toast.success(
-            checked
-              ? "TOTP required for secret reveal"
-              : "Secret reveal TOTP disabled"
+            checked ? t("totp.revealRequired") : t("totp.revealDisabled")
           )
         },
         onError: (err) => {
-          toast.error("Failed to update secret reveal protection", {
+          toast.error(t("totp.revealUpdateFailed"), {
             description: err.message,
           })
         },
@@ -199,19 +197,15 @@ function TotpIdleView({
   onEnable: () => void
   isPending: boolean
 }): React.JSX.Element {
+  const { t } = useTranslation("settings")
   return (
     <CardFrame
-      title="Authenticator app (TOTP)"
-      description="Add a time-based one-time password from Google Authenticator, Authy, or 1Password as a second factor."
+      title={t("totp.title")}
+      description={t("totp.idleHint")}
       icon={RiShieldKeyholeLine}
     >
-      <Button
-        size="sm"
-        onClick={onEnable}
-        loading={isPending}
-        className="mt-2"
-      >
-        Enable TOTP
+      <Button size="sm" onClick={onEnable} loading={isPending} className="mt-2">
+        {t("totp.enable")}
       </Button>
     </CardFrame>
   )
@@ -238,12 +232,13 @@ function TotpScanView({
   isPending: boolean
   error: { message: string } | null
 }): React.JSX.Element {
+  const { t } = useTranslation("settings")
   const isValidCode = /^[0-9]{6}$/.test(code)
 
   return (
     <CardFrame
-      title="Scan this QR code"
-      description="Open your authenticator app and scan the code below. Then enter the 6-digit code to confirm."
+      title={t("totp.scan")}
+      description={t("totp.scanHint")}
       icon={RiQrCodeLine}
     >
       <div className="mt-4 flex flex-col items-center gap-5">
@@ -253,7 +248,7 @@ function TotpScanView({
 
         <div className="w-full space-y-1">
           <p className="font-mono text-[10px] tracking-wide text-muted-foreground uppercase">
-            Manual entry (copy-paste)
+            {t("totp.manualEntry")}
           </p>
           <div className="flex items-center gap-2">
             <code className="flex-1 truncate rounded border border-border bg-muted px-2 py-1.5 font-mono text-xs text-foreground">
@@ -265,7 +260,7 @@ function TotpScanView({
               onClick={onCopySecret}
               className="shrink-0 font-mono text-[11px]"
             >
-              {copied ? "Copied!" : "Copy"}
+              {copied ? t("totp.copied") : t("common:copy")}
             </Button>
           </div>
         </div>
@@ -275,7 +270,7 @@ function TotpScanView({
             htmlFor="totp-code"
             className="font-mono text-[10px] tracking-wide text-muted-foreground uppercase"
           >
-            Verification code
+            {t("totp.verificationCode")}
           </label>
           <input
             id="totp-code"
@@ -309,15 +304,16 @@ function TotpScanView({
             disabled={isPending}
             className="flex-1"
           >
-            Cancel
+            {t("common:cancel")}
           </Button>
           <Button
             size="sm"
             onClick={onVerify}
-            loading={isPending} disabled={!isValidCode}
+            loading={isPending}
+            disabled={!isValidCode}
             className="flex-1"
           >
-            Verify &amp; enable
+            {t("totp.verifyEnable")}
           </Button>
         </div>
       </div>
@@ -332,16 +328,17 @@ function TotpEnabledView({
   onDelete: () => void
   isPending: boolean
 }): React.JSX.Element {
+  const { t } = useTranslation("settings")
   return (
     <CardFrame
-      title="Authenticator app (TOTP)"
-      description="Your authenticator app is linked. You will be prompted for a code on each sign-in."
+      title={t("totp.title")}
+      description={t("totp.enabledHint")}
       icon={RiCheckboxCircleFill}
     >
       <div className="mt-3 flex items-center justify-between gap-4">
         <p className="flex items-center gap-1.5 text-xs text-emerald-600 dark:text-emerald-400">
           <RiCheckboxCircleFill className="size-3.5 shrink-0" />
-          TOTP enabled
+          {t("totp.enabled")}
         </p>
 
         <AlertDialog>
@@ -353,7 +350,7 @@ function TotpEnabledView({
               className="text-destructive hover:bg-destructive/10 hover:text-destructive"
             >
               <RiDeleteBin6Line className="mr-1.5 size-3.5" />
-              Disable TOTP
+              {t("totp.disable")}
             </Button>
           </AlertDialogTrigger>
           <AlertDialogContent>
@@ -361,16 +358,15 @@ function TotpEnabledView({
               <AlertDialogMedia>
                 <RiDeleteBin6Line />
               </AlertDialogMedia>
-              <AlertDialogTitle>Disable TOTP?</AlertDialogTitle>
+              <AlertDialogTitle>{t("totp.disableConfirm")}</AlertDialogTitle>
               <AlertDialogDescription>
-                Your authenticator app will no longer be required at sign-in.
-                You can re-enable TOTP at any time.
+                {t("totp.disableHint")}
               </AlertDialogDescription>
             </AlertDialogHeader>
             <AlertDialogFooter>
-              <AlertDialogCancel>Keep it</AlertDialogCancel>
+              <AlertDialogCancel>{t("totp.keep")}</AlertDialogCancel>
               <AlertDialogAction variant="destructive" onClick={onDelete}>
-                Disable TOTP
+                {t("totp.disable")}
               </AlertDialogAction>
             </AlertDialogFooter>
           </AlertDialogContent>
@@ -389,24 +385,25 @@ function SecretRevealProtectionCard({
   onCheckedChange: (checked: boolean) => void
   isPending: boolean
 }): React.JSX.Element {
+  const { t } = useTranslation("settings")
   return (
     <CardFrame
-      title="Secret reveal protection"
-      description="Require a TOTP code before revealing application secrets from the environment page."
+      title={t("totp.secretReveal")}
+      description={t("totp.secretRevealHint")}
       icon={RiShieldKeyholeLine}
     >
       <div className="mt-3 flex items-center justify-between gap-4">
         <div className="space-y-1">
-          <p className="text-sm font-medium">Require TOTP for Reveal secret</p>
+          <p className="text-sm font-medium">{t("totp.requireForReveal")}</p>
           <p className="text-xs leading-5 text-muted-foreground">
-            Disable this to reveal secrets with your active session only.
+            {t("totp.requireHint")}
           </p>
         </div>
         <Switch
           checked={checked}
           onCheckedChange={onCheckedChange}
           disabled={isPending}
-          aria-label="Require TOTP for secret reveal"
+          aria-label={t("totp.requireAria")}
         />
       </div>
     </CardFrame>

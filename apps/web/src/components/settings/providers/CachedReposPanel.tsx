@@ -1,5 +1,6 @@
 // SPDX-License-Identifier: AGPL-3.0-only
 import * as React from "react"
+import { useTranslation } from "react-i18next"
 import {
   RiCheckboxCircleFill,
   RiErrorWarningFill,
@@ -8,6 +9,7 @@ import {
 import { Button } from "@workspace/ui/components/button"
 import { Skeleton } from "@workspace/ui/components/skeleton"
 import { toast } from "sonner"
+import i18n from "../../../lib/i18n"
 
 // ---------------------------------------------------------------------------
 // Types — minimal shape shared by the GitHub multi-installation view and the
@@ -50,6 +52,7 @@ export interface CachedReposPanelProps {
 export function CachedReposPanel(
   props: CachedReposPanelProps
 ): React.JSX.Element {
+  const { t } = useTranslation("settings")
   const {
     title,
     description,
@@ -71,10 +74,10 @@ export function CachedReposPanel(
     setPendingId(id)
     try {
       await onSyncOne(id)
-      toast.success("Sync triggered — repos refresh in the background")
+      toast.success(t("cache.syncTriggered"))
     } catch (err) {
       const msg = err instanceof Error ? err.message : String(err)
-      toast.error(`Sync failed: ${msg}`)
+      toast.error(t("cache.syncFailed", { message: msg }))
     } finally {
       setPendingId(null)
     }
@@ -84,10 +87,10 @@ export function CachedReposPanel(
     if (!onSyncAll) return
     try {
       await onSyncAll()
-      toast.success("Sync triggered for every installation")
+      toast.success(t("cache.syncAllTriggered"))
     } catch (err) {
       const msg = err instanceof Error ? err.message : String(err)
-      toast.error(`Sync failed: ${msg}`)
+      toast.error(t("cache.syncFailed", { message: msg }))
     }
   }
 
@@ -106,20 +109,26 @@ export function CachedReposPanel(
             loading={isSyncing}
           >
             {!isSyncing && <RiRefreshLine className="mr-1.5 size-3.5" />}
-            {isSyncing ? "Syncing..." : "Sync all"}
+            {isSyncing ? t("cache.syncing") : t("cache.syncAll")}
           </Button>
         )}
       </div>
 
       <div className="rounded-2xl bg-panel">
         {isLoading ? (
-          <div className="space-y-2 p-6" aria-busy="true" aria-label="Loading cache status">
+          <div
+            className="space-y-2 p-6"
+            aria-busy="true"
+            aria-label={t("cache.loading")}
+          >
             <Skeleton className="h-10 w-full rounded-md" />
             <Skeleton className="h-10 w-full rounded-md" />
           </div>
         ) : isError ? (
           <p className="p-6 text-sm text-destructive" role="alert">
-            Failed to load cache status: {errorMessage ?? "unknown error"}
+            {t("cache.loadFailed", {
+              message: errorMessage ?? t("cache.unknownError"),
+            })}
           </p>
         ) : entries.length === 0 ? (
           <div className="space-y-3 p-6">
@@ -132,7 +141,7 @@ export function CachedReposPanel(
                 loading={isSyncing}
               >
                 {!isSyncing && <RiRefreshLine className="mr-1.5 size-3.5" />}
-                {isSyncing ? "Syncing..." : "Sync now"}
+                {isSyncing ? t("cache.syncing") : t("cache.syncNow")}
               </Button>
             )}
           </div>
@@ -170,6 +179,7 @@ function CacheRow({
   syncing: boolean
   onSync?: () => void
 }): React.JSX.Element {
+  const { t } = useTranslation("settings")
   return (
     <li className="flex items-center gap-3 px-4 py-3">
       {entry.avatarUrl ? (
@@ -189,8 +199,10 @@ function CacheRow({
           <StatusPill status={syncing ? "syncing" : entry.status} />
         </div>
         <p className="text-xs text-muted-foreground">
-          {entry.repoCount} {entry.repoCount === 1 ? "repo" : "repos"} cached ·
-          synced {formatAge(entry.ageMs)}
+          {t("cache.repoCount", {
+            count: entry.repoCount,
+            age: formatAge(entry.ageMs),
+          })}
         </p>
       </div>
 
@@ -205,7 +217,7 @@ function CacheRow({
           {!(pending || syncing) && (
             <RiRefreshLine className="mr-1.5 size-3.5" />
           )}
-          {pending || syncing ? "Syncing..." : "Sync"}
+          {pending || syncing ? t("cache.syncing") : t("cache.sync")}
         </Button>
       )}
     </li>
@@ -217,11 +229,12 @@ function StatusPill({
 }: {
   status: "fresh" | "stale" | "syncing"
 }): React.JSX.Element {
+  const { t } = useTranslation("settings")
   if (status === "syncing") {
     return (
       <span className="inline-flex items-center gap-1 font-mono text-[10px] tracking-wide text-blue-600 uppercase dark:text-blue-400">
         <RiRefreshLine className="size-3 animate-spin" />
-        Syncing
+        {t("cache.syncingShort")}
       </span>
     )
   }
@@ -229,14 +242,14 @@ function StatusPill({
     return (
       <span className="inline-flex items-center gap-1 font-mono text-[10px] tracking-wide text-emerald-600 uppercase dark:text-emerald-400">
         <RiCheckboxCircleFill className="size-3" />
-        Fresh
+        {t("cache.fresh")}
       </span>
     )
   }
   return (
     <span className="inline-flex items-center gap-1 font-mono text-[10px] tracking-wide text-amber-600 uppercase dark:text-amber-400">
       <RiErrorWarningFill className="size-3" />
-      Stale
+      {t("cache.stale")}
     </span>
   )
 }
@@ -248,11 +261,11 @@ function StatusPill({
 
 function formatAge(ms: number): string {
   const sec = Math.max(0, Math.floor(ms / 1000))
-  if (sec < 60) return `${sec}s ago`
+  if (sec < 60) return i18n.t("settings:cache.ageSeconds", { count: sec })
   const min = Math.floor(sec / 60)
-  if (min < 60) return `${min}min ago`
+  if (min < 60) return i18n.t("settings:cache.ageMinutes", { count: min })
   const hr = Math.floor(min / 60)
-  if (hr < 24) return `${hr}h ago`
+  if (hr < 24) return i18n.t("settings:cache.ageHours", { count: hr })
   const day = Math.floor(hr / 24)
-  return `${day}d ago`
+  return i18n.t("settings:cache.ageDays", { count: day })
 }
