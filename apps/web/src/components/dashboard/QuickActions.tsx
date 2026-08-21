@@ -2,6 +2,7 @@
 import * as React from "react";
 import { Link } from "@tanstack/react-router";
 import { Button } from "@workspace/ui/components/button";
+import { useTranslation } from "react-i18next";
 
 // ---------------------------------------------------------------------------
 // QuickActions
@@ -13,15 +14,16 @@ interface QuickActionsProps {
 }
 
 export function QuickActions({ isGitHubConnected, onCreateApp }: QuickActionsProps): React.JSX.Element {
+  const { t } = useTranslation("workspace");
   return (
     <div className="rounded-2xl bg-panel p-5">
       <p className="text-xs text-muted-foreground font-medium uppercase tracking-wide mb-3">
-        Quick actions
+        {t("dashboard.quickActions")}
       </p>
       <div className="flex flex-wrap gap-3">
         <Button size="sm" onClick={onCreateApp} className="gap-1.5">
           <PlusIcon className="size-3.5" aria-hidden="true" />
-          New app
+          {t("dashboard.newApp")}
         </Button>
 
         {!isGitHubConnected && (
@@ -32,7 +34,7 @@ export function QuickActions({ isGitHubConnected, onCreateApp }: QuickActionsPro
               className="gap-1.5 inline-flex items-center"
             >
               <GitHubIcon className="size-3.5" aria-hidden="true" />
-              Connect GitHub
+              {t("dashboard.connectGitHub")}
             </Link>
           </Button>
         )}

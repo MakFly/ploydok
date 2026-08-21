@@ -30,6 +30,8 @@ import {
   useCurrentOrganizationSlug,
 } from "../../../../lib/organizations"
 import type { BuildWithApp } from "../../../../lib/apps"
+import { useTranslation } from "react-i18next"
+import i18n from "../../../../lib/i18n"
 import type { BuildStatus, ContainerSnapshot } from "@ploydok/shared"
 
 interface DashboardSearch {
@@ -115,6 +117,7 @@ function mergeRuntimeHealth(
 }
 
 function DashboardPage(): React.JSX.Element {
+  const { t } = useTranslation("workspace")
   const router = useRouter()
   const { create } = Route.useSearch()
   const [modalOpen, setModalOpen] = React.useState(create !== undefined)
@@ -169,37 +172,46 @@ function DashboardPage(): React.JSX.Element {
 
   return (
     <ShellPage
-      title="Dashboard"
+      title={t("dashboard.title")}
       description={
         appsLoading
-          ? "Loading your workspace…"
-          : `${apps.length} application${apps.length === 1 ? "" : "s"} · ${runningApps} running${failedApps > 0 ? ` · ${failedApps} failed` : ""}`
+          ? t("dashboard.loadingWorkspace")
+          : `${t("dashboard.appsCount", { count: apps.length, running: runningApps })}${failedApps > 0 ? t("dashboard.failedSuffix", { count: failedApps }) : ""}`
       }
       actions={
         <Button onClick={() => setModalOpen(true)}>
           <RiAddLine className="size-4" />
-          New application
+          {t("dashboard.newApplication")}
         </Button>
       }
     >
       <div className="grid gap-3 md:grid-cols-2 xl:grid-cols-4">
         <StatCard
           icon={<RiAppsLine className="size-4" />}
-          label="Applications"
+          label={t("dashboard.applications")}
           value={String(apps.length)}
-          hint={`${runningApps} running`}
+          hint={t("dashboard.runningHint", { count: runningApps })}
           loading={appsLoading}
         />
         <StatCard
           icon={<RiPlayCircleLine className="size-4" />}
-          label="Services"
+          label={t("dashboard.services")}
           value={String(runtimeSummary.running)}
           hint={
             monitoring?.error
-              ? "Agent offline"
+              ? t("dashboard.agentOffline")
               : runtimeSummary.total > 0
-                ? `${runtimeSummary.apps} app${runtimeSummary.apps === 1 ? "" : "s"} · ${runtimeSummary.databases} database${runtimeSummary.databases === 1 ? "" : "s"}${runtimeSummary.issues > 0 ? ` · ${runtimeSummary.issues} issue${runtimeSummary.issues === 1 ? "" : "s"}` : ""}`
-                : "No runtime resources"
+                ? runtimeSummary.issues > 0
+                  ? t("dashboard.runtimeHintIssues", {
+                      apps: runtimeSummary.apps,
+                      databases: runtimeSummary.databases,
+                      issues: runtimeSummary.issues,
+                    })
+                  : t("dashboard.runtimeHint", {
+                      apps: runtimeSummary.apps,
+                      databases: runtimeSummary.databases,
+                    })
+                : t("dashboard.noRuntimeResources")
           }
           loading={monitoringLoading || Boolean(organization && !monitoring)}
           tone={
@@ -212,12 +224,16 @@ function DashboardPage(): React.JSX.Element {
         />
         <StatCard
           icon={<RiTimeLine className="size-4" />}
-          label="Last deploy"
-          value={latestBuild ? relativeTime(latestBuild.createdAt) : "Never"}
+          label={t("dashboard.lastDeploy")}
+          value={
+            latestBuild
+              ? relativeTime(latestBuild.createdAt)
+              : t("dashboard.never")
+          }
           hint={
             latestBuild
               ? `${latestBuild.appName} · ${latestBuild.status}`
-              : "No deployments yet"
+              : t("dashboard.noDeploymentsYet")
           }
           loading={buildsLoading}
           tone={latestBuild?.status === "failed" ? "danger" : "default"}
@@ -225,17 +241,21 @@ function DashboardPage(): React.JSX.Element {
         <Link
           to="/settings/git-providers/$slug"
           params={{ slug: "github" }}
-          aria-label="Open GitHub App settings"
+          aria-label={t("dashboard.openGitHubSettings")}
           className="group block rounded-2xl focus-visible:ring-2 focus-visible:ring-ring focus-visible:outline-none"
         >
           <StatCard
             icon={<RiGithubFill className="size-4" />}
-            label="GitHub App"
-            value={appConfig?.configured ? "Connected" : "Not configured"}
+            label={t("dashboard.githubApp")}
+            value={
+              appConfig?.configured
+                ? t("dashboard.connected")
+                : t("dashboard.notConfigured")
+            }
             hint={
               appConfig?.configured
-                ? (appConfig.name ?? "Installed")
-                : "Install to deploy from repos"
+                ? (appConfig.name ?? t("dashboard.installed"))
+                : t("dashboard.installToDeploy")
             }
             loading={appConfigLoading}
             tone={appConfig?.configured ? "success" : "warning"}
@@ -248,14 +268,14 @@ function DashboardPage(): React.JSX.Element {
           role="alert"
           className="rounded-lg border border-destructive/30 bg-destructive/10 px-4 py-3 text-sm text-destructive"
         >
-          Failed to load applications: {appsError.message}
+          {t("dashboard.loadAppsFailed", { message: appsError.message })}
         </div>
       ) : null}
 
       <div className="grid gap-4 xl:grid-cols-[1.5fr_1fr]">
         <ShellPanel
-          title="Recent activity"
-          description="Latest build and deploy events across the workspace."
+          title={t("dashboard.recentActivity")}
+          description={t("dashboard.recentActivityHint")}
           action={
             apps.length > 0 ? (
               <Button variant="ghost" size="sm" asChild>
@@ -266,7 +286,7 @@ function DashboardPage(): React.JSX.Element {
                       : "/apps") as never
                   }
                 >
-                  View all applications
+                  {t("dashboard.viewAllApplications")}
                   <RiArrowRightLine className="size-3.5" />
                 </Link>
               </Button>
@@ -283,7 +303,7 @@ function DashboardPage(): React.JSX.Element {
             </ul>
           ) : (
             <p className="py-6 text-center text-sm text-muted-foreground">
-              No deployments yet.
+              {t("dashboard.noDeploymentsYet")}
             </p>
           )}
         </ShellPanel>
@@ -295,13 +315,13 @@ function DashboardPage(): React.JSX.Element {
           />
         ) : (
           <ShellPanel
-            title="Quick links"
-            description="Jump to the rest of your workspace."
+            title={t("dashboard.quickLinks")}
+            description={t("dashboard.quickLinksHint")}
           >
             <div className="space-y-2">
               <QuickLink
-                label="All applications"
-                hint={`${apps.length} app${apps.length === 1 ? "" : "s"}`}
+                label={t("dashboard.allApplications")}
+                hint={t("dashboard.appsHint", { count: apps.length })}
                 to={
                   (organization
                     ? organizationPath(organization.slug, "apps")
@@ -309,8 +329,8 @@ function DashboardPage(): React.JSX.Element {
                 }
               />
               <QuickLink
-                label="Deployments"
-                hint="Build and deploy history"
+                label={t("dashboard.deployments")}
+                hint={t("dashboard.deploymentsHint")}
                 to={
                   (organization
                     ? organizationPath(organization.slug, "deployments")
@@ -318,8 +338,8 @@ function DashboardPage(): React.JSX.Element {
                 }
               />
               <QuickLink
-                label="Monitoring"
-                hint="Runtime health and resources"
+                label={t("dashboard.monitoring")}
+                hint={t("dashboard.monitoringHint")}
                 to={
                   (organization
                     ? organizationPath(organization.slug, "monitoring")
@@ -433,7 +453,9 @@ function QuickLink({
 
 function ActivityRow({ build }: { build: BuildWithApp }): React.JSX.Element {
   const tone = buildTone(build.status)
-  const sha = build.commitSha ? build.commitSha.slice(0, 7) : "manual"
+  const sha = build.commitSha
+    ? build.commitSha.slice(0, 7)
+    : i18n.t("workspace:dashboard.manual")
   const orgSlug = useCurrentOrganizationSlug()
 
   return (
@@ -512,14 +534,15 @@ function buildTone(status: BuildStatus): {
 
 function relativeTime(ms: number): string {
   const delta = Date.now() - ms
-  if (delta < 60_000) return "just now"
+  if (delta < 60_000) return i18n.t("common:relative.justNow")
   const minutes = Math.floor(delta / 60_000)
-  if (minutes < 60) return `${minutes}m ago`
+  if (minutes < 60)
+    return i18n.t("common:relative.minutesAgo", { count: minutes })
   const hours = Math.floor(minutes / 60)
-  if (hours < 24) return `${hours}h ago`
+  if (hours < 24) return i18n.t("common:relative.hoursAgo", { count: hours })
   const days = Math.floor(hours / 24)
-  if (days < 7) return `${days}d ago`
-  return new Date(ms).toLocaleDateString("en-GB", {
+  if (days < 7) return i18n.t("common:relative.daysAgo", { count: days })
+  return new Date(ms).toLocaleDateString(i18n.language, {
     day: "2-digit",
     month: "short",
   })

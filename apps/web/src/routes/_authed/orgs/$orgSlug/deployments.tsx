@@ -39,6 +39,7 @@ import {
 } from "../../../../lib/workspace-deployments"
 import type {DeploymentApplication, DeploymentTableBuild} from "../../../../components/apps/DeploymentsTable";
 import type {WorkspaceDeploymentFilters, WorkspaceDeploymentsSummary} from "../../../../lib/workspace-deployments";
+import { useTranslation } from "react-i18next"
 import type { Build, BuildStatus } from "@ploydok/shared"
 
 const ALL = "all"
@@ -68,6 +69,7 @@ export const Route = createFileRoute("/_authed/orgs/$orgSlug/deployments")({
 })
 
 function DeploymentsPage(): React.JSX.Element {
+  const { t } = useTranslation("workspace")
   const { orgSlug } = useParams({ from: Route.id })
   const search = useSearch({ from: Route.id })
   const navigate = useNavigate()
@@ -167,15 +169,15 @@ function DeploymentsPage(): React.JSX.Element {
 
   return (
     <ShellPage
-      title="Deployments"
-      description="Follow every application deployment in this workspace."
-      eyebrow={organization?.name ?? "Workspace"}
+      title={t("deployments.title")}
+      description={t("deployments.description")}
+      eyebrow={organization?.name ?? t("eyebrow")}
     >
       <DeploymentSummary summary={deploymentsQuery.data?.summary} />
 
       <ShellPanel
-        title="Deployment history"
-        description="Filter, inspect logs, and manage deployments across applications."
+        title={t("deployments.history")}
+        description={t("deployments.historyHint")}
         action={
           <Button
             variant="ghost"
@@ -184,7 +186,7 @@ function DeploymentsPage(): React.JSX.Element {
             loading={deploymentsQuery.isFetching}
           >
             <RiRefreshLine className="size-4" />
-            Refresh
+            {t("common:refresh")}
           </Button>
         }
       >

@@ -15,6 +15,7 @@ import {
   SelectTrigger,
   SelectValue,
 } from "@workspace/ui/components/select"
+import { useTranslation } from "react-i18next"
 import { useInviteMember } from "../../lib/memberships"
 
 interface InviteDialogProps {
@@ -28,6 +29,7 @@ export function InviteDialog({
   orgSlug,
   onClose,
 }: InviteDialogProps): React.JSX.Element {
+  const { t } = useTranslation("workspace")
   const [email, setEmail] = React.useState("")
   const [role, setRole] = React.useState<"member">("member")
   const [error, setError] = React.useState<string | null>(null)
@@ -39,7 +41,7 @@ export function InviteDialog({
 
     const emailRegex = /^[^\s@]+@[^\s@]+\.[^\s@]+$/
     if (!emailRegex.test(email)) {
-      setError("Please enter a valid email address")
+      setError(t("members.invalidEmail"))
       return
     }
 
@@ -53,7 +55,7 @@ export function InviteDialog({
         },
         onError: (err) => {
           const message =
-            err instanceof Error ? err.message : "Failed to send invitation"
+            err instanceof Error ? err.message : t("members.inviteFailed")
           setError(message)
         },
       }
@@ -64,9 +66,9 @@ export function InviteDialog({
     <Dialog open={open} onOpenChange={(newOpen) => !newOpen && onClose()}>
       <DialogContent>
         <DialogHeader>
-          <DialogTitle>Invite a member</DialogTitle>
+          <DialogTitle>{t("members.inviteTitle")}</DialogTitle>
           <DialogDescription>
-            Send an invitation to join this workspace.
+            {t("members.inviteDescription")}
           </DialogDescription>
         </DialogHeader>
 
@@ -76,14 +78,14 @@ export function InviteDialog({
               htmlFor="email"
               className="text-xs font-medium text-muted-foreground"
             >
-              Email address
+              {t("members.emailAddress")}
             </label>
             <input
               id="email"
               type="email"
               value={email}
               onChange={(e) => setEmail(e.target.value)}
-              placeholder="user@example.com"
+              placeholder={t("members.emailPlaceholder")}
               className="flex h-9 w-full rounded-md border border-input bg-background px-3 text-sm transition-colors outline-none placeholder:text-muted-foreground/60 focus-visible:border-ring focus-visible:ring-3 focus-visible:ring-ring/40"
               required
             />
@@ -94,7 +96,7 @@ export function InviteDialog({
               htmlFor="role"
               className="text-xs font-medium text-muted-foreground"
             >
-              Role
+              {t("members.role")}
             </label>
             <Select
               value={role}
@@ -104,9 +106,9 @@ export function InviteDialog({
                 <SelectValue />
               </SelectTrigger>
               <SelectContent>
-                <SelectItem value="member">Member</SelectItem>
+                <SelectItem value="member">{t("members.member")}</SelectItem>
                 <SelectItem value="owner" disabled>
-                  Owner (v2+)
+                  {t("members.ownerLater")}
                 </SelectItem>
               </SelectContent>
             </Select>
@@ -128,14 +130,16 @@ export function InviteDialog({
               onClick={onClose}
               disabled={inviteMutation.isPending}
             >
-              Cancel
+              {t("common:cancel")}
             </Button>
             <Button
               type="submit"
               loading={inviteMutation.isPending}
               className="flex-1"
             >
-              {inviteMutation.isPending ? "Sending..." : "Send invitation"}
+              {inviteMutation.isPending
+                ? t("members.sending")
+                : t("members.sendInvitation")}
             </Button>
           </div>
         </form>

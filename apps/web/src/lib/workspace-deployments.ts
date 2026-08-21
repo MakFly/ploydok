@@ -5,6 +5,7 @@ import { toast } from "sonner"
 import { apiFetch, invalidateGetCache } from "./api"
 import { useEventsSubscription } from "./events-provider"
 import { notifyMutationError } from "./second-factor-toast"
+import i18n from "./i18n"
 import type { ApiError } from "./api"
 import type {
   BuildStatus,
@@ -240,10 +241,11 @@ export function useWorkspaceDeploymentActions(orgSlug: string) {
         method: "POST",
       }),
     onSuccess: (_result, { appId }) => {
-      toast.success("Deployment cancelled")
+      toast.success(i18n.t("workspace:deployments.cancelledToast"))
       invalidate(appId)
     },
-    onError: (error) => notifyMutationError(error, "Cancel deployment failed"),
+    onError: (error) =>
+      notifyMutationError(error, i18n.t("workspace:deployments.cancelFailed")),
   })
 
   const rollback = useMutation<
@@ -257,10 +259,11 @@ export function useWorkspaceDeploymentActions(orgSlug: string) {
         body: { buildId },
       }),
     onSuccess: (_result, { appId }) => {
-      toast.success("Rollback started")
+      toast.success(i18n.t("workspace:deployments.rollbackStarted"))
       invalidate(appId)
     },
-    onError: (error) => notifyMutationError(error, "Rollback failed"),
+    onError: (error) =>
+      notifyMutationError(error, i18n.t("workspace:deployments.rollbackFailed")),
   })
 
   return { cancel, rollback }

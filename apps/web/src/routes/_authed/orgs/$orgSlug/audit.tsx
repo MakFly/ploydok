@@ -13,6 +13,8 @@ import {
 import { ShellPage, ShellPanel } from "../../../../components/layout/AppShell"
 import { useCurrentOrganization } from "../../../../lib/organizations"
 import { useAuditEvents } from "../../../../lib/audit"
+import { useTranslation } from "react-i18next"
+import i18n from "../../../../lib/i18n"
 import type { AuditEvent } from "@ploydok/shared"
 
 export const Route = createFileRoute("/_authed/orgs/$orgSlug/audit")({
@@ -22,6 +24,7 @@ export const Route = createFileRoute("/_authed/orgs/$orgSlug/audit")({
 const ALL = "all"
 
 function AuditPage(): React.JSX.Element {
+  const { t } = useTranslation("workspace")
   const organization = useCurrentOrganization()
   const [actionPrefix, setActionPrefix] = useState<string>(ALL)
   const [targetType, setTargetType] = useState<string>(ALL)
@@ -38,9 +41,9 @@ function AuditPage(): React.JSX.Element {
 
   return (
     <ShellPage
-      title="Audit"
-      eyebrow="Workspace"
-      description="Historique des événements de l'organisation — créations, modifications et suppressions."
+      title={t("audit.title")}
+      eyebrow={t("eyebrow")}
+      description={t("audit.description")}
       actions={
         <Button
           variant="outline"
@@ -52,35 +55,35 @@ function AuditPage(): React.JSX.Element {
             setCursor(undefined)
           }}
         >
-          Réinitialiser
+          {t("audit.reset")}
         </Button>
       }
     >
       <ShellPanel
-        title="Événements"
-        description="Filtre par type d'action ou de ressource."
+        title={t("audit.events")}
+        description={t("audit.eventsHint")}
         action={
           <div className="flex flex-wrap gap-2">
             <Select value={actionPrefix} onValueChange={setActionPrefix}>
               <SelectTrigger className="h-9 w-44">
-                <SelectValue placeholder="Action" />
+                <SelectValue placeholder={t("audit.action")} />
               </SelectTrigger>
               <SelectContent>
-                <SelectItem value={ALL}>Toutes les actions</SelectItem>
-                <SelectItem value="app.">Applications</SelectItem>
-                <SelectItem value="secret.">Secrets</SelectItem>
-                <SelectItem value="webhook.">Webhooks</SelectItem>
+                <SelectItem value={ALL}>{t("audit.allActions")}</SelectItem>
+                <SelectItem value="app.">{t("audit.applications")}</SelectItem>
+                <SelectItem value="secret.">{t("audit.secrets")}</SelectItem>
+                <SelectItem value="webhook.">{t("audit.webhooks")}</SelectItem>
               </SelectContent>
             </Select>
             <Select value={targetType} onValueChange={setTargetType}>
               <SelectTrigger className="h-9 w-44">
-                <SelectValue placeholder="Type" />
+                <SelectValue placeholder={t("audit.type")} />
               </SelectTrigger>
               <SelectContent>
-                <SelectItem value={ALL}>Tous les types</SelectItem>
-                <SelectItem value="app">Application</SelectItem>
-                <SelectItem value="secret">Secret</SelectItem>
-                <SelectItem value="webhook">Webhook</SelectItem>
+                <SelectItem value={ALL}>{t("audit.allTypes")}</SelectItem>
+                <SelectItem value="app">{t("audit.application")}</SelectItem>
+                <SelectItem value="secret">{t("audit.secret")}</SelectItem>
+                <SelectItem value="webhook">{t("audit.webhook")}</SelectItem>
               </SelectContent>
             </Select>
           </div>
@@ -102,7 +105,7 @@ function AuditPage(): React.JSX.Element {
                 className="w-full"
                 onClick={() => setCursor(query.data?.nextCursor ?? undefined)}
               >
-                Charger plus
+                {t("audit.loadMore")}
               </Button>
             ) : null}
           </div>
@@ -115,11 +118,12 @@ function AuditPage(): React.JSX.Element {
 }
 
 function AuditEmpty(): React.JSX.Element {
+  const { t } = useTranslation("workspace")
   return (
     <div className="rounded-md border border-dashed border-panel-border bg-panel-inset px-6 py-12 text-center">
-      <p className="text-sm font-semibold text-foreground">Aucun événement</p>
+      <p className="text-sm font-semibold text-foreground">{t("audit.empty")}</p>
       <p className="mt-2 text-sm leading-6 text-muted-foreground">
-        Les actions effectuées sur l'organisation apparaîtront ici.
+        {t("audit.emptyHint")}
       </p>
     </div>
   )
@@ -143,7 +147,7 @@ function AuditEventRow({ event }: { event: AuditEvent }): React.JSX.Element {
           </p>
           {event.user_id ? (
             <p className="truncate text-xs text-muted-foreground">
-              par {event.user_id}
+              {i18n.t("workspace:audit.byUser", { userId: event.user_id })}
             </p>
           ) : null}
         </div>
@@ -194,9 +198,12 @@ function getRelativeTime(date: Date): string {
   const diffHours = Math.floor(diffMins / 60)
   const diffDays = Math.floor(diffHours / 24)
 
-  if (diffMins < 1) return "à l'instant"
-  if (diffMins < 60) return `il y a ${diffMins}m`
-  if (diffHours < 24) return `il y a ${diffHours}h`
-  if (diffDays < 7) return `il y a ${diffDays}j`
-  return new Date(date).toLocaleDateString()
+  if (diffMins < 1) return i18n.t("common:relative.justNow")
+  if (diffMins < 60)
+    return i18n.t("common:relative.minutesAgo", { count: diffMins })
+  if (diffHours < 24)
+    return i18n.t("common:relative.hoursAgo", { count: diffHours })
+  if (diffDays < 7)
+    return i18n.t("common:relative.daysAgo", { count: diffDays })
+  return new Date(date).toLocaleDateString(i18n.language)
 }

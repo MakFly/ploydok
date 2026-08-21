@@ -2,6 +2,7 @@
 import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query"
 import { toast } from "sonner"
 import { apiFetch } from "./api"
+import i18n from "./i18n"
 import type { OrgBranding, UpdateOrgBranding } from "@ploydok/shared"
 
 export function useOrgBranding(orgSlug: string | undefined) {
@@ -22,7 +23,7 @@ export function useUpdateOrgBranding(orgSlug: string | undefined) {
 
   return useMutation({
     mutationFn: async (updates: UpdateOrgBranding) => {
-      if (!orgSlug) throw new Error("No organization slug")
+      if (!orgSlug) throw new Error(i18n.t("workspace:branding.noSlug"))
       return apiFetch<{ branding: OrgBranding }>(`/orgs/${orgSlug}/branding`, {
         method: "PUT",
         body: updates,
@@ -31,11 +32,13 @@ export function useUpdateOrgBranding(orgSlug: string | undefined) {
     },
     onSuccess: (data) => {
       queryClient.setQueryData(["org-branding", orgSlug], data.branding)
-      toast.success("Branding updated successfully")
+      toast.success(i18n.t("workspace:branding.updated"))
     },
     onError: (error) => {
       toast.error(
-        error instanceof Error ? error.message : "Failed to update branding"
+        error instanceof Error
+          ? error.message
+          : i18n.t("workspace:branding.updateFailed")
       )
     },
   })
@@ -46,7 +49,7 @@ export function useDeleteOrgBranding(orgSlug: string | undefined) {
 
   return useMutation({
     mutationFn: async () => {
-      if (!orgSlug) throw new Error("No organization slug")
+      if (!orgSlug) throw new Error(i18n.t("workspace:branding.noSlug"))
       return apiFetch<{ success: boolean }>(`/orgs/${orgSlug}/branding`, {
         method: "DELETE",
       })
@@ -59,10 +62,10 @@ export function useDeleteOrgBranding(orgSlug: string | undefined) {
         primary_color: null,
         favicon_url: null,
       })
-      toast.success("Branding reset to defaults")
+      toast.success(i18n.t("workspace:branding.resetDone"))
     },
     onError: () => {
-      toast.error("Failed to reset branding")
+      toast.error(i18n.t("workspace:branding.resetFailed"))
     },
   })
 }

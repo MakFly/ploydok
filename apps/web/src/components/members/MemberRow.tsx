@@ -10,6 +10,8 @@ import {
   SelectTrigger,
   SelectValue,
 } from "@workspace/ui/components/select"
+import { useTranslation } from "react-i18next"
+import i18n from "../../lib/i18n"
 import { useRemoveMember, useUpdateMemberRole } from "../../lib/memberships"
 import { RemoveMemberDialog } from "./RemoveMemberDialog"
 import type { MemberListItem } from "@ploydok/shared"
@@ -23,19 +25,21 @@ function formatRelativeTime(date: Date | string): string {
   const now = new Date()
   const seconds = Math.floor((now.getTime() - dateObj.getTime()) / 1000)
 
-  if (seconds < 60) return "just now"
+  if (seconds < 60) return i18n.t("common:relative.justNow")
   const minutes = Math.floor(seconds / 60)
-  if (minutes < 60) return `${minutes}m ago`
+  if (minutes < 60)
+    return i18n.t("common:relative.minutesAgo", { count: minutes })
   const hours = Math.floor(minutes / 60)
-  if (hours < 24) return `${hours}h ago`
+  if (hours < 24) return i18n.t("common:relative.hoursAgo", { count: hours })
   const days = Math.floor(hours / 24)
-  if (days < 7) return `${days}d ago`
+  if (days < 7) return i18n.t("common:relative.daysAgo", { count: days })
   const weeks = Math.floor(days / 7)
-  if (weeks < 4) return `${weeks}w ago`
+  if (weeks < 4) return i18n.t("common:relative.weeksAgo", { count: weeks })
   const months = Math.floor(days / 30)
-  if (months < 12) return `${months}mo ago`
+  if (months < 12)
+    return i18n.t("common:relative.monthsAgo", { count: months })
   const years = Math.floor(days / 365)
-  return `${years}y ago`
+  return i18n.t("common:relative.yearsAgo", { count: years })
 }
 
 interface MemberRowProps {
@@ -49,6 +53,7 @@ export function MemberRow({
   orgSlug,
   isOwner,
 }: MemberRowProps): React.JSX.Element {
+  const { t } = useTranslation("workspace")
   const [removeDialogOpen, setRemoveDialogOpen] = React.useState(false)
   const updateRoleMutation = useUpdateMemberRole()
   const removeMutation = useRemoveMember()
@@ -84,7 +89,7 @@ export function MemberRow({
               {member.user.display_name}
               {member.is_me && (
                 <span className="ml-2 text-xs text-muted-foreground">
-                  (you)
+                  {t("members.you")}
                 </span>
               )}
             </p>
@@ -102,8 +107,8 @@ export function MemberRow({
                   <SelectValue />
                 </SelectTrigger>
                 <SelectContent>
-                  <SelectItem value="member">Member</SelectItem>
-                  <SelectItem value="owner">Owner</SelectItem>
+                  <SelectItem value="member">{t("members.member")}</SelectItem>
+                  <SelectItem value="owner">{t("members.owner")}</SelectItem>
                 </SelectContent>
               </Select>
               <Button
@@ -119,7 +124,7 @@ export function MemberRow({
             <>
               <Badge variant="outline">{member.role}</Badge>
               <div className="w-32 text-right text-xs text-muted-foreground">
-                Joined {joinedAt}
+                {t("members.joined", { when: joinedAt })}
               </div>
             </>
           )}

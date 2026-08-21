@@ -7,6 +7,7 @@ import * as React from "react"
 import { RiCpuLine, RiDatabase2Line, RiExpandDiagonal2Line } from "@remixicon/react"
 
 import { cn } from "@workspace/ui/lib/utils"
+import { useTranslation } from "react-i18next"
 
 interface MetricCardButtonProps {
   metric: "cpu" | "mem"
@@ -22,14 +23,14 @@ interface MetricCardButtonProps {
 const METRIC_STYLES = {
   cpu: {
     icon: RiCpuLine,
-    label: "CPU",
+    labelKey: "host.cpu",
     text: "text-foreground",
     ring: "focus-visible:ring-ring",
     stroke: "currentColor",
   },
   mem: {
     icon: RiDatabase2Line,
-    label: "Memory",
+    labelKey: "memory",
     text: "text-foreground",
     ring: "focus-visible:ring-ring",
     stroke: "currentColor",
@@ -43,8 +44,10 @@ export function MetricCardButton({
   unit,
   onClick,
 }: MetricCardButtonProps): React.JSX.Element {
+  const { t } = useTranslation("monitoring")
   const style = METRIC_STYLES[metric]
   const Icon = style.icon
+  const label = t(style.labelKey)
 
   // Delta: dernier vs avant-dernier. `null` si <2 samples.
   const delta =
@@ -61,7 +64,7 @@ export function MetricCardButton({
     <button
       type="button"
       onClick={onClick}
-      aria-label={`Voir détail ${style.label}`}
+      aria-label={t("metricDetail", { label })}
       className={cn(
         "group/metric relative isolate flex w-full flex-col overflow-hidden",
         "rounded-md border border-border bg-muted/30 px-3 py-2.5 text-left",
@@ -82,7 +85,7 @@ export function MetricCardButton({
         <div className="flex items-center gap-1.5 text-muted-foreground">
           <Icon className="size-3" />
           <span className="text-[10px] font-semibold uppercase tracking-[0.16em]">
-            {style.label}
+            {label}
           </span>
         </div>
         <RiExpandDiagonal2Line

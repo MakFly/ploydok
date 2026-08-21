@@ -10,6 +10,7 @@ import {
   RiRefreshLine,
 } from "@remixicon/react"
 import { toast } from "sonner"
+import { useTranslation } from "react-i18next"
 import { Button } from "@workspace/ui/components/button"
 import { cn } from "@workspace/ui/lib/utils"
 import {
@@ -32,11 +33,14 @@ export const Route = createFileRoute("/_authed/admin/disk")({
 
 const DISK_USAGE_QUERY_KEY = ["admin", "disk", "usage"] as const
 
-const CATEGORY_LABELS: Record<DiskUsageCategoryKind, string> = {
-  images: "Images",
-  containers: "Containers",
-  volumes: "Volumes",
-  build_cache: "Build cache",
+const CATEGORY_KEYS: Record<
+  DiskUsageCategoryKind,
+  "adminDisk.images" | "adminDisk.containers" | "adminDisk.volumes" | "adminDisk.buildCache"
+> = {
+  images: "adminDisk.images",
+  containers: "adminDisk.containers",
+  volumes: "adminDisk.volumes",
+  build_cache: "adminDisk.buildCache",
 }
 
 function formatBytes(bytes: number): string {
@@ -60,6 +64,7 @@ function formatMeasuredAt(iso: string): string {
 }
 
 function AdminDiskPage(): React.JSX.Element {
+  const { t } = useTranslation("monitoring")
   const qc = useQueryClient()
   const [activeJob, setActiveJob] = React.useState<{
     id: string
@@ -82,7 +87,8 @@ function AdminDiskPage(): React.JSX.Element {
     mutationFn: () => getDiskUsage(true),
     onSuccess: (fresh: DiskUsageResponse) =>
       qc.setQueryData(DISK_USAGE_QUERY_KEY, fresh),
-    onError: (err: unknown) => notifyMutationError(err, "Refresh failed"),
+    onError: (err: unknown) =>
+      notifyMutationError(err, t("adminDisk.refreshFailed")),
   })
 
   // The API answers a forced refresh immediately with the previous numbers and
@@ -103,7 +109,10 @@ function AdminDiskPage(): React.JSX.Element {
   React.useEffect(() => {
     if (!activeJob) return
     if (jobError) {
-      toast.error(jobError.message || `Failed to track ${activeJob.label}`)
+      toast.error(
+        jobError.message ||
+          t("adminDisk.trackFailed", { label: activeJob.label })
+      )
       setActiveJob(null)
       return
     }
@@ -113,13 +122,19 @@ function AdminDiskPage(): React.JSX.Element {
         job.kind === "gc.images" &&
         job.result &&
         "spaceReclaimedBytes" in job.result
-          ? ` (${formatBytes(job.result.spaceReclaimedBytes)} reclaimed)`
+          ? t("adminDisk.reclaimed", {
+              bytes: formatBytes(job.result.spaceReclaimedBytes),
+            })
           : ""
-      toast.success(`${activeJob.label} complete${reclaimed}`)
+      toast.success(
+        `${t("adminDisk.complete", { label: activeJob.label })}${reclaimed}`
+      )
       refreshMutation.mutate()
       setActiveJob(null)
     } else if (job.status === "failed" || job.status === "cancelled") {
-      toast.error(job.errorMessage ?? `${activeJob.label} failed`)
+      toast.error(
+        job.errorMessage ?? t("adminDisk.failed", { label: activeJob.label })
+      )
       setActiveJob(null)
     }
   }, [activeJob, job, jobError])
@@ -127,29 +142,32 @@ function AdminDiskPage(): React.JSX.Element {
   const pruneImagesMutation = useMutation({
     mutationFn: pruneImages,
     onSuccess: ({ jobId }: { jobId: string }) => {
-      toast.success("Dangling image reclaim queued")
-      setActiveJob({ id: jobId, label: "Dangling image reclaim" })
+      toast.success(t("adminDisk.reclaimQueued"))
+      setActiveJob({ id: jobId, label: t("adminDisk.reclaimLabel") })
     },
-    onError: (err: unknown) => notifyMutationError(err, "Reclaim failed"),
+    onError: (err: unknown) =>
+      notifyMutationError(err, t("adminDisk.reclaimFailed")),
   })
 
   const pruneBuildCacheMutation = useMutation({
     mutationFn: pruneBuildCache,
     onSuccess: ({ jobId }: { jobId: string }) => {
-      toast.success("Build cache prune queued")
-      setActiveJob({ id: jobId, label: "Build cache prune" })
+      toast.success(t("adminDisk.pruneQueued"))
+      setActiveJob({ id: jobId, label: t("adminDisk.pruneLabel") })
     },
-    onError: (err: unknown) => notifyMutationError(err, "Prune failed"),
+    onError: (err: unknown) =>
+      notifyMutationError(err, t("adminDisk.pruneFailed")),
   })
 
   return (
     <div className="w-full space-y-5 px-4 py-6 md:px-8">
       <div className="flex flex-wrap items-center justify-between gap-3">
         <div>
-          <h1 className="text-2xl font-semibold text-foreground">Disk usage</h1>
+          <h1 className="text-2xl font-semibold text-foreground">
+            {t("adminDisk.title")}
+          </h1>
           <p className="mt-1 max-w-3xl text-sm text-muted-foreground">
-            Docker images, containers, volumes and build cache on the host, plus
-            reclaim actions for dangling images and stale build cache.
+            {t("adminDisk.description")}
           </p>
         </div>
         <div className="flex w-full flex-wrap gap-2 sm:w-auto">
@@ -161,7 +179,7 @@ function AdminDiskPage(): React.JSX.Element {
             onClick={() => refreshMutation.mutate()}
           >
             <RiRefreshLine className="size-4" />
-            Refresh
+            {t("common:refresh")}
           </Button>
           <Button
             type="button"
@@ -172,7 +190,7 @@ function AdminDiskPage(): React.JSX.Element {
             onClick={() => pruneImagesMutation.mutate()}
           >
             <RiDeleteBin6Line className="size-4" />
-            Reclaim dangling images
+            {t("adminDisk.reclaimImages")}
           </Button>
           <Button
             type="button"
@@ -183,7 +201,7 @@ function AdminDiskPage(): React.JSX.Element {
             onClick={() => pruneBuildCacheMutation.mutate()}
           >
             <RiEraserLine className="size-4" />
-            Prune build cache
+            {t("adminDisk.pruneCache")}
           </Button>
         </div>
       </div>
@@ -194,13 +212,17 @@ function AdminDiskPage(): React.JSX.Element {
           aria-live="polite"
         >
           <RiLoader4Line className="mr-2 inline size-4 animate-spin" />
-          {activeJob.label} {job?.status === "running" ? "running" : "queued"}…
+          {activeJob.label}{" "}
+          {job?.status === "running"
+            ? t("adminDisk.running")
+            : t("adminDisk.queued")}
+          …
         </p>
       ) : null}
 
       {error ? (
         <div className="rounded-md border border-destructive/30 bg-destructive/10 p-4 text-sm text-destructive">
-          Failed to load disk usage.
+          {t("adminDisk.loadFailed")}
         </div>
       ) : null}
 
@@ -223,15 +245,21 @@ function AdminDiskPage(): React.JSX.Element {
       {data ? (
         <div className="space-y-3">
           <div className="flex flex-wrap items-center justify-between gap-2">
-            <h2 className="text-sm font-medium text-foreground">Categories</h2>
+            <h2 className="text-sm font-medium text-foreground">
+              {t("adminDisk.categories")}
+            </h2>
             <div className="flex flex-wrap items-center gap-x-3 gap-y-1 text-xs text-muted-foreground">
               <span className="font-mono">
-                Image layers: {formatBytes(data.layersSizeBytes)}
+                {t("adminDisk.imageLayers", {
+                  bytes: formatBytes(data.layersSizeBytes),
+                })}
               </span>
               <span aria-live="polite">
                 {isRefreshing
-                  ? "Refreshing…"
-                  : `Measured at ${formatMeasuredAt(data.refreshedAt)}`}
+                  ? t("adminDisk.refreshing")
+                  : t("adminDisk.measuredAt", {
+                      time: formatMeasuredAt(data.refreshedAt),
+                    })}
               </span>
             </div>
           </div>
@@ -251,6 +279,7 @@ function HostUsageCard({
 }: {
   host: NonNullable<DiskUsageResponse["host"]>
 }): React.JSX.Element {
+  const { t } = useTranslation("monitoring")
   const pct =
     host.totalBytes > 0
       ? Math.min((host.usedBytes / host.totalBytes) * 100, 100)
@@ -258,17 +287,20 @@ function HostUsageCard({
 
   return (
     <section
-      aria-label="Host disk usage"
+      aria-label={t("adminDisk.hostUsage")}
       className="rounded-2xl rounded-xl bg-panel p-4"
     >
       <div className="flex items-center gap-2 text-sm font-medium text-foreground">
         <RiHardDriveLine className="size-4 text-muted-foreground" />
-        Host disk
+        {t("adminDisk.hostDisk")}
       </div>
       <div className="mt-3 space-y-1.5">
         <div className="flex flex-wrap justify-between gap-2 text-xs text-muted-foreground">
           <span>
-            {formatBytes(host.usedBytes)} used of {formatBytes(host.totalBytes)}
+            {t("adminDisk.usedOf", {
+              used: formatBytes(host.usedBytes),
+              total: formatBytes(host.totalBytes),
+            })}
           </span>
           <span className="tabular-nums">{pct.toFixed(0)}%</span>
         </div>
@@ -288,7 +320,7 @@ function HostUsageCard({
           />
         </div>
         <p className="text-xs text-muted-foreground">
-          {formatBytes(host.freeBytes)} free
+          {t("adminDisk.free", { bytes: formatBytes(host.freeBytes) })}
         </p>
       </div>
     </section>
@@ -300,20 +332,21 @@ function CategoryCard({
 }: {
   category: DiskUsageResponse["categories"][number]
 }): React.JSX.Element {
+  const { t } = useTranslation("monitoring")
   return (
     <div className="flex flex-col gap-2 rounded-2xl rounded-xl bg-panel p-4">
       <p className="text-sm font-medium text-foreground">
-        {CATEGORY_LABELS[category.kind]}
+        {t(CATEGORY_KEYS[category.kind])}
       </p>
       <p className="text-xl font-medium text-foreground tabular-nums">
         {formatBytes(category.totalBytes)}
       </p>
       <dl className="grid grid-cols-2 gap-1 text-xs text-muted-foreground">
-        <dt>Reclaimable</dt>
+        <dt>{t("adminDisk.reclaimable")}</dt>
         <dd className="text-right tabular-nums">
           {formatBytes(category.reclaimableBytes)}
         </dd>
-        <dt>Count</dt>
+        <dt>{t("adminDisk.count")}</dt>
         <dd className="text-right tabular-nums">{category.count}</dd>
       </dl>
     </div>

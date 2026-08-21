@@ -15,6 +15,7 @@ import {
 } from "@remixicon/react"
 
 import { cn } from "@workspace/ui/lib/utils"
+import { useTranslation } from "react-i18next"
 import { MetricCardButton } from "./MetricCardButton"
 import { MetricDetailDialog } from "./MetricDetailDialog"
 import type { ContainerSnapshot } from "@ploydok/shared"
@@ -172,6 +173,7 @@ export function ResourceCard({
   onPing,
   pinging = false,
 }: ResourceCardProps) {
+  const { t } = useTranslation("monitoring")
   const ratio = memRatio(snapshot)
   const ratioPercent = Math.round(ratio * 100)
 
@@ -230,8 +232,8 @@ export function ResourceCard({
             onClick={onPing}
             loading={pinging}
             className="size-7 shrink-0 rounded-md text-muted-foreground hover:text-foreground"
-            aria-label="Ping container"
-            title="Ping /"
+            aria-label={t("pingContainer")}
+            title={t("pingTitle")}
           >
             <RiWifiLine className="size-3.5" />
           </Button>
@@ -259,7 +261,7 @@ export function ResourceCard({
       {/* Memory usage meter */}
       <div className="space-y-1">
         <div className="flex items-baseline justify-between font-mono text-[10px] text-muted-foreground">
-          <span className="tracking-wide uppercase">Memory budget</span>
+          <span className="tracking-wide uppercase">{t("memoryBudget")}</span>
           <span className="tabular-nums">
             <span className="text-foreground">{formatBytes(snapshot.mem_bytes)}</span>
             <span className="opacity-50"> / </span>
@@ -278,16 +280,16 @@ export function ResourceCard({
       {/* Footer metadata — small row */}
       <footer className="flex items-center justify-between gap-2 border-t border-border pt-3 font-mono text-[10px] text-muted-foreground">
         <div className="flex items-center gap-3">
-          <FootStat icon={RiHistoryLine} label="up" value={formatUptime(snapshot.uptime_s)} />
+          <FootStat icon={RiHistoryLine} label={t("up")} value={formatUptime(snapshot.uptime_s)} />
           <FootStat
             icon={RiRestartLine}
-            label="restarts"
+            label={t("restarts")}
             value={String(snapshot.restart_count)}
             alert={snapshot.restart_count > 0}
           />
           <FootStat
             icon={RiCpuLine}
-            label="avg"
+            label={t("avg")}
             value={`${snapshot.cpu_pct.toFixed(1)}%`}
           />
         </div>
@@ -299,7 +301,7 @@ export function ResourceCard({
                 ? "bg-emerald-500/10 text-emerald-700 dark:text-emerald-300"
                 : "bg-destructive/10 text-destructive"
             )}
-            title={`HTTP ping — ${snapshot.last_ping_ok ? "OK" : "failed"}`}
+            title={snapshot.last_ping_ok ? t("pingOk") : t("pingFailed")}
           >
             <RiPulseLine className="size-3" />
             {snapshot.last_ping_ms}ms

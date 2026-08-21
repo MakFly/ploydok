@@ -27,6 +27,7 @@ import {
 import { ResourceCard } from "../../../../components/monitoring/ResourceCard"
 import { SystemHealthCard } from "../../../../components/monitoring/SystemHealthCard"
 import { HostHealthCard } from "../../../../components/monitoring/HostHealthCard"
+import { useTranslation } from "react-i18next"
 import { ShellPage } from "../../../../components/layout/AppShell"
 import { useCurrentOrganizationSlug } from "../../../../lib/organizations"
 import type {
@@ -53,6 +54,7 @@ type KindFilter = "all" | ContainerKind | "unknown"
 type HealthFilter = "all" | HealthClass
 
 function OrgMonitoringPage(): React.JSX.Element {
+  const { t } = useTranslation("monitoring")
   const orgSlug = useCurrentOrganizationSlug()
   const { data, isLoading, error, isFetching, refetch } = useOrgMonitoring(
     orgSlug ?? ""
@@ -166,9 +168,9 @@ function OrgMonitoringPage(): React.JSX.Element {
 
   return (
     <ShellPage
-      title="Monitoring"
-      description="Real-time health of application and database runtimes in this workspace."
-      eyebrow="Workspace"
+      title={t("title")}
+      description={t("orgDescription")}
+      eyebrow={t("workspace:eyebrow")}
       actions={
         <Button
           type="button"
@@ -179,7 +181,7 @@ function OrgMonitoringPage(): React.JSX.Element {
           className="h-8 gap-1.5 rounded-2xl bg-panel px-2.5 hover:bg-muted"
         >
           <RiRefreshLine className="size-3.5" />
-          Refresh
+          {t("common:refresh")}
         </Button>
       }
     >
@@ -214,7 +216,7 @@ function OrgMonitoringPage(): React.JSX.Element {
             tone="destructive"
             icon={RiErrorWarningLine}
             code="fetch_failed"
-            message={`Failed to load monitoring data: ${error.message}`}
+            message={t("loadFailed", { message: error.message })}
           />
         ) : null}
 
@@ -305,33 +307,34 @@ function OpsStrip({
   memLimitSum,
   isLoading,
 }: OpsStripProps): React.JSX.Element {
+  const { t } = useTranslation("monitoring")
   const liveStyles = {
     live: {
       dot: "bg-emerald-500",
       ring: "bg-emerald-500/60",
       label: "text-emerald-600 dark:text-emerald-400",
-      text: "Live",
+      textKey: "live" as const,
       animate: true,
     },
     stale: {
       dot: "bg-amber-500",
       ring: "bg-amber-500/60",
       label: "text-amber-600 dark:text-amber-400",
-      text: "Stale",
+      textKey: "stale" as const,
       animate: false,
     },
     offline: {
       dot: "bg-destructive",
       ring: "bg-destructive/60",
       label: "text-destructive",
-      text: "Offline",
+      textKey: "offline" as const,
       animate: false,
     },
   }[live]
 
   return (
     <section
-      aria-label="Fleet overview"
+      aria-label={t("fleet")}
       className="relative overflow-hidden rounded-xl rounded-2xl bg-panel"
     >
       <div
@@ -363,49 +366,52 @@ function OpsStrip({
                 liveStyles.label
               )}
             >
-              {liveStyles.text}
+              {t(liveStyles.textKey)}
             </p>
             <p className="font-mono text-[11px] text-muted-foreground">
               {ageSec === null
-                ? "no signal"
+                ? t("noSignal")
                 : ageSec < 2
-                  ? "just now"
-                  : `${ageSec}s ago`}
+                  ? t("justNow")
+                  : t("secondsAgo", { count: ageSec })}
             </p>
           </div>
         </div>
 
         <dl className="grid grid-cols-2 divide-x divide-y divide-border sm:grid-cols-3 lg:grid-cols-5 lg:divide-y-0">
           <Metric
-            label="Runtimes"
+            label={t("runtimes")}
             value={isLoading ? "—" : String(total)}
             icon={RiServerLine}
           />
           <Metric
-            label="Healthy"
+            label={t("healthy")}
             value={isLoading ? "—" : String(healthy)}
             icon={RiCheckboxCircleFill}
             accent={healthy > 0 ? "emerald" : "muted"}
           />
           <Metric
-            label="Degraded"
+            label={t("degraded")}
             value={isLoading ? "—" : String(warn)}
             icon={RiAlarmWarningLine}
             accent={warn > 0 ? "amber" : "muted"}
           />
           <Metric
-            label="Down"
+            label={t("down")}
             value={isLoading ? "—" : String(down)}
             icon={RiCloseCircleFill}
             accent={down > 0 ? "destructive" : "muted"}
           />
           <Metric
-            label="Fleet CPU"
+            label={t("cpu")}
             value={isLoading ? "—" : `${cpuSum.toFixed(1)}%`}
             sub={
               isLoading
                 ? undefined
-                : `${formatBytes(memSum)} of ${formatBytes(memLimitSum)}`
+                : t("of", {
+                    used: formatBytes(memSum),
+                    total: formatBytes(memLimitSum),
+                  })
             }
             icon={RiCpuLine}
           />
@@ -489,37 +495,38 @@ function FilterBar({
   onHealthChange,
   stats,
 }: FilterBarProps): React.JSX.Element {
+  const { t } = useTranslation("monitoring")
   return (
     <div className="flex flex-col gap-2">
       <div className="flex flex-wrap items-center gap-2">
-        <ChipGroup label="Kind" icon={RiFilter3Line}>
+        <ChipGroup label={t("kind")} icon={RiFilter3Line}>
           <Chip
             active={kind === "all"}
             onClick={() => onKindChange("all")}
             count={stats.total}
           >
-            All
+            {t("all")}
           </Chip>
           <Chip active={kind === "app"} onClick={() => onKindChange("app")}>
-            App
+            {t("app")}
           </Chip>
           <Chip
             active={kind === "database"}
             onClick={() => onKindChange("database")}
           >
-            Database
+            {t("database")}
           </Chip>
           <Chip active={kind === "infra"} onClick={() => onKindChange("infra")}>
-            Infra
+            {t("infra")}
           </Chip>
           <Chip active={kind === "agent"} onClick={() => onKindChange("agent")}>
-            Agent
+            {t("agent")}
           </Chip>
         </ChipGroup>
 
-        <ChipGroup label="Health" icon={RiPulseLine}>
+        <ChipGroup label={t("health")} icon={RiPulseLine}>
           <Chip active={health === "all"} onClick={() => onHealthChange("all")}>
-            All
+            {t("all")}
           </Chip>
           <Chip
             active={health === "healthy"}
@@ -527,7 +534,7 @@ function FilterBar({
             count={stats.healthy}
             tone="emerald"
           >
-            Healthy
+            {t("healthy")}
           </Chip>
           <Chip
             active={health === "warn"}
@@ -535,7 +542,7 @@ function FilterBar({
             count={stats.warn}
             tone="amber"
           >
-            Degraded
+            {t("degraded")}
           </Chip>
           <Chip
             active={health === "down"}
@@ -543,7 +550,7 @@ function FilterBar({
             count={stats.down}
             tone="destructive"
           >
-            Down
+            {t("down")}
           </Chip>
         </ChipGroup>
       </div>
@@ -553,9 +560,9 @@ function FilterBar({
         <Input
           value={query}
           onChange={(e) => onQueryChange(e.target.value)}
-          placeholder="Filter by name or image…"
+          placeholder={t("filterPlaceholder")}
           className="h-8 pl-8 text-xs"
-          aria-label="Filter runtimes"
+          aria-label={t("filter")}
         />
       </div>
     </div>
@@ -696,16 +703,16 @@ function SkeletonGrid(): React.JSX.Element {
 }
 
 function EmptyState(): React.JSX.Element {
+  const { t } = useTranslation("monitoring")
   return (
     <div className="flex flex-col items-center justify-center gap-3 rounded-xl border border-dashed border-panel-border bg-panel-inset px-6 py-16 text-center">
       <div className="flex size-12 items-center justify-center rounded-full bg-muted">
         <RiRadarLine className="size-6 text-muted-foreground" />
       </div>
       <div className="space-y-1">
-        <p className="text-sm font-medium">No runtime resources</p>
+        <p className="text-sm font-medium">{t("noResources")}</p>
         <p className="max-w-sm text-xs text-muted-foreground">
-          The agent will report application and database runtimes here as soon
-          as services are deployed and running.
+          {t("noResourcesHint")}
         </p>
       </div>
     </div>
@@ -713,15 +720,16 @@ function EmptyState(): React.JSX.Element {
 }
 
 function NoResults({ onReset }: { onReset: () => void }): React.JSX.Element {
+  const { t } = useTranslation("monitoring")
   return (
     <div className="flex flex-col items-center justify-center gap-3 rounded-xl border border-dashed border-panel-border bg-panel-inset px-6 py-12 text-center">
       <div className="flex size-10 items-center justify-center rounded-full bg-muted">
         <RiSearchLine className="size-5 text-muted-foreground" />
       </div>
       <div className="space-y-1">
-        <p className="text-sm font-medium">No runtimes match</p>
+        <p className="text-sm font-medium">{t("noMatch")}</p>
         <p className="max-w-sm text-xs text-muted-foreground">
-          Try relaxing the filters or clearing the search.
+          {t("noMatchHint")}
         </p>
       </div>
       <button
@@ -729,7 +737,7 @@ function NoResults({ onReset }: { onReset: () => void }): React.JSX.Element {
         onClick={onReset}
         className="rounded-md border border-border bg-background px-2.5 py-1 text-xs font-medium hover:bg-muted"
       >
-        Reset filters
+        {t("resetFilters")}
       </button>
     </div>
   )

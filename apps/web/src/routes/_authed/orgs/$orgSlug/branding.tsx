@@ -5,6 +5,7 @@ import { Button } from "@workspace/ui/components/button"
 import { Input } from "@workspace/ui/components/input"
 import { Label } from "@workspace/ui/components/label"
 import { ShellPage, ShellPanel } from "../../../../components/layout/AppShell"
+import { useTranslation } from "react-i18next"
 import {
   useDeleteOrgBranding,
   useOrgBranding,
@@ -16,6 +17,7 @@ export const Route = createFileRoute("/_authed/orgs/$orgSlug/branding")({
 })
 
 function BrandingPage(): React.JSX.Element {
+  const { t } = useTranslation("workspace")
   const { orgSlug } = Route.useParams()
   const { data: branding, isLoading } = useOrgBranding(orgSlug)
   const updateMutation = useUpdateOrgBranding(orgSlug)
@@ -45,7 +47,7 @@ function BrandingPage(): React.JSX.Element {
   }
 
   const handleReset = () => {
-    if (confirm("Reset branding to defaults?")) {
+    if (confirm(t("branding.resetConfirm"))) {
       deleteMutation.mutate()
     }
   }
@@ -55,21 +57,20 @@ function BrandingPage(): React.JSX.Element {
   if (!isPremium) {
     return (
       <ShellPage
-        title="Branding"
-        description="Customize your app's appearance."
-        eyebrow="Workspace"
+        title={t("branding.title")}
+        description={t("branding.description")}
+        eyebrow={t("eyebrow")}
       >
         <ShellPanel>
           <div className="rounded-lg border border-amber-200 bg-amber-50 px-6 py-8 text-center dark:border-amber-900 dark:bg-amber-950">
             <p className="font-semibold text-amber-900 dark:text-amber-100">
-              Branding requires the Enterprise plan
+              {t("branding.requiresEnterprise")}
             </p>
             <p className="mt-2 text-sm text-amber-800 dark:text-amber-200">
-              Upgrade your organization to customize your app name, logo, and
-              colors.
+              {t("branding.upgradeHint")}
             </p>
             <Button className="mt-4" variant="default">
-              Upgrade →
+              {t("branding.upgrade")}
             </Button>
           </div>
         </ShellPanel>
@@ -79,9 +80,9 @@ function BrandingPage(): React.JSX.Element {
 
   return (
     <ShellPage
-      title="Branding"
-      description="Customize your app's appearance."
-      eyebrow="Workspace"
+      title={t("branding.title")}
+      description={t("branding.description")}
+      eyebrow={t("eyebrow")}
     >
       <div className="space-y-6">
         {isLoading ? (
@@ -98,13 +99,13 @@ function BrandingPage(): React.JSX.Element {
         ) : (
           <>
             <ShellPanel
-              title="Branding settings"
-              description="Customize your workspace branding"
+              title={t("branding.settings")}
+              description={t("branding.settingsHint")}
             >
               <div className="space-y-6">
                 {/* App name */}
                 <div className="space-y-2">
-                  <Label htmlFor="app-name">App Name</Label>
+                  <Label htmlFor="app-name">{t("branding.appName")}</Label>
                   <Input
                     id="app-name"
                     value={appName}
@@ -115,7 +116,7 @@ function BrandingPage(): React.JSX.Element {
 
                 {/* Logo URL */}
                 <div className="space-y-2">
-                  <Label htmlFor="logo-url">Logo URL</Label>
+                  <Label htmlFor="logo-url">{t("branding.logoUrl")}</Label>
                   <Input
                     id="logo-url"
                     type="url"
@@ -127,7 +128,7 @@ function BrandingPage(): React.JSX.Element {
                     <div className="mt-2 rounded-lg border border-border p-4">
                       <img
                         src={logoUrl}
-                        alt="Logo preview"
+                        alt={t("branding.logoPreview")}
                         className="h-12 w-12 object-contain"
                       />
                     </div>
@@ -136,7 +137,9 @@ function BrandingPage(): React.JSX.Element {
 
                 {/* Primary color */}
                 <div className="space-y-2">
-                  <Label htmlFor="primary-color">Primary Color</Label>
+                  <Label htmlFor="primary-color">
+                    {t("branding.primaryColor")}
+                  </Label>
                   <div className="flex gap-2">
                     <input
                       id="primary-color"
@@ -156,7 +159,7 @@ function BrandingPage(): React.JSX.Element {
 
                 {/* Favicon URL */}
                 <div className="space-y-2">
-                  <Label htmlFor="favicon-url">Favicon URL</Label>
+                  <Label htmlFor="favicon-url">{t("branding.faviconUrl")}</Label>
                   <Input
                     id="favicon-url"
                     type="url"
@@ -168,7 +171,7 @@ function BrandingPage(): React.JSX.Element {
                     <div className="mt-2 rounded-lg border border-border p-4">
                       <img
                         src={faviconUrl}
-                        alt="Favicon preview"
+                        alt={t("branding.faviconPreview")}
                         className="h-6 w-6"
                       />
                     </div>
@@ -177,7 +180,7 @@ function BrandingPage(): React.JSX.Element {
 
                 {/* Preview */}
                 <div className="space-y-2">
-                  <Label>Preview</Label>
+                  <Label>{t("branding.preview")}</Label>
                   <div
                     className="rounded-lg border border-border p-6"
                     style={{
@@ -187,7 +190,7 @@ function BrandingPage(): React.JSX.Element {
                   >
                     <h3 className="text-lg font-semibold">{appName}</h3>
                     <p className="mt-2 text-sm text-muted-foreground">
-                      Your app will appear with these settings
+                      {t("branding.previewHint")}
                     </p>
                   </div>
                 </div>
@@ -198,7 +201,9 @@ function BrandingPage(): React.JSX.Element {
                     onClick={handleSave}
                     loading={updateMutation.isPending}
                   >
-                    {updateMutation.isPending ? "Saving..." : "Save changes"}
+                    {updateMutation.isPending
+                      ? t("branding.saving")
+                      : t("branding.save")}
                   </Button>
                   <Button
                     variant="outline"
@@ -206,8 +211,8 @@ function BrandingPage(): React.JSX.Element {
                     loading={deleteMutation.isPending}
                   >
                     {deleteMutation.isPending
-                      ? "Resetting..."
-                      : "Reset to defaults"}
+                      ? t("branding.resetting")
+                      : t("branding.reset")}
                   </Button>
                 </div>
               </div>

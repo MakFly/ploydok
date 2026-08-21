@@ -6,6 +6,8 @@ import {
   organizationPath,
   useCurrentOrganizationSlug,
 } from "../../lib/organizations"
+import { useTranslation } from "react-i18next"
+import i18n from "../../lib/i18n"
 import type { BuildStatus } from "@ploydok/shared"
 
 // ---------------------------------------------------------------------------
@@ -52,12 +54,12 @@ const STATUS_TEXT: Record<BuildStatus, string> = {
 function timeAgo(tsMs: number): string {
   const diff = Date.now() - tsMs
   const s = Math.floor(diff / 1000)
-  if (s < 60) return `${s}s ago`
+  if (s < 60) return i18n.t("common:relative.secondsAgo", { count: s })
   const m = Math.floor(s / 60)
-  if (m < 60) return `${m}m ago`
+  if (m < 60) return i18n.t("common:relative.minutesAgo", { count: m })
   const h = Math.floor(m / 60)
-  if (h < 24) return `${h}h ago`
-  return `${Math.floor(h / 24)}d ago`
+  if (h < 24) return i18n.t("common:relative.hoursAgo", { count: h })
+  return i18n.t("common:relative.daysAgo", { count: Math.floor(h / 24) })
 }
 
 // ---------------------------------------------------------------------------
@@ -68,16 +70,19 @@ export function RecentBuilds({
   builds,
   isLoading,
 }: RecentBuildsProps): React.JSX.Element {
+  const { t } = useTranslation("workspace")
   return (
     <div className="space-y-3">
       <p className="text-xs font-medium tracking-wide text-muted-foreground uppercase">
-        Recent builds
+        {t("dashboard.recentBuilds")}
       </p>
       {isLoading ? (
         <RecentBuildsSkeleton />
       ) : builds.length === 0 ? (
         <div className="rounded-lg border border-dashed border-panel-border bg-panel-inset py-8 text-center">
-          <p className="text-sm text-muted-foreground">No builds yet</p>
+          <p className="text-sm text-muted-foreground">
+            {t("dashboard.noBuildsYet")}
+          </p>
         </div>
       ) : (
         <div className="divide-y divide-border overflow-hidden rounded-2xl bg-panel">
@@ -146,11 +151,12 @@ function BuildItem({ build }: { build: BuildRow }): React.JSX.Element {
 // ---------------------------------------------------------------------------
 
 function RecentBuildsSkeleton(): React.JSX.Element {
+  const { t } = useTranslation("workspace")
   return (
     <div
       className="divide-y divide-border overflow-hidden rounded-2xl bg-panel"
       aria-busy="true"
-      aria-label="Loading recent builds"
+      aria-label={t("dashboard.loadingRecentBuilds")}
     >
       {[...Array<null>(4)].map((_, i) => (
         <div key={i} className="flex items-center gap-3 px-4 py-3">

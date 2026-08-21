@@ -38,6 +38,8 @@ import {
   DialogTitle,
 } from "../i18n/dialog"
 import { cn } from "@workspace/ui/lib/utils"
+import { useTranslation } from "react-i18next"
+import i18n from "../../lib/i18n"
 import type { ChartConfig } from "@workspace/ui/components/chart"
 
 import type { ContainerSnapshot } from "@ploydok/shared"
@@ -57,7 +59,7 @@ type Severity = "ok" | "warn" | "danger"
 const METRIC_STYLES = {
   cpu: {
     icon: RiCpuLine,
-    title: "CPU usage",
+    titleKey: "cpuUsage",
     unit: " %",
     decimals: 2,
     color: "#3b82f6",
@@ -69,7 +71,7 @@ const METRIC_STYLES = {
   },
   mem: {
     icon: RiDatabase2Line,
-    title: "Memory usage",
+    titleKey: "memoryUsage",
     unit: " MB",
     decimals: 1,
     color: "#8b5cf6",
@@ -100,8 +102,10 @@ export function MetricDetailDialog({
   points,
   stepSeconds = 5,
 }: MetricDetailDialogProps): React.JSX.Element {
+  const { t } = useTranslation("monitoring")
   const style = METRIC_STYLES[metric]
   const Icon = style.icon
+  const title = t(style.titleKey)
 
   // Memory limit in MB for severity computation + progress bar.
   const memLimitMB = snapshot.mem_limit_bytes
@@ -159,7 +163,7 @@ export function MetricDetailDialog({
 
   const chartConfig: ChartConfig = {
     value: {
-      label: style.title,
+      label: title,
       color: style.color,
     },
   }
@@ -192,7 +196,7 @@ export function MetricDetailDialog({
               <div className="flex items-center gap-1.5 text-muted-foreground">
                 <Icon className={cn("size-3.5", style.accentText)} />
                 <span className="text-[10px] font-semibold tracking-[0.2em] uppercase">
-                  {style.title}
+                  {title}
                 </span>
               </div>
               <LivePill tone={liveness.tone} ageSec={liveness.ageSec} />
@@ -220,7 +224,7 @@ export function MetricDetailDialog({
           {/* Hero stats: Current dominant + trend, then Min/Avg/Max */}
           <div className="mt-6 grid gap-3 sm:grid-cols-[1.25fr_1fr_1fr_1fr]">
             <HeroStatCurrent
-              label="Current"
+              label={t("current")}
               value={formatValue(current)}
               valueClass={cn(
                 "font-mono text-[28px] leading-none font-semibold tabular-nums",
@@ -233,17 +237,17 @@ export function MetricDetailDialog({
               accentRing={style.accentRing}
             />
             <HeroStat
-              label="Min"
+              label={t("min")}
               value={formatValue(min)}
               valueClass="font-mono text-[16px] font-semibold leading-none tabular-nums text-foreground"
             />
             <HeroStat
-              label="Avg"
+              label={t("avg")}
               value={formatValue(avg)}
               valueClass="font-mono text-[16px] font-semibold leading-none tabular-nums text-foreground"
             />
             <HeroStat
-              label="Max"
+              label={t("max")}
               value={formatValue(max)}
               valueClass="font-mono text-[16px] font-semibold leading-none tabular-nums text-foreground"
             />
@@ -254,12 +258,14 @@ export function MetricDetailDialog({
             <div className="mt-4 rounded-md border border-border bg-muted/30 px-3.5 py-3">
               <div className="flex items-baseline justify-between gap-3">
                 <span className="text-[10px] font-semibold tracking-[0.18em] text-muted-foreground uppercase">
-                  Limit usage
+                  {t("limitUsage")}
                 </span>
                 <span className="font-mono text-[12px] text-foreground tabular-nums">
                   {memUsagePercent.toFixed(1)}%
                   <span className="ml-1 text-muted-foreground">
-                    of {formatBytes(snapshot.mem_limit_bytes)}
+                    {t("ofLimit", {
+                      limit: formatBytes(snapshot.mem_limit_bytes),
+                    })}
                   </span>
                 </span>
               </div>
@@ -375,11 +381,16 @@ export function MetricDetailDialog({
                         labelFormatter={(_l, items) => {
                           const t = items[0]?.payload?.t as number | undefined
                           if (typeof t !== "number") return ""
-                          if (t === 0) return "maintenant"
+                          if (t === 0) return i18n.t("monitoring:now")
                           const s = Math.abs(t)
-                          if (s < 60) return `il y a ${s}s`
+                          if (s < 60)
+                            return i18n.t("monitoring:secondsAgoChart", {
+                              count: s,
+                            })
                           const m = Math.round(s / 60)
-                          return `il y a ${m}min`
+                          return i18n.t("monitoring:minutesAgoChart", {
+                            count: m,
+                          })
                         }}
                         formatter={(value) => {
                           const num =
@@ -418,21 +429,24 @@ export function MetricDetailDialog({
             <div className="flex flex-wrap items-center gap-x-4 gap-y-1.5">
               <FooterStat
                 icon={<RiTimeLine className="size-3" />}
-                label="Up"
+                label={t("up")}
                 value={formatUptime(snapshot.uptime_s)}
               />
               <FooterStat
                 icon={<RiRestartLine className="size-3" />}
-                label="Restarts"
+                label={t("restarts")}
                 value={String(snapshot.restart_count)}
                 emphasize={snapshot.restart_count > 0}
               />
               <FooterStat
                 icon={<RiPulseLine className="size-3" />}
-                label="Samples"
+                label={t("samples")}
                 value={`${trimmed.length}/60`}
               />
-              <FooterStat label="Interval" value={`${stepSeconds}s`} />
+              <FooterStat
+                label={t("interval")}
+                value={`${stepSeconds}s`}
+              />
             </div>
             <kbd className="rounded border border-border bg-muted/40 px-1.5 py-0.5 text-[9px] font-medium tracking-normal text-muted-foreground/80 normal-case">
               ESC
@@ -463,6 +477,7 @@ function HeroStatCurrent({
   formatDelta: (d: number) => string
   accentRing: string
 }): React.JSX.Element {
+  const { t } = useTranslation("monitoring")
   const TrendIcon =
     trend?.dir === "up"
       ? RiArrowUpLine
@@ -496,10 +511,16 @@ function HeroStatCurrent({
               "inline-flex items-center gap-0.5 font-mono text-[10px] font-medium tabular-nums",
               trendColor
             )}
-            title={`${trend.dir === "flat" ? "stable" : trend.dir === "up" ? "above" : "below"} average`}
+            title={
+              trend.dir === "flat"
+                ? t("stable")
+                : trend.dir === "up"
+                  ? t("aboveAverage")
+                  : t("belowAverage")
+            }
           >
             <TrendIcon className="size-3" />
-            {trend.dir !== "flat" ? formatDelta(trend.delta) : "stable"}
+            {trend.dir !== "flat" ? formatDelta(trend.delta) : t("stable")}
           </span>
         ) : null}
       </div>
@@ -572,8 +593,13 @@ function LivePill({
       : tone === "warn"
         ? "text-amber-700 dark:text-amber-300"
         : "text-red-600 dark:text-red-400"
+  const { t } = useTranslation("monitoring")
   const label =
-    tone === "ok" ? "live" : tone === "warn" ? `${ageSec}s ago` : "offline"
+    tone === "ok"
+      ? t("liveLabel")
+      : tone === "warn"
+        ? t("secondsAgoShort", { count: ageSec })
+        : t("offlineLabel")
 
   return (
     <span
@@ -581,7 +607,7 @@ function LivePill({
         "inline-flex items-center gap-1.5 rounded-full border border-border/70 bg-background/80 px-2 py-0.5 font-mono text-[10px] tracking-wider uppercase",
         textColor
       )}
-      title={`Last seen ${ageSec}s ago`}
+      title={t("lastSeen", { count: ageSec })}
     >
       <span className="relative flex size-1.5">
         {tone === "ok" ? (
@@ -602,15 +628,16 @@ function LivePill({
 }
 
 function EmptyChart({ height }: { height: number }): React.JSX.Element {
+  const { t } = useTranslation("monitoring")
   return (
     <div
       className="flex flex-col items-center justify-center gap-1.5 rounded-md border border-dashed border-panel-border bg-panel-inset text-muted-foreground"
       style={{ height }}
     >
       <RiPulseLine className="size-5 opacity-50" />
-      <span className="text-xs">Collecting samples…</span>
+      <span className="text-xs">{t("collecting")}</span>
       <span className="text-[10px] text-muted-foreground/70">
-        Wait a few seconds for data to appear.
+        {t("collectingHint")}
       </span>
     </div>
   )
@@ -632,7 +659,7 @@ function computeXTicks(n: number, step: number): Array<number> {
 }
 
 function formatXTick(v: number): string {
-  if (v === 0) return "now"
+  if (v === 0) return i18n.t("monitoring:now")
   const s = Math.abs(v)
   if (s < 60) return `-${s}s`
   const m = Math.round(s / 60)
