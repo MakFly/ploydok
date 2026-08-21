@@ -9,6 +9,11 @@ import {
   totp_secrets,
 } from "@ploydok/db"
 import type { Db } from "@ploydok/db"
+import {
+  fieldErrors,
+  firstErrorMessage,
+  SetupAdminBodySchema,
+} from "@ploydok/shared"
 import { env } from "../env"
 import {
   generateRegOptions,
@@ -26,11 +31,7 @@ import {
   REFRESH_MAX_AGE,
   shouldUseSecureCookies,
 } from "../auth/jwt"
-import {
-  hashPassword,
-  validateAdminPassword,
-  verifyPassword,
-} from "../auth/password"
+import { hashPassword, verifyPassword } from "../auth/password"
 import * as BackupCodes from "../auth/backup-codes"
 import * as Sessions from "../auth/sessions"
 import { setChallenge, consumeChallenge } from "../auth/challenges"
@@ -45,6 +46,11 @@ import {
   bootstrapSetupToken,
   clearSetupToken,
   consumeSetupToken,
+  getSetupTokenState,
+  getSetupTokenValue,
+  SETUP_SESSION_COOKIE,
+  setupSessionGrantAllowed,
+  setupSessionMaxAge,
   validateSetupToken,
 } from "../auth/setup-token"
 import {
@@ -62,13 +68,7 @@ import {
 // AuthenticatorTransportFuture is re-exported from @simplewebauthn/server internals
 // We use a simple string type alias to avoid the missing @simplewebauthn/types package
 type AuthenticatorTransportFuture =
-  | "ble"
-  | "cable"
-  | "hybrid"
-  | "internal"
-  | "nfc"
-  | "smart-card"
-  | "usb"
+  "ble" | "cable" | "hybrid" | "internal" | "nfc" | "smart-card" | "usb"
 
 // ---------------------------------------------------------------------------
 // Helpers
@@ -123,6 +123,36 @@ function parseCookies(cookieHeader: string): Record<string, string> {
     out[k] = decodeURIComponent(v)
   }
   return out
+}
+
+// Le token du wizard arrive soit dans le corps (URL /setup?token=…), soit dans
+// le cookie déposé par /auth/setup/session. On distingue les deux : le cookie
+// voyage seul et exige donc une vérification d'origine.
+function readSetupToken(
+  req: Request,
+  bodyToken: string | undefined
+): { token: string | undefined; fromCookie: boolean } {
+  if (bodyToken) return { token: bodyToken, fromCookie: false }
+  const cookieToken = parseCookies(req.headers.get("cookie") ?? "")[
+    SETUP_SESSION_COOKIE
+  ]
+  return { token: cookieToken, fromCookie: Boolean(cookieToken) }
+}
+
+// Les routes /auth/setup/* sont exemptées du double-submit CSRF (aucune session
+// active au first boot). Tant que le token venait du corps, un POST cross-site
+// ne pouvait pas le deviner ; porté par un cookie, il partirait tout seul. Un
+// navigateur ne peut pas supprimer Origin, donc son absence = appel serveur.
+function setupOriginTrusted(req: Request): boolean {
+  const origin = req.headers.get("origin")
+  return origin === null || origin === env.WEB_ORIGIN
+}
+
+function clearSetupSessionCookie(headers: Headers): void {
+  headers.append(
+    "Set-Cookie",
+    buildCookieStr(SETUP_SESSION_COOKIE, "", 0, isSecure)
+  )
 }
 
 function getClientInfo(req: Request): { userAgent: string; ip: string } {
@@ -215,17 +245,88 @@ export function createAuthRouter(db: Db): Hono {
     const userRow = await db.select({ id: users.id }).from(users).limit(1)
     const bootstrapped = userRow.length > 0
     // Lazy-bootstrap: if the DB is empty and no token is currently active
-    // (e.g. the API was running before `make db-reset` so the boot probe saw a
+    // (e.g. the API was running before `make reset` so the boot probe saw a
     // non-empty DB), regenerate one now. The banner hits the API logs the
     // moment a human opens /setup, so the operator never has to time the
     // restart of `make dev` against the wipe.
     if (!bootstrapped) {
       await bootstrapSetupToken(db)
     }
+    // `source` never exposes the token itself — only where the live one came
+    // from. An operator who wrote PLOYDOK_SETUP_TOKEN into the env after the
+    // API booted still gets served the ephemeral one, and `make check` needs
+    // to tell them to restart instead of printing a URL that 403s.
+    const tokenState = getSetupTokenState()
     return c.json({
       bootstrapped,
       setup_token_required: env.PLOYDOK_SETUP_TOKEN_REQUIRED,
+      setup_token_active: tokenState.active,
+      setup_token_source: tokenState.source,
+      setup_session_grant_allowed: setupSessionGrantAllowed(),
     })
+  })
+
+  // -------------------------------------------------------------------------
+  // POST /auth/setup/session
+  // Dépose le token first-boot dans un cookie HttpOnly pour que /setup s'ouvre
+  // sans query string. Hors prod uniquement. Contrairement aux autres routes
+  // /auth/setup/*, celle-ci n'est PAS exemptée de CSRF : c'est ce qui empêche
+  // une page tierce de faire émettre le cookie à la place du wizard.
+  // -------------------------------------------------------------------------
+  auth.post("/auth/setup/session", async (c) => {
+    const existingUser = await db.select({ id: users.id }).from(users).limit(1)
+    if (existingUser.length > 0) {
+      clearSetupToken()
+      const response = c.json(
+        {
+          error: {
+            code: "ALREADY_BOOTSTRAPPED",
+            message: "Instance already bootstrapped",
+          },
+        },
+        409
+      )
+      clearSetupSessionCookie(response.headers)
+      return response
+    }
+
+    if (!setupSessionGrantAllowed()) {
+      return c.json(
+        {
+          error: {
+            code: "SETUP_SESSION_FORBIDDEN",
+            message:
+              "Setup sessions are disabled on this instance — open /setup with the token printed at first boot",
+          },
+        },
+        403
+      )
+    }
+
+    if (!setupOriginTrusted(c.req.raw)) {
+      return c.json(
+        { error: { code: "ORIGIN_NOT_ALLOWED", message: "Origin rejected" } },
+        403
+      )
+    }
+
+    await bootstrapSetupToken(db)
+    const value = getSetupTokenValue()
+    // PLOYDOK_SETUP_TOKEN_REQUIRED=0 : aucun token n'est émis, il n'y a rien à
+    // transporter et le wizard est déjà ouvert.
+    if (!value) return c.json({ granted: false })
+
+    const response = c.json({ granted: true })
+    response.headers.append(
+      "Set-Cookie",
+      buildCookieStr(
+        SETUP_SESSION_COOKIE,
+        value,
+        setupSessionMaxAge(),
+        isSecure
+      )
+    )
+    return response
   })
 
   // -------------------------------------------------------------------------
@@ -235,27 +336,12 @@ export function createAuthRouter(db: Db): Hono {
   // login, when the instance has a trusted HTTPS origin.
   // -------------------------------------------------------------------------
   auth.post("/auth/setup/password", async (c) => {
-    const body = await c.req
-      .json<{
-        token?: string
-        email?: string
-        display_name?: string
-        password?: string
-      }>()
-      .catch(
-        () =>
-          ({}) as {
-            token?: string
-            email?: string
-            display_name?: string
-            password?: string
-          }
-      )
+    const raw = await c.req.json<unknown>().catch(() => ({}))
 
     const existingUser = await db.select({ id: users.id }).from(users).limit(1)
     if (existingUser.length > 0) {
       clearSetupToken()
-      return c.json(
+      const response = c.json(
         {
           error: {
             code: "ALREADY_BOOTSTRAPPED",
@@ -264,32 +350,37 @@ export function createAuthRouter(db: Db): Hono {
         },
         409
       )
+      clearSetupSessionCookie(response.headers)
+      return response
     }
 
-    const email = body.email?.trim().toLowerCase()
-    const displayName = body.display_name?.trim()
-    const password = body.password ?? ""
-    if (!email || !displayName || !password) {
+    const parsed = SetupAdminBodySchema.safeParse(raw)
+    if (!parsed.success) {
       return c.json(
         {
           error: {
-            code: "BAD_REQUEST",
-            message: "email, display_name and password required",
+            code: "VALIDATION_ERROR",
+            message: firstErrorMessage(parsed.error),
+            fields: fieldErrors(parsed.error),
           },
         },
         400
       )
     }
+    const { email, display_name: displayName, password } = parsed.data
 
-    const passwordError = validateAdminPassword(password)
-    if (passwordError) {
+    const credential = readSetupToken(c.req.raw, parsed.data.token)
+    if (credential.fromCookie && !setupOriginTrusted(c.req.raw)) {
       return c.json(
-        { error: { code: "PASSWORD_POLICY", message: passwordError } },
-        400
+        { error: { code: "ORIGIN_NOT_ALLOWED", message: "Origin rejected" } },
+        403
       )
     }
 
-    if (env.PLOYDOK_SETUP_TOKEN_REQUIRED && !consumeSetupToken(body.token)) {
+    if (
+      env.PLOYDOK_SETUP_TOKEN_REQUIRED &&
+      !consumeSetupToken(credential.token)
+    ) {
       return c.json(
         {
           error: {
@@ -333,7 +424,7 @@ export function createAuthRouter(db: Db): Hono {
     })
     if (!created) {
       clearSetupToken()
-      return c.json(
+      const response = c.json(
         {
           error: {
             code: "ALREADY_BOOTSTRAPPED",
@@ -342,6 +433,8 @@ export function createAuthRouter(db: Db): Hono {
         },
         409
       )
+      clearSetupSessionCookie(response.headers)
+      return response
     }
 
     await ensureDefaultOrganizationForUser(db, user.id, user.display_name)
@@ -379,6 +472,7 @@ export function createAuthRouter(db: Db): Hono {
       { "Content-Type": "application/json" }
     )
     setCookies(response.headers, accessToken, refreshToken, sessionId)
+    clearSetupSessionCookie(response.headers)
     return response
   })
 
@@ -411,7 +505,15 @@ export function createAuthRouter(db: Db): Hono {
       )
     }
 
-    if (!validateSetupToken(body.token)) {
+    const credential = readSetupToken(c.req.raw, body.token)
+    if (credential.fromCookie && !setupOriginTrusted(c.req.raw)) {
+      return c.json(
+        { error: { code: "ORIGIN_NOT_ALLOWED", message: "Origin rejected" } },
+        403
+      )
+    }
+
+    if (!validateSetupToken(credential.token)) {
       return c.json(
         {
           error: {
@@ -645,6 +747,7 @@ export function createAuthRouter(db: Db): Hono {
       { "Content-Type": "application/json" }
     )
     setCookies(response.headers, accessToken, refreshToken, sessionId)
+    clearSetupSessionCookie(response.headers)
     return response
   })
 

@@ -97,6 +97,21 @@ describe("build-static", () => {
     expect(link).toBe("v2")
   })
 
+  test("une racine non inscriptible remonte un message actionnable", async () => {
+    await chmod(workspaceRoot, 0o555)
+    try {
+      await expect(
+        runStaticBuild({
+          appId: "app1",
+          sha: "abc123",
+          sourceDir: await createStaticProject(),
+        })
+      ).rejects.toThrow(/PLOYDOK_STATIC_ROOT/)
+    } finally {
+      await chmod(workspaceRoot, 0o755)
+    }
+  })
+
   test("promoteSha throw si SHA absent", async () => {
     await expect(promoteSha("app1", "missing")).rejects.toThrow(
       /promoteSha: missing/

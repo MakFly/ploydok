@@ -179,7 +179,16 @@ app.use(
     },
     credentials: true,
     allowMethods: ["GET", "POST", "PUT", "PATCH", "DELETE"],
-    allowHeaders: ["content-type", "x-csrf-token", "x-totp-code"],
+    // upgrade-insecure-requests : un contexte navigateur portant la directive
+    // CSP du même nom l'ajoute à CHAQUE fetch, préflight compris. Absent de
+    // cette liste, tout appel API échouait en ERR_FAILED derrière une CSP
+    // durcie. Le header ne porte aucune capacité — sa valeur est toujours "1".
+    allowHeaders: [
+      "content-type",
+      "x-csrf-token",
+      "x-totp-code",
+      "upgrade-insecure-requests",
+    ],
   })
 )
 

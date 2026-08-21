@@ -1246,7 +1246,10 @@ export async function handleDeploy(
             : {}),
           beforePublish: fenceDeploySideEffect,
         }
-      )
+      ).catch((staticErr: unknown) => {
+        if (staticErr instanceof DeployCancelledError) throw staticErr
+        throw classifyAgentError(staticErr)
+      })
       rollbackStaticPromotion = staticResult.previousSha
         ? () => promoteSha(app.id, staticResult.previousSha!)
         : () => fs.promises.unlink(staticResult.currentSymlink).catch(() => {})

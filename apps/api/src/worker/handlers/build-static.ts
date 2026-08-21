@@ -27,18 +27,25 @@ import {
 import { existsSync } from "node:fs"
 import path from "node:path"
 import { childLogger } from "../../logger"
+import { defaultStateDir } from "../../env"
 
 const log = childLogger("build-static")
 
 /**
- * Racine sur disque où sont stockés les sites statiques. Monté en lecture seule
- * dans le container Caddy (à configurer dans `infra/docker-compose.yml`).
+ * Racine sur disque où sont stockés les sites statiques. Montée en lecture
+ * seule dans le container Caddy (`infra/docker-compose.yml` en dev,
+ * `installer/templates/docker-stack.yml` en prod).
+ *
+ * Le default vient de `defaultStateDir` : `/var/lib/ploydok/static` en prod
+ * (volume monté, propriété du runtime uid), `$HOME/.ploydok-dev/static` sinon.
+ * Coder le chemin prod en dur donnait un EACCES au premier deploy statique en
+ * dev, où l'API tourne sous l'uid de l'utilisateur.
  *
  * Évalué dynamiquement à chaque appel pour permettre l'override en test
  * (`Bun.env["PLOYDOK_STATIC_ROOT"]` peut être set par un beforeEach).
  */
 export function staticRoot(): string {
-  return Bun.env["PLOYDOK_STATIC_ROOT"] ?? "/var/lib/ploydok/static"
+  return Bun.env["PLOYDOK_STATIC_ROOT"] ?? defaultStateDir("static")
 }
 
 export function staticRootForApp(appId: string): string {
@@ -94,6 +101,27 @@ function shaDir(appId: string, sha: string): string {
 
 function currentLink(appId: string): string {
   return path.join(appDir(appId), "current")
+}
+
+const UNWRITABLE_CODES = new Set(["EACCES", "EPERM", "EROFS"])
+
+// Un EACCES nu sur `<staticRoot>/<appId>` ne dit pas à l'opérateur ce qu'il
+// doit corriger. Le cas classique : le bind Docker de Caddy a fait créer la
+// racine par le daemon (donc root) alors que l'API tourne sous un autre uid.
+function describePublishFailure(err: unknown): Error {
+  const code =
+    typeof err === "object" && err !== null && "code" in err
+      ? String((err as { code: unknown }).code)
+      : ""
+  if (!UNWRITABLE_CODES.has(code)) {
+    return err instanceof Error ? err : new Error(String(err))
+  }
+  const message = err instanceof Error ? err.message : String(err)
+  return new Error(
+    `${message} — static root ${staticRoot()} is not writable by the API process. ` +
+      `Set PLOYDOK_STATIC_ROOT to a writable path, or chown the directory to the API uid.`,
+    { cause: err }
+  )
 }
 
 function safeRelativePath(value: string, label: string): string {
@@ -254,20 +282,24 @@ export async function runStaticBuild(
     throw new Error(`static output directory not found: ${staticOutputDir}`)
   }
 
-  await mkdir(appDir(opts.appId), { recursive: true })
   const target = shaDir(opts.appId, opts.sha)
   const tmpTarget = path.join(
     appDir(opts.appId),
     `.tmp-${opts.sha}-${Date.now()}-${Math.random().toString(36).slice(2, 8)}`
   )
-  await rm(target, { recursive: true, force: true })
-  await rm(tmpTarget, { recursive: true, force: true })
-  await cp(outputDir, tmpTarget, {
-    recursive: true,
-    errorOnExist: false,
-    force: true,
-  })
-  await rename(tmpTarget, target)
+  try {
+    await mkdir(appDir(opts.appId), { recursive: true })
+    await rm(target, { recursive: true, force: true })
+    await rm(tmpTarget, { recursive: true, force: true })
+    await cp(outputDir, tmpTarget, {
+      recursive: true,
+      errorOnExist: false,
+      force: true,
+    })
+    await rename(tmpTarget, target)
+  } catch (err) {
+    throw describePublishFailure(err)
+  }
   log.info(
     { appId: opts.appId, sha: opts.sha, outputDir, target },
     "static.build.installed"
@@ -315,7 +347,7 @@ export async function dispatchStaticDeploy(
     sourceDir:
       opts.workspacePath ??
       path.join(
-        Bun.env["PLOYDOK_BUILD_DIR"] ?? "/tmp/ploydok-builds",
+        Bun.env["PLOYDOK_BUILD_DIR"] ?? defaultStateDir("builds"),
         appId,
         sha
       ),

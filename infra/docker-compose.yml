@@ -45,7 +45,11 @@ services:
       - caddy-data:/data
       - caddy-config:/config
       - ./caddy/Caddyfile:/etc/caddy/Caddyfile:ro
-      - /var/lib/ploydok/static:/var/lib/ploydok/static:ro
+      # Racine des sites statiques. Chemin HOTE variable (l'API dev tourne sous
+      # l'uid de l'utilisateur, qui n'a pas les droits sur /var/lib), chemin
+      # CONTAINER fixe — c'est celui que l'API publie dans la config Caddy via
+      # PLOYDOK_CADDY_STATIC_ROOT. `make secrets-init` renseigne les deux.
+      - ${PLOYDOK_STATIC_ROOT:?unset — run `make secrets-init`}:/var/lib/ploydok/static:ro
     environment:
       PLOYDOK_DOMAIN: ${PLOYDOK_DOMAIN:-localhost}
     healthcheck:

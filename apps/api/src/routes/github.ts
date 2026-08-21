@@ -1009,6 +1009,69 @@ githubRouter.get("/installations/start", async (c) => {
   return c.redirect(buildInstallStartUrl(config.slug, state), 302)
 })
 
+// Rebuilds the local user links after a database or encryption-key reset.
+// GitHub's App API is the source of truth here: only installations currently
+// returned for this exact App are linked, and only an instance admin may run
+// the reconciliation.
+githubRouter.post("/installations/reconnect", async (c) => {
+  const user = c.get("user")
+  if (!user) return c.json({ error: "unauthenticated" }, 401)
+  if (!(await isInstanceAdmin(db, user.id))) {
+    return c.json({ error: "admin_required" }, 403)
+  }
+  const config = await getGitHubAppConfig(db)
+  if (!config) {
+    return c.json({ error: "github_app_not_configured" }, 503)
+  }
+
+  try {
+    const installations = await listAppInstallations()
+    if (installations.length === 0) {
+      return c.json(
+        {
+          error: "github_installation_not_found",
+          message: "This GitHub App is not installed on any account.",
+        },
+        404
+      )
+    }
+
+    const syncIds: string[] = []
+    for (const installation of installations) {
+      const installationId = String(installation.id)
+      const syncId = nanoid()
+      await markGitHubInstallationSyncPending({
+        installationId,
+        actorUserId: user.id,
+        source: "api",
+      })
+      await assignGitHubInstallationToUser(db, installationId, user.id)
+      await enqueueProviderReposSync({
+        provider: "github",
+        installationId,
+        requestedBy: user.id,
+        syncId,
+      })
+      syncIds.push(syncId)
+    }
+
+    return c.json({
+      connected: true,
+      installation_count: installations.length,
+      sync_ids: syncIds,
+    })
+  } catch (err) {
+    log.error({ err, userId: user.id }, "github installation reconnect failed")
+    return c.json(
+      {
+        error: "github_api_error",
+        message: "Unable to verify the existing GitHub App installation.",
+      },
+      502
+    )
+  }
+})
+
 // ---------------------------------------------------------------------------
 // DELETE /github/installations/:id  (auth required)
 // Members disconnect only their own local mapping. Instance admins revoke the

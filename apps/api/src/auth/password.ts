@@ -1,18 +1,15 @@
 // SPDX-License-Identifier: AGPL-3.0-only
 import bcrypt from "bcryptjs"
+import { AdminPasswordSchema, firstErrorMessage } from "@ploydok/shared"
 
 const BCRYPT_ROUNDS = 12
-const MIN_PASSWORD_CHARS = 12
-const MAX_BCRYPT_BYTES = 72
 
+// Délègue au schéma partagé : le wizard valide le même mot de passe côté
+// navigateur, et deux bornes divergentes donneraient un formulaire vert et un
+// 400 au submit.
 export function validateAdminPassword(password: string): string | null {
-  if (password.length < MIN_PASSWORD_CHARS) {
-    return `Password must be at least ${MIN_PASSWORD_CHARS} characters`
-  }
-  if (Buffer.byteLength(password, "utf8") > MAX_BCRYPT_BYTES) {
-    return `Password must be at most ${MAX_BCRYPT_BYTES} bytes`
-  }
-  return null
+  const parsed = AdminPasswordSchema.safeParse(password)
+  return parsed.success ? null : firstErrorMessage(parsed.error)
 }
 
 export async function hashPassword(password: string): Promise<string> {

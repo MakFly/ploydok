@@ -41,6 +41,30 @@ le compose et par le descriptor de production.
 - `http://127.0.0.1:5000` — pas d'auth en dev. Vérifier le catalogue : `curl http://127.0.0.1:5000/v2/_catalog`.
 - Credentials prod : `PLOYDOK_REGISTRY_USER/PASS` (env API).
 
+## Sites statiques — deux chemins, pas un
+
+Un deploy statique écrit dans `PLOYDOK_STATIC_ROOT` et publie
+`PLOYDOK_CADDY_STATIC_ROOT` dans la config Caddy. Les deux diffèrent en dev :
+
+| Var                         | Dev                        | Prod                       |
+| --------------------------- | -------------------------- | -------------------------- |
+| `PLOYDOK_STATIC_ROOT`       | `~/.ploydok-dev/static`    | `/var/lib/ploydok/static`  |
+| `PLOYDOK_CADDY_STATIC_ROOT` | `/var/lib/ploydok/static`  | idem (hérite du précédent) |
+
+- **Chemin hôte variable, chemin container fixe.** En dev l'API tourne sous
+  l'uid de l'utilisateur, qui n'écrit pas dans `/var/lib` ; le bind compose
+  (`${PLOYDOK_STATIC_ROOT}:/var/lib/ploydok/static:ro`) réaligne les deux vues.
+  `make secrets-init` renseigne les deux vars dans `.env.local` et crée le
+  dossier — Docker créerait sinon la racine en root au premier `infra-up`, et
+  tout deploy statique finirait en `EACCES`.
+- Même règle pour `PLOYDOK_BUILD_DIR`. Le default vit dans `defaultStateDir`
+  (`apps/api/src/env.ts`) : `/var/lib/ploydok/<name>` en prod, sous `HOME`
+  sinon. En prod `HOME` vaut `/` (uid numérique) sur un rootfs `read_only` —
+  un default dérivé du home y serait non inscriptible, d'où le pin explicite
+  dans le `.env` généré par `installer/install.sh`.
+- Un défaut de permission sur ces racines est **fatal**, pas transient
+  (`apps/api/src/worker/errors.ts`) : rejouer le build ne répare pas un mount.
+
 ## Règles
 
 - **Ne pas** toucher aux ports 80/443/3000 (occupés par d'autres services sur la machine dev).

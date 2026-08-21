@@ -8,6 +8,10 @@ import { env } from "../env"
 // to bound the exposure window if logs leak.
 const TOKEN_TTL_MS = 30 * 60 * 1000
 
+// Borne dupliquée dans scripts/check-stack.ts : `make check` doit refuser un
+// token que l'API rejetterait, sinon il affiche une URL qui part en 403.
+const MIN_ENV_TOKEN_LENGTH = 16
+
 interface SetupToken {
   value: string
   expires_at: number
@@ -58,12 +62,20 @@ export async function bootstrapSetupToken(db: Db): Promise<void> {
 
   if (hasActiveToken()) return
 
-  const fromEnv = Bun.env["PLOYDOK_SETUP_TOKEN"]?.trim()
-  const value = fromEnv && fromEnv.length >= 16 ? fromEnv : newRandom()
+  const presented = Bun.env["PLOYDOK_SETUP_TOKEN"]?.trim()
+  if (presented && presented.length < MIN_ENV_TOKEN_LENGTH) {
+    // eslint-disable-next-line no-console
+    console.warn(
+      `[setup-token] PLOYDOK_SETUP_TOKEN is ${presented.length} chars, minimum ${MIN_ENV_TOKEN_LENGTH} — falling back to a generated token`
+    )
+  }
+  const fromEnv =
+    presented && presented.length >= MIN_ENV_TOKEN_LENGTH ? presented : null
+  const value = fromEnv ?? newRandom()
   current = {
     value,
     expires_at: fromEnv ? Number.POSITIVE_INFINITY : Date.now() + TOKEN_TTL_MS,
-    permanent: Boolean(fromEnv),
+    permanent: fromEnv !== null,
   }
 
   const url = buildSetupUrl(value)
@@ -83,14 +95,41 @@ export async function bootstrapSetupToken(db: Db): Promise<void> {
   )
 }
 
+export const SETUP_SESSION_COOKIE = "ploydok_setup"
+
+// Le wizard doit s'ouvrir sur /setup nu, sans coller de query string : hors
+// prod l'API dépose le token actif dans un cookie HttpOnly. En prod il reste à
+// présenter explicitement — une instance fraîche joignable depuis le réseau
+// serait sinon revendiquable par le premier visiteur.
+export function setupSessionGrantAllowed(): boolean {
+  return env.NODE_ENV !== "prod"
+}
+
+export function getSetupTokenValue(): string | null {
+  return hasActiveToken() ? current!.value : null
+}
+
+// Un token permanent (PLOYDOK_SETUP_TOKEN) n'expire pas, mais le cookie qui le
+// transporte, si : il ne sert que le temps du wizard.
+export function setupSessionMaxAge(): number {
+  if (!hasActiveToken()) return 0
+  if (current!.permanent) return TOKEN_TTL_MS / 1000
+  return Math.max(0, Math.ceil((current!.expires_at - Date.now()) / 1000))
+}
+
+export type SetupTokenSource = "env" | "generated"
+
 export function getSetupTokenState(): {
   active: boolean
   expires_at: number | null
+  source: SetupTokenSource | null
 } {
-  if (!hasActiveToken()) return { active: false, expires_at: null }
+  if (!hasActiveToken())
+    return { active: false, expires_at: null, source: null }
   return {
     active: true,
     expires_at: current!.permanent ? null : current!.expires_at,
+    source: current!.permanent ? "env" : "generated",
   }
 }
 

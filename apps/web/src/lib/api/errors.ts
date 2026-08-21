@@ -6,7 +6,13 @@ export class ApiError extends Error {
   constructor(
     public status: number,
     public code: string,
-    message: string
+    message: string,
+    /**
+     * Erreurs par champ renvoyées par une validation Zod côté API
+     * (`fieldErrors` de @ploydok/shared). Permet à un formulaire d'annoter le
+     * champ fautif au lieu de n'afficher qu'un bandeau global.
+     */
+    public fields?: Record<string, string>
   ) {
     super(message)
     this.name = "ApiError"

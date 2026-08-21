@@ -1,4 +1,4 @@
-.PHONY: help install dev stop dev-agent agent-restart agent-logs db-ensure-auth db-migrate db-reset db-seed infra-up infra-down infra-stop infra-logs build start test lint typecheck clean secrets-init dod
+.PHONY: help install check dev stop dev-agent agent-restart agent-logs db-ensure-auth db-migrate reset db-seed infra-up infra-down infra-stop infra-logs build start test lint typecheck clean secrets-init dod
 
 # Ports locaux :
 #   API 3335 — Web 5173 — Caddy 8180/8543/2020 — Agent unix /tmp/ploydok/agent.sock
@@ -18,6 +18,7 @@ help:
 	@printf "$(C_CAT)▶ Setup$(C_RESET)\n"
 	@printf "  $(C_TARGET)%-14s$(C_RESET) $(C_DESC)%s$(C_RESET)\n" "install" "Setup complet + démarrage : deps + secrets + infra + migrations + dev"
 	@printf "  %-14s $(C_DIM)%s$(C_RESET)\n" "" "reste au premier plan à la fin (enchaîne sur 'make dev') — Ctrl-C pour sortir"
+	@printf "  $(C_TARGET)%-14s$(C_RESET) $(C_DESC)%s$(C_RESET)\n" "check" "Sonde toute la stack et affiche l'URL /setup avec son token"
 	@printf "\n$(C_CAT)▶ Dev$(C_RESET)\n"
 	@printf "  $(C_TARGET)%-14s$(C_RESET) $(C_DESC)%s$(C_RESET)\n" "dev"       "Lance web + api via turbo (http://localhost:5173 + :3335)"
 	@printf "  %-14s $(C_DIM)%s$(C_RESET)\n" "" "remonte l'infra et attend postgres/redis avant de démarrer"
@@ -30,7 +31,7 @@ help:
 	@printf "\n$(C_CAT)▶ Database$(C_RESET)\n"
 	@printf "  $(C_TARGET)%-14s$(C_RESET) $(C_DESC)%s$(C_RESET)\n" "db-ensure-auth" "Vérifie l'auth Postgres et réaligne le rôle si le volume a dérivé"
 	@printf "  $(C_TARGET)%-14s$(C_RESET) $(C_DESC)%s$(C_RESET)\n" "db-migrate" "Applique les migrations Postgres"
-	@printf "  $(C_TARGET)%-14s$(C_RESET) $(C_DESC)%s$(C_RESET)\n" "db-reset"   "Wipe runtime app/db containers + Postgres + Redis + apply migrations"
+	@printf "  $(C_TARGET)%-14s$(C_RESET) $(C_DESC)%s$(C_RESET)\n" "reset"      "Wipe runtime app/db containers + Postgres + Redis + apply migrations"
 	@printf "  $(C_TARGET)%-14s$(C_RESET) $(C_DESC)%s$(C_RESET)\n" "db-seed"    "Seed dev (login: dev@ploydok.local / pwd: DEVD-EVDE-VDEV)"
 	@printf "\n$(C_CAT)▶ Infra$(C_RESET)\n"
 	@printf "  $(C_TARGET)%-14s$(C_RESET) $(C_DESC)%s$(C_RESET)\n" "secrets-init" "Génère les secrets persistants de dev dans .env.local"
@@ -51,8 +52,15 @@ install:
 	$(MAKE) db-ensure-auth
 	@echo "[install] applying database migrations..."
 	$(MAKE) db-migrate
+	@echo "[install] verifying the stack end to end..."
+	$(MAKE) check
 	@echo "[install] setup done — starting dev servers (web:5173 + api:3335), Ctrl-C to stop"
 	$(MAKE) dev
+
+# Sonde réelle de chaque brique (TCP, HTTP, socket) + affiche l'URL /setup avec
+# le token de .env.local. Sort en 1 si une brique requise est morte.
+check:
+	@bun run scripts/check-stack.ts
 
 # L'API refuse de booter sans Postgres ni Redis, et turbo tue alors toute la run
 # (web compris). `dev` remonte donc l'infra et attend qu'elle soit prête avant
@@ -103,23 +111,23 @@ db-ensure-auth:
 db-migrate:
 	set -a; . apps/api/.env.local; set +a; bun run --cwd packages/db migrate
 
-db-reset:
-	@echo "[db-reset] removing runtime app/database containers..."
+reset:
+	@echo "[reset] removing runtime app/database containers..."
 	@containers=$$({ docker ps -aq --filter 'name=^/ploydok-app-'; docker ps -aq --filter 'name=^/ploydok-db-'; } | sort -u); \
 	if [ -n "$$containers" ]; then \
 	  docker rm -f $$containers >/dev/null; \
-	  echo "[db-reset] removed runtime containers: $$containers"; \
+	  echo "[reset] removed runtime containers: $$containers"; \
 	else \
-	  echo "[db-reset] no runtime containers to remove"; \
+	  echo "[reset] no runtime containers to remove"; \
 	fi
-	@echo "[db-reset] dropping public + drizzle schemas..."
+	@echo "[reset] dropping public + drizzle schemas..."
 	@docker compose --env-file apps/api/.env.local -f infra/docker-compose.yml exec -T postgres psql -U ploydok -d ploydok -v ON_ERROR_STOP=1 --quiet -c 'SET client_min_messages = warning; DROP SCHEMA IF EXISTS public CASCADE; DROP SCHEMA IF EXISTS drizzle CASCADE; CREATE SCHEMA public; GRANT ALL ON SCHEMA public TO ploydok; GRANT ALL ON SCHEMA public TO public;' >/dev/null
-	@echo "[db-reset] flushing redis..."
+	@echo "[reset] flushing redis..."
 	@set -a; . apps/api/.env.local; set +a; docker compose --env-file apps/api/.env.local -f infra/docker-compose.yml exec -T redis redis-cli --no-auth-warning -a "$$PLOYDOK_REDIS_PASSWORD" FLUSHDB >/dev/null
-	@echo "[db-reset] applying migrations..."
+	@echo "[reset] applying migrations..."
 	@set -a; . apps/api/.env.local; set +a; bun run --cwd packages/db migrate
-	@echo "[db-reset] done — instance is back to a fresh-install state (no users, no projects)"
-	@echo "                next: restart 'make dev' so the API prints the /setup token in its logs"
+	@echo "[reset] done — instance is back to a fresh-install state (no users, no projects)"
+	@echo "                next: 'make check' prints the /setup URL with the PLOYDOK_SETUP_TOKEN of .env.local"
 
 secrets-init:
 	@ENV_FILE=apps/api/.env.local; \
@@ -165,7 +173,28 @@ secrets-init:
 	  echo "[secrets-init] SESSION_SECRET generated"; \
 	else \
 	  echo "[secrets-init] SESSION_SECRET already present — skipped"; \
-	fi
+	fi; \
+	if ! grep -q '^PLOYDOK_SETUP_TOKEN=' "$$ENV_FILE" 2>/dev/null; then \
+	  SETUP_TOKEN=$$(openssl rand -hex 32); \
+	  echo "PLOYDOK_SETUP_TOKEN=$$SETUP_TOKEN" >> "$$ENV_FILE"; \
+	  echo "[secrets-init] PLOYDOK_SETUP_TOKEN generated"; \
+	else \
+	  echo "[secrets-init] PLOYDOK_SETUP_TOKEN already present — skipped"; \
+	fi; \
+	if ! grep -q '^PLOYDOK_STATIC_ROOT=' "$$ENV_FILE" 2>/dev/null; then \
+	  echo "PLOYDOK_STATIC_ROOT=$$HOME/.ploydok-dev/static" >> "$$ENV_FILE"; \
+	  echo "[secrets-init] PLOYDOK_STATIC_ROOT set to $$HOME/.ploydok-dev/static"; \
+	else \
+	  echo "[secrets-init] PLOYDOK_STATIC_ROOT already present — skipped"; \
+	fi; \
+	if ! grep -q '^PLOYDOK_CADDY_STATIC_ROOT=' "$$ENV_FILE" 2>/dev/null; then \
+	  echo "PLOYDOK_CADDY_STATIC_ROOT=/var/lib/ploydok/static" >> "$$ENV_FILE"; \
+	  echo "[secrets-init] PLOYDOK_CADDY_STATIC_ROOT set to /var/lib/ploydok/static"; \
+	else \
+	  echo "[secrets-init] PLOYDOK_CADDY_STATIC_ROOT already present — skipped"; \
+	fi; \
+	STATIC_ROOT=$$(grep '^PLOYDOK_STATIC_ROOT=' "$$ENV_FILE" | head -n1 | cut -d= -f2-); \
+	mkdir -p "$$STATIC_ROOT" "$$HOME/.ploydok-dev/builds"
 
 infra-up: secrets-init
 	@docker network create ploydok-public 2>/dev/null || true

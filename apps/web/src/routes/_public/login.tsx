@@ -2,6 +2,7 @@
 import * as React from "react"
 import { createFileRoute, useRouter } from "@tanstack/react-router"
 import { Button } from "@workspace/ui/components/button"
+import { Alert, AlertDescription } from "@workspace/ui/components/alert"
 import { toast } from "sonner"
 import { apiFetch } from "../../lib/api"
 import { apiBaseUrl } from "../../lib/api/base"
@@ -10,11 +11,7 @@ import { getGitProviderStatus } from "../../lib/git-providers"
 import { resolvePostAuthPath } from "../../lib/auth-guards"
 import { getRememberedOnboardingDeploymentSource } from "../../lib/onboarding"
 import { usePendingAction } from "../../lib/hooks/use-pending-action"
-import {
-  AuthShell,
-  authFieldClass,
-  authLabelClass,
-} from "../../components/layout/AuthShell"
+import { AuthShell, Field } from "../../components/layout/AuthShell"
 import type { Me } from "@ploydok/shared"
 
 // Compte seedé par `make db-seed` (packages/db/src/seed.ts). Dupliqué ici
@@ -60,8 +57,9 @@ function LoginPage(): React.JSX.Element {
         apiFetch<Me>("/me"),
         getGitProviderStatus(),
       ])
-      const onboardingSource =
-        await getRememberedOnboardingDeploymentSource(me.id)
+      const onboardingSource = await getRememberedOnboardingDeploymentSource(
+        me.id
+      )
       const target = resolvePostAuthPath(
         me,
         providers,
@@ -105,7 +103,7 @@ function LoginPage(): React.JSX.Element {
       )}
       {postLoginError ? (
         <div
-          className="mt-5 rounded-[10px] border border-destructive/20 bg-destructive/10 px-3 py-3 text-sm text-destructive"
+          className="rounded-[10px] border border-destructive/20 bg-destructive/10 px-3 py-3 text-sm text-destructive"
           role="alert"
         >
           <p>{postLoginError}</p>
@@ -120,7 +118,7 @@ function LoginPage(): React.JSX.Element {
           </Button>
         </div>
       ) : null}
-      <p className="mt-7 text-center text-xs leading-5 text-muted-foreground">
+      <p className="mt-2 text-center text-xs leading-5 text-muted-foreground">
         Your credentials stay on your self-hosted instance.
       </p>
     </AuthShell>
@@ -165,7 +163,11 @@ function PasswordModePanel({
   }
 
   return (
-    <form onSubmit={(e) => void handleSubmit(e)} className="space-y-4">
+    <form
+      onSubmit={(e) => void handleSubmit(e)}
+      className="space-y-4"
+      noValidate
+    >
       {import.meta.env.DEV ? (
         <div className="flex justify-end">
           <Button
@@ -203,12 +205,9 @@ function PasswordModePanel({
         placeholder="Your password"
       />
       {error && (
-        <p
-          className="rounded-[10px] bg-[#ffccd3] px-3 py-2 text-sm text-[#a50036]"
-          role="alert"
-        >
-          {error}
-        </p>
+        <Alert variant="destructive">
+          <AlertDescription>{error}</AlertDescription>
+        </Alert>
       )}
       <Button
         type="submit"
@@ -301,7 +300,11 @@ function BackupCodePanel({
   }
 
   return (
-    <form onSubmit={(e) => void handleSubmit(e)} className="space-y-4">
+    <form
+      onSubmit={(e) => void handleSubmit(e)}
+      className="space-y-4"
+      noValidate
+    >
       <div className="space-y-1">
         <h2 className="text-sm font-medium">Sign in with backup code</h2>
         <p className="text-xs text-muted-foreground">
@@ -327,12 +330,9 @@ function BackupCodePanel({
         placeholder="XXXX-XXXX-XXXX"
       />
       {error && (
-        <p
-          className="rounded-[10px] bg-[#ffccd3] px-3 py-2 text-sm text-[#a50036]"
-          role="alert"
-        >
-          {error}
-        </p>
+        <Alert variant="destructive">
+          <AlertDescription>{error}</AlertDescription>
+        </Alert>
       )}
       <div className="space-y-2">
         <Button
@@ -399,48 +399,6 @@ function AuthSwitches({
           {secondaryLabel}
         </Button>
       </div>
-    </div>
-  )
-}
-
-interface FieldProps {
-  id: string
-  label: string
-  type?: string
-  value: string
-  onChange: (v: string) => void
-  placeholder?: string
-  autoComplete?: string
-  mono?: boolean
-}
-
-function Field({
-  id,
-  label,
-  type = "text",
-  value,
-  onChange,
-  placeholder,
-  autoComplete,
-  mono = false,
-}: FieldProps): React.JSX.Element {
-  return (
-    <div className="flex flex-col gap-1.5">
-      <label htmlFor={id} className={authLabelClass}>
-        {label}
-      </label>
-      <input
-        id={id}
-        type={type}
-        value={value}
-        onChange={(e) => onChange(e.target.value)}
-        required
-        autoComplete={autoComplete}
-        placeholder={placeholder}
-        className={
-          authFieldClass + (mono ? " font-mono tracking-wider uppercase" : "")
-        }
-      />
     </div>
   )
 }

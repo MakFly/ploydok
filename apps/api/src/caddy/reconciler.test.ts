@@ -1,10 +1,23 @@
 // SPDX-License-Identifier: AGPL-3.0-only
-import { describe, expect, test } from "bun:test"
+import { afterAll, beforeAll, describe, expect, test } from "bun:test"
 import pino from "pino"
 import { reconcileCaddyRoutes, type AppForReconcile } from "./reconciler.js"
 import type { CaddyClient } from "./client.js"
 
 const silentLogger = pino({ level: "silent" })
+
+// Le chemin publie dans la config Caddy est celui vu par le container, pas
+// celui ou l'API ecrit : on le fige pour que le test decrive le contrat de
+// prod et ne suive pas le default de dev (sous HOME).
+const previousCaddyStaticRoot = Bun.env["PLOYDOK_CADDY_STATIC_ROOT"]
+beforeAll(() => {
+  Bun.env["PLOYDOK_CADDY_STATIC_ROOT"] = "/var/lib/ploydok/static"
+})
+afterAll(() => {
+  if (previousCaddyStaticRoot === undefined)
+    delete Bun.env["PLOYDOK_CADDY_STATIC_ROOT"]
+  else Bun.env["PLOYDOK_CADDY_STATIC_ROOT"] = previousCaddyStaticRoot
+})
 
 function createFakeCaddy(overrides: Partial<FakeCaddyCalls> = {}): {
   caddy: CaddyClient

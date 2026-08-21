@@ -4,19 +4,19 @@ import { createFileRoute, useRouter } from "@tanstack/react-router"
 import { QRCodeSVG } from "qrcode.react"
 import { RiEyeLine, RiEyeOffLine } from "@remixicon/react"
 import { Button } from "@workspace/ui/components/button"
-import { Input } from "@workspace/ui/components/input"
-import { Label } from "@workspace/ui/components/label"
 import { Alert, AlertDescription } from "@workspace/ui/components/alert"
-import { cn } from "@workspace/ui/lib/utils"
 import { toast } from "sonner"
+import { SetupAdminFormSchema, fieldErrors } from "@ploydok/shared"
 import { apiFetch } from "../../lib/api"
-import { organizationDashboardPath } from "../../lib/organizations"
+import { ApiError } from "../../lib/api/errors"
+import { usePendingAction } from "../../lib/hooks/use-pending-action"
 import {
   AuthShell,
-  authFieldClass,
-  authLabelClass,
+  AuthShowcaseFrame,
+  Field,
+  ShowcasePanel,
+  ShowcaseStep,
 } from "../../components/layout/AuthShell"
-import type { Me } from "@ploydok/shared"
 
 interface SetupSearch {
   token?: string
@@ -25,6 +25,7 @@ interface SetupSearch {
 interface InstanceStateResponse {
   bootstrapped: boolean
   setup_token_required: boolean
+  setup_session_grant_allowed: boolean
 }
 
 interface SetupPasswordResponse {
@@ -38,13 +39,81 @@ interface TotpEnrollResponse {
   secret: string
 }
 
+type SetupStep = "form" | "totp" | "codes"
+
+const SETUP_EYEBROW = "First boot"
+
+// Compte seedé par `make db-seed` (packages/db/src/seed.ts). Dupliqué ici
+// plutôt qu'importé : `@ploydok/db` est server-only. `import.meta.env.DEV`
+// vaut statiquement false en build prod, donc Vite supprime la branche.
+const DEV_SEED_EMAIL = "dev@ploydok.local"
+const DEV_SEED_NAME = "Dev"
+const DEV_SEED_PASSWORD = "DEVD-EVDE-VDEV"
+
+/**
+ * Panneau de droite du wizard. Il remplace le pitch produit de /login : à ce
+ * stade l'opérateur n'a pas besoin d'être convaincu, il a besoin de savoir
+ * combien d'étapes il reste.
+ */
+function FirstBootShowcase({ step }: { step: SetupStep }): React.JSX.Element {
+  const index: Record<SetupStep, number> = { form: 1, totp: 2, codes: 3 }
+  const current = index[step]
+  const state = (position: number): { done?: boolean; active?: boolean } =>
+    position < current
+      ? { done: true }
+      : position === current
+        ? { active: true }
+        : {}
+
+  return (
+    <AuthShowcaseFrame
+      label="Control plane 01"
+      badge="Instance reachable"
+      eyebrow="Self-hosted from day one"
+      title={
+        <>
+          Your data stays
+          <br />
+          on your machines.
+        </>
+      }
+      description="Ploydok runs entirely on your own infrastructure. No hosted account, no telemetry, nothing between your code and your servers."
+      footer="AGPL-3.0 — every component is auditable."
+    >
+      <ShowcasePanel title="First boot" meta="3 steps">
+        <ShowcaseStep
+          index="01"
+          label="Admin account"
+          meta="email + password"
+          {...state(1)}
+        />
+        <ShowcaseStep
+          index="02"
+          label="Two-factor"
+          meta="optional"
+          {...state(2)}
+        />
+        <ShowcaseStep
+          index="03"
+          label="Recovery codes"
+          meta="one-shot"
+          {...state(3)}
+        />
+      </ShowcasePanel>
+    </AuthShowcaseFrame>
+  )
+}
+
 export const Route = createFileRoute("/_public/setup")({
   validateSearch: (search): SetupSearch => ({
     token: typeof search.token === "string" ? search.token : undefined,
   }),
   loader: async () => {
     const state = await apiFetch<InstanceStateResponse>("/auth/instance-state")
-    return { setupTokenRequired: state.setup_token_required }
+    return {
+      setupTokenRequired: state.setup_token_required,
+      setupSessionGrantAllowed: state.setup_session_grant_allowed,
+    }
   },
   component: SetupPage,
 })
@@ -52,9 +121,9 @@ export const Route = createFileRoute("/_public/setup")({
 function SetupPage(): React.JSX.Element {
   const router = useRouter()
   const { token } = Route.useSearch()
-  const { setupTokenRequired } = Route.useLoaderData()
+  const { setupTokenRequired, setupSessionGrantAllowed } = Route.useLoaderData()
 
-  const [step, setStep] = React.useState<"form" | "totp" | "codes">("form")
+  const [step, setStep] = React.useState<SetupStep>("form")
   const [email, setEmail] = React.useState("")
   const [displayName, setDisplayName] = React.useState("")
   const [password, setPassword] = React.useState("")
@@ -63,6 +132,7 @@ function SetupPage(): React.JSX.Element {
   const [showPasswordConfirm, setShowPasswordConfirm] = React.useState(false)
   const [loading, setLoading] = React.useState(false)
   const [error, setError] = React.useState<string | null>(null)
+  const [errors, setErrors] = React.useState<Record<string, string>>({})
   const [backupCodes, setBackupCodes] = React.useState<Array<string>>([])
   const [acknowledged, setAcknowledged] = React.useState(false)
 
@@ -76,37 +146,73 @@ function SetupPage(): React.JSX.Element {
   const [totpCopied, setTotpCopied] = React.useState(false)
   const totpEnrollStarted = React.useRef(false)
 
+  // Ouvrir /setup sans query string doit suffire : l'API dépose le token dans
+  // un cookie HttpOnly (hors prod). Le POST se fait depuis le navigateur, pas
+  // depuis le SSR — sinon le Set-Cookie n'atteindrait jamais l'onglet. Le
+  // formulaire se peint tout de suite ; le grant tourne en fond et le submit
+  // l'attend si besoin.
+  const needsSetupSession = setupTokenRequired && !token
+  const [sessionDenied, setSessionDenied] = React.useState(
+    needsSetupSession && !setupSessionGrantAllowed
+  )
+  const grantPromise = React.useRef<Promise<boolean> | null>(null)
+
+  const ensureSetupSession = React.useCallback((): Promise<boolean> => {
+    if (!needsSetupSession) return Promise.resolve(true)
+    if (!setupSessionGrantAllowed) return Promise.resolve(false)
+    if (!grantPromise.current) {
+      grantPromise.current = apiFetch("/auth/setup/session", { method: "POST" })
+        .then(() => true)
+        .catch(() => {
+          setSessionDenied(true)
+          return false
+        })
+    }
+    return grantPromise.current
+  }, [needsSetupSession, setupSessionGrantAllowed])
+
+  React.useEffect(() => {
+    void ensureSetupSession()
+  }, [ensureSetupSession])
+
   const handleSubmit = async (e: React.FormEvent): Promise<void> => {
     e.preventDefault()
-    if (setupTokenRequired && !token) {
-      setError(
-        "Setup token missing. Open the URL printed in the API logs at first boot."
-      )
+
+    // Même schéma que `POST /auth/setup/password` : ce qui passe ici passe au
+    // serveur, et les messages affichés sont mot pour mot les siens.
+    const parsed = SetupAdminFormSchema.safeParse({
+      email,
+      display_name: displayName,
+      password,
+      password_confirm: passwordConfirm,
+    })
+    if (!parsed.success) {
+      setErrors(fieldErrors(parsed.error))
+      setError(null)
       return
     }
-    if (password !== passwordConfirm) {
-      setError("Passwords do not match")
-      return
-    }
+
     setLoading(true)
     setError(null)
+    setErrors({})
     try {
+      const sessionReady = await ensureSetupSession()
+      if (!sessionReady) return
       const created = await apiFetch<SetupPasswordResponse>(
         "/auth/setup/password",
         {
           method: "POST",
-          body: {
-            token,
-            email: email.trim(),
-            display_name: displayName.trim(),
-            password,
-          },
+          body: { token, ...parsed.data, password_confirm: undefined },
         }
       )
       setBackupCodes(created.backup_codes)
       setStep("totp")
       toast.success("Admin account created")
     } catch (err) {
+      // Une validation refusée par le serveur (bornes divergentes, corps
+      // altéré) revient annotée par champ : la réafficher au bon endroit
+      // plutôt que dans le bandeau global.
+      if (err instanceof ApiError && err.fields) setErrors(err.fields)
       const msg =
         err instanceof Error ? err.message : "Setup failed — check API logs"
       setError(msg)
@@ -178,32 +284,38 @@ function SetupPage(): React.JSX.Element {
     }
   }
 
-  const handleFinish = async (): Promise<void> => {
-    try {
-      const me = await apiFetch<Me>("/me")
-      const target = me.default_organization
-        ? organizationDashboardPath(me.default_organization.slug)
-        : "/dashboard"
-      await router.navigate({ href: target })
-    } catch {
-      await router.navigate({ to: "/login" })
-    }
-  }
+  // Sortie unique du wizard. Pas de sondage préalable de /me : /onboarding
+  // porte déjà `beforeLoad: requireMe()`, qui renvoie sur /login si la session
+  // a expiré. Y aller inconditionnellement évite le trou historique — le
+  // premier admin n'a par construction aucun provider Git, donc c'est
+  // exactement l'écran dont il a besoin.
+  const finish = usePendingAction(
+    async () => {
+      await router.navigate({ to: "/onboarding" })
+    },
+    { keepPendingOnSuccess: true }
+  )
 
-  if (setupTokenRequired && !token && step === "form") {
+  if (step === "form" && sessionDenied) {
     return (
-      <AuthShell title="Setup token required">
+      <AuthShell
+        title="Setup token required"
+        subtitle="This instance does not hand out first-boot sessions."
+        eyebrow={SETUP_EYEBROW}
+        showcase={<FirstBootShowcase step="form" />}
+      >
         <Alert variant="destructive">
           <AlertDescription className="space-y-3">
             <p>
-              This setup page must be opened with the one-shot token generated
-              on first boot.
+              This instance requires the one-shot token generated on first boot
+              to be passed explicitly.
             </p>
             <div className="rounded-md border border-border bg-muted px-3 py-2 font-mono text-xs text-foreground">
               Open: …/setup?token=…
             </div>
             <p>
-              Copy that URL from the API logs, then open it in this browser.
+              The token is printed in the API logs at first boot, or set through
+              the PLOYDOK_SETUP_TOKEN environment variable.
             </p>
           </AlertDescription>
         </Alert>
@@ -216,6 +328,8 @@ function SetupPage(): React.JSX.Element {
       <AuthShell
         title="Enable two-factor authentication"
         subtitle="Scan the QR code with your authenticator app, then enter the 6-digit code. Optional — you can enable it later in Settings → Security."
+        eyebrow={SETUP_EYEBROW}
+        showcase={<FirstBootShowcase step="totp" />}
       >
         {totpEnrolling || !totpData ? (
           <p className="text-sm text-muted-foreground">
@@ -225,6 +339,7 @@ function SetupPage(): React.JSX.Element {
           <form
             onSubmit={(e) => void handleTotpVerify(e)}
             className="flex flex-col gap-4"
+            noValidate
           >
             <div className="flex justify-center">
               <div className="rounded-lg border border-border bg-white p-3">
@@ -250,24 +365,18 @@ function SetupPage(): React.JSX.Element {
                 </Button>
               </div>
             </div>
-            <div className="space-y-1">
-              <Label htmlFor="totp_code">Verification code</Label>
-              <Input
-                id="totp_code"
-                type="text"
-                inputMode="numeric"
-                autoComplete="one-time-code"
-                pattern="[0-9]{6}"
-                maxLength={6}
-                value={totpCode}
-                onChange={(e) =>
-                  setTotpCode(e.target.value.replace(/\D/g, "").slice(0, 6))
-                }
-                placeholder="000000"
-                className="text-center font-mono text-lg tracking-[0.4em]"
-                required
-              />
-            </div>
+            <Field
+              id="totp_code"
+              label="Verification code"
+              inputMode="numeric"
+              autoComplete="one-time-code"
+              pattern="[0-9]{6}"
+              maxLength={6}
+              value={totpCode}
+              onChange={(v) => setTotpCode(v.replace(/\D/g, "").slice(0, 6))}
+              placeholder="000000"
+              inputClassName="text-center font-mono text-lg tracking-[0.4em]"
+            />
             {totpError && (
               <Alert variant="destructive">
                 <AlertDescription>{totpError}</AlertDescription>
@@ -275,8 +384,9 @@ function SetupPage(): React.JSX.Element {
             )}
             <Button
               type="submit"
-              disabled={totpVerifying || !/^\d{6}$/.test(totpCode)}
-              className="w-full"
+              loading={totpVerifying}
+              disabled={!/^\d{6}$/.test(totpCode)}
+              className="h-11 w-full rounded-[10px]"
             >
               {totpVerifying ? "Verifying…" : "Verify and continue"}
             </Button>
@@ -285,8 +395,9 @@ function SetupPage(): React.JSX.Element {
         <Button
           type="button"
           variant="ghost"
-          className="w-full"
-          onClick={() => setStep("codes")}
+          className="h-11 w-full rounded-[10px]"
+          onClick={() => void finish.run()}
+          loading={finish.pending}
           disabled={totpVerifying}
         >
           Skip for now — enable later in Settings
@@ -300,6 +411,8 @@ function SetupPage(): React.JSX.Element {
       <AuthShell
         title="Save your backup codes"
         subtitle="One-shot recovery codes — they will not be shown again."
+        eyebrow={SETUP_EYEBROW}
+        showcase={<FirstBootShowcase step="codes" />}
       >
         <div className="rounded-md border border-border bg-muted/40 p-4 font-mono text-sm">
           <ul className="grid grid-cols-2 gap-2">
@@ -331,15 +444,17 @@ function SetupPage(): React.JSX.Element {
             type="checkbox"
             checked={acknowledged}
             onChange={(e) => setAcknowledged(e.target.checked)}
+            className="size-4 rounded border-input accent-primary"
           />
           I have saved these codes in a safe place
         </label>
         <Button
-          className="w-full"
+          className="h-11 w-full rounded-[10px]"
           disabled={!acknowledged}
-          onClick={() => void handleFinish()}
+          loading={finish.pending}
+          onClick={() => void finish.run()}
         >
-          Continue to dashboard
+          Continue
         </Button>
       </AuthShell>
     )
@@ -349,107 +464,90 @@ function SetupPage(): React.JSX.Element {
     <AuthShell
       title="Configure your Ploydok instance"
       subtitle="Create the first admin account. This screen disappears for good once done."
-      eyebrow="First boot"
+      eyebrow={SETUP_EYEBROW}
+      showcase={<FirstBootShowcase step="form" />}
     >
       <form
         onSubmit={(e) => void handleSubmit(e)}
         className="flex flex-col gap-4"
+        noValidate
       >
-        <div className="flex flex-col gap-1.5">
-          <Label htmlFor="email" className={authLabelClass}>
-            Email
-          </Label>
-          <Input
-            id="email"
-            type="email"
-            value={email}
-            onChange={(e) => setEmail(e.target.value)}
-            required
-            autoComplete="email"
-            placeholder="you@example.com"
-            className={authFieldClass}
-          />
-        </div>
-        <div className="flex flex-col gap-1.5">
-          <Label htmlFor="display_name" className={authLabelClass}>
-            Display name
-          </Label>
-          <Input
-            id="display_name"
-            value={displayName}
-            onChange={(e) => setDisplayName(e.target.value)}
-            required
-            autoComplete="name"
-            placeholder="Kevin"
-            className={authFieldClass}
-          />
-        </div>
-        <div className="flex flex-col gap-1.5">
-          <Label htmlFor="password" className={authLabelClass}>
-            Password
-          </Label>
-          <div className="relative">
-            <Input
-              id="password"
-              type={showPassword ? "text" : "password"}
-              value={password}
-              onChange={(e) => setPassword(e.target.value)}
-              required
-              autoComplete="new-password"
-              minLength={12}
-              maxLength={72}
-              placeholder="At least 12 characters"
-              className={cn(authFieldClass, "pr-10")}
-            />
-            <button
+        {import.meta.env.DEV ? (
+          <div className="flex justify-end">
+            <Button
               type="button"
-              onClick={() => setShowPassword((visible) => !visible)}
-              className="absolute top-1/2 right-2 -translate-y-1/2 text-muted-foreground hover:text-foreground"
-              aria-label={showPassword ? "Hide password" : "Show password"}
-              title={showPassword ? "Hide password" : "Show password"}
+              variant="ghost"
+              size="xs"
+              className="text-muted-foreground"
+              title={`Dev seulement — remplit ${DEV_SEED_EMAIL}`}
+              onClick={() => {
+                setEmail(DEV_SEED_EMAIL)
+                setDisplayName(DEV_SEED_NAME)
+                setPassword(DEV_SEED_PASSWORD)
+                setPasswordConfirm(DEV_SEED_PASSWORD)
+                setErrors({})
+                setError(null)
+              }}
             >
-              {showPassword ? (
-                <RiEyeOffLine className="size-4" />
-              ) : (
-                <RiEyeLine className="size-4" />
-              )}
-            </button>
+              Autofill
+            </Button>
           </div>
-        </div>
-        <div className="flex flex-col gap-1.5">
-          <Label htmlFor="password_confirm" className={authLabelClass}>
-            Confirm password
-          </Label>
-          <div className="relative">
-            <Input
-              id="password_confirm"
-              type={showPasswordConfirm ? "text" : "password"}
-              value={passwordConfirm}
-              onChange={(e) => setPasswordConfirm(e.target.value)}
-              required
-              autoComplete="new-password"
-              minLength={12}
-              maxLength={72}
-              placeholder="Repeat password"
-              className={cn(authFieldClass, "pr-10")}
+        ) : null}
+        <Field
+          id="email"
+          error={errors["email"]}
+          label="Email"
+          type="email"
+          value={email}
+          onChange={setEmail}
+          autoComplete="email"
+          placeholder="you@example.com"
+        />
+        <Field
+          id="display_name"
+          error={errors["display_name"]}
+          label="Display name"
+          value={displayName}
+          onChange={setDisplayName}
+          autoComplete="name"
+          placeholder="Kevin"
+        />
+        <Field
+          id="password"
+          error={errors["password"]}
+          label="Password"
+          type={showPassword ? "text" : "password"}
+          value={password}
+          onChange={setPassword}
+          autoComplete="new-password"
+          minLength={12}
+          maxLength={72}
+          placeholder="At least 12 characters"
+          adornment={
+            <PasswordToggle
+              visible={showPassword}
+              onToggle={() => setShowPassword((v) => !v)}
             />
-            <button
-              type="button"
-              onClick={() => setShowPasswordConfirm((visible) => !visible)}
-              className="absolute top-1/2 right-2 -translate-y-1/2 text-muted-foreground hover:text-foreground"
-              aria-label={
-                showPasswordConfirm ? "Hide password" : "Show password"
-              }
-              title={showPasswordConfirm ? "Hide password" : "Show password"}
-            >
-              {showPasswordConfirm ? (
-                <RiEyeOffLine className="size-4" />
-              ) : (
-                <RiEyeLine className="size-4" />
-              )}
-            </button>
-          </div>
-        </div>
+          }
+        />
+        <Field
+          id="password_confirm"
+          error={errors["password_confirm"]}
+          label="Confirm password"
+          type={showPasswordConfirm ? "text" : "password"}
+          value={passwordConfirm}
+          onChange={setPasswordConfirm}
+          autoComplete="new-password"
+          minLength={12}
+          maxLength={72}
+          placeholder="Repeat password"
+          adornment={
+            <PasswordToggle
+              visible={showPasswordConfirm}
+              onToggle={() => setShowPasswordConfirm((v) => !v)}
+            />
+          }
+        />
         {error && (
           <Alert variant="destructive">
             <AlertDescription>{error}</AlertDescription>
@@ -464,6 +562,31 @@ function SetupPage(): React.JSX.Element {
         </Button>
       </form>
     </AuthShell>
+  )
+}
+
+function PasswordToggle({
+  visible,
+  onToggle,
+}: {
+  visible: boolean
+  onToggle: () => void
+}): React.JSX.Element {
+  const label = visible ? "Hide password" : "Show password"
+  return (
+    <button
+      type="button"
+      onClick={onToggle}
+      className="absolute top-1/2 right-2 -translate-y-1/2 text-muted-foreground hover:text-foreground"
+      aria-label={label}
+      title={label}
+    >
+      {visible ? (
+        <RiEyeOffLine className="size-4" />
+      ) : (
+        <RiEyeLine className="size-4" />
+      )}
+    </button>
   )
 }
 

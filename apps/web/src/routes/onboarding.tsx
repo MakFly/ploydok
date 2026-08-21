@@ -26,6 +26,7 @@ import {
 } from "../components/settings/providers/GitLabConfigForm"
 import { requireMe } from "../lib/auth-guards"
 import { useLogout } from "../lib/auth"
+import { apiFetch } from "../lib/api"
 import {
   getGitProviderStatus,
   useGitProviderStatus,
@@ -100,6 +101,14 @@ function OnboardingPage(): React.JSX.Element {
 
   const connected = providers.github.connected || providers.gitlab.connected
 
+  const refreshProviderStatus =
+    React.useCallback(async (): Promise<GitProviderStatus> => {
+      const result = await statusQuery.refetch()
+      if (result.error) throw result.error
+      if (!result.data) throw new Error("Provider status is unavailable")
+      return result.data
+    }, [statusQuery])
+
   const onLogout = React.useCallback(() => {
     void logout.mutateAsync().finally(() => {
       void router.navigate({ to: "/login" })
@@ -118,7 +127,7 @@ function OnboardingPage(): React.JSX.Element {
     <ProviderStep
       me={me}
       providers={providers}
-      onRefreshStatus={() => void statusQuery.refetch()}
+      onRefreshStatus={refreshProviderStatus}
       refreshing={statusQuery.isFetching}
       oauthError={oauthError}
       onUseImage={() => setDeploymentSource("image")}
@@ -142,7 +151,7 @@ function ProviderStep({
 }: {
   me: Me
   providers: GitProviderStatus
-  onRefreshStatus: () => void
+  onRefreshStatus: () => Promise<GitProviderStatus>
   refreshing: boolean
   oauthError: string | null
   onUseImage: () => void
@@ -160,6 +169,8 @@ function ProviderStep({
   const [selected, setSelected] = React.useState<ProviderKey | null>(
     preselected
   )
+  const [checkError, setCheckError] = React.useState<string | null>(null)
+  const [checking, setChecking] = React.useState(false)
 
   if (selected === null) {
     return (
@@ -282,6 +293,28 @@ function ProviderStep({
       ? resolveApiHref(providers.github.install_url, RETURN_TO)
       : gitlabConnectUrl({ returnTo: RETURN_TO })
 
+  const handleCheckAgain = async (): Promise<void> => {
+    setCheckError(null)
+    setChecking(true)
+    try {
+      if (selected === "github") {
+        await apiFetch("/github/installations/reconnect", { method: "POST" })
+      }
+      const refreshed = await onRefreshStatus()
+      if (!refreshed[selected].connected) {
+        throw new Error("The provider is configured but not connected yet")
+      }
+    } catch (error) {
+      setCheckError(
+        error instanceof Error
+          ? error.message
+          : "Unable to verify the provider connection"
+      )
+    } finally {
+      setChecking(false)
+    }
+  }
+
   return (
     <OnboardingStepShell
       activeStep="provider"
@@ -329,17 +362,22 @@ function ProviderStep({
         </div>
       </div>
 
-      <StepFooter hint="Already done it in another tab? Refresh the status.">
+      <StepFooter hint="Already installed? We check the link and reopen GitHub only if confirmation is still needed.">
+        {checkError ? (
+          <p className="text-sm text-destructive" role="alert">
+            {checkError}
+          </p>
+        ) : null}
         <Button
           type="button"
           variant="outline"
           size="sm"
           className="w-fit gap-2"
-          onClick={onRefreshStatus}
-          loading={refreshing}
+          onClick={() => void handleCheckAgain()}
+          loading={checking || refreshing}
         >
-          {!refreshing && <RiRefreshLine className="size-3.5" />}
-          {refreshing ? "Checking…" : "Check again"}
+          {!checking && !refreshing && <RiRefreshLine className="size-3.5" />}
+          {checking || refreshing ? "Checking…" : "Check again"}
         </Button>
         <EncryptionNote />
       </StepFooter>
@@ -350,7 +388,7 @@ function ProviderStep({
 function GitHubSetupStep({
   onConfigured,
 }: {
-  onConfigured: () => void
+  onConfigured: () => void | Promise<GitProviderStatus>
 }): React.JSX.Element {
   const createApp = useCreateGitHubAppFlow(RETURN_TO)
 
@@ -369,7 +407,7 @@ function GitHubSetupStep({
 function GitLabSetupStep({
   onConfigured,
 }: {
-  onConfigured: () => void
+  onConfigured: () => void | Promise<GitProviderStatus>
 }): React.JSX.Element {
   const { data: config } = useGitLabConfig()
   const save = useSaveGitLabConfig()
@@ -392,7 +430,7 @@ function WaitingForAdmin({
   onRefresh,
   refreshing,
 }: {
-  onRefresh: () => void
+  onRefresh: () => void | Promise<GitProviderStatus>
   refreshing: boolean
 }): React.JSX.Element {
   return (

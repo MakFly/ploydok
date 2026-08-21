@@ -101,6 +101,18 @@ describe("classifyAgentError", () => {
     expect(classifyAgentError(err)).toBeInstanceOf(FatalDeployError)
   })
 
+  it("classifies EACCES as fatal", () => {
+    const err = new Error(
+      "EACCES: permission denied, mkdir '/var/lib/ploydok/static/app-1'"
+    )
+    expect(classifyAgentError(err)).toBeInstanceOf(FatalDeployError)
+  })
+
+  it("classifies a read-only filesystem as fatal", () => {
+    const err = new Error("EROFS: read-only file system, mkdir '/.ploydok-dev'")
+    expect(classifyAgentError(err)).toBeInstanceOf(FatalDeployError)
+  })
+
   // ── Default (unknown) ──────────────────────────────────────────────────────
 
   it("defaults unknown errors to transient", () => {

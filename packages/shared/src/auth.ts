@@ -35,6 +35,57 @@ export const LoginOptionsResponseSchema = z.object({
 export type LoginOptionsResponse = z.infer<typeof LoginOptionsResponseSchema>
 
 // ---------------------------------------------------------------------------
+// First-boot admin
+// ---------------------------------------------------------------------------
+
+export const ADMIN_PASSWORD_MIN_CHARS = 12
+// bcrypt tronque silencieusement au-delà de 72 octets : refuser plutôt que
+// laisser un mot de passe amputé devenir le secret du compte admin.
+export const ADMIN_PASSWORD_MAX_BYTES = 72
+
+function utf8ByteLength(value: string): number {
+  return new TextEncoder().encode(value).length
+}
+
+export const AdminPasswordSchema = z
+  .string()
+  .min(
+    ADMIN_PASSWORD_MIN_CHARS,
+    `Password must be at least ${ADMIN_PASSWORD_MIN_CHARS} characters`
+  )
+  .refine(
+    (value) => utf8ByteLength(value) <= ADMIN_PASSWORD_MAX_BYTES,
+    `Password must be at most ${ADMIN_PASSWORD_MAX_BYTES} bytes`
+  )
+
+/** Corps accepté par `POST /auth/setup/password`. */
+export const SetupAdminBodySchema = z.object({
+  token: z.string().optional(),
+  email: z
+    .string()
+    .trim()
+    .min(1, "Email is required")
+    .email("Enter a valid email address")
+    .toLowerCase(),
+  display_name: z
+    .string()
+    .trim()
+    .min(1, "Display name is required")
+    .max(100, "Display name must be at most 100 characters"),
+  password: AdminPasswordSchema,
+})
+export type SetupAdminBody = z.infer<typeof SetupAdminBodySchema>
+
+/** Ce que le wizard valide côté navigateur : le corps + la confirmation. */
+export const SetupAdminFormSchema = SetupAdminBodySchema.omit({ token: true })
+  .extend({ password_confirm: z.string().min(1, "Confirm your password") })
+  .refine((value) => value.password === value.password_confirm, {
+    message: "Passwords do not match",
+    path: ["password_confirm"],
+  })
+export type SetupAdminForm = z.infer<typeof SetupAdminFormSchema>
+
+// ---------------------------------------------------------------------------
 // User / Session types
 // ---------------------------------------------------------------------------
 

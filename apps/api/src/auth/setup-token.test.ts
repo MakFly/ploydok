@@ -6,6 +6,8 @@ import {
   clearSetupToken,
   consumeSetupToken,
   getSetupTokenState,
+  getSetupTokenValue,
+  setupSessionMaxAge,
   validateSetupToken,
 } from "./setup-token"
 import type { Db } from "@ploydok/db"
@@ -60,6 +62,44 @@ describe("setup-token", () => {
     expect(consumeSetupToken("x".repeat(32))).toBe(true)
     expect(consumeSetupToken("x".repeat(32))).toBe(false)
     expect(getSetupTokenState().active).toBe(false)
+  })
+
+  test("reports where the live token came from", async () => {
+    await bootstrapSetupToken(makeDb(0))
+    expect(getSetupTokenState().source).toBe("generated")
+
+    __resetSetupTokenForTest()
+    Bun.env["PLOYDOK_SETUP_TOKEN"] = "y".repeat(32)
+    await bootstrapSetupToken(makeDb(0))
+    expect(getSetupTokenState().source).toBe("env")
+
+    clearSetupToken()
+    expect(getSetupTokenState().source).toBeNull()
+  })
+
+  // Une valeur trop courte est ignorée sans erreur : l'API sert alors un token
+  // aléatoire, et une URL construite depuis .env.local partirait en 403.
+  test("falls back to a generated token when the env value is too short", async () => {
+    Bun.env["PLOYDOK_SETUP_TOKEN"] = "tooshort"
+    await bootstrapSetupToken(makeDb(0))
+    const state = getSetupTokenState()
+    expect(state.source).toBe("generated")
+    expect(validateSetupToken("tooshort")).toBe(false)
+  })
+
+  test("caps the setup cookie lifetime even for a permanent token", async () => {
+    Bun.env["PLOYDOK_SETUP_TOKEN"] = "z".repeat(32)
+    await bootstrapSetupToken(makeDb(0))
+    expect(getSetupTokenState().expires_at).toBeNull()
+    expect(setupSessionMaxAge()).toBe(30 * 60)
+  })
+
+  test("exposes no cookie value once the token is gone", async () => {
+    await bootstrapSetupToken(makeDb(0))
+    expect(getSetupTokenValue()).toBeString()
+    clearSetupToken()
+    expect(getSetupTokenValue()).toBeNull()
+    expect(setupSessionMaxAge()).toBe(0)
   })
 
   test("bootstrap is idempotent", async () => {

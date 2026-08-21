@@ -1223,6 +1223,58 @@ describe("GET /github/installations/start", () => {
   })
 })
 
+describe("POST /github/installations/reconnect", () => {
+  it("links every installation verified by the GitHub App API", async () => {
+    mockGitHubAppConfig = { slug: "ploydok-local" }
+    liveInstallations = [
+      { id: 42, accountLogin: "MakFly" },
+      { id: 84, accountLogin: "Ploydok" },
+    ]
+
+    const res = await buildApp(FAKE_USER).request(
+      "/github/installations/reconnect",
+      { method: "POST" }
+    )
+
+    expect(res.status).toBe(200)
+    expect(await res.json()).toMatchObject({
+      connected: true,
+      installation_count: 2,
+    })
+    expect(installationAssignments).toEqual([
+      { installationId: "42", userId: FAKE_USER.id },
+      { installationId: "84", userId: FAKE_USER.id },
+    ])
+    expect(enqueuedSyncs).toHaveLength(2)
+  })
+
+  it("does not create a local link when GitHub reports no installation", async () => {
+    mockGitHubAppConfig = { slug: "ploydok-local" }
+
+    const res = await buildApp(FAKE_USER).request(
+      "/github/installations/reconnect",
+      { method: "POST" }
+    )
+
+    expect(res.status).toBe(404)
+    expect(installationAssignments).toHaveLength(0)
+  })
+
+  it("rejects non-admin users", async () => {
+    fakeInstanceAdmin = false
+    mockGitHubAppConfig = { slug: "ploydok-local" }
+    liveInstallations = [{ id: 42, accountLogin: "MakFly" }]
+
+    const res = await buildApp(FAKE_USER).request(
+      "/github/installations/reconnect",
+      { method: "POST" }
+    )
+
+    expect(res.status).toBe(403)
+    expect(installationAssignments).toHaveLength(0)
+  })
+})
+
 describe("DELETE /github/installations/:id", () => {
   it("revokes the installation and deletes local cache state", async () => {
     mockGitHubAppConfig = { slug: "ploydok-local" }

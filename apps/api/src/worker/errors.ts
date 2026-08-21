@@ -46,6 +46,14 @@ const TRANSIENT_PATTERNS: RegExp[] = [
 ]
 
 const FATAL_PATTERNS: RegExp[] = [
+  // Permissions et systèmes de fichiers en lecture seule : un volume mal monté
+  // ou possédé par un autre uid ne se répare pas tout seul, un retry ne fait
+  // que rejouer le build pour rien.
+  /EACCES/,
+  /EPERM/,
+  /EROFS/,
+  /permission denied/i,
+  /read-only file system/i,
   /dockerfile.*parse/i,
   /dockerfile.*invalid/i,
   /syntax error.*dockerfile/i,

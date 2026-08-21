@@ -9,105 +9,85 @@
 // Additionally, you should also exclude this file from your linter and/or formatter to prevent it from being checked or modified.
 
 import { Route as rootRouteImport } from './routes/__root'
-import { Route as OnboardingRouteImport } from './routes/onboarding'
-import { Route as PublicRouteImport } from './routes/_public'
 import { Route as AuthedRouteImport } from './routes/_authed'
-import { Route as PublicIndexRouteImport } from './routes/_public/index'
-import { Route as PublicSetupRouteImport } from './routes/_public/setup'
-import { Route as PublicLoginRouteImport } from './routes/_public/login'
-import { Route as AuthedMonitoringRouteImport } from './routes/_authed/monitoring'
-import { Route as AuthedGuideRouteImport } from './routes/_authed/guide'
-import { Route as AuthedDashboardRouteImport } from './routes/_authed/dashboard'
+import { Route as PublicRouteImport } from './routes/_public'
+import { Route as OnboardingRouteImport } from './routes/onboarding'
 import { Route as AuthedChangelogRouteImport } from './routes/_authed/changelog'
-import { Route as AuthedSettingsIndexRouteImport } from './routes/_authed/settings/index'
-import { Route as PublicInvitationsAcceptRouteImport } from './routes/_public/invitations/accept'
-import { Route as AuthedSettingsSecurityRouteImport } from './routes/_authed/settings/security'
-import { Route as AuthedSettingsRegistryRouteImport } from './routes/_authed/settings/registry'
-import { Route as AuthedSettingsNotificationsRouteImport } from './routes/_authed/settings/notifications'
-import { Route as AuthedOrgsOrgSlugRouteImport } from './routes/_authed/orgs/$orgSlug'
-import { Route as AuthedDatabasesSplatRouteImport } from './routes/_authed/databases.$'
-import { Route as AuthedAppsSplatRouteImport } from './routes/_authed/apps.$'
+import { Route as AuthedDashboardRouteImport } from './routes/_authed/dashboard'
+import { Route as AuthedGuideRouteImport } from './routes/_authed/guide'
+import { Route as AuthedMonitoringRouteImport } from './routes/_authed/monitoring'
+import { Route as PublicIndexRouteImport } from './routes/_public/index'
+import { Route as PublicLoginRouteImport } from './routes/_public/login'
+import { Route as PublicSetupRouteImport } from './routes/_public/setup'
 import { Route as AuthedAdminDiskRouteImport } from './routes/_authed/admin/disk'
-import { Route as AuthedSettingsSecurityIndexRouteImport } from './routes/_authed/settings/security/index'
-import { Route as AuthedSettingsGitProvidersIndexRouteImport } from './routes/_authed/settings/git-providers/index'
-import { Route as AuthedOrgsOrgSlugIndexRouteImport } from './routes/_authed/orgs/$orgSlug/index'
-import { Route as AuthedSettingsSecurityTotpRouteImport } from './routes/_authed/settings/security/totp'
-import { Route as AuthedSettingsSecuritySessionsRouteImport } from './routes/_authed/settings/security/sessions'
-import { Route as AuthedSettingsSecurityPostureRouteImport } from './routes/_authed/settings/security/posture'
-import { Route as AuthedSettingsSecurityPasskeysRouteImport } from './routes/_authed/settings/security/passkeys'
-import { Route as AuthedSettingsSecurityPasskeyRouteImport } from './routes/_authed/settings/security/passkey'
-import { Route as AuthedSettingsGitProvidersSlugRouteImport } from './routes/_authed/settings/git-providers/$slug'
-import { Route as AuthedOrgsOrgSlugTagsRouteImport } from './routes/_authed/orgs/$orgSlug/tags'
-import { Route as AuthedOrgsOrgSlugSharedEnvRouteImport } from './routes/_authed/orgs/$orgSlug/shared-env'
-import { Route as AuthedOrgsOrgSlugSettingsRouteImport } from './routes/_authed/orgs/$orgSlug/settings'
-import { Route as AuthedOrgsOrgSlugScheduledJobsRouteImport } from './routes/_authed/orgs/$orgSlug/scheduled-jobs'
-import { Route as AuthedOrgsOrgSlugMonitoringRouteImport } from './routes/_authed/orgs/$orgSlug/monitoring'
-import { Route as AuthedOrgsOrgSlugMembersRouteImport } from './routes/_authed/orgs/$orgSlug/members'
-import { Route as AuthedOrgsOrgSlugMarketplaceRouteImport } from './routes/_authed/orgs/$orgSlug/marketplace'
-import { Route as AuthedOrgsOrgSlugEventWebhooksRouteImport } from './routes/_authed/orgs/$orgSlug/event-webhooks'
-import { Route as AuthedOrgsOrgSlugDeploymentsRouteImport } from './routes/_authed/orgs/$orgSlug/deployments'
-import { Route as AuthedOrgsOrgSlugDashboardRouteImport } from './routes/_authed/orgs/$orgSlug/dashboard'
-import { Route as AuthedOrgsOrgSlugBrandingRouteImport } from './routes/_authed/orgs/$orgSlug/branding'
-import { Route as AuthedOrgsOrgSlugAuditRouteImport } from './routes/_authed/orgs/$orgSlug/audit'
+import { Route as AuthedAppsSplatRouteImport } from './routes/_authed/apps.$'
+import { Route as AuthedDatabasesSplatRouteImport } from './routes/_authed/databases.$'
+import { Route as AuthedOrgsOrgSlugRouteImport } from './routes/_authed/orgs/$orgSlug'
+import { Route as AuthedSettingsIndexRouteImport } from './routes/_authed/settings/index'
+import { Route as AuthedSettingsNotificationsRouteImport } from './routes/_authed/settings/notifications'
+import { Route as AuthedSettingsRegistryRouteImport } from './routes/_authed/settings/registry'
+import { Route as AuthedSettingsSecurityRouteImport } from './routes/_authed/settings/security'
+import { Route as PublicInvitationsAcceptRouteImport } from './routes/_public/invitations/accept'
 import { Route as AuthedAdminSecurityAdvisoriesRouteImport } from './routes/_authed/admin/security/advisories'
-import { Route as AuthedOrgsOrgSlugSettingsIndexRouteImport } from './routes/_authed/orgs/$orgSlug/settings/index'
-import { Route as AuthedOrgsOrgSlugServicesIndexRouteImport } from './routes/_authed/orgs/$orgSlug/services/index'
-import { Route as AuthedOrgsOrgSlugDatabasesIndexRouteImport } from './routes/_authed/orgs/$orgSlug/databases/index'
+import { Route as AuthedOrgsOrgSlugIndexRouteImport } from './routes/_authed/orgs/$orgSlug/index'
+import { Route as AuthedOrgsOrgSlugAuditRouteImport } from './routes/_authed/orgs/$orgSlug/audit'
+import { Route as AuthedOrgsOrgSlugBrandingRouteImport } from './routes/_authed/orgs/$orgSlug/branding'
+import { Route as AuthedOrgsOrgSlugDashboardRouteImport } from './routes/_authed/orgs/$orgSlug/dashboard'
+import { Route as AuthedOrgsOrgSlugDeploymentsRouteImport } from './routes/_authed/orgs/$orgSlug/deployments'
+import { Route as AuthedOrgsOrgSlugEventWebhooksRouteImport } from './routes/_authed/orgs/$orgSlug/event-webhooks'
+import { Route as AuthedOrgsOrgSlugMarketplaceRouteImport } from './routes/_authed/orgs/$orgSlug/marketplace'
+import { Route as AuthedOrgsOrgSlugMembersRouteImport } from './routes/_authed/orgs/$orgSlug/members'
+import { Route as AuthedOrgsOrgSlugMonitoringRouteImport } from './routes/_authed/orgs/$orgSlug/monitoring'
+import { Route as AuthedOrgsOrgSlugScheduledJobsRouteImport } from './routes/_authed/orgs/$orgSlug/scheduled-jobs'
+import { Route as AuthedOrgsOrgSlugSettingsRouteImport } from './routes/_authed/orgs/$orgSlug/settings'
+import { Route as AuthedOrgsOrgSlugSharedEnvRouteImport } from './routes/_authed/orgs/$orgSlug/shared-env'
+import { Route as AuthedOrgsOrgSlugTagsRouteImport } from './routes/_authed/orgs/$orgSlug/tags'
+import { Route as AuthedSettingsGitProvidersIndexRouteImport } from './routes/_authed/settings/git-providers/index'
+import { Route as AuthedSettingsGitProvidersSlugRouteImport } from './routes/_authed/settings/git-providers/$slug'
+import { Route as AuthedSettingsSecurityIndexRouteImport } from './routes/_authed/settings/security/index'
+import { Route as AuthedSettingsSecurityPasskeyRouteImport } from './routes/_authed/settings/security/passkey'
+import { Route as AuthedSettingsSecurityPasskeysRouteImport } from './routes/_authed/settings/security/passkeys'
+import { Route as AuthedSettingsSecurityPostureRouteImport } from './routes/_authed/settings/security/posture'
+import { Route as AuthedSettingsSecuritySessionsRouteImport } from './routes/_authed/settings/security/sessions'
+import { Route as AuthedSettingsSecurityTotpRouteImport } from './routes/_authed/settings/security/totp'
 import { Route as AuthedOrgsOrgSlugAppsIndexRouteImport } from './routes/_authed/orgs/$orgSlug/apps/index'
-import { Route as AuthedOrgsOrgSlugSettingsSsoRouteImport } from './routes/_authed/orgs/$orgSlug/settings/sso'
-import { Route as AuthedOrgsOrgSlugSettingsGeneralRouteImport } from './routes/_authed/orgs/$orgSlug/settings/general'
-import { Route as AuthedOrgsOrgSlugSettingsBillingRouteImport } from './routes/_authed/orgs/$orgSlug/settings/billing'
-import { Route as AuthedOrgsOrgSlugServicesIdRouteImport } from './routes/_authed/orgs/$orgSlug/services/$id'
-import { Route as AuthedOrgsOrgSlugDatabasesIdRouteImport } from './routes/_authed/orgs/$orgSlug/databases/$id'
 import { Route as AuthedOrgsOrgSlugAppsIdRouteImport } from './routes/_authed/orgs/$orgSlug/apps/$id'
+import { Route as AuthedOrgsOrgSlugDatabasesIndexRouteImport } from './routes/_authed/orgs/$orgSlug/databases/index'
+import { Route as AuthedOrgsOrgSlugDatabasesIdRouteImport } from './routes/_authed/orgs/$orgSlug/databases/$id'
+import { Route as AuthedOrgsOrgSlugServicesIndexRouteImport } from './routes/_authed/orgs/$orgSlug/services/index'
+import { Route as AuthedOrgsOrgSlugServicesIdRouteImport } from './routes/_authed/orgs/$orgSlug/services/$id'
+import { Route as AuthedOrgsOrgSlugSettingsIndexRouteImport } from './routes/_authed/orgs/$orgSlug/settings/index'
+import { Route as AuthedOrgsOrgSlugSettingsBillingRouteImport } from './routes/_authed/orgs/$orgSlug/settings/billing'
+import { Route as AuthedOrgsOrgSlugSettingsGeneralRouteImport } from './routes/_authed/orgs/$orgSlug/settings/general'
+import { Route as AuthedOrgsOrgSlugSettingsSsoRouteImport } from './routes/_authed/orgs/$orgSlug/settings/sso'
 import { Route as AuthedOrgsOrgSlugAppsIdIndexRouteImport } from './routes/_authed/orgs/$orgSlug/apps/$id/index'
-import { Route as AuthedOrgsOrgSlugAppsIdStorageRouteImport } from './routes/_authed/orgs/$orgSlug/apps/$id/storage'
-import { Route as AuthedOrgsOrgSlugAppsIdShellRouteImport } from './routes/_authed/orgs/$orgSlug/apps/$id/shell'
-import { Route as AuthedOrgsOrgSlugAppsIdSettingsRouteImport } from './routes/_authed/orgs/$orgSlug/apps/$id/settings'
-import { Route as AuthedOrgsOrgSlugAppsIdSecurityRouteImport } from './routes/_authed/orgs/$orgSlug/apps/$id/security'
-import { Route as AuthedOrgsOrgSlugAppsIdPreviewsRouteImport } from './routes/_authed/orgs/$orgSlug/apps/$id/previews'
-import { Route as AuthedOrgsOrgSlugAppsIdLogsRouteImport } from './routes/_authed/orgs/$orgSlug/apps/$id/logs'
-import { Route as AuthedOrgsOrgSlugAppsIdEnvRouteImport } from './routes/_authed/orgs/$orgSlug/apps/$id/env'
-import { Route as AuthedOrgsOrgSlugAppsIdDomainsRouteImport } from './routes/_authed/orgs/$orgSlug/apps/$id/domains'
-import { Route as AuthedOrgsOrgSlugAppsIdDeploymentsRouteImport } from './routes/_authed/orgs/$orgSlug/apps/$id/deployments'
 import { Route as AuthedOrgsOrgSlugAppsIdAdvancedRouteImport } from './routes/_authed/orgs/$orgSlug/apps/$id/advanced'
+import { Route as AuthedOrgsOrgSlugAppsIdDeploymentsRouteImport } from './routes/_authed/orgs/$orgSlug/apps/$id/deployments'
+import { Route as AuthedOrgsOrgSlugAppsIdDomainsRouteImport } from './routes/_authed/orgs/$orgSlug/apps/$id/domains'
+import { Route as AuthedOrgsOrgSlugAppsIdEnvRouteImport } from './routes/_authed/orgs/$orgSlug/apps/$id/env'
+import { Route as AuthedOrgsOrgSlugAppsIdLogsRouteImport } from './routes/_authed/orgs/$orgSlug/apps/$id/logs'
+import { Route as AuthedOrgsOrgSlugAppsIdPreviewsRouteImport } from './routes/_authed/orgs/$orgSlug/apps/$id/previews'
+import { Route as AuthedOrgsOrgSlugAppsIdSecurityRouteImport } from './routes/_authed/orgs/$orgSlug/apps/$id/security'
+import { Route as AuthedOrgsOrgSlugAppsIdSettingsRouteImport } from './routes/_authed/orgs/$orgSlug/apps/$id/settings'
+import { Route as AuthedOrgsOrgSlugAppsIdShellRouteImport } from './routes/_authed/orgs/$orgSlug/apps/$id/shell'
+import { Route as AuthedOrgsOrgSlugAppsIdStorageRouteImport } from './routes/_authed/orgs/$orgSlug/apps/$id/storage'
 
-const OnboardingRoute = OnboardingRouteImport.update({
-  id: '/onboarding',
-  path: '/onboarding',
+const AuthedRoute = AuthedRouteImport.update({
+  id: '/_authed',
   getParentRoute: () => rootRouteImport,
 } as any)
 const PublicRoute = PublicRouteImport.update({
   id: '/_public',
   getParentRoute: () => rootRouteImport,
 } as any)
-const AuthedRoute = AuthedRouteImport.update({
-  id: '/_authed',
+const OnboardingRoute = OnboardingRouteImport.update({
+  id: '/onboarding',
+  path: '/onboarding',
   getParentRoute: () => rootRouteImport,
 } as any)
-const PublicIndexRoute = PublicIndexRouteImport.update({
-  id: '/',
-  path: '/',
-  getParentRoute: () => PublicRoute,
-} as any)
-const PublicSetupRoute = PublicSetupRouteImport.update({
-  id: '/setup',
-  path: '/setup',
-  getParentRoute: () => PublicRoute,
-} as any)
-const PublicLoginRoute = PublicLoginRouteImport.update({
-  id: '/login',
-  path: '/login',
-  getParentRoute: () => PublicRoute,
-} as any)
-const AuthedMonitoringRoute = AuthedMonitoringRouteImport.update({
-  id: '/monitoring',
-  path: '/monitoring',
-  getParentRoute: () => AuthedRoute,
-} as any)
-const AuthedGuideRoute = AuthedGuideRouteImport.update({
-  id: '/guide',
-  path: '/guide',
+const AuthedChangelogRoute = AuthedChangelogRouteImport.update({
+  id: '/changelog',
+  path: '/changelog',
   getParentRoute: () => AuthedRoute,
 } as any)
 const AuthedDashboardRoute = AuthedDashboardRouteImport.update({
@@ -115,29 +95,54 @@ const AuthedDashboardRoute = AuthedDashboardRouteImport.update({
   path: '/dashboard',
   getParentRoute: () => AuthedRoute,
 } as any)
-const AuthedChangelogRoute = AuthedChangelogRouteImport.update({
-  id: '/changelog',
-  path: '/changelog',
+const AuthedGuideRoute = AuthedGuideRouteImport.update({
+  id: '/guide',
+  path: '/guide',
+  getParentRoute: () => AuthedRoute,
+} as any)
+const AuthedMonitoringRoute = AuthedMonitoringRouteImport.update({
+  id: '/monitoring',
+  path: '/monitoring',
+  getParentRoute: () => AuthedRoute,
+} as any)
+const PublicIndexRoute = PublicIndexRouteImport.update({
+  id: '/',
+  path: '/',
+  getParentRoute: () => PublicRoute,
+} as any)
+const PublicLoginRoute = PublicLoginRouteImport.update({
+  id: '/login',
+  path: '/login',
+  getParentRoute: () => PublicRoute,
+} as any)
+const PublicSetupRoute = PublicSetupRouteImport.update({
+  id: '/setup',
+  path: '/setup',
+  getParentRoute: () => PublicRoute,
+} as any)
+const AuthedAdminDiskRoute = AuthedAdminDiskRouteImport.update({
+  id: '/admin/disk',
+  path: '/admin/disk',
+  getParentRoute: () => AuthedRoute,
+} as any)
+const AuthedAppsSplatRoute = AuthedAppsSplatRouteImport.update({
+  id: '/apps/$',
+  path: '/apps/$',
+  getParentRoute: () => AuthedRoute,
+} as any)
+const AuthedDatabasesSplatRoute = AuthedDatabasesSplatRouteImport.update({
+  id: '/databases/$',
+  path: '/databases/$',
+  getParentRoute: () => AuthedRoute,
+} as any)
+const AuthedOrgsOrgSlugRoute = AuthedOrgsOrgSlugRouteImport.update({
+  id: '/orgs/$orgSlug',
+  path: '/orgs/$orgSlug',
   getParentRoute: () => AuthedRoute,
 } as any)
 const AuthedSettingsIndexRoute = AuthedSettingsIndexRouteImport.update({
   id: '/settings/',
   path: '/settings/',
-  getParentRoute: () => AuthedRoute,
-} as any)
-const PublicInvitationsAcceptRoute = PublicInvitationsAcceptRouteImport.update({
-  id: '/invitations/accept',
-  path: '/invitations/accept',
-  getParentRoute: () => PublicRoute,
-} as any)
-const AuthedSettingsSecurityRoute = AuthedSettingsSecurityRouteImport.update({
-  id: '/settings/security',
-  path: '/settings/security',
-  getParentRoute: () => AuthedRoute,
-} as any)
-const AuthedSettingsRegistryRoute = AuthedSettingsRegistryRouteImport.update({
-  id: '/settings/registry',
-  path: '/settings/registry',
   getParentRoute: () => AuthedRoute,
 } as any)
 const AuthedSettingsNotificationsRoute =
@@ -146,36 +151,25 @@ const AuthedSettingsNotificationsRoute =
     path: '/settings/notifications',
     getParentRoute: () => AuthedRoute,
   } as any)
-const AuthedOrgsOrgSlugRoute = AuthedOrgsOrgSlugRouteImport.update({
-  id: '/orgs/$orgSlug',
-  path: '/orgs/$orgSlug',
+const AuthedSettingsRegistryRoute = AuthedSettingsRegistryRouteImport.update({
+  id: '/settings/registry',
+  path: '/settings/registry',
   getParentRoute: () => AuthedRoute,
 } as any)
-const AuthedDatabasesSplatRoute = AuthedDatabasesSplatRouteImport.update({
-  id: '/databases/$',
-  path: '/databases/$',
+const AuthedSettingsSecurityRoute = AuthedSettingsSecurityRouteImport.update({
+  id: '/settings/security',
+  path: '/settings/security',
   getParentRoute: () => AuthedRoute,
 } as any)
-const AuthedAppsSplatRoute = AuthedAppsSplatRouteImport.update({
-  id: '/apps/$',
-  path: '/apps/$',
-  getParentRoute: () => AuthedRoute,
+const PublicInvitationsAcceptRoute = PublicInvitationsAcceptRouteImport.update({
+  id: '/invitations/accept',
+  path: '/invitations/accept',
+  getParentRoute: () => PublicRoute,
 } as any)
-const AuthedAdminDiskRoute = AuthedAdminDiskRouteImport.update({
-  id: '/admin/disk',
-  path: '/admin/disk',
-  getParentRoute: () => AuthedRoute,
-} as any)
-const AuthedSettingsSecurityIndexRoute =
-  AuthedSettingsSecurityIndexRouteImport.update({
-    id: '/',
-    path: '/',
-    getParentRoute: () => AuthedSettingsSecurityRoute,
-  } as any)
-const AuthedSettingsGitProvidersIndexRoute =
-  AuthedSettingsGitProvidersIndexRouteImport.update({
-    id: '/settings/git-providers/',
-    path: '/settings/git-providers/',
+const AuthedAdminSecurityAdvisoriesRoute =
+  AuthedAdminSecurityAdvisoriesRouteImport.update({
+    id: '/admin/security/advisories',
+    path: '/admin/security/advisories',
     getParentRoute: () => AuthedRoute,
   } as any)
 const AuthedOrgsOrgSlugIndexRoute = AuthedOrgsOrgSlugIndexRouteImport.update({
@@ -183,93 +177,15 @@ const AuthedOrgsOrgSlugIndexRoute = AuthedOrgsOrgSlugIndexRouteImport.update({
   path: '/',
   getParentRoute: () => AuthedOrgsOrgSlugRoute,
 } as any)
-const AuthedSettingsSecurityTotpRoute =
-  AuthedSettingsSecurityTotpRouteImport.update({
-    id: '/totp',
-    path: '/totp',
-    getParentRoute: () => AuthedSettingsSecurityRoute,
-  } as any)
-const AuthedSettingsSecuritySessionsRoute =
-  AuthedSettingsSecuritySessionsRouteImport.update({
-    id: '/sessions',
-    path: '/sessions',
-    getParentRoute: () => AuthedSettingsSecurityRoute,
-  } as any)
-const AuthedSettingsSecurityPostureRoute =
-  AuthedSettingsSecurityPostureRouteImport.update({
-    id: '/posture',
-    path: '/posture',
-    getParentRoute: () => AuthedSettingsSecurityRoute,
-  } as any)
-const AuthedSettingsSecurityPasskeysRoute =
-  AuthedSettingsSecurityPasskeysRouteImport.update({
-    id: '/passkeys',
-    path: '/passkeys',
-    getParentRoute: () => AuthedSettingsSecurityRoute,
-  } as any)
-const AuthedSettingsSecurityPasskeyRoute =
-  AuthedSettingsSecurityPasskeyRouteImport.update({
-    id: '/passkey',
-    path: '/passkey',
-    getParentRoute: () => AuthedSettingsSecurityRoute,
-  } as any)
-const AuthedSettingsGitProvidersSlugRoute =
-  AuthedSettingsGitProvidersSlugRouteImport.update({
-    id: '/settings/git-providers/$slug',
-    path: '/settings/git-providers/$slug',
-    getParentRoute: () => AuthedRoute,
-  } as any)
-const AuthedOrgsOrgSlugTagsRoute = AuthedOrgsOrgSlugTagsRouteImport.update({
-  id: '/tags',
-  path: '/tags',
+const AuthedOrgsOrgSlugAuditRoute = AuthedOrgsOrgSlugAuditRouteImport.update({
+  id: '/audit',
+  path: '/audit',
   getParentRoute: () => AuthedOrgsOrgSlugRoute,
 } as any)
-const AuthedOrgsOrgSlugSharedEnvRoute =
-  AuthedOrgsOrgSlugSharedEnvRouteImport.update({
-    id: '/shared-env',
-    path: '/shared-env',
-    getParentRoute: () => AuthedOrgsOrgSlugRoute,
-  } as any)
-const AuthedOrgsOrgSlugSettingsRoute =
-  AuthedOrgsOrgSlugSettingsRouteImport.update({
-    id: '/settings',
-    path: '/settings',
-    getParentRoute: () => AuthedOrgsOrgSlugRoute,
-  } as any)
-const AuthedOrgsOrgSlugScheduledJobsRoute =
-  AuthedOrgsOrgSlugScheduledJobsRouteImport.update({
-    id: '/scheduled-jobs',
-    path: '/scheduled-jobs',
-    getParentRoute: () => AuthedOrgsOrgSlugRoute,
-  } as any)
-const AuthedOrgsOrgSlugMonitoringRoute =
-  AuthedOrgsOrgSlugMonitoringRouteImport.update({
-    id: '/monitoring',
-    path: '/monitoring',
-    getParentRoute: () => AuthedOrgsOrgSlugRoute,
-  } as any)
-const AuthedOrgsOrgSlugMembersRoute =
-  AuthedOrgsOrgSlugMembersRouteImport.update({
-    id: '/members',
-    path: '/members',
-    getParentRoute: () => AuthedOrgsOrgSlugRoute,
-  } as any)
-const AuthedOrgsOrgSlugMarketplaceRoute =
-  AuthedOrgsOrgSlugMarketplaceRouteImport.update({
-    id: '/marketplace',
-    path: '/marketplace',
-    getParentRoute: () => AuthedOrgsOrgSlugRoute,
-  } as any)
-const AuthedOrgsOrgSlugEventWebhooksRoute =
-  AuthedOrgsOrgSlugEventWebhooksRouteImport.update({
-    id: '/event-webhooks',
-    path: '/event-webhooks',
-    getParentRoute: () => AuthedOrgsOrgSlugRoute,
-  } as any)
-const AuthedOrgsOrgSlugDeploymentsRoute =
-  AuthedOrgsOrgSlugDeploymentsRouteImport.update({
-    id: '/deployments',
-    path: '/deployments',
+const AuthedOrgsOrgSlugBrandingRoute =
+  AuthedOrgsOrgSlugBrandingRouteImport.update({
+    id: '/branding',
+    path: '/branding',
     getParentRoute: () => AuthedOrgsOrgSlugRoute,
   } as any)
 const AuthedOrgsOrgSlugDashboardRoute =
@@ -278,40 +194,106 @@ const AuthedOrgsOrgSlugDashboardRoute =
     path: '/dashboard',
     getParentRoute: () => AuthedOrgsOrgSlugRoute,
   } as any)
-const AuthedOrgsOrgSlugBrandingRoute =
-  AuthedOrgsOrgSlugBrandingRouteImport.update({
-    id: '/branding',
-    path: '/branding',
+const AuthedOrgsOrgSlugDeploymentsRoute =
+  AuthedOrgsOrgSlugDeploymentsRouteImport.update({
+    id: '/deployments',
+    path: '/deployments',
     getParentRoute: () => AuthedOrgsOrgSlugRoute,
   } as any)
-const AuthedOrgsOrgSlugAuditRoute = AuthedOrgsOrgSlugAuditRouteImport.update({
-  id: '/audit',
-  path: '/audit',
+const AuthedOrgsOrgSlugEventWebhooksRoute =
+  AuthedOrgsOrgSlugEventWebhooksRouteImport.update({
+    id: '/event-webhooks',
+    path: '/event-webhooks',
+    getParentRoute: () => AuthedOrgsOrgSlugRoute,
+  } as any)
+const AuthedOrgsOrgSlugMarketplaceRoute =
+  AuthedOrgsOrgSlugMarketplaceRouteImport.update({
+    id: '/marketplace',
+    path: '/marketplace',
+    getParentRoute: () => AuthedOrgsOrgSlugRoute,
+  } as any)
+const AuthedOrgsOrgSlugMembersRoute =
+  AuthedOrgsOrgSlugMembersRouteImport.update({
+    id: '/members',
+    path: '/members',
+    getParentRoute: () => AuthedOrgsOrgSlugRoute,
+  } as any)
+const AuthedOrgsOrgSlugMonitoringRoute =
+  AuthedOrgsOrgSlugMonitoringRouteImport.update({
+    id: '/monitoring',
+    path: '/monitoring',
+    getParentRoute: () => AuthedOrgsOrgSlugRoute,
+  } as any)
+const AuthedOrgsOrgSlugScheduledJobsRoute =
+  AuthedOrgsOrgSlugScheduledJobsRouteImport.update({
+    id: '/scheduled-jobs',
+    path: '/scheduled-jobs',
+    getParentRoute: () => AuthedOrgsOrgSlugRoute,
+  } as any)
+const AuthedOrgsOrgSlugSettingsRoute =
+  AuthedOrgsOrgSlugSettingsRouteImport.update({
+    id: '/settings',
+    path: '/settings',
+    getParentRoute: () => AuthedOrgsOrgSlugRoute,
+  } as any)
+const AuthedOrgsOrgSlugSharedEnvRoute =
+  AuthedOrgsOrgSlugSharedEnvRouteImport.update({
+    id: '/shared-env',
+    path: '/shared-env',
+    getParentRoute: () => AuthedOrgsOrgSlugRoute,
+  } as any)
+const AuthedOrgsOrgSlugTagsRoute = AuthedOrgsOrgSlugTagsRouteImport.update({
+  id: '/tags',
+  path: '/tags',
   getParentRoute: () => AuthedOrgsOrgSlugRoute,
 } as any)
-const AuthedAdminSecurityAdvisoriesRoute =
-  AuthedAdminSecurityAdvisoriesRouteImport.update({
-    id: '/admin/security/advisories',
-    path: '/admin/security/advisories',
+const AuthedSettingsGitProvidersIndexRoute =
+  AuthedSettingsGitProvidersIndexRouteImport.update({
+    id: '/settings/git-providers/',
+    path: '/settings/git-providers/',
     getParentRoute: () => AuthedRoute,
   } as any)
-const AuthedOrgsOrgSlugSettingsIndexRoute =
-  AuthedOrgsOrgSlugSettingsIndexRouteImport.update({
+const AuthedSettingsGitProvidersSlugRoute =
+  AuthedSettingsGitProvidersSlugRouteImport.update({
+    id: '/settings/git-providers/$slug',
+    path: '/settings/git-providers/$slug',
+    getParentRoute: () => AuthedRoute,
+  } as any)
+const AuthedSettingsSecurityIndexRoute =
+  AuthedSettingsSecurityIndexRouteImport.update({
     id: '/',
     path: '/',
-    getParentRoute: () => AuthedOrgsOrgSlugSettingsRoute,
+    getParentRoute: () => AuthedSettingsSecurityRoute,
   } as any)
-const AuthedOrgsOrgSlugServicesIndexRoute =
-  AuthedOrgsOrgSlugServicesIndexRouteImport.update({
-    id: '/services/',
-    path: '/services/',
-    getParentRoute: () => AuthedOrgsOrgSlugRoute,
+const AuthedSettingsSecurityPasskeyRoute =
+  AuthedSettingsSecurityPasskeyRouteImport.update({
+    id: '/passkey',
+    path: '/passkey',
+    getParentRoute: () => AuthedSettingsSecurityRoute,
   } as any)
-const AuthedOrgsOrgSlugDatabasesIndexRoute =
-  AuthedOrgsOrgSlugDatabasesIndexRouteImport.update({
-    id: '/databases/',
-    path: '/databases/',
-    getParentRoute: () => AuthedOrgsOrgSlugRoute,
+const AuthedSettingsSecurityPasskeysRoute =
+  AuthedSettingsSecurityPasskeysRouteImport.update({
+    id: '/passkeys',
+    path: '/passkeys',
+    getParentRoute: () => AuthedSettingsSecurityRoute,
+  } as any)
+const AuthedSettingsSecurityPostureRoute =
+  AuthedSettingsSecurityPostureRouteImport.update({
+    id: '/posture',
+    path: '/posture',
+    getParentRoute: () => AuthedSettingsSecurityRoute,
+  } as any)
+const AuthedSettingsSecuritySessionsRoute =
+  AuthedSettingsSecuritySessionsRouteImport.update({
+    id: '/sessions',
+    path: '/sessions',
+    getParentRoute: () => AuthedSettingsSecurityRoute,
+  } as any)
+const AuthedSettingsSecurityTotpRoute =
+  AuthedSettingsSecurityTotpRouteImport.update({
+    id: '/totp',
+    path: '/totp',
+    getParentRoute: () => AuthedSettingsSecurityRoute,
   } as any)
 const AuthedOrgsOrgSlugAppsIndexRoute =
   AuthedOrgsOrgSlugAppsIndexRouteImport.update({
@@ -319,28 +301,15 @@ const AuthedOrgsOrgSlugAppsIndexRoute =
     path: '/apps/',
     getParentRoute: () => AuthedOrgsOrgSlugRoute,
   } as any)
-const AuthedOrgsOrgSlugSettingsSsoRoute =
-  AuthedOrgsOrgSlugSettingsSsoRouteImport.update({
-    id: '/sso',
-    path: '/sso',
-    getParentRoute: () => AuthedOrgsOrgSlugSettingsRoute,
-  } as any)
-const AuthedOrgsOrgSlugSettingsGeneralRoute =
-  AuthedOrgsOrgSlugSettingsGeneralRouteImport.update({
-    id: '/general',
-    path: '/general',
-    getParentRoute: () => AuthedOrgsOrgSlugSettingsRoute,
-  } as any)
-const AuthedOrgsOrgSlugSettingsBillingRoute =
-  AuthedOrgsOrgSlugSettingsBillingRouteImport.update({
-    id: '/billing',
-    path: '/billing',
-    getParentRoute: () => AuthedOrgsOrgSlugSettingsRoute,
-  } as any)
-const AuthedOrgsOrgSlugServicesIdRoute =
-  AuthedOrgsOrgSlugServicesIdRouteImport.update({
-    id: '/services/$id',
-    path: '/services/$id',
+const AuthedOrgsOrgSlugAppsIdRoute = AuthedOrgsOrgSlugAppsIdRouteImport.update({
+  id: '/apps/$id',
+  path: '/apps/$id',
+  getParentRoute: () => AuthedOrgsOrgSlugRoute,
+} as any)
+const AuthedOrgsOrgSlugDatabasesIndexRoute =
+  AuthedOrgsOrgSlugDatabasesIndexRouteImport.update({
+    id: '/databases/',
+    path: '/databases/',
     getParentRoute: () => AuthedOrgsOrgSlugRoute,
   } as any)
 const AuthedOrgsOrgSlugDatabasesIdRoute =
@@ -349,63 +318,52 @@ const AuthedOrgsOrgSlugDatabasesIdRoute =
     path: '/databases/$id',
     getParentRoute: () => AuthedOrgsOrgSlugRoute,
   } as any)
-const AuthedOrgsOrgSlugAppsIdRoute = AuthedOrgsOrgSlugAppsIdRouteImport.update({
-  id: '/apps/$id',
-  path: '/apps/$id',
-  getParentRoute: () => AuthedOrgsOrgSlugRoute,
-} as any)
+const AuthedOrgsOrgSlugServicesIndexRoute =
+  AuthedOrgsOrgSlugServicesIndexRouteImport.update({
+    id: '/services/',
+    path: '/services/',
+    getParentRoute: () => AuthedOrgsOrgSlugRoute,
+  } as any)
+const AuthedOrgsOrgSlugServicesIdRoute =
+  AuthedOrgsOrgSlugServicesIdRouteImport.update({
+    id: '/services/$id',
+    path: '/services/$id',
+    getParentRoute: () => AuthedOrgsOrgSlugRoute,
+  } as any)
+const AuthedOrgsOrgSlugSettingsIndexRoute =
+  AuthedOrgsOrgSlugSettingsIndexRouteImport.update({
+    id: '/',
+    path: '/',
+    getParentRoute: () => AuthedOrgsOrgSlugSettingsRoute,
+  } as any)
+const AuthedOrgsOrgSlugSettingsBillingRoute =
+  AuthedOrgsOrgSlugSettingsBillingRouteImport.update({
+    id: '/billing',
+    path: '/billing',
+    getParentRoute: () => AuthedOrgsOrgSlugSettingsRoute,
+  } as any)
+const AuthedOrgsOrgSlugSettingsGeneralRoute =
+  AuthedOrgsOrgSlugSettingsGeneralRouteImport.update({
+    id: '/general',
+    path: '/general',
+    getParentRoute: () => AuthedOrgsOrgSlugSettingsRoute,
+  } as any)
+const AuthedOrgsOrgSlugSettingsSsoRoute =
+  AuthedOrgsOrgSlugSettingsSsoRouteImport.update({
+    id: '/sso',
+    path: '/sso',
+    getParentRoute: () => AuthedOrgsOrgSlugSettingsRoute,
+  } as any)
 const AuthedOrgsOrgSlugAppsIdIndexRoute =
   AuthedOrgsOrgSlugAppsIdIndexRouteImport.update({
     id: '/',
     path: '/',
     getParentRoute: () => AuthedOrgsOrgSlugAppsIdRoute,
   } as any)
-const AuthedOrgsOrgSlugAppsIdStorageRoute =
-  AuthedOrgsOrgSlugAppsIdStorageRouteImport.update({
-    id: '/storage',
-    path: '/storage',
-    getParentRoute: () => AuthedOrgsOrgSlugAppsIdRoute,
-  } as any)
-const AuthedOrgsOrgSlugAppsIdShellRoute =
-  AuthedOrgsOrgSlugAppsIdShellRouteImport.update({
-    id: '/shell',
-    path: '/shell',
-    getParentRoute: () => AuthedOrgsOrgSlugAppsIdRoute,
-  } as any)
-const AuthedOrgsOrgSlugAppsIdSettingsRoute =
-  AuthedOrgsOrgSlugAppsIdSettingsRouteImport.update({
-    id: '/settings',
-    path: '/settings',
-    getParentRoute: () => AuthedOrgsOrgSlugAppsIdRoute,
-  } as any)
-const AuthedOrgsOrgSlugAppsIdSecurityRoute =
-  AuthedOrgsOrgSlugAppsIdSecurityRouteImport.update({
-    id: '/security',
-    path: '/security',
-    getParentRoute: () => AuthedOrgsOrgSlugAppsIdRoute,
-  } as any)
-const AuthedOrgsOrgSlugAppsIdPreviewsRoute =
-  AuthedOrgsOrgSlugAppsIdPreviewsRouteImport.update({
-    id: '/previews',
-    path: '/previews',
-    getParentRoute: () => AuthedOrgsOrgSlugAppsIdRoute,
-  } as any)
-const AuthedOrgsOrgSlugAppsIdLogsRoute =
-  AuthedOrgsOrgSlugAppsIdLogsRouteImport.update({
-    id: '/logs',
-    path: '/logs',
-    getParentRoute: () => AuthedOrgsOrgSlugAppsIdRoute,
-  } as any)
-const AuthedOrgsOrgSlugAppsIdEnvRoute =
-  AuthedOrgsOrgSlugAppsIdEnvRouteImport.update({
-    id: '/env',
-    path: '/env',
-    getParentRoute: () => AuthedOrgsOrgSlugAppsIdRoute,
-  } as any)
-const AuthedOrgsOrgSlugAppsIdDomainsRoute =
-  AuthedOrgsOrgSlugAppsIdDomainsRouteImport.update({
-    id: '/domains',
-    path: '/domains',
+const AuthedOrgsOrgSlugAppsIdAdvancedRoute =
+  AuthedOrgsOrgSlugAppsIdAdvancedRouteImport.update({
+    id: '/advanced',
+    path: '/advanced',
     getParentRoute: () => AuthedOrgsOrgSlugAppsIdRoute,
   } as any)
 const AuthedOrgsOrgSlugAppsIdDeploymentsRoute =
@@ -414,10 +372,52 @@ const AuthedOrgsOrgSlugAppsIdDeploymentsRoute =
     path: '/deployments',
     getParentRoute: () => AuthedOrgsOrgSlugAppsIdRoute,
   } as any)
-const AuthedOrgsOrgSlugAppsIdAdvancedRoute =
-  AuthedOrgsOrgSlugAppsIdAdvancedRouteImport.update({
-    id: '/advanced',
-    path: '/advanced',
+const AuthedOrgsOrgSlugAppsIdDomainsRoute =
+  AuthedOrgsOrgSlugAppsIdDomainsRouteImport.update({
+    id: '/domains',
+    path: '/domains',
+    getParentRoute: () => AuthedOrgsOrgSlugAppsIdRoute,
+  } as any)
+const AuthedOrgsOrgSlugAppsIdEnvRoute =
+  AuthedOrgsOrgSlugAppsIdEnvRouteImport.update({
+    id: '/env',
+    path: '/env',
+    getParentRoute: () => AuthedOrgsOrgSlugAppsIdRoute,
+  } as any)
+const AuthedOrgsOrgSlugAppsIdLogsRoute =
+  AuthedOrgsOrgSlugAppsIdLogsRouteImport.update({
+    id: '/logs',
+    path: '/logs',
+    getParentRoute: () => AuthedOrgsOrgSlugAppsIdRoute,
+  } as any)
+const AuthedOrgsOrgSlugAppsIdPreviewsRoute =
+  AuthedOrgsOrgSlugAppsIdPreviewsRouteImport.update({
+    id: '/previews',
+    path: '/previews',
+    getParentRoute: () => AuthedOrgsOrgSlugAppsIdRoute,
+  } as any)
+const AuthedOrgsOrgSlugAppsIdSecurityRoute =
+  AuthedOrgsOrgSlugAppsIdSecurityRouteImport.update({
+    id: '/security',
+    path: '/security',
+    getParentRoute: () => AuthedOrgsOrgSlugAppsIdRoute,
+  } as any)
+const AuthedOrgsOrgSlugAppsIdSettingsRoute =
+  AuthedOrgsOrgSlugAppsIdSettingsRouteImport.update({
+    id: '/settings',
+    path: '/settings',
+    getParentRoute: () => AuthedOrgsOrgSlugAppsIdRoute,
+  } as any)
+const AuthedOrgsOrgSlugAppsIdShellRoute =
+  AuthedOrgsOrgSlugAppsIdShellRouteImport.update({
+    id: '/shell',
+    path: '/shell',
+    getParentRoute: () => AuthedOrgsOrgSlugAppsIdRoute,
+  } as any)
+const AuthedOrgsOrgSlugAppsIdStorageRoute =
+  AuthedOrgsOrgSlugAppsIdStorageRouteImport.update({
+    id: '/storage',
+    path: '/storage',
     getParentRoute: () => AuthedOrgsOrgSlugAppsIdRoute,
   } as any)
 
@@ -801,11 +801,11 @@ export interface RootRouteChildren {
 
 declare module '@tanstack/react-router' {
   interface FileRoutesByPath {
-    '/onboarding': {
-      id: '/onboarding'
-      path: '/onboarding'
-      fullPath: '/onboarding'
-      preLoaderRoute: typeof OnboardingRouteImport
+    '/_authed': {
+      id: '/_authed'
+      path: ''
+      fullPath: '/'
+      preLoaderRoute: typeof AuthedRouteImport
       parentRoute: typeof rootRouteImport
     }
     '/_public': {
@@ -815,46 +815,18 @@ declare module '@tanstack/react-router' {
       preLoaderRoute: typeof PublicRouteImport
       parentRoute: typeof rootRouteImport
     }
-    '/_authed': {
-      id: '/_authed'
-      path: ''
-      fullPath: '/'
-      preLoaderRoute: typeof AuthedRouteImport
+    '/onboarding': {
+      id: '/onboarding'
+      path: '/onboarding'
+      fullPath: '/onboarding'
+      preLoaderRoute: typeof OnboardingRouteImport
       parentRoute: typeof rootRouteImport
     }
-    '/_public/': {
-      id: '/_public/'
-      path: '/'
-      fullPath: '/'
-      preLoaderRoute: typeof PublicIndexRouteImport
-      parentRoute: typeof PublicRoute
-    }
-    '/_public/setup': {
-      id: '/_public/setup'
-      path: '/setup'
-      fullPath: '/setup'
-      preLoaderRoute: typeof PublicSetupRouteImport
-      parentRoute: typeof PublicRoute
-    }
-    '/_public/login': {
-      id: '/_public/login'
-      path: '/login'
-      fullPath: '/login'
-      preLoaderRoute: typeof PublicLoginRouteImport
-      parentRoute: typeof PublicRoute
-    }
-    '/_authed/monitoring': {
-      id: '/_authed/monitoring'
-      path: '/monitoring'
-      fullPath: '/monitoring'
-      preLoaderRoute: typeof AuthedMonitoringRouteImport
-      parentRoute: typeof AuthedRoute
-    }
-    '/_authed/guide': {
-      id: '/_authed/guide'
-      path: '/guide'
-      fullPath: '/guide'
-      preLoaderRoute: typeof AuthedGuideRouteImport
+    '/_authed/changelog': {
+      id: '/_authed/changelog'
+      path: '/changelog'
+      fullPath: '/changelog'
+      preLoaderRoute: typeof AuthedChangelogRouteImport
       parentRoute: typeof AuthedRoute
     }
     '/_authed/dashboard': {
@@ -864,60 +836,46 @@ declare module '@tanstack/react-router' {
       preLoaderRoute: typeof AuthedDashboardRouteImport
       parentRoute: typeof AuthedRoute
     }
-    '/_authed/changelog': {
-      id: '/_authed/changelog'
-      path: '/changelog'
-      fullPath: '/changelog'
-      preLoaderRoute: typeof AuthedChangelogRouteImport
+    '/_authed/guide': {
+      id: '/_authed/guide'
+      path: '/guide'
+      fullPath: '/guide'
+      preLoaderRoute: typeof AuthedGuideRouteImport
       parentRoute: typeof AuthedRoute
     }
-    '/_authed/settings/': {
-      id: '/_authed/settings/'
-      path: '/settings'
-      fullPath: '/settings/'
-      preLoaderRoute: typeof AuthedSettingsIndexRouteImport
+    '/_authed/monitoring': {
+      id: '/_authed/monitoring'
+      path: '/monitoring'
+      fullPath: '/monitoring'
+      preLoaderRoute: typeof AuthedMonitoringRouteImport
       parentRoute: typeof AuthedRoute
     }
-    '/_public/invitations/accept': {
-      id: '/_public/invitations/accept'
-      path: '/invitations/accept'
-      fullPath: '/invitations/accept'
-      preLoaderRoute: typeof PublicInvitationsAcceptRouteImport
+    '/_public/': {
+      id: '/_public/'
+      path: '/'
+      fullPath: '/'
+      preLoaderRoute: typeof PublicIndexRouteImport
       parentRoute: typeof PublicRoute
     }
-    '/_authed/settings/security': {
-      id: '/_authed/settings/security'
-      path: '/settings/security'
-      fullPath: '/settings/security'
-      preLoaderRoute: typeof AuthedSettingsSecurityRouteImport
-      parentRoute: typeof AuthedRoute
+    '/_public/login': {
+      id: '/_public/login'
+      path: '/login'
+      fullPath: '/login'
+      preLoaderRoute: typeof PublicLoginRouteImport
+      parentRoute: typeof PublicRoute
     }
-    '/_authed/settings/registry': {
-      id: '/_authed/settings/registry'
-      path: '/settings/registry'
-      fullPath: '/settings/registry'
-      preLoaderRoute: typeof AuthedSettingsRegistryRouteImport
-      parentRoute: typeof AuthedRoute
+    '/_public/setup': {
+      id: '/_public/setup'
+      path: '/setup'
+      fullPath: '/setup'
+      preLoaderRoute: typeof PublicSetupRouteImport
+      parentRoute: typeof PublicRoute
     }
-    '/_authed/settings/notifications': {
-      id: '/_authed/settings/notifications'
-      path: '/settings/notifications'
-      fullPath: '/settings/notifications'
-      preLoaderRoute: typeof AuthedSettingsNotificationsRouteImport
-      parentRoute: typeof AuthedRoute
-    }
-    '/_authed/orgs/$orgSlug': {
-      id: '/_authed/orgs/$orgSlug'
-      path: '/orgs/$orgSlug'
-      fullPath: '/orgs/$orgSlug'
-      preLoaderRoute: typeof AuthedOrgsOrgSlugRouteImport
-      parentRoute: typeof AuthedRoute
-    }
-    '/_authed/databases/$': {
-      id: '/_authed/databases/$'
-      path: '/databases/$'
-      fullPath: '/databases/$'
-      preLoaderRoute: typeof AuthedDatabasesSplatRouteImport
+    '/_authed/admin/disk': {
+      id: '/_authed/admin/disk'
+      path: '/admin/disk'
+      fullPath: '/admin/disk'
+      preLoaderRoute: typeof AuthedAdminDiskRouteImport
       parentRoute: typeof AuthedRoute
     }
     '/_authed/apps/$': {
@@ -927,25 +885,60 @@ declare module '@tanstack/react-router' {
       preLoaderRoute: typeof AuthedAppsSplatRouteImport
       parentRoute: typeof AuthedRoute
     }
-    '/_authed/admin/disk': {
-      id: '/_authed/admin/disk'
-      path: '/admin/disk'
-      fullPath: '/admin/disk'
-      preLoaderRoute: typeof AuthedAdminDiskRouteImport
+    '/_authed/databases/$': {
+      id: '/_authed/databases/$'
+      path: '/databases/$'
+      fullPath: '/databases/$'
+      preLoaderRoute: typeof AuthedDatabasesSplatRouteImport
       parentRoute: typeof AuthedRoute
     }
-    '/_authed/settings/security/': {
-      id: '/_authed/settings/security/'
-      path: '/'
-      fullPath: '/settings/security/'
-      preLoaderRoute: typeof AuthedSettingsSecurityIndexRouteImport
-      parentRoute: typeof AuthedSettingsSecurityRoute
+    '/_authed/orgs/$orgSlug': {
+      id: '/_authed/orgs/$orgSlug'
+      path: '/orgs/$orgSlug'
+      fullPath: '/orgs/$orgSlug'
+      preLoaderRoute: typeof AuthedOrgsOrgSlugRouteImport
+      parentRoute: typeof AuthedRoute
     }
-    '/_authed/settings/git-providers/': {
-      id: '/_authed/settings/git-providers/'
-      path: '/settings/git-providers'
-      fullPath: '/settings/git-providers/'
-      preLoaderRoute: typeof AuthedSettingsGitProvidersIndexRouteImport
+    '/_authed/settings/': {
+      id: '/_authed/settings/'
+      path: '/settings'
+      fullPath: '/settings/'
+      preLoaderRoute: typeof AuthedSettingsIndexRouteImport
+      parentRoute: typeof AuthedRoute
+    }
+    '/_authed/settings/notifications': {
+      id: '/_authed/settings/notifications'
+      path: '/settings/notifications'
+      fullPath: '/settings/notifications'
+      preLoaderRoute: typeof AuthedSettingsNotificationsRouteImport
+      parentRoute: typeof AuthedRoute
+    }
+    '/_authed/settings/registry': {
+      id: '/_authed/settings/registry'
+      path: '/settings/registry'
+      fullPath: '/settings/registry'
+      preLoaderRoute: typeof AuthedSettingsRegistryRouteImport
+      parentRoute: typeof AuthedRoute
+    }
+    '/_authed/settings/security': {
+      id: '/_authed/settings/security'
+      path: '/settings/security'
+      fullPath: '/settings/security'
+      preLoaderRoute: typeof AuthedSettingsSecurityRouteImport
+      parentRoute: typeof AuthedRoute
+    }
+    '/_public/invitations/accept': {
+      id: '/_public/invitations/accept'
+      path: '/invitations/accept'
+      fullPath: '/invitations/accept'
+      preLoaderRoute: typeof PublicInvitationsAcceptRouteImport
+      parentRoute: typeof PublicRoute
+    }
+    '/_authed/admin/security/advisories': {
+      id: '/_authed/admin/security/advisories'
+      path: '/admin/security/advisories'
+      fullPath: '/admin/security/advisories'
+      preLoaderRoute: typeof AuthedAdminSecurityAdvisoriesRouteImport
       parentRoute: typeof AuthedRoute
     }
     '/_authed/orgs/$orgSlug/': {
@@ -955,116 +948,11 @@ declare module '@tanstack/react-router' {
       preLoaderRoute: typeof AuthedOrgsOrgSlugIndexRouteImport
       parentRoute: typeof AuthedOrgsOrgSlugRoute
     }
-    '/_authed/settings/security/totp': {
-      id: '/_authed/settings/security/totp'
-      path: '/totp'
-      fullPath: '/settings/security/totp'
-      preLoaderRoute: typeof AuthedSettingsSecurityTotpRouteImport
-      parentRoute: typeof AuthedSettingsSecurityRoute
-    }
-    '/_authed/settings/security/sessions': {
-      id: '/_authed/settings/security/sessions'
-      path: '/sessions'
-      fullPath: '/settings/security/sessions'
-      preLoaderRoute: typeof AuthedSettingsSecuritySessionsRouteImport
-      parentRoute: typeof AuthedSettingsSecurityRoute
-    }
-    '/_authed/settings/security/posture': {
-      id: '/_authed/settings/security/posture'
-      path: '/posture'
-      fullPath: '/settings/security/posture'
-      preLoaderRoute: typeof AuthedSettingsSecurityPostureRouteImport
-      parentRoute: typeof AuthedSettingsSecurityRoute
-    }
-    '/_authed/settings/security/passkeys': {
-      id: '/_authed/settings/security/passkeys'
-      path: '/passkeys'
-      fullPath: '/settings/security/passkeys'
-      preLoaderRoute: typeof AuthedSettingsSecurityPasskeysRouteImport
-      parentRoute: typeof AuthedSettingsSecurityRoute
-    }
-    '/_authed/settings/security/passkey': {
-      id: '/_authed/settings/security/passkey'
-      path: '/passkey'
-      fullPath: '/settings/security/passkey'
-      preLoaderRoute: typeof AuthedSettingsSecurityPasskeyRouteImport
-      parentRoute: typeof AuthedSettingsSecurityRoute
-    }
-    '/_authed/settings/git-providers/$slug': {
-      id: '/_authed/settings/git-providers/$slug'
-      path: '/settings/git-providers/$slug'
-      fullPath: '/settings/git-providers/$slug'
-      preLoaderRoute: typeof AuthedSettingsGitProvidersSlugRouteImport
-      parentRoute: typeof AuthedRoute
-    }
-    '/_authed/orgs/$orgSlug/tags': {
-      id: '/_authed/orgs/$orgSlug/tags'
-      path: '/tags'
-      fullPath: '/orgs/$orgSlug/tags'
-      preLoaderRoute: typeof AuthedOrgsOrgSlugTagsRouteImport
-      parentRoute: typeof AuthedOrgsOrgSlugRoute
-    }
-    '/_authed/orgs/$orgSlug/shared-env': {
-      id: '/_authed/orgs/$orgSlug/shared-env'
-      path: '/shared-env'
-      fullPath: '/orgs/$orgSlug/shared-env'
-      preLoaderRoute: typeof AuthedOrgsOrgSlugSharedEnvRouteImport
-      parentRoute: typeof AuthedOrgsOrgSlugRoute
-    }
-    '/_authed/orgs/$orgSlug/settings': {
-      id: '/_authed/orgs/$orgSlug/settings'
-      path: '/settings'
-      fullPath: '/orgs/$orgSlug/settings'
-      preLoaderRoute: typeof AuthedOrgsOrgSlugSettingsRouteImport
-      parentRoute: typeof AuthedOrgsOrgSlugRoute
-    }
-    '/_authed/orgs/$orgSlug/scheduled-jobs': {
-      id: '/_authed/orgs/$orgSlug/scheduled-jobs'
-      path: '/scheduled-jobs'
-      fullPath: '/orgs/$orgSlug/scheduled-jobs'
-      preLoaderRoute: typeof AuthedOrgsOrgSlugScheduledJobsRouteImport
-      parentRoute: typeof AuthedOrgsOrgSlugRoute
-    }
-    '/_authed/orgs/$orgSlug/monitoring': {
-      id: '/_authed/orgs/$orgSlug/monitoring'
-      path: '/monitoring'
-      fullPath: '/orgs/$orgSlug/monitoring'
-      preLoaderRoute: typeof AuthedOrgsOrgSlugMonitoringRouteImport
-      parentRoute: typeof AuthedOrgsOrgSlugRoute
-    }
-    '/_authed/orgs/$orgSlug/members': {
-      id: '/_authed/orgs/$orgSlug/members'
-      path: '/members'
-      fullPath: '/orgs/$orgSlug/members'
-      preLoaderRoute: typeof AuthedOrgsOrgSlugMembersRouteImport
-      parentRoute: typeof AuthedOrgsOrgSlugRoute
-    }
-    '/_authed/orgs/$orgSlug/marketplace': {
-      id: '/_authed/orgs/$orgSlug/marketplace'
-      path: '/marketplace'
-      fullPath: '/orgs/$orgSlug/marketplace'
-      preLoaderRoute: typeof AuthedOrgsOrgSlugMarketplaceRouteImport
-      parentRoute: typeof AuthedOrgsOrgSlugRoute
-    }
-    '/_authed/orgs/$orgSlug/event-webhooks': {
-      id: '/_authed/orgs/$orgSlug/event-webhooks'
-      path: '/event-webhooks'
-      fullPath: '/orgs/$orgSlug/event-webhooks'
-      preLoaderRoute: typeof AuthedOrgsOrgSlugEventWebhooksRouteImport
-      parentRoute: typeof AuthedOrgsOrgSlugRoute
-    }
-    '/_authed/orgs/$orgSlug/deployments': {
-      id: '/_authed/orgs/$orgSlug/deployments'
-      path: '/deployments'
-      fullPath: '/orgs/$orgSlug/deployments'
-      preLoaderRoute: typeof AuthedOrgsOrgSlugDeploymentsRouteImport
-      parentRoute: typeof AuthedOrgsOrgSlugRoute
-    }
-    '/_authed/orgs/$orgSlug/dashboard': {
-      id: '/_authed/orgs/$orgSlug/dashboard'
-      path: '/dashboard'
-      fullPath: '/orgs/$orgSlug/dashboard'
-      preLoaderRoute: typeof AuthedOrgsOrgSlugDashboardRouteImport
+    '/_authed/orgs/$orgSlug/audit': {
+      id: '/_authed/orgs/$orgSlug/audit'
+      path: '/audit'
+      fullPath: '/orgs/$orgSlug/audit'
+      preLoaderRoute: typeof AuthedOrgsOrgSlugAuditRouteImport
       parentRoute: typeof AuthedOrgsOrgSlugRoute
     }
     '/_authed/orgs/$orgSlug/branding': {
@@ -1074,81 +962,137 @@ declare module '@tanstack/react-router' {
       preLoaderRoute: typeof AuthedOrgsOrgSlugBrandingRouteImport
       parentRoute: typeof AuthedOrgsOrgSlugRoute
     }
-    '/_authed/orgs/$orgSlug/audit': {
-      id: '/_authed/orgs/$orgSlug/audit'
-      path: '/audit'
-      fullPath: '/orgs/$orgSlug/audit'
-      preLoaderRoute: typeof AuthedOrgsOrgSlugAuditRouteImport
+    '/_authed/orgs/$orgSlug/dashboard': {
+      id: '/_authed/orgs/$orgSlug/dashboard'
+      path: '/dashboard'
+      fullPath: '/orgs/$orgSlug/dashboard'
+      preLoaderRoute: typeof AuthedOrgsOrgSlugDashboardRouteImport
       parentRoute: typeof AuthedOrgsOrgSlugRoute
     }
-    '/_authed/admin/security/advisories': {
-      id: '/_authed/admin/security/advisories'
-      path: '/admin/security/advisories'
-      fullPath: '/admin/security/advisories'
-      preLoaderRoute: typeof AuthedAdminSecurityAdvisoriesRouteImport
+    '/_authed/orgs/$orgSlug/deployments': {
+      id: '/_authed/orgs/$orgSlug/deployments'
+      path: '/deployments'
+      fullPath: '/orgs/$orgSlug/deployments'
+      preLoaderRoute: typeof AuthedOrgsOrgSlugDeploymentsRouteImport
+      parentRoute: typeof AuthedOrgsOrgSlugRoute
+    }
+    '/_authed/orgs/$orgSlug/event-webhooks': {
+      id: '/_authed/orgs/$orgSlug/event-webhooks'
+      path: '/event-webhooks'
+      fullPath: '/orgs/$orgSlug/event-webhooks'
+      preLoaderRoute: typeof AuthedOrgsOrgSlugEventWebhooksRouteImport
+      parentRoute: typeof AuthedOrgsOrgSlugRoute
+    }
+    '/_authed/orgs/$orgSlug/marketplace': {
+      id: '/_authed/orgs/$orgSlug/marketplace'
+      path: '/marketplace'
+      fullPath: '/orgs/$orgSlug/marketplace'
+      preLoaderRoute: typeof AuthedOrgsOrgSlugMarketplaceRouteImport
+      parentRoute: typeof AuthedOrgsOrgSlugRoute
+    }
+    '/_authed/orgs/$orgSlug/members': {
+      id: '/_authed/orgs/$orgSlug/members'
+      path: '/members'
+      fullPath: '/orgs/$orgSlug/members'
+      preLoaderRoute: typeof AuthedOrgsOrgSlugMembersRouteImport
+      parentRoute: typeof AuthedOrgsOrgSlugRoute
+    }
+    '/_authed/orgs/$orgSlug/monitoring': {
+      id: '/_authed/orgs/$orgSlug/monitoring'
+      path: '/monitoring'
+      fullPath: '/orgs/$orgSlug/monitoring'
+      preLoaderRoute: typeof AuthedOrgsOrgSlugMonitoringRouteImport
+      parentRoute: typeof AuthedOrgsOrgSlugRoute
+    }
+    '/_authed/orgs/$orgSlug/scheduled-jobs': {
+      id: '/_authed/orgs/$orgSlug/scheduled-jobs'
+      path: '/scheduled-jobs'
+      fullPath: '/orgs/$orgSlug/scheduled-jobs'
+      preLoaderRoute: typeof AuthedOrgsOrgSlugScheduledJobsRouteImport
+      parentRoute: typeof AuthedOrgsOrgSlugRoute
+    }
+    '/_authed/orgs/$orgSlug/settings': {
+      id: '/_authed/orgs/$orgSlug/settings'
+      path: '/settings'
+      fullPath: '/orgs/$orgSlug/settings'
+      preLoaderRoute: typeof AuthedOrgsOrgSlugSettingsRouteImport
+      parentRoute: typeof AuthedOrgsOrgSlugRoute
+    }
+    '/_authed/orgs/$orgSlug/shared-env': {
+      id: '/_authed/orgs/$orgSlug/shared-env'
+      path: '/shared-env'
+      fullPath: '/orgs/$orgSlug/shared-env'
+      preLoaderRoute: typeof AuthedOrgsOrgSlugSharedEnvRouteImport
+      parentRoute: typeof AuthedOrgsOrgSlugRoute
+    }
+    '/_authed/orgs/$orgSlug/tags': {
+      id: '/_authed/orgs/$orgSlug/tags'
+      path: '/tags'
+      fullPath: '/orgs/$orgSlug/tags'
+      preLoaderRoute: typeof AuthedOrgsOrgSlugTagsRouteImport
+      parentRoute: typeof AuthedOrgsOrgSlugRoute
+    }
+    '/_authed/settings/git-providers/': {
+      id: '/_authed/settings/git-providers/'
+      path: '/settings/git-providers'
+      fullPath: '/settings/git-providers/'
+      preLoaderRoute: typeof AuthedSettingsGitProvidersIndexRouteImport
       parentRoute: typeof AuthedRoute
     }
-    '/_authed/orgs/$orgSlug/settings/': {
-      id: '/_authed/orgs/$orgSlug/settings/'
+    '/_authed/settings/git-providers/$slug': {
+      id: '/_authed/settings/git-providers/$slug'
+      path: '/settings/git-providers/$slug'
+      fullPath: '/settings/git-providers/$slug'
+      preLoaderRoute: typeof AuthedSettingsGitProvidersSlugRouteImport
+      parentRoute: typeof AuthedRoute
+    }
+    '/_authed/settings/security/': {
+      id: '/_authed/settings/security/'
       path: '/'
-      fullPath: '/orgs/$orgSlug/settings/'
-      preLoaderRoute: typeof AuthedOrgsOrgSlugSettingsIndexRouteImport
-      parentRoute: typeof AuthedOrgsOrgSlugSettingsRoute
+      fullPath: '/settings/security/'
+      preLoaderRoute: typeof AuthedSettingsSecurityIndexRouteImport
+      parentRoute: typeof AuthedSettingsSecurityRoute
     }
-    '/_authed/orgs/$orgSlug/services/': {
-      id: '/_authed/orgs/$orgSlug/services/'
-      path: '/services'
-      fullPath: '/orgs/$orgSlug/services/'
-      preLoaderRoute: typeof AuthedOrgsOrgSlugServicesIndexRouteImport
-      parentRoute: typeof AuthedOrgsOrgSlugRoute
+    '/_authed/settings/security/passkey': {
+      id: '/_authed/settings/security/passkey'
+      path: '/passkey'
+      fullPath: '/settings/security/passkey'
+      preLoaderRoute: typeof AuthedSettingsSecurityPasskeyRouteImport
+      parentRoute: typeof AuthedSettingsSecurityRoute
     }
-    '/_authed/orgs/$orgSlug/databases/': {
-      id: '/_authed/orgs/$orgSlug/databases/'
-      path: '/databases'
-      fullPath: '/orgs/$orgSlug/databases/'
-      preLoaderRoute: typeof AuthedOrgsOrgSlugDatabasesIndexRouteImport
-      parentRoute: typeof AuthedOrgsOrgSlugRoute
+    '/_authed/settings/security/passkeys': {
+      id: '/_authed/settings/security/passkeys'
+      path: '/passkeys'
+      fullPath: '/settings/security/passkeys'
+      preLoaderRoute: typeof AuthedSettingsSecurityPasskeysRouteImport
+      parentRoute: typeof AuthedSettingsSecurityRoute
+    }
+    '/_authed/settings/security/posture': {
+      id: '/_authed/settings/security/posture'
+      path: '/posture'
+      fullPath: '/settings/security/posture'
+      preLoaderRoute: typeof AuthedSettingsSecurityPostureRouteImport
+      parentRoute: typeof AuthedSettingsSecurityRoute
+    }
+    '/_authed/settings/security/sessions': {
+      id: '/_authed/settings/security/sessions'
+      path: '/sessions'
+      fullPath: '/settings/security/sessions'
+      preLoaderRoute: typeof AuthedSettingsSecuritySessionsRouteImport
+      parentRoute: typeof AuthedSettingsSecurityRoute
+    }
+    '/_authed/settings/security/totp': {
+      id: '/_authed/settings/security/totp'
+      path: '/totp'
+      fullPath: '/settings/security/totp'
+      preLoaderRoute: typeof AuthedSettingsSecurityTotpRouteImport
+      parentRoute: typeof AuthedSettingsSecurityRoute
     }
     '/_authed/orgs/$orgSlug/apps/': {
       id: '/_authed/orgs/$orgSlug/apps/'
       path: '/apps'
       fullPath: '/orgs/$orgSlug/apps/'
       preLoaderRoute: typeof AuthedOrgsOrgSlugAppsIndexRouteImport
-      parentRoute: typeof AuthedOrgsOrgSlugRoute
-    }
-    '/_authed/orgs/$orgSlug/settings/sso': {
-      id: '/_authed/orgs/$orgSlug/settings/sso'
-      path: '/sso'
-      fullPath: '/orgs/$orgSlug/settings/sso'
-      preLoaderRoute: typeof AuthedOrgsOrgSlugSettingsSsoRouteImport
-      parentRoute: typeof AuthedOrgsOrgSlugSettingsRoute
-    }
-    '/_authed/orgs/$orgSlug/settings/general': {
-      id: '/_authed/orgs/$orgSlug/settings/general'
-      path: '/general'
-      fullPath: '/orgs/$orgSlug/settings/general'
-      preLoaderRoute: typeof AuthedOrgsOrgSlugSettingsGeneralRouteImport
-      parentRoute: typeof AuthedOrgsOrgSlugSettingsRoute
-    }
-    '/_authed/orgs/$orgSlug/settings/billing': {
-      id: '/_authed/orgs/$orgSlug/settings/billing'
-      path: '/billing'
-      fullPath: '/orgs/$orgSlug/settings/billing'
-      preLoaderRoute: typeof AuthedOrgsOrgSlugSettingsBillingRouteImport
-      parentRoute: typeof AuthedOrgsOrgSlugSettingsRoute
-    }
-    '/_authed/orgs/$orgSlug/services/$id': {
-      id: '/_authed/orgs/$orgSlug/services/$id'
-      path: '/services/$id'
-      fullPath: '/orgs/$orgSlug/services/$id'
-      preLoaderRoute: typeof AuthedOrgsOrgSlugServicesIdRouteImport
-      parentRoute: typeof AuthedOrgsOrgSlugRoute
-    }
-    '/_authed/orgs/$orgSlug/databases/$id': {
-      id: '/_authed/orgs/$orgSlug/databases/$id'
-      path: '/databases/$id'
-      fullPath: '/orgs/$orgSlug/databases/$id'
-      preLoaderRoute: typeof AuthedOrgsOrgSlugDatabasesIdRouteImport
       parentRoute: typeof AuthedOrgsOrgSlugRoute
     }
     '/_authed/orgs/$orgSlug/apps/$id': {
@@ -1158,6 +1102,62 @@ declare module '@tanstack/react-router' {
       preLoaderRoute: typeof AuthedOrgsOrgSlugAppsIdRouteImport
       parentRoute: typeof AuthedOrgsOrgSlugRoute
     }
+    '/_authed/orgs/$orgSlug/databases/': {
+      id: '/_authed/orgs/$orgSlug/databases/'
+      path: '/databases'
+      fullPath: '/orgs/$orgSlug/databases/'
+      preLoaderRoute: typeof AuthedOrgsOrgSlugDatabasesIndexRouteImport
+      parentRoute: typeof AuthedOrgsOrgSlugRoute
+    }
+    '/_authed/orgs/$orgSlug/databases/$id': {
+      id: '/_authed/orgs/$orgSlug/databases/$id'
+      path: '/databases/$id'
+      fullPath: '/orgs/$orgSlug/databases/$id'
+      preLoaderRoute: typeof AuthedOrgsOrgSlugDatabasesIdRouteImport
+      parentRoute: typeof AuthedOrgsOrgSlugRoute
+    }
+    '/_authed/orgs/$orgSlug/services/': {
+      id: '/_authed/orgs/$orgSlug/services/'
+      path: '/services'
+      fullPath: '/orgs/$orgSlug/services/'
+      preLoaderRoute: typeof AuthedOrgsOrgSlugServicesIndexRouteImport
+      parentRoute: typeof AuthedOrgsOrgSlugRoute
+    }
+    '/_authed/orgs/$orgSlug/services/$id': {
+      id: '/_authed/orgs/$orgSlug/services/$id'
+      path: '/services/$id'
+      fullPath: '/orgs/$orgSlug/services/$id'
+      preLoaderRoute: typeof AuthedOrgsOrgSlugServicesIdRouteImport
+      parentRoute: typeof AuthedOrgsOrgSlugRoute
+    }
+    '/_authed/orgs/$orgSlug/settings/': {
+      id: '/_authed/orgs/$orgSlug/settings/'
+      path: '/'
+      fullPath: '/orgs/$orgSlug/settings/'
+      preLoaderRoute: typeof AuthedOrgsOrgSlugSettingsIndexRouteImport
+      parentRoute: typeof AuthedOrgsOrgSlugSettingsRoute
+    }
+    '/_authed/orgs/$orgSlug/settings/billing': {
+      id: '/_authed/orgs/$orgSlug/settings/billing'
+      path: '/billing'
+      fullPath: '/orgs/$orgSlug/settings/billing'
+      preLoaderRoute: typeof AuthedOrgsOrgSlugSettingsBillingRouteImport
+      parentRoute: typeof AuthedOrgsOrgSlugSettingsRoute
+    }
+    '/_authed/orgs/$orgSlug/settings/general': {
+      id: '/_authed/orgs/$orgSlug/settings/general'
+      path: '/general'
+      fullPath: '/orgs/$orgSlug/settings/general'
+      preLoaderRoute: typeof AuthedOrgsOrgSlugSettingsGeneralRouteImport
+      parentRoute: typeof AuthedOrgsOrgSlugSettingsRoute
+    }
+    '/_authed/orgs/$orgSlug/settings/sso': {
+      id: '/_authed/orgs/$orgSlug/settings/sso'
+      path: '/sso'
+      fullPath: '/orgs/$orgSlug/settings/sso'
+      preLoaderRoute: typeof AuthedOrgsOrgSlugSettingsSsoRouteImport
+      parentRoute: typeof AuthedOrgsOrgSlugSettingsRoute
+    }
     '/_authed/orgs/$orgSlug/apps/$id/': {
       id: '/_authed/orgs/$orgSlug/apps/$id/'
       path: '/'
@@ -1165,60 +1165,11 @@ declare module '@tanstack/react-router' {
       preLoaderRoute: typeof AuthedOrgsOrgSlugAppsIdIndexRouteImport
       parentRoute: typeof AuthedOrgsOrgSlugAppsIdRoute
     }
-    '/_authed/orgs/$orgSlug/apps/$id/storage': {
-      id: '/_authed/orgs/$orgSlug/apps/$id/storage'
-      path: '/storage'
-      fullPath: '/orgs/$orgSlug/apps/$id/storage'
-      preLoaderRoute: typeof AuthedOrgsOrgSlugAppsIdStorageRouteImport
-      parentRoute: typeof AuthedOrgsOrgSlugAppsIdRoute
-    }
-    '/_authed/orgs/$orgSlug/apps/$id/shell': {
-      id: '/_authed/orgs/$orgSlug/apps/$id/shell'
-      path: '/shell'
-      fullPath: '/orgs/$orgSlug/apps/$id/shell'
-      preLoaderRoute: typeof AuthedOrgsOrgSlugAppsIdShellRouteImport
-      parentRoute: typeof AuthedOrgsOrgSlugAppsIdRoute
-    }
-    '/_authed/orgs/$orgSlug/apps/$id/settings': {
-      id: '/_authed/orgs/$orgSlug/apps/$id/settings'
-      path: '/settings'
-      fullPath: '/orgs/$orgSlug/apps/$id/settings'
-      preLoaderRoute: typeof AuthedOrgsOrgSlugAppsIdSettingsRouteImport
-      parentRoute: typeof AuthedOrgsOrgSlugAppsIdRoute
-    }
-    '/_authed/orgs/$orgSlug/apps/$id/security': {
-      id: '/_authed/orgs/$orgSlug/apps/$id/security'
-      path: '/security'
-      fullPath: '/orgs/$orgSlug/apps/$id/security'
-      preLoaderRoute: typeof AuthedOrgsOrgSlugAppsIdSecurityRouteImport
-      parentRoute: typeof AuthedOrgsOrgSlugAppsIdRoute
-    }
-    '/_authed/orgs/$orgSlug/apps/$id/previews': {
-      id: '/_authed/orgs/$orgSlug/apps/$id/previews'
-      path: '/previews'
-      fullPath: '/orgs/$orgSlug/apps/$id/previews'
-      preLoaderRoute: typeof AuthedOrgsOrgSlugAppsIdPreviewsRouteImport
-      parentRoute: typeof AuthedOrgsOrgSlugAppsIdRoute
-    }
-    '/_authed/orgs/$orgSlug/apps/$id/logs': {
-      id: '/_authed/orgs/$orgSlug/apps/$id/logs'
-      path: '/logs'
-      fullPath: '/orgs/$orgSlug/apps/$id/logs'
-      preLoaderRoute: typeof AuthedOrgsOrgSlugAppsIdLogsRouteImport
-      parentRoute: typeof AuthedOrgsOrgSlugAppsIdRoute
-    }
-    '/_authed/orgs/$orgSlug/apps/$id/env': {
-      id: '/_authed/orgs/$orgSlug/apps/$id/env'
-      path: '/env'
-      fullPath: '/orgs/$orgSlug/apps/$id/env'
-      preLoaderRoute: typeof AuthedOrgsOrgSlugAppsIdEnvRouteImport
-      parentRoute: typeof AuthedOrgsOrgSlugAppsIdRoute
-    }
-    '/_authed/orgs/$orgSlug/apps/$id/domains': {
-      id: '/_authed/orgs/$orgSlug/apps/$id/domains'
-      path: '/domains'
-      fullPath: '/orgs/$orgSlug/apps/$id/domains'
-      preLoaderRoute: typeof AuthedOrgsOrgSlugAppsIdDomainsRouteImport
+    '/_authed/orgs/$orgSlug/apps/$id/advanced': {
+      id: '/_authed/orgs/$orgSlug/apps/$id/advanced'
+      path: '/advanced'
+      fullPath: '/orgs/$orgSlug/apps/$id/advanced'
+      preLoaderRoute: typeof AuthedOrgsOrgSlugAppsIdAdvancedRouteImport
       parentRoute: typeof AuthedOrgsOrgSlugAppsIdRoute
     }
     '/_authed/orgs/$orgSlug/apps/$id/deployments': {
@@ -1228,11 +1179,60 @@ declare module '@tanstack/react-router' {
       preLoaderRoute: typeof AuthedOrgsOrgSlugAppsIdDeploymentsRouteImport
       parentRoute: typeof AuthedOrgsOrgSlugAppsIdRoute
     }
-    '/_authed/orgs/$orgSlug/apps/$id/advanced': {
-      id: '/_authed/orgs/$orgSlug/apps/$id/advanced'
-      path: '/advanced'
-      fullPath: '/orgs/$orgSlug/apps/$id/advanced'
-      preLoaderRoute: typeof AuthedOrgsOrgSlugAppsIdAdvancedRouteImport
+    '/_authed/orgs/$orgSlug/apps/$id/domains': {
+      id: '/_authed/orgs/$orgSlug/apps/$id/domains'
+      path: '/domains'
+      fullPath: '/orgs/$orgSlug/apps/$id/domains'
+      preLoaderRoute: typeof AuthedOrgsOrgSlugAppsIdDomainsRouteImport
+      parentRoute: typeof AuthedOrgsOrgSlugAppsIdRoute
+    }
+    '/_authed/orgs/$orgSlug/apps/$id/env': {
+      id: '/_authed/orgs/$orgSlug/apps/$id/env'
+      path: '/env'
+      fullPath: '/orgs/$orgSlug/apps/$id/env'
+      preLoaderRoute: typeof AuthedOrgsOrgSlugAppsIdEnvRouteImport
+      parentRoute: typeof AuthedOrgsOrgSlugAppsIdRoute
+    }
+    '/_authed/orgs/$orgSlug/apps/$id/logs': {
+      id: '/_authed/orgs/$orgSlug/apps/$id/logs'
+      path: '/logs'
+      fullPath: '/orgs/$orgSlug/apps/$id/logs'
+      preLoaderRoute: typeof AuthedOrgsOrgSlugAppsIdLogsRouteImport
+      parentRoute: typeof AuthedOrgsOrgSlugAppsIdRoute
+    }
+    '/_authed/orgs/$orgSlug/apps/$id/previews': {
+      id: '/_authed/orgs/$orgSlug/apps/$id/previews'
+      path: '/previews'
+      fullPath: '/orgs/$orgSlug/apps/$id/previews'
+      preLoaderRoute: typeof AuthedOrgsOrgSlugAppsIdPreviewsRouteImport
+      parentRoute: typeof AuthedOrgsOrgSlugAppsIdRoute
+    }
+    '/_authed/orgs/$orgSlug/apps/$id/security': {
+      id: '/_authed/orgs/$orgSlug/apps/$id/security'
+      path: '/security'
+      fullPath: '/orgs/$orgSlug/apps/$id/security'
+      preLoaderRoute: typeof AuthedOrgsOrgSlugAppsIdSecurityRouteImport
+      parentRoute: typeof AuthedOrgsOrgSlugAppsIdRoute
+    }
+    '/_authed/orgs/$orgSlug/apps/$id/settings': {
+      id: '/_authed/orgs/$orgSlug/apps/$id/settings'
+      path: '/settings'
+      fullPath: '/orgs/$orgSlug/apps/$id/settings'
+      preLoaderRoute: typeof AuthedOrgsOrgSlugAppsIdSettingsRouteImport
+      parentRoute: typeof AuthedOrgsOrgSlugAppsIdRoute
+    }
+    '/_authed/orgs/$orgSlug/apps/$id/shell': {
+      id: '/_authed/orgs/$orgSlug/apps/$id/shell'
+      path: '/shell'
+      fullPath: '/orgs/$orgSlug/apps/$id/shell'
+      preLoaderRoute: typeof AuthedOrgsOrgSlugAppsIdShellRouteImport
+      parentRoute: typeof AuthedOrgsOrgSlugAppsIdRoute
+    }
+    '/_authed/orgs/$orgSlug/apps/$id/storage': {
+      id: '/_authed/orgs/$orgSlug/apps/$id/storage'
+      path: '/storage'
+      fullPath: '/orgs/$orgSlug/apps/$id/storage'
+      preLoaderRoute: typeof AuthedOrgsOrgSlugAppsIdStorageRouteImport
       parentRoute: typeof AuthedOrgsOrgSlugAppsIdRoute
     }
   }

@@ -26,6 +26,7 @@ import {
   stopRegistryGcCron,
   GcRegistryOptionsSchema,
 } from "./handlers/gc-registry"
+import { ensureStateDirs } from "./state-dirs"
 import { claimQueuedRow } from "./queue-claim"
 import { auditClaimed, auditUnauthorized } from "./queue-audit"
 import { gcQueue, transactionalOutboxQueues } from "./queues"
@@ -251,6 +252,7 @@ export function startWorker(
   db: Db,
   opts?: { signal?: AbortSignal; agent?: Agent }
 ): WorkerHandle {
+  void ensureStateDirs()
   const connection = createRedis(env.REDIS_URL)
   const agent = opts?.agent ?? getSharedAgent()
   const deployConcurrency = env.PLOYDOK_DEPLOY_CONCURRENCY

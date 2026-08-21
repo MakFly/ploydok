@@ -2,6 +2,18 @@
 import { randomBytes } from "node:crypto"
 import { z } from "zod"
 
+// Racines d'état sur disque (builds, sites statiques). En production le
+// container API tourne sous un uid numérique avec un rootfs `read_only`, donc
+// `HOME` vaut `/` : tout default dérivé du home serait non inscriptible. Les
+// volumes de l'hôte sont montés sur `/var/lib/ploydok/<name>`
+// (cf. installer/templates/docker-stack.yml). En dev l'API tourne sous l'uid de
+// l'utilisateur, qui n'a pas les droits sur /var/lib — d'où un chemin sous HOME.
+export function defaultStateDir(name: string): string {
+  if (Bun.env["NODE_ENV"] === "prod") return `/var/lib/ploydok/${name}`
+  const home = Bun.env["HOME"] ?? "/tmp"
+  return `${home}/.ploydok-dev/${name}`
+}
+
 const schema = z.object({
   NODE_ENV: z.enum(["dev", "prod", "test"]).default("dev"),
   PORT: z.coerce.number().default(3335),
@@ -40,10 +52,9 @@ const schema = z.object({
   PLOYDOK_REGISTRY_PUSH_URL: z.string().default("registry:5000"),
   PLOYDOK_REGISTRY_USER: z.string().optional(),
   PLOYDOK_REGISTRY_PASS: z.string().optional(),
-  PLOYDOK_BUILD_DIR: z.string().default(() => {
-    const home = process.env.HOME ?? "/tmp"
-    return `${home}/.ploydok-dev/builds`
-  }),
+  PLOYDOK_BUILD_DIR: z.string().default(() => defaultStateDir("builds")),
+  PLOYDOK_STATIC_ROOT: z.string().default(() => defaultStateDir("static")),
+  PLOYDOK_CADDY_STATIC_ROOT: z.string().optional(),
   PLOYDOK_BUILDKIT_ADDR: z
     .string()
     .default("docker-container://ploydok-buildkitd"),
@@ -101,6 +112,8 @@ const raw = schema.parse({
   PLOYDOK_REGISTRY_USER: Bun.env["PLOYDOK_REGISTRY_USER"],
   PLOYDOK_REGISTRY_PASS: Bun.env["PLOYDOK_REGISTRY_PASS"],
   PLOYDOK_BUILD_DIR: Bun.env["PLOYDOK_BUILD_DIR"],
+  PLOYDOK_STATIC_ROOT: Bun.env["PLOYDOK_STATIC_ROOT"],
+  PLOYDOK_CADDY_STATIC_ROOT: Bun.env["PLOYDOK_CADDY_STATIC_ROOT"],
   PLOYDOK_BUILDKIT_ADDR: Bun.env["PLOYDOK_BUILDKIT_ADDR"],
   PLOYDOK_DEPLOY_CONCURRENCY: Bun.env["PLOYDOK_DEPLOY_CONCURRENCY"],
   PLOYDOK_BUILD_LOG_RETENTION_DAYS: Bun.env["PLOYDOK_BUILD_LOG_RETENTION_DAYS"],
@@ -193,6 +206,9 @@ export const env = {
   PLOYDOK_REGISTRY_USER: raw.PLOYDOK_REGISTRY_USER,
   PLOYDOK_REGISTRY_PASS: raw.PLOYDOK_REGISTRY_PASS,
   PLOYDOK_BUILD_DIR: raw.PLOYDOK_BUILD_DIR,
+  PLOYDOK_STATIC_ROOT: raw.PLOYDOK_STATIC_ROOT,
+  PLOYDOK_CADDY_STATIC_ROOT:
+    raw.PLOYDOK_CADDY_STATIC_ROOT ?? raw.PLOYDOK_STATIC_ROOT,
   PLOYDOK_BUILDKIT_ADDR: raw.PLOYDOK_BUILDKIT_ADDR,
   PLOYDOK_DEPLOY_CONCURRENCY: raw.PLOYDOK_DEPLOY_CONCURRENCY,
   PLOYDOK_BUILD_LOG_RETENTION_DAYS: raw.PLOYDOK_BUILD_LOG_RETENTION_DAYS,

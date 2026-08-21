@@ -431,7 +431,13 @@ async function apiFetchCore<T>(
   const data: unknown = await res.json().catch(() => ({}))
 
   if (!res.ok) {
-    const errData = data as { error?: { code?: string; message?: string } }
+    const errData = data as {
+      error?: {
+        code?: string
+        message?: string
+        fields?: Record<string, string>
+      }
+    }
     const code = errData.error?.code ?? "UNKNOWN"
     const message = errData.error?.message ?? "An error occurred"
     if (
@@ -440,7 +446,7 @@ async function apiFetchCore<T>(
     ) {
       throw new SecondFactorRequiredError(message)
     }
-    throw new ApiError(res.status, code, message)
+    throw new ApiError(res.status, code, message, errData.error?.fields)
   }
 
   if (

@@ -12,9 +12,49 @@ ne doivent jamais être stockés ou journalisés en clair.
 | ----------------- | ------ | -------------------------------------------- |
 | `ploydok_access`  | 10 min | `HttpOnly; SameSite=Lax; Secure` (prod only) |
 | `ploydok_refresh` | 7 j    | `HttpOnly; SameSite=Lax; Secure` (prod only) |
+| `ploydok_setup`   | 30 min | `HttpOnly; SameSite=Lax; Secure` (prod only) |
 
 - `Secure` **uniquement** en prod (`NODE_ENV=prod`). En dev (http://localhost), `Secure` casse les cookies.
 - `SameSite=Lax` (pas Strict — TanStack SSR a besoin de forwarder les cookies sur les navigations initiales).
+
+## Setup session (`ploydok_setup`)
+
+`/setup` doit s'ouvrir nu, sans `?token=`. `POST /auth/setup/session` dépose le
+token first-boot dans un cookie `HttpOnly`, que `/auth/setup/password` et
+`/auth/setup/options` acceptent en repli du token du corps.
+
+Invariants — les trois se tiennent, n'en retirer aucun :
+
+- **Hors prod uniquement** (`setupSessionGrantAllowed()`, `NODE_ENV !== "prod"`).
+  En prod le token reste à présenter explicitement : une instance fraîche
+  joignable depuis le réseau serait sinon revendiquable par le premier visiteur.
+- **`/auth/setup/session` n'est PAS exempté de CSRF**, contrairement aux autres
+  `/auth/setup/*`. C'est ce qui empêche une page tierce de faire émettre le
+  cookie. Une régression ici est couverte par `apps/api/src/csrf.test.ts`.
+- **Origin vérifiée** dès que le token vient du cookie : sans double-submit sur
+  `/auth/setup/password`, seule l'origine distingue le wizard d'un POST
+  cross-site. `Origin` absent = appel serveur (SSR, tests), jamais un navigateur.
+
+Le cookie est effacé sur bootstrap réussi et sur `ALREADY_BOOTSTRAPPED`.
+
+### Validation du wizard
+
+`SetupAdminBodySchema` (`packages/shared/src/auth.ts`) est la **source unique**
+de la politique du premier admin : le navigateur valide avec lui avant d'appeler
+`POST /auth/setup/password`, et la route le rejoue côté serveur.
+`validateAdminPassword` (`apps/api/src/auth/password.ts`) délègue au même
+`AdminPasswordSchema` — deux bornes divergentes donneraient un formulaire vert
+et un 400 au submit.
+
+- La borne haute du mot de passe est en **octets UTF-8**, pas en caractères :
+  bcrypt tronque silencieusement au-delà de 72 octets.
+- Les erreurs remontent via `fieldErrors` / `firstErrorMessage`
+  (`packages/shared/src/validation.ts`) dans
+  `{ error: { code: "VALIDATION_ERROR", message, fields } }`. `ApiError` porte
+  `fields` côté web pour annoter le champ fautif.
+- Les formulaires d'auth sont en `noValidate` : la bulle native est localisée
+  par le navigateur et se déclenche avant le submit, ce qui court-circuiterait
+  les messages Zod.
 
 ## JWT
 

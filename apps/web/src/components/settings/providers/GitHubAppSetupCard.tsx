@@ -3,7 +3,16 @@ import * as React from "react"
 import { Button } from "@workspace/ui/components/button"
 import { Input } from "@workspace/ui/components/input"
 import { Textarea } from "@workspace/ui/components/textarea"
+import {
+  Dialog,
+  DialogContent,
+  DialogDescription,
+  DialogHeader,
+  DialogTitle,
+  DialogTrigger,
+} from "@workspace/ui/components/dialog"
 import { useImportGitHubApp } from "../../../lib/github"
+import { apiBaseUrl } from "../../../lib/api/base"
 import type { ImportGitHubAppPayload } from "../../../lib/github"
 
 interface GitHubAppSetupCardProps {
@@ -38,6 +47,7 @@ export function GitHubAppSetupCard({
     name: "",
   })
   const importError = importApp.error?.message ?? null
+  const reconnectUrls = useReconnectUrls()
   const canImport = Boolean(
     form.appId.trim() &&
     form.clientId.trim() &&
@@ -120,6 +130,11 @@ export function GitHubAppSetupCard({
           className="grid w-full gap-3 border-t border-border pt-4 md:grid-cols-2"
           onSubmit={(event) => void handleImport(event)}
         >
+          <ReconnectGuide
+            appSlug={form.slug.trim()}
+            apiOrigin={reconnectUrls.apiOrigin}
+            webOrigin={reconnectUrls.webOrigin}
+          />
           <label className="flex flex-col gap-1.5 text-xs font-medium">
             App ID
             <Input
@@ -194,6 +209,153 @@ export function GitHubAppSetupCard({
           </div>
         </form>
       )}
+    </div>
+  )
+}
+
+function useReconnectUrls(): { apiOrigin: string; webOrigin: string } {
+  const [origins, setOrigins] = React.useState({
+    apiOrigin: "https://<your-ploydok-api>",
+    webOrigin: "https://<your-ploydok-instance>",
+  })
+
+  React.useEffect(() => {
+    const base = apiBaseUrl().replace(/\/$/, "")
+    const webOrigin = window.location.origin
+    setOrigins({
+      apiOrigin: /^https?:\/\//.test(base) ? base : webOrigin,
+      webOrigin,
+    })
+  }, [])
+
+  return origins
+}
+
+function ReconnectGuide({
+  appSlug,
+  apiOrigin,
+  webOrigin,
+}: {
+  appSlug: string
+  apiOrigin: string
+  webOrigin: string
+}): React.JSX.Element {
+  const appSettingsUrl = appSlug
+    ? `https://github.com/settings/apps/${encodeURIComponent(appSlug)}`
+    : "https://github.com/settings/apps"
+  const callbackUrl = `${apiOrigin}/github/app/callback`
+  const setupUrl = `${apiOrigin}/github/app/setup`
+  const webhookUrl = `${apiOrigin}/github/webhook`
+
+  return (
+    <Dialog>
+      <div className="flex items-center justify-between gap-3 rounded-lg border border-border bg-background p-3 md:col-span-2">
+        <p className="text-xs text-muted-foreground">
+          Need help finding the GitHub App credentials?
+        </p>
+        <DialogTrigger asChild>
+          <Button type="button" size="sm" variant="outline">
+            How to reconnect
+          </Button>
+        </DialogTrigger>
+      </div>
+      <DialogContent className="max-h-[calc(100vh-2rem)] overflow-y-auto sm:max-w-2xl">
+        <DialogHeader>
+          <DialogTitle>How to reconnect the GitHub App</DialogTitle>
+          <DialogDescription>
+            Open the existing App on GitHub, align its URLs, then generate fresh
+            credentials. Existing secrets and private keys cannot be displayed
+            again by GitHub.
+          </DialogDescription>
+        </DialogHeader>
+
+        <ol className="space-y-4 text-xs leading-5">
+          <li className="space-y-2">
+            <p className="font-medium">1. Open the existing GitHub App</p>
+            <p className="text-muted-foreground">
+              Use the personal settings page, or open your organization and go
+              to Settings → Developer settings → GitHub Apps.
+            </p>
+            <div className="flex flex-wrap gap-x-4 gap-y-1">
+              <a
+                href={appSettingsUrl}
+                target="_blank"
+                rel="noreferrer"
+                className="font-medium text-primary underline-offset-2 hover:underline"
+              >
+                Open personal App settings ↗
+              </a>
+              <a
+                href="https://github.com/settings/organizations"
+                target="_blank"
+                rel="noreferrer"
+                className="font-medium text-primary underline-offset-2 hover:underline"
+              >
+                Choose an organization ↗
+              </a>
+            </div>
+          </li>
+
+          <li className="space-y-2">
+            <p className="font-medium">2. Align the General settings</p>
+            <p className="text-muted-foreground">
+              Keep OAuth during installation disabled, enable Redirect on
+              update, and use these exact values:
+            </p>
+            <dl className="grid gap-2 rounded-md bg-muted/50 p-3">
+              <GuideValue label="Homepage URL" value={webOrigin} />
+              <GuideValue label="Callback URL" value={callbackUrl} />
+              <GuideValue label="Setup URL" value={setupUrl} />
+              <GuideValue label="Webhook URL" value={webhookUrl} />
+            </dl>
+            {apiOrigin.includes("localhost") ||
+            apiOrigin.includes("127.0.0.1") ? (
+              <p className="text-muted-foreground">
+                GitHub cannot deliver webhooks to localhost. Use the public
+                HTTPS URL of your tunnel or deployed API instead of the local
+                webhook URL above.
+              </p>
+            ) : null}
+          </li>
+
+          <li className="space-y-2">
+            <p className="font-medium">3. Collect the values below</p>
+            <ul className="list-disc space-y-1 pl-4 text-muted-foreground">
+              <li>
+                Copy App ID, Client ID and the App name from General. The slug
+                is the last part of the public App URL:
+                github.com/apps/&lt;slug&gt;.
+              </li>
+              <li>
+                Under Client secrets, generate a new secret and paste it now.
+              </li>
+              <li>
+                Under Private keys, generate a key, open the downloaded .pem
+                file and paste its complete contents, including BEGIN/END lines.
+              </li>
+              <li>
+                If webhooks are active, choose a new webhook secret, save it on
+                GitHub, and paste the same value here.
+              </li>
+            </ul>
+          </li>
+        </ol>
+      </DialogContent>
+    </Dialog>
+  )
+}
+
+function GuideValue({
+  label,
+  value,
+}: {
+  label: string
+  value: string
+}): React.JSX.Element {
+  return (
+    <div className="grid gap-0.5 sm:grid-cols-[110px_minmax(0,1fr)] sm:gap-3">
+      <dt className="font-medium text-muted-foreground">{label}</dt>
+      <dd className="font-mono text-[11px] break-all select-all">{value}</dd>
     </div>
   )
 }
