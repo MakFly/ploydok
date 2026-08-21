@@ -95,13 +95,13 @@ export function GitLabRepoSelector({
         <RepoListSkeleton />
       ) : error ? (
         <p className="text-sm text-destructive" role="alert">
-          Failed to load projects: {error.message}
+          {t("apps:create.loadProjectsFailed", { message: error.message })}
         </p>
       ) : repos.length === 0 ? (
         <p className="py-6 text-center text-sm text-muted-foreground">
           {debouncedSearch
-            ? `Aucun projet ne correspond à « ${debouncedSearch} ».`
-            : "Aucun projet trouvé."}
+            ? t("apps:create.noProjectMatch", { query: debouncedSearch })
+            : t("apps:create.noProjects")}
         </p>
       ) : (
         <ul

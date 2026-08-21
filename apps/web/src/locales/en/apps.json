@@ -189,7 +189,10 @@
     "nixpacksHono": "Hono auto-pack (Node/Bun server listening on PORT).",
     "nixpacksNode": "Node auto-pack — consider pinning NIXPACKS_NODE_VERSION.",
     "nixpacksPython": "Python auto-pack (gunicorn/uvicorn depending on the framework).",
-    "nixpacksCompose": "Compose detected — native support is unavailable. Select Nixpacks only if the repository also works without Compose."
+    "nixpacksCompose": "Compose detected — native support is unavailable. Select Nixpacks only if the repository also works without Compose.",
+    "noProjectMatch": "No project matches “{{query}}”.",
+    "noProjects": "No projects found.",
+    "loadProjectsFailed": "Failed to load projects: {{message}}"
   },
   "status": {
     "running": "Running",
