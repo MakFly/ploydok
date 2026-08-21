@@ -1,0 +1,34 @@
+{
+  "title": "Services",
+  "installed": "Services installés",
+  "loading": "Chargement du service",
+  "details": "Détails",
+  "status": "Statut",
+  "template": "Modèle",
+  "domain": "Domaine",
+  "logs": "Journaux",
+  "compose": "Compose",
+  "generatedVars": "Variables générées",
+  "copy": "Copier",
+  "copied": "Copié",
+  "hide": "Masquer",
+  "reveal": "Révéler",
+  "confirmDelete": "Saisissez {{name}} pour confirmer.",
+  "marketplace": {
+    "title": "Marketplace",
+    "templates": "Modèles",
+    "search": "Rechercher un service…",
+    "searchTemplate": "Rechercher un modèle",
+    "empty": "Aucun modèle trouvé"
+  },
+  "install": {
+    "title": "Installer le service",
+    "submit": "Installer"
+  },
+  "toasts": {
+    "installStarted": "Installation du service lancée",
+    "deleted": "Service supprimé",
+    "started": "Service démarré",
+    "stopped": "Service arrêté"
+  }
+}

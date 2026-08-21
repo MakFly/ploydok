@@ -1,0 +1,22 @@
+{
+  "title": "Supervision",
+  "fleet": "Vue d'ensemble de la flotte",
+  "runtimes": "Runtimes",
+  "healthy": "Sains",
+  "degraded": "Dégradés",
+  "down": "Hors service",
+  "cpu": "CPU de la flotte",
+  "kind": "Type",
+  "health": "Santé",
+  "filterPlaceholder": "Filtrer par nom ou image…",
+  "filter": "Filtrer les runtimes",
+  "noResources": "Aucune ressource runtime",
+  "noMatch": "Aucun runtime ne correspond",
+  "host": {
+    "title": "Santé de l'hôte",
+    "disk": "Disque"
+  },
+  "adminDisk": {
+    "title": "Disque"
+  }
+}

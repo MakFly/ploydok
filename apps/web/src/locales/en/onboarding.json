@@ -1,0 +1,44 @@
+{
+  "progress": "Onboarding progress",
+  "back": "Back",
+  "logOut": "Log out",
+  "steps": {
+    "provider": {
+      "label": "Git provider",
+      "description": "Connect where your code lives."
+    },
+    "project": {
+      "label": "First project",
+      "description": "Group apps, databases, and domains."
+    },
+    "deploy": {
+      "label": "First deploy",
+      "description": "Ship a service on this instance."
+    }
+  },
+  "provider": {
+    "title": "Connect a Git provider",
+    "subtitle": "Ploydok pulls your repositories from GitHub or GitLab. You can also deploy from a container image.",
+    "github": "GitHub",
+    "gitlab": "GitLab",
+    "useImage": "Deploy from an image instead",
+    "refresh": "Refresh status",
+    "refreshing": "Checking…",
+    "connected": "Connected",
+    "notConnected": "Not connected",
+    "statusUnavailable": "Provider status is unavailable",
+    "configuredNotConnected": "The provider is configured but not connected yet",
+    "continue": "Continue"
+  },
+  "project": {
+    "title": "Name your workspace",
+    "subtitle": "A workspace groups the apps, databases, and domains you will ship next.",
+    "name": "Workspace name",
+    "placeholder": "Acme",
+    "continue": "Continue"
+  },
+  "deploy": {
+    "title": "You're ready to deploy",
+    "subtitle": "Open the dashboard and create your first application."
+  }
+}

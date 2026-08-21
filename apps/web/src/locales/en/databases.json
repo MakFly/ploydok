@@ -1,0 +1,93 @@
+{
+  "create": {
+    "title": "Create database",
+    "mode": "Mode",
+    "type": "Type",
+    "name": "Name",
+    "namePlaceholder": "my-database",
+    "plan": "Plan",
+    "publicAccess": "Public access",
+    "exposure": "Exposure mode",
+    "postgresUrl": "PostgreSQL URL",
+    "urlPlaceholder": "postgres://user:password@host:5432/database"
+  },
+  "delete": {
+    "title": "Delete database",
+    "confirm": "Type {{name}} to confirm.",
+    "confirmation": "Confirmation"
+  },
+  "link": {
+    "title": "Link database",
+    "database": "Database",
+    "prefix": "Variable prefix",
+    "select": "Select a database"
+  },
+  "adminer": {
+    "title": "Open Adminer",
+    "server": "Server",
+    "database": "Database",
+    "username": "Username",
+    "expires": "Expires",
+    "password": "Password",
+    "totp": "TOTP code"
+  },
+  "restore": {
+    "title": "Restore database",
+    "overwrite": "{{name}} will overwrite the current database contents. This action cannot be undone.",
+    "replace": "and replace it with the backup contents.",
+    "ageKey": "age private key"
+  },
+  "reveal": {
+    "title": "Reveal connection string?",
+    "connection": "Connection string",
+    "copied": "Copied!"
+  },
+  "backup": {
+    "enable": "Enable scheduled backups",
+    "destination": "Destination",
+    "local": "Local filesystem",
+    "endpoint": "S3 endpoint",
+    "bucket": "Bucket",
+    "prefix": "Prefix",
+    "region": "Region",
+    "secretId": "S3 credentials secret ID",
+    "schedule": "Schedule (cron UTC)",
+    "retention": "Retention (days)",
+    "ageKey": "age recipient public key (optional)",
+    "ageHint": "before upload. The private key is only needed at restore time and is never stored by Ploydok.",
+    "loading": "Loading backup configuration",
+    "loadingList": "Loading backups"
+  },
+  "status": {
+    "externalPolicy": "External policy"
+  },
+  "toasts": {
+    "created": "Database created",
+    "registered": "External database registered",
+    "deleted": "Database deleted",
+    "linked": "Database linked to app",
+    "rotationStarted": "Password rotation started — apps will be redeployed",
+    "unlinked": "Database unlinked",
+    "networkUpdated": "Network settings updated",
+    "deleteFailed": "Database deletion failed",
+    "started": "Database started",
+    "stopped": "Database stopped",
+    "restarted": "Database restarted",
+    "configSaved": "Backup configuration saved",
+    "backupStarted": "Backup started",
+    "restoreCompleted": "Restore completed",
+    "backupDeleted": "Backup deleted",
+    "schemeMissing": "Connection string scheme is missing",
+    "credentialsMissing": "Connection string credentials are missing",
+    "passwordMissing": "Connection string password is missing",
+    "copyFailed": "Copy command failed",
+    "passwordRevealed": "Database password revealed",
+    "passwordExtractFailed": "Unable to extract password from connection string",
+    "passwordCopied": "Database password copied",
+    "clipboardUnavailable": "Clipboard unavailable"
+  },
+  "restart": {
+    "title": "Restart database",
+    "body": "The database will briefly be unavailable."
+  }
+}

@@ -1,0 +1,60 @@
+{
+  "dashboard": {
+    "title": "Dashboard",
+    "quickActions": "Quick actions",
+    "recentBuilds": "Recent builds",
+    "createApp": "Create application"
+  },
+  "members": {
+    "title": "Members",
+    "pending": "Pending invitations",
+    "invite": "Invite member",
+    "email": "Email",
+    "role": "Role",
+    "remove": "Remove member",
+    "removed": "Member removed",
+    "roleUpdated": "Member role updated",
+    "invitationRevoked": "Invitation revoked",
+    "invitationAccepted": "Invitation accepted!",
+    "inviteFailed": "Failed to send invitation",
+    "roleFailed": "Failed to update member role",
+    "acceptFailed": "Failed to accept invitation",
+    "createFailed": "Failed to create account"
+  },
+  "audit": {
+    "title": "Audit log"
+  },
+  "billing": {
+    "title": "Billing",
+    "currentPlan": "Current Plan",
+    "alwaysFree": "Always free",
+    "subscription": "Subscription",
+    "status": "Status",
+    "renewsOn": "Renews on",
+    "availablePlans": "Available Plans"
+  },
+  "branding": {
+    "title": "Branding",
+    "updated": "Branding updated successfully",
+    "reset": "Branding reset to defaults",
+    "resetFailed": "Failed to reset branding",
+    "updateFailed": "Failed to update branding",
+    "noSlug": "No organization slug"
+  },
+  "tags": {
+    "title": "Tags"
+  },
+  "jobs": {
+    "title": "Scheduled jobs"
+  },
+  "webhooks": {
+    "title": "Event webhooks",
+    "deliveries": "Deliveries",
+    "rotateSecret": "Rotate secret"
+  },
+  "sharedEnv": {
+    "title": "Shared environment"
+  },
+  "created": "Workspace created",
+  "deleted": "Workspace deleted"
+}

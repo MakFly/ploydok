@@ -1,0 +1,34 @@
+{
+  "title": "Services",
+  "installed": "Installed services",
+  "loading": "Loading service",
+  "details": "Details",
+  "status": "Status",
+  "template": "Template",
+  "domain": "Domain",
+  "logs": "Logs",
+  "compose": "Compose",
+  "generatedVars": "Generated variables",
+  "copy": "Copy",
+  "copied": "Copied",
+  "hide": "Hide",
+  "reveal": "Reveal",
+  "confirmDelete": "Type {{name}} to confirm.",
+  "marketplace": {
+    "title": "Marketplace",
+    "templates": "Templates",
+    "search": "Search a service…",
+    "searchTemplate": "Search a template",
+    "empty": "No template found"
+  },
+  "install": {
+    "title": "Install service",
+    "submit": "Install"
+  },
+  "toasts": {
+    "installStarted": "Service installation started",
+    "deleted": "Service deleted",
+    "started": "Service started",
+    "stopped": "Service stopped"
+  }
+}

@@ -1,0 +1,44 @@
+{
+  "progress": "Progression de l'onboarding",
+  "back": "Retour",
+  "logOut": "Se déconnecter",
+  "steps": {
+    "provider": {
+      "label": "Fournisseur Git",
+      "description": "Connectez l'endroit où vit votre code."
+    },
+    "project": {
+      "label": "Premier projet",
+      "description": "Regroupez applications, bases et domaines."
+    },
+    "deploy": {
+      "label": "Premier déploiement",
+      "description": "Publiez un service sur cette instance."
+    }
+  },
+  "provider": {
+    "title": "Connecter un fournisseur Git",
+    "subtitle": "Ploydok récupère vos dépôts depuis GitHub ou GitLab. Vous pouvez aussi déployer depuis une image de conteneur.",
+    "github": "GitHub",
+    "gitlab": "GitLab",
+    "useImage": "Déployer depuis une image",
+    "refresh": "Actualiser l'état",
+    "refreshing": "Vérification…",
+    "connected": "Connecté",
+    "notConnected": "Non connecté",
+    "statusUnavailable": "L'état du fournisseur est indisponible",
+    "configuredNotConnected": "Le fournisseur est configuré mais pas encore connecté",
+    "continue": "Continuer"
+  },
+  "project": {
+    "title": "Nommez votre espace",
+    "subtitle": "Un espace regroupe les applications, bases et domaines que vous allez livrer.",
+    "name": "Nom de l'espace",
+    "placeholder": "Acme",
+    "continue": "Continuer"
+  },
+  "deploy": {
+    "title": "Vous êtes prêt à déployer",
+    "subtitle": "Ouvrez le tableau de bord et créez votre première application."
+  }
+}

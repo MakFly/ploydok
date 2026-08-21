@@ -1,0 +1,22 @@
+{
+  "title": "Monitoring",
+  "fleet": "Fleet overview",
+  "runtimes": "Runtimes",
+  "healthy": "Healthy",
+  "degraded": "Degraded",
+  "down": "Down",
+  "cpu": "Fleet CPU",
+  "kind": "Kind",
+  "health": "Health",
+  "filterPlaceholder": "Filter by name or image…",
+  "filter": "Filter runtimes",
+  "noResources": "No runtime resources",
+  "noMatch": "No runtimes match",
+  "host": {
+    "title": "Host health",
+    "disk": "Disk"
+  },
+  "adminDisk": {
+    "title": "Disk"
+  }
+}

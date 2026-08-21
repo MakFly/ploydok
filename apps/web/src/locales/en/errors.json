@@ -1,0 +1,21 @@
+{
+  "secondFactorRequired": "Second factor required",
+  "secondFactorBody": "Add a second passkey or generate backup codes to perform this action.",
+  "backendUnavailable": "Backend unavailable",
+  "backendUnavailableBody": "The frontend can no longer reach the API at {{url}}. Check that the backend is running, then try again.",
+  "notSignedIn": "Not signed in",
+  "forbidden": "Forbidden",
+  "notFound": "Not found",
+  "somethingBroke": "Something broke",
+  "somethingWentWrong": "Something went wrong",
+  "pageNotFound": "Page not found",
+  "pageNotFoundBody": "The page you're looking for doesn't exist or has been moved.",
+  "sessionExpired": "Session expired, please sign in again",
+  "configure": "Configure",
+  "unexpected": "Something went wrong. Try again.",
+  "codes": {
+    "SESSION_EXPIRED": "Session expired, please sign in again",
+    "SECOND_FACTOR_REQUIRED": "Set up a second factor to unlock this action.",
+    "BACKEND_UNAVAILABLE": "The frontend can no longer reach the API."
+  }
+}

@@ -1,0 +1,93 @@
+{
+  "create": {
+    "title": "Créer une base de données",
+    "mode": "Mode",
+    "type": "Type",
+    "name": "Nom",
+    "namePlaceholder": "ma-base",
+    "plan": "Plan",
+    "publicAccess": "Accès public",
+    "exposure": "Mode d'exposition",
+    "postgresUrl": "URL PostgreSQL",
+    "urlPlaceholder": "postgres://user:password@host:5432/database"
+  },
+  "delete": {
+    "title": "Supprimer la base",
+    "confirm": "Saisissez {{name}} pour confirmer.",
+    "confirmation": "Confirmation"
+  },
+  "link": {
+    "title": "Lier une base",
+    "database": "Base de données",
+    "prefix": "Préfixe de variable",
+    "select": "Choisir une base"
+  },
+  "adminer": {
+    "title": "Ouvrir Adminer",
+    "server": "Serveur",
+    "database": "Base",
+    "username": "Utilisateur",
+    "expires": "Expire",
+    "password": "Mot de passe",
+    "totp": "Code TOTP"
+  },
+  "restore": {
+    "title": "Restaurer la base",
+    "overwrite": "{{name}} écrasera le contenu actuel. Cette action est irréversible.",
+    "replace": "et le remplacer par le contenu de la sauvegarde.",
+    "ageKey": "clé privée age"
+  },
+  "reveal": {
+    "title": "Révéler la chaîne de connexion ?",
+    "connection": "Chaîne de connexion",
+    "copied": "Copié !"
+  },
+  "backup": {
+    "enable": "Activer les sauvegardes planifiées",
+    "destination": "Destination",
+    "local": "Système de fichiers local",
+    "endpoint": "Point de terminaison S3",
+    "bucket": "Bucket",
+    "prefix": "Préfixe",
+    "region": "Région",
+    "secretId": "ID du secret des identifiants S3",
+    "schedule": "Planning (cron UTC)",
+    "retention": "Rétention (jours)",
+    "ageKey": "clé publique du destinataire age (facultatif)",
+    "ageHint": "avant l'envoi. La clé privée n'est nécessaire qu'à la restauration et n'est jamais stockée par Ploydok.",
+    "loading": "Chargement de la configuration de sauvegarde",
+    "loadingList": "Chargement des sauvegardes"
+  },
+  "status": {
+    "externalPolicy": "Politique externe"
+  },
+  "toasts": {
+    "created": "Base créée",
+    "registered": "Base externe enregistrée",
+    "deleted": "Base supprimée",
+    "linked": "Base liée à l'application",
+    "rotationStarted": "Rotation du mot de passe lancée — les applications seront redéployées",
+    "unlinked": "Base détachée",
+    "networkUpdated": "Réglages réseau mis à jour",
+    "deleteFailed": "Suppression de la base échouée",
+    "started": "Base démarrée",
+    "stopped": "Base arrêtée",
+    "restarted": "Base redémarrée",
+    "configSaved": "Configuration de sauvegarde enregistrée",
+    "backupStarted": "Sauvegarde lancée",
+    "restoreCompleted": "Restauration terminée",
+    "backupDeleted": "Sauvegarde supprimée",
+    "schemeMissing": "Le schéma de la chaîne de connexion est manquant",
+    "credentialsMissing": "Les identifiants de la chaîne de connexion sont manquants",
+    "passwordMissing": "Le mot de passe de la chaîne de connexion est manquant",
+    "copyFailed": "La copie a échoué",
+    "passwordRevealed": "Mot de passe de la base révélé",
+    "passwordExtractFailed": "Impossible d'extraire le mot de passe de la chaîne de connexion",
+    "passwordCopied": "Mot de passe de la base copié",
+    "clipboardUnavailable": "Presse-papiers indisponible"
+  },
+  "restart": {
+    "title": "Redémarrer la base",
+    "body": "La base sera brièvement indisponible."
+  }
+}

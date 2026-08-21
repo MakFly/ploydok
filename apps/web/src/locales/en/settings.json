@@ -1,0 +1,101 @@
+{
+  "title": "Settings",
+  "account": "Account",
+  "sections": "Sections",
+  "workspace": {
+    "title": "Workspace settings",
+    "identity": "Workspace identity",
+    "name": "Name",
+    "slug": "Slug",
+    "danger": "Danger zone",
+    "deleteConfirm": "Delete this workspace?",
+    "typeToConfirm": "Type {{name}} to confirm"
+  },
+  "sso": {
+    "title": "SSO Configuration",
+    "oidc": "OIDC Configuration",
+    "issuer": "Issuer URL",
+    "clientId": "Client ID",
+    "clientSecret": "Client Secret",
+    "redirectUri": "Redirect URI",
+    "scopes": "Scopes",
+    "instructions": "Configuration Instructions",
+    "requiredScopes": "Required Scopes",
+    "emailHint": "user email address (required for user lookup)",
+    "subHint": "unique user identifier",
+    "provisioning": "User Provisioning"
+  },
+  "github": {
+    "title": "GitHub",
+    "connect": "Connect GitHub",
+    "connected": "GitHub connected",
+    "setup": "GitHub App setup"
+  },
+  "gitlab": {
+    "title": "GitLab",
+    "checking": "Checking GitLab…",
+    "checkFailed": "Could not verify GitLab availability.",
+    "needsAdmin": "GitLab must first be configured by an administrator.",
+    "unavailable": "GitLab is temporarily unavailable. Retry without disconnecting your account.",
+    "expired": "The GitLab connection has expired. Reconnect your account.",
+    "connectInSettings": "Connect your GitLab account in provider settings.",
+    "oauthSaved": "GitLab OAuth app registered",
+    "configDeleted": "GitLab configuration deleted",
+    "disconnected": "GitLab disconnected",
+    "saveError": "Error: {{message}}",
+    "notAvailable": "GitLab is not available for this account.",
+    "configure": "Configure GitLab",
+    "oauth": {
+      "access_denied": "GitLab authorization was denied. No access was recorded.",
+      "missing_code": "GitLab did not return an authorization code.",
+      "not_configured": "The GitLab OAuth configuration is no longer available.",
+      "exchange_failed": "GitLab connection failed during the OAuth exchange.",
+      "oauth_error": "GitLab could not authorize the connection."
+    }
+  },
+  "registry": {
+    "title": "Registry credentials",
+    "credentials": "Credentials",
+    "new": "New registry credential",
+    "empty": "No credentials yet",
+    "label": "Label",
+    "host": "Registry host",
+    "username": "Username",
+    "password": "Password / token",
+    "saved": "Registry credential saved",
+    "deleted": "Credential deleted"
+  },
+  "notifications": {
+    "title": "Notifications",
+    "events": {
+      "build": {
+        "started": "Build started",
+        "succeeded": "Build succeeded",
+        "failed": "Build failed"
+      },
+      "deploy": {
+        "succeeded": "Deploy succeeded",
+        "failed": "Deploy failed"
+      },
+      "webhook": {
+        "rotated": "Webhook secret rotated"
+      },
+      "app": {
+        "autohealed": "App auto-healed",
+        "autoheal_failed": "Auto-heal abandoned"
+      },
+      "image": {
+        "auto_updated": "Image auto-updated"
+      }
+    },
+    "markReadFailed": "Could not mark as read. Try again."
+  },
+  "security": {
+    "title": "Security",
+    "posture": "Security posture"
+  },
+  "secondFactor": {
+    "toastTitle": "Second factor required",
+    "configure": "Configure"
+  }
+}

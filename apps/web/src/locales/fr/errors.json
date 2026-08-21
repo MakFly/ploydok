@@ -1,0 +1,21 @@
+{
+  "secondFactorRequired": "Second facteur requis",
+  "secondFactorBody": "Ajoutez une 2ᵉ passkey ou générez des codes de secours pour effectuer cette action.",
+  "backendUnavailable": "Backend indisponible",
+  "backendUnavailableBody": "Le frontend ne parvient plus à joindre l'API sur {{url}}. Vérifiez que le backend est démarré, puis réessayez.",
+  "notSignedIn": "Non connecté",
+  "forbidden": "Accès refusé",
+  "notFound": "Introuvable",
+  "somethingBroke": "Quelque chose a cassé",
+  "somethingWentWrong": "Une erreur est survenue",
+  "pageNotFound": "Page introuvable",
+  "pageNotFoundBody": "La page que vous cherchez n'existe pas ou a été déplacée.",
+  "sessionExpired": "Session expirée, reconnectez-vous",
+  "configure": "Configurer",
+  "unexpected": "Une erreur est survenue. Réessayez.",
+  "codes": {
+    "SESSION_EXPIRED": "Session expirée, reconnectez-vous",
+    "SECOND_FACTOR_REQUIRED": "Configurez un second facteur pour déverrouiller cette action.",
+    "BACKEND_UNAVAILABLE": "Le frontend ne parvient plus à joindre l'API."
+  }
+}

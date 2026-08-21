@@ -1,0 +1,101 @@
+{
+  "title": "Réglages",
+  "account": "Compte",
+  "sections": "Sections",
+  "workspace": {
+    "title": "Réglages de l'espace",
+    "identity": "Identité de l'espace",
+    "name": "Nom",
+    "slug": "Slug",
+    "danger": "Zone dangereuse",
+    "deleteConfirm": "Supprimer cet espace de travail ?",
+    "typeToConfirm": "Saisissez {{name}} pour confirmer"
+  },
+  "sso": {
+    "title": "Configuration SSO",
+    "oidc": "Configuration OIDC",
+    "issuer": "URL de l'émetteur",
+    "clientId": "Client ID",
+    "clientSecret": "Client Secret",
+    "redirectUri": "URI de redirection",
+    "scopes": "Scopes",
+    "instructions": "Instructions de configuration",
+    "requiredScopes": "Scopes requis",
+    "emailHint": "adresse e-mail de l'utilisateur (requise pour le lookup)",
+    "subHint": "identifiant unique de l'utilisateur",
+    "provisioning": "Provisionnement des utilisateurs"
+  },
+  "github": {
+    "title": "GitHub",
+    "connect": "Connecter GitHub",
+    "connected": "GitHub connecté",
+    "setup": "Configuration de la GitHub App"
+  },
+  "gitlab": {
+    "title": "GitLab",
+    "checking": "Vérification de GitLab…",
+    "checkFailed": "Impossible de vérifier la disponibilité de GitLab.",
+    "needsAdmin": "GitLab doit d'abord être configuré par un administrateur.",
+    "unavailable": "GitLab est temporairement indisponible. Réessayez sans déconnecter votre compte.",
+    "expired": "La connexion GitLab a expiré. Reconnectez votre compte.",
+    "connectInSettings": "Connectez votre compte GitLab dans les réglages des fournisseurs.",
+    "oauthSaved": "Application OAuth GitLab enregistrée",
+    "configDeleted": "Configuration GitLab supprimée",
+    "disconnected": "GitLab déconnecté",
+    "saveError": "Erreur : {{message}}",
+    "notAvailable": "GitLab n'est pas disponible pour ce compte.",
+    "configure": "Configurer GitLab",
+    "oauth": {
+      "access_denied": "Autorisation GitLab refusée. Aucun accès n'a été enregistré.",
+      "missing_code": "GitLab n'a pas renvoyé de code d'autorisation.",
+      "not_configured": "La configuration OAuth GitLab n'est plus disponible.",
+      "exchange_failed": "La connexion GitLab a échoué pendant l'échange OAuth.",
+      "oauth_error": "GitLab n'a pas pu autoriser la connexion."
+    }
+  },
+  "registry": {
+    "title": "Identifiants de registre",
+    "credentials": "Identifiants",
+    "new": "Nouvel identifiant de registre",
+    "empty": "Aucun identifiant",
+    "label": "Libellé",
+    "host": "Hôte du registre",
+    "username": "Nom d'utilisateur",
+    "password": "Mot de passe / jeton",
+    "saved": "Identifiant de registre enregistré",
+    "deleted": "Identifiant supprimé"
+  },
+  "notifications": {
+    "title": "Notifications",
+    "events": {
+      "build": {
+        "started": "Build démarré",
+        "succeeded": "Build réussi",
+        "failed": "Build échoué"
+      },
+      "deploy": {
+        "succeeded": "Déploiement réussi",
+        "failed": "Déploiement échoué"
+      },
+      "webhook": {
+        "rotated": "Secret webhook pivoté"
+      },
+      "app": {
+        "autohealed": "Application auto-réparée",
+        "autoheal_failed": "Auto-réparation abandonnée"
+      },
+      "image": {
+        "auto_updated": "Image auto-mise à jour"
+      }
+    },
+    "markReadFailed": "Impossible de marquer comme lu. Réessayez."
+  },
+  "security": {
+    "title": "Sécurité",
+    "posture": "Posture de sécurité"
+  },
+  "secondFactor": {
+    "toastTitle": "Second facteur requis",
+    "configure": "Configurer"
+  }
+}

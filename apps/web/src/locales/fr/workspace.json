@@ -1,0 +1,60 @@
+{
+  "dashboard": {
+    "title": "Tableau de bord",
+    "quickActions": "Actions rapides",
+    "recentBuilds": "Builds récents",
+    "createApp": "Créer une application"
+  },
+  "members": {
+    "title": "Membres",
+    "pending": "Invitations en attente",
+    "invite": "Inviter un membre",
+    "email": "E-mail",
+    "role": "Rôle",
+    "remove": "Retirer le membre",
+    "removed": "Membre retiré",
+    "roleUpdated": "Rôle du membre mis à jour",
+    "invitationRevoked": "Invitation révoquée",
+    "invitationAccepted": "Invitation acceptée !",
+    "inviteFailed": "Impossible d'envoyer l'invitation",
+    "roleFailed": "Impossible de mettre à jour le rôle",
+    "acceptFailed": "Impossible d'accepter l'invitation",
+    "createFailed": "Impossible de créer le compte"
+  },
+  "audit": {
+    "title": "Journal d'audit"
+  },
+  "billing": {
+    "title": "Facturation",
+    "currentPlan": "Plan actuel",
+    "alwaysFree": "Toujours gratuit",
+    "subscription": "Abonnement",
+    "status": "Statut",
+    "renewsOn": "Renouvelle le",
+    "availablePlans": "Plans disponibles"
+  },
+  "branding": {
+    "title": "Identité visuelle",
+    "updated": "Identité mise à jour",
+    "reset": "Identité réinitialisée",
+    "resetFailed": "Impossible de réinitialiser l'identité",
+    "updateFailed": "Impossible de mettre à jour l'identité",
+    "noSlug": "Aucun slug d'organisation"
+  },
+  "tags": {
+    "title": "Étiquettes"
+  },
+  "jobs": {
+    "title": "Tâches planifiées"
+  },
+  "webhooks": {
+    "title": "Webhooks d'événements",
+    "deliveries": "Livraisons",
+    "rotateSecret": "Pivoter le secret"
+  },
+  "sharedEnv": {
+    "title": "Environnement partagé"
+  },
+  "created": "Espace créé",
+  "deleted": "Espace supprimé"
+}
