@@ -1,5 +1,6 @@
 // SPDX-License-Identifier: AGPL-3.0-only
 import * as React from "react"
+import { useTranslation } from "react-i18next"
 import {
   Dialog,
   DialogContent,
@@ -13,10 +14,10 @@ import { useRestartDatabase } from "../../lib/databases"
 import type { Database } from "../../lib/databases"
 
 const RESTART_PROGRESS_STAGES = [
-  { label: "Stop current runtime", untilMs: 1_400 },
-  { label: "Provision fresh container", untilMs: 4_400 },
-  { label: "Run health probes", untilMs: 9_500 },
-  { label: "Reattach network path", untilMs: 14_000 },
+  { id: "stop", untilMs: 1_400 },
+  { id: "provision", untilMs: 4_400 },
+  { id: "probes", untilMs: 9_500 },
+  { id: "reattach", untilMs: 14_000 },
 ] as const
 
 const PROGRESS_TICK_MS = 120
@@ -36,10 +37,9 @@ export function getRestartProgress(elapsedMs: number): number {
 
 export function getRestartStageLabel(elapsedMs: number): string {
   return (
-    RESTART_PROGRESS_STAGES.find((stage) => elapsedMs <= stage.untilMs)
-      ?.label ??
-    RESTART_PROGRESS_STAGES[RESTART_PROGRESS_STAGES.length - 1]?.label ??
-    "Restarting database"
+    RESTART_PROGRESS_STAGES.find((stage) => elapsedMs <= stage.untilMs)?.id ??
+    RESTART_PROGRESS_STAGES[RESTART_PROGRESS_STAGES.length - 1]?.id ??
+    "restarting"
   )
 }
 
@@ -54,6 +54,7 @@ export function RestartDatabaseDialog({
   open,
   onOpenChange,
 }: RestartDatabaseDialogProps): React.JSX.Element {
+  const { t } = useTranslation("databases")
   const [phase, setPhase] = React.useState<"confirm" | "progress" | "done">(
     "confirm"
   )
@@ -68,8 +69,10 @@ export function RestartDatabaseDialog({
 
   const isPending = restartDatabase.isPending
   const progressValue = phase === "done" ? 100 : getRestartProgress(elapsedMs)
+  const stageId = getRestartStageLabel(elapsedMs)
   const stageLabel =
-    phase === "done" ? "Database ready" : getRestartStageLabel(elapsedMs)
+    phase === "done" ? t("restart.ready") : t(`restart.stages.${stageId}`)
+  const fallbackName = t("create.fallbackName")
 
   React.useEffect(() => {
     resetMutationRef.current = restartDatabase.reset
@@ -138,7 +141,9 @@ export function RestartDatabaseDialog({
     } catch (err) {
       clearTimers()
       setPhase("confirm")
-      setActionError(err instanceof Error ? err.message : "Restart failed")
+      setActionError(
+        err instanceof Error ? err.message : t("toasts.restartFailed")
+      )
     }
   }
 
@@ -148,13 +153,17 @@ export function RestartDatabaseDialog({
         <DialogHeader>
           <DialogTitle>
             {phase === "progress" || phase === "done"
-              ? `Restarting ${database?.name ?? "database"}`
-              : `Restart ${database?.name ?? "database"}?`}
+              ? t("restart.progressTitle", {
+                  name: database?.name ?? fallbackName,
+                })
+              : t("restart.confirmTitle", {
+                  name: database?.name ?? fallbackName,
+                })}
           </DialogTitle>
           <DialogDescription>
             {phase === "progress" || phase === "done"
-              ? "Waiting for the API to confirm the fresh container is healthy."
-              : "This will restart the database container and wait for healthchecks to pass before marking it ready."}
+              ? t("restart.progressHint")
+              : t("restart.confirmHint")}
           </DialogDescription>
         </DialogHeader>
 
@@ -165,7 +174,9 @@ export function RestartDatabaseDialog({
                 {database.kind} {database.version}
               </span>
               <span className="mx-2 text-muted-foreground">·</span>
-              <span>{database.plan}</span>
+              <span>
+                {t(`plans.${database.plan}`, { defaultValue: database.plan })}
+              </span>
             </div>
           ) : null}
 
@@ -191,7 +202,7 @@ export function RestartDatabaseDialog({
                     phase === "done" || elapsedMs > stage.untilMs
                   const isCurrent = !isComplete && elapsedMs >= previousUntilMs
                   return (
-                    <div key={stage.label} className="flex items-center gap-2">
+                    <div key={stage.id} className="flex items-center gap-2">
                       <span
                         className={[
                           "inline-flex size-2 rounded-full",
@@ -202,7 +213,7 @@ export function RestartDatabaseDialog({
                               : "bg-muted-foreground/30",
                         ].join(" ")}
                       />
-                      <span>{stage.label}</span>
+                      <span>{t(`restart.stages.${stage.id}`)}</span>
                     </div>
                   )
                 })}
@@ -210,8 +221,7 @@ export function RestartDatabaseDialog({
             </div>
           ) : (
             <p className="text-sm text-muted-foreground">
-              The runtime will stop, provision a fresh container, run health
-              probes, then restore the database endpoint.
+              {t("restart.summary")}
             </p>
           )}
 
@@ -228,7 +238,7 @@ export function RestartDatabaseDialog({
             onClick={() => handleOpenChange(false)}
             disabled={isPending}
           >
-            {phase === "done" ? "Closing…" : "Cancel"}
+            {phase === "done" ? t("restart.closing") : t("common:cancel")}
           </Button>
           {phase !== "progress" && phase !== "done" ? (
             <Button
@@ -236,7 +246,7 @@ export function RestartDatabaseDialog({
               loading={isPending}
               disabled={!database}
             >
-              Restart database
+              {t("restart.title")}
             </Button>
           ) : null}
         </DialogFooter>

@@ -1,5 +1,6 @@
 // SPDX-License-Identifier: AGPL-3.0-only
 import * as React from "react"
+import { useTranslation } from "react-i18next"
 import {
   Dialog,
   DialogContent,
@@ -41,17 +42,17 @@ const KINDS: Array<{ value: DbKind; label: string; icon: string }> = [
   { value: "libsql", label: "SQLite / libSQL", icon: "▦" },
 ]
 
-const PLANS: Array<{ value: DbPlan; label: string; desc: string }> = [
-  { value: "small", label: "Small", desc: "0.5 CPU · 512 MB" },
-  { value: "medium", label: "Medium", desc: "1 CPU · 2 GB" },
-  { value: "large", label: "Large", desc: "2 CPU · 8 GB" },
+const PLANS: Array<{ value: DbPlan; labelKey: string; descKey: string }> = [
+  { value: "small", labelKey: "plans.small", descKey: "plans.smallDesc" },
+  { value: "medium", labelKey: "plans.medium", descKey: "plans.mediumDesc" },
+  { value: "large", labelKey: "plans.large", descKey: "plans.largeDesc" },
 ]
 
 const CREATE_PROGRESS_STAGES = [
-  { label: "Reserve database identity", untilMs: 1_000 },
-  { label: "Provision runtime container", untilMs: 4_000 },
-  { label: "Boot engine and network", untilMs: 8_000 },
-  { label: "Run health probes", untilMs: 13_000 },
+  { id: "reserve", untilMs: 1_000 },
+  { id: "provision", untilMs: 4_000 },
+  { id: "boot", untilMs: 8_000 },
+  { id: "probes", untilMs: 13_000 },
 ] as const
 
 const CREATE_PROGRESS_TICK_MS = 120
@@ -70,11 +71,11 @@ function getCreateProgress(elapsedMs: number): number {
   )
 }
 
-function getCreateStageLabel(elapsedMs: number): string {
+function getCreateStageId(elapsedMs: number): string {
   return (
-    CREATE_PROGRESS_STAGES.find((stage) => elapsedMs <= stage.untilMs)?.label ??
-    CREATE_PROGRESS_STAGES[CREATE_PROGRESS_STAGES.length - 1]?.label ??
-    "Creating database"
+    CREATE_PROGRESS_STAGES.find((stage) => elapsedMs <= stage.untilMs)?.id ??
+    CREATE_PROGRESS_STAGES[CREATE_PROGRESS_STAGES.length - 1]?.id ??
+    "probes"
   )
 }
 
@@ -83,6 +84,7 @@ export function CreateDatabaseDialog({
   organizationId,
   onClose,
 }: CreateDatabaseDialogProps): React.JSX.Element {
+  const { t } = useTranslation("databases")
   const [mode, setMode] = React.useState<CreateMode>("managed")
   const [kind, setKind] = React.useState<DbKind>("postgres")
   const [plan, setPlan] = React.useState<DbPlan>("small")
@@ -106,14 +108,16 @@ export function CreateDatabaseDialog({
   const isPending =
     createDatabase.isPending || registerExternalDatabase.isPending
   const progressValue = phase === "done" ? 100 : getCreateProgress(elapsedMs)
+  const fallbackName = t("create.fallbackName")
+  const displayName = name || fallbackName
   const stageLabel =
     phase === "done"
       ? mode === "external"
-        ? "Database registered"
-        : "Database ready"
+        ? t("create.registered")
+        : t("create.ready")
       : mode === "external"
-        ? "Register external endpoint"
-        : getCreateStageLabel(elapsedMs)
+        ? t("create.registeringEndpoint")
+        : t(`create.stages.${getCreateStageId(elapsedMs)}`)
 
   React.useEffect(() => {
     resetCreateMutationRef.current = createDatabase.reset
@@ -221,7 +225,7 @@ export function CreateDatabaseDialog({
       clearTimers()
       setPhase("form")
       setActionError(
-        err instanceof Error ? err.message : "Database action failed"
+        err instanceof Error ? err.message : t("toasts.actionFailed")
       )
     }
   }
@@ -232,15 +236,17 @@ export function CreateDatabaseDialog({
         <DialogHeader>
           <DialogTitle>
             {phase === "progress" || phase === "done"
-              ? `${mode === "external" ? "Registering" : "Creating"} ${name || "database"}`
-              : "Add database"}
+              ? mode === "external"
+                ? t("create.progressRegistering", { name: displayName })
+                : t("create.progressCreating", { name: displayName })
+              : t("create.addTitle")}
           </DialogTitle>
           <DialogDescription>
             {phase === "progress" || phase === "done"
               ? mode === "external"
-                ? "Saving the external PostgreSQL endpoint and encrypted connection string."
-                : "Waiting for the API to provision the database and confirm it is healthy."
-              : "Provision a managed database or register an existing PostgreSQL endpoint."}
+                ? t("create.progressHintExternal")
+                : t("create.progressHintManaged")
+              : t("create.formHint")}
           </DialogDescription>
         </DialogHeader>
 
@@ -250,11 +256,11 @@ export function CreateDatabaseDialog({
               <div className="rounded-md border bg-muted/30 px-3 py-2 text-sm">
                 <span className="text-muted-foreground">
                   {mode === "external"
-                    ? "postgres external"
-                    : `${kind} ${plan}`}
+                    ? t("create.externalKind")
+                    : `${kind} ${t(`plans.${plan}`)}`}
                 </span>
                 <span className="mx-2 text-muted-foreground">·</span>
-                <span>{name || "database"}</span>
+                <span>{displayName}</span>
               </div>
 
               <div className="flex flex-col gap-3">
@@ -281,10 +287,7 @@ export function CreateDatabaseDialog({
                     const isCurrent =
                       !isComplete && elapsedMs >= previousUntilMs
                     return (
-                      <div
-                        key={stage.label}
-                        className="flex items-center gap-2"
-                      >
+                      <div key={stage.id} className="flex items-center gap-2">
                         <span
                           className={[
                             "inline-flex size-2 rounded-full",
@@ -295,7 +298,7 @@ export function CreateDatabaseDialog({
                                 : "bg-muted-foreground/30",
                           ].join(" ")}
                         />
-                        <span>{stage.label}</span>
+                        <span>{t(`create.stages.${stage.id}`)}</span>
                       </div>
                     )
                   })}
@@ -310,14 +313,14 @@ export function CreateDatabaseDialog({
                 onClick={() => handleOpenChange(false)}
                 disabled={isPending}
               >
-                {phase === "done" ? "Closing..." : "Cancel"}
+                {phase === "done" ? t("create.closing") : t("common:cancel")}
               </Button>
             </DialogFooter>
           </>
         ) : (
           <form onSubmit={handleSubmit} className="flex flex-col gap-4">
             <div className="flex flex-col gap-2">
-              <Label htmlFor="db-mode">Mode</Label>
+              <Label htmlFor="db-mode">{t("create.mode")}</Label>
               <Select
                 value={mode}
                 onValueChange={(value) => setMode(value as CreateMode)}
@@ -326,23 +329,20 @@ export function CreateDatabaseDialog({
                   <SelectValue />
                 </SelectTrigger>
                 <SelectContent>
-                  <SelectItem value="managed">
-                    Managed Docker database
-                  </SelectItem>
+                  <SelectItem value="managed">{t("create.managed")}</SelectItem>
                   <SelectItem value="external">
-                    Existing PostgreSQL endpoint
+                    {t("create.external")}
                   </SelectItem>
                 </SelectContent>
               </Select>
               <span className="text-xs text-muted-foreground">
-                External databases are linked and injected into apps, but
-                lifecycle, backups, and password rotation stay outside Ploydok.
+                {t("create.externalHint")}
               </span>
             </div>
 
             {mode === "managed" ? (
               <div className="flex flex-col gap-2">
-                <Label>Type</Label>
+                <Label>{t("create.type")}</Label>
                 <div className="grid grid-cols-2 gap-2 sm:grid-cols-3">
                   {KINDS.map((k) => (
                     <button
@@ -364,24 +364,24 @@ export function CreateDatabaseDialog({
             ) : null}
 
             <div className="flex flex-col gap-2">
-              <Label htmlFor="db-name">Name</Label>
+              <Label htmlFor="db-name">{t("create.name")}</Label>
               <Input
                 id="db-name"
-                placeholder="my-database"
+                placeholder={t("create.namePlaceholder")}
                 value={name}
                 onChange={(e) => setName(e.target.value)}
                 pattern="[a-z0-9-]+"
                 required
               />
               <span className="text-xs text-muted-foreground">
-                Lowercase letters, numbers, and dashes only.
+                {t("create.nameHint")}
               </span>
             </div>
 
             {mode === "managed" ? (
               <>
                 <div className="flex flex-col gap-2">
-                  <Label htmlFor="db-plan">Plan</Label>
+                  <Label htmlFor="db-plan">{t("create.plan")}</Label>
                   <Select
                     value={plan}
                     onValueChange={(v) => setPlan(v as DbPlan)}
@@ -392,9 +392,9 @@ export function CreateDatabaseDialog({
                     <SelectContent>
                       {PLANS.map((p) => (
                         <SelectItem key={p.value} value={p.value}>
-                          <span className="font-medium">{p.label}</span>
+                          <span className="font-medium">{t(p.labelKey)}</span>
                           <span className="ml-2 text-xs text-muted-foreground">
-                            {p.desc}
+                            {t(p.descKey)}
                           </span>
                         </SelectItem>
                       ))}
@@ -405,10 +405,11 @@ export function CreateDatabaseDialog({
                 <div className="rounded-lg border p-3">
                   <div className="flex items-center justify-between gap-3">
                     <div className="flex flex-col gap-1">
-                      <Label htmlFor="db-public">Public access</Label>
+                      <Label htmlFor="db-public">
+                        {t("create.publicAccess")}
+                      </Label>
                       <span className="text-xs text-muted-foreground">
-                        Exposes the database on a direct TCP port for external
-                        tools.
+                        {t("create.publicHint")}
                       </span>
                     </div>
                     <Switch
@@ -422,7 +423,9 @@ export function CreateDatabaseDialog({
                   </div>
                   {publicEnabled ? (
                     <div className="mt-3 flex flex-col gap-2">
-                      <Label htmlFor="db-exposure-mode">Exposure mode</Label>
+                      <Label htmlFor="db-exposure-mode">
+                        {t("create.exposure")}
+                      </Label>
                       <Select
                         value={exposureMode}
                         onValueChange={(v) =>
@@ -434,10 +437,10 @@ export function CreateDatabaseDialog({
                         </SelectTrigger>
                         <SelectContent>
                           <SelectItem value="direct_port">
-                            Direct port
+                            {t("exposure.directPort")}
                           </SelectItem>
                           <SelectItem value="public_proxy">
-                            Public proxy
+                            {t("exposure.publicProxy")}
                           </SelectItem>
                         </SelectContent>
                       </Select>
@@ -447,19 +450,19 @@ export function CreateDatabaseDialog({
               </>
             ) : (
               <div className="flex flex-col gap-2">
-                <Label htmlFor="external-db-url">PostgreSQL URL</Label>
+                <Label htmlFor="external-db-url">
+                  {t("create.postgresUrl")}
+                </Label>
                 <Textarea
                   id="external-db-url"
                   value={connectionString}
                   onChange={(e) => setConnectionString(e.target.value)}
-                  placeholder="postgres://user:password@host:5432/database"
+                  placeholder={t("create.urlPlaceholder")}
                   spellCheck={false}
                   className="min-h-24 font-mono text-xs"
                 />
                 <span className="text-xs text-muted-foreground">
-                  Use an endpoint reachable from deployed app containers. For a
-                  native database on the VPS, PostgreSQL must listen on a
-                  container-reachable host address, not only 127.0.0.1.
+                  {t("create.urlHint")}
                 </span>
               </div>
             )}
@@ -477,7 +480,7 @@ export function CreateDatabaseDialog({
                 onClick={onClose}
                 disabled={isPending}
               >
-                Cancel
+                {t("common:cancel")}
               </Button>
               <Button
                 type="submit"
@@ -488,11 +491,11 @@ export function CreateDatabaseDialog({
               >
                 {isPending
                   ? mode === "external"
-                    ? "Registering..."
-                    : "Creating..."
+                    ? t("create.registering")
+                    : t("common:creating")
                   : mode === "external"
-                    ? "Register"
-                    : "Create"}
+                    ? t("create.register")
+                    : t("common:create")}
               </Button>
             </DialogFooter>
           </form>
