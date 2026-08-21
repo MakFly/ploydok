@@ -9,6 +9,7 @@ import {
   ApiError,
   SecondFactorRequiredError,
 } from "../../lib/api/errors"
+import i18n from "../../lib/i18n"
 
 const BASE = "http://localhost:3335"
 
@@ -61,8 +62,10 @@ describe("SecondFactorRequiredError — classe", () => {
     expect(err.name).toBe("SecondFactorRequiredError")
   })
 
-  it("porte un message par défaut en français et supporte l'override", () => {
-    expect(new SecondFactorRequiredError().message).toContain("second facteur")
+  it("uses the localized default message and supports an override", () => {
+    expect(new SecondFactorRequiredError().message).toBe(
+      i18n.t("errors:codes.SECOND_FACTOR_REQUIRED")
+    )
     expect(new SecondFactorRequiredError("custom").message).toBe("custom")
   })
 })

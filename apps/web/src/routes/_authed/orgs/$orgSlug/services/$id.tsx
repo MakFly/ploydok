@@ -17,7 +17,7 @@ import {
   DialogFooter,
   DialogHeader,
   DialogTitle,
-} from "@workspace/ui/components/dialog"
+} from "../../../../../components/i18n/dialog"
 import { Input } from "@workspace/ui/components/input"
 import {
   ShellPage,

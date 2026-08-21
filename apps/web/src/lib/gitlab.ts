@@ -8,6 +8,7 @@ import {
 import { toast } from "sonner"
 import { apiFetch } from "./api"
 import { apiBaseUrl } from "./api/base"
+import i18n from "./i18n"
 import type { ApiError } from "./api"
 import type { GitBranch, GitRepo } from "@ploydok/shared"
 
@@ -52,12 +53,12 @@ export function useSaveGitLabConfig() {
         body: payload,
       }),
     onSuccess: () => {
-      toast.success("GitLab OAuth app enregistrée")
+      toast.success(i18n.t("settings:gitlab.oauthSaved"))
       void qc.invalidateQueries({ queryKey: ["gitlab", "config"] })
     },
     onError: (err: unknown) => {
       const msg = err instanceof Error ? err.message : String(err)
-      toast.error(`Erreur : ${msg}`)
+      toast.error(i18n.t("settings:gitlab.saveError", { message: msg }))
     },
   })
 }
@@ -68,7 +69,7 @@ export function useDeleteGitLabConfig() {
     mutationFn: () =>
       apiFetch<{ ok: true }>("/gitlab/config", { method: "DELETE" }),
     onSuccess: () => {
-      toast.success("Configuration GitLab supprimée")
+      toast.success(i18n.t("settings:gitlab.configDeleted"))
       void qc.invalidateQueries({ queryKey: ["gitlab"] })
     },
   })
@@ -95,7 +96,7 @@ export function useDisconnectGitLab() {
     mutationFn: () =>
       apiFetch<{ ok: true }>("/gitlab/connect", { method: "DELETE" }),
     onSuccess: () => {
-      toast.success("GitLab déconnecté")
+      toast.success(i18n.t("settings:gitlab.disconnected"))
       void qc.invalidateQueries({ queryKey: ["gitlab"] })
     },
   })
@@ -140,18 +141,23 @@ export function useGitLabRepos(params: GitLabReposParams = {}) {
   })
 }
 
-const GITLAB_OAUTH_ERRORS: Record<string, string> = {
-  access_denied: "Autorisation GitLab refusée. Aucun accès n'a été enregistré.",
-  missing_code: "GitLab n'a pas renvoyé de code d'autorisation.",
-  not_configured: "La configuration OAuth GitLab n'est plus disponible.",
-  exchange_failed: "La connexion GitLab a échoué pendant l'échange OAuth.",
-  oauth_error: "GitLab n'a pas pu autoriser la connexion.",
-}
+const GITLAB_OAUTH_ERROR_KEYS = [
+  "access_denied",
+  "missing_code",
+  "not_configured",
+  "exchange_failed",
+  "oauth_error",
+] as const
 
 export function gitLabOAuthErrorMessage(search: string): string | null {
   const code = new URLSearchParams(search).get("gitlab_error")
   if (!code) return null
-  return GITLAB_OAUTH_ERRORS[code] ?? GITLAB_OAUTH_ERRORS.oauth_error
+  const key = GITLAB_OAUTH_ERROR_KEYS.includes(
+    code as (typeof GITLAB_OAUTH_ERROR_KEYS)[number]
+  )
+    ? code
+    : "oauth_error"
+  return i18n.t(`settings:gitlab.oauth.${key}`)
 }
 
 // Same shape as the GitHub hook so the create-app wizard reads both the same

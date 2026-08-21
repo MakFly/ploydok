@@ -35,17 +35,17 @@ describe("GitLab create flow", () => {
     const outage = status(true, false)
     outage.gitlab.state = "unavailable"
     expect(getGitLabSourceAvailability(outage).reason).toContain(
-      "temporairement indisponible"
+      "temporarily unavailable"
     )
   })
 
   it("maps bounded OAuth errors and hides absent results", () => {
     expect(gitLabOAuthErrorMessage("?gitlab_error=access_denied")).toContain(
-      "refusée"
+      "denied"
     )
     expect(
       gitLabOAuthErrorMessage("?gitlab_error=unknown-provider-detail")
-    ).toContain("autoriser")
+    ).toContain("authorize")
     expect(gitLabOAuthErrorMessage("?connected=1")).toBeNull()
   })
 

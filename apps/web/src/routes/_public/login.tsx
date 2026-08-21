@@ -12,6 +12,7 @@ import { resolvePostAuthPath } from "../../lib/auth-guards"
 import { getRememberedOnboardingDeploymentSource } from "../../lib/onboarding"
 import { usePendingAction } from "../../lib/hooks/use-pending-action"
 import { AuthShell, Field } from "../../components/layout/AuthShell"
+import { useTranslation } from "react-i18next"
 import type { Me } from "@ploydok/shared"
 
 // Compte seedé par `make db-seed` (packages/db/src/seed.ts). Dupliqué ici
@@ -40,6 +41,7 @@ export function normalizeLoginRedirect(value?: string): string | null {
 }
 
 function LoginPage(): React.JSX.Element {
+  const { t } = useTranslation("auth")
   const router = useRouter()
   const { redirect } = Route.useSearch()
   const [mode, setMode] = React.useState<"password" | "passkey" | "backup">(
@@ -68,17 +70,15 @@ function LoginPage(): React.JSX.Element {
       )
       await router.navigate({ href: target })
     } catch {
-      setPostLoginError(
-        "You're signed in, but Ploydok couldn't verify your Git provider status."
-      )
+      setPostLoginError(t("login.postLoginError"))
     }
   }
 
   return (
     <AuthShell
-      title="Welcome back"
-      subtitle="Sign in to deploy and operate your services."
-      eyebrow="Ploydok control plane"
+      title={t("login.title")}
+      subtitle={t("login.subtitle")}
+      eyebrow={t("login.eyebrow")}
       showcase
     >
       {mode === "password" ? (
@@ -114,12 +114,12 @@ function LoginPage(): React.JSX.Element {
             className="mt-3 bg-background text-foreground"
             onClick={() => void handleAuthSuccess()}
           >
-            Retry verification
+            {t("login.retryVerification")}
           </Button>
         </div>
       ) : null}
       <p className="mt-2 text-center text-xs leading-5 text-muted-foreground">
-        Your credentials stay on your self-hosted instance.
+        {t("login.credentialsStay")}
       </p>
     </AuthShell>
   )
@@ -134,6 +134,7 @@ function PasswordModePanel({
   onSwitchPasskey: () => void
   onSwitchBackup: () => void
 }): React.JSX.Element {
+  const { t } = useTranslation("auth")
   const [email, setEmail] = React.useState("")
   const [password, setPassword] = React.useState("")
   const [error, setError] = React.useState<string | null>(null)
@@ -146,7 +147,7 @@ function PasswordModePanel({
       method: "POST",
       body: { email, password },
     })
-    toast.success("Signed in")
+    toast.success(t("login.signedIn"))
     await onSuccess()
   })
 
@@ -156,7 +157,7 @@ function PasswordModePanel({
     try {
       await run()
     } catch (err) {
-      const msg = err instanceof Error ? err.message : "Authentication failed"
+      const msg = err instanceof Error ? err.message : t("login.authFailed")
       toast.error(msg)
       setError(msg)
     }
@@ -175,8 +176,8 @@ function PasswordModePanel({
             variant="ghost"
             size="icon-xs"
             className="rounded-full border border-border text-muted-foreground"
-            title={`Dev seulement — remplit ${DEV_SEED_EMAIL}`}
-            aria-label={`Remplir le formulaire avec le compte de dev ${DEV_SEED_EMAIL}`}
+            title={t("login.devOnly", { email: DEV_SEED_EMAIL })}
+            aria-label={t("login.fillDevAccount", { email: DEV_SEED_EMAIL })}
             onClick={() => {
               setEmail(DEV_SEED_EMAIL)
               setPassword(DEV_SEED_PASSWORD)
@@ -188,21 +189,21 @@ function PasswordModePanel({
       ) : null}
       <Field
         id="email"
-        label="Email"
+        label={t("login.email")}
         type="email"
         autoComplete="email"
         value={email}
         onChange={setEmail}
-        placeholder="you@example.com"
+        placeholder={t("login.emailPlaceholder")}
       />
       <Field
         id="password"
-        label="Password"
+        label={t("login.password")}
         type="password"
         autoComplete="current-password"
         value={password}
         onChange={setPassword}
-        placeholder="Your password"
+        placeholder={t("login.passwordPlaceholder")}
       />
       {error && (
         <Alert variant="destructive">
@@ -214,12 +215,12 @@ function PasswordModePanel({
         loading={loading}
         className="h-11 w-full rounded-[10px]"
       >
-        {loading ? "Signing in…" : "Sign in"}
+        {loading ? t("login.signingIn") : t("login.signIn")}
       </Button>
       <AuthSwitches
-        primaryLabel="Use passkey instead"
+        primaryLabel={t("login.usePasskey")}
         onPrimary={onSwitchPasskey}
-        secondaryLabel="Use backup code"
+        secondaryLabel={t("login.useBackupCode")}
         onSecondary={onSwitchBackup}
       />
     </form>
@@ -239,22 +240,23 @@ function PasskeyModePanel({
   onSwitchPassword: () => void
   onSwitchBackup: () => void
 }): React.JSX.Element {
+  const { t } = useTranslation("auth")
   return (
     <div className="space-y-4">
       <Field
         id="passkey-email"
-        label="Email"
+        label={t("login.email")}
         type="email"
         autoComplete="email webauthn"
         value={email}
         onChange={onEmailChange}
-        placeholder="you@example.com"
+        placeholder={t("login.emailPlaceholder")}
       />
       <PasskeyButton email={email} onSuccess={onSuccess} />
       <AuthSwitches
-        primaryLabel="Use password instead"
+        primaryLabel={t("login.usePassword")}
         onPrimary={onSwitchPassword}
-        secondaryLabel="Use backup code"
+        secondaryLabel={t("login.useBackupCode")}
         onSecondary={onSwitchBackup}
       />
     </div>
@@ -268,6 +270,7 @@ function BackupCodePanel({
   onSuccess: () => Promise<void>
   onBack: () => void
 }): React.JSX.Element {
+  const { t } = useTranslation("auth")
   const [email, setEmail] = React.useState("")
   const [code, setCode] = React.useState("")
   const [error, setError] = React.useState<string | null>(null)
@@ -281,9 +284,9 @@ function BackupCodePanel({
     })
     if (!res.ok) {
       const data = (await res.json()) as { error?: { message?: string } }
-      throw new Error(data.error?.message ?? "Invalid backup code")
+      throw new Error(data.error?.message ?? t("login.backup.invalid"))
     }
-    toast.success("Signed in")
+    toast.success(t("login.signedIn"))
     await onSuccess()
   })
 
@@ -293,7 +296,7 @@ function BackupCodePanel({
     try {
       await run()
     } catch (err) {
-      const msg = err instanceof Error ? err.message : "Authentication failed"
+      const msg = err instanceof Error ? err.message : t("login.authFailed")
       toast.error(msg)
       setError(msg)
     }
@@ -306,28 +309,28 @@ function BackupCodePanel({
       noValidate
     >
       <div className="space-y-1">
-        <h2 className="text-sm font-medium">Sign in with backup code</h2>
+        <h2 className="text-sm font-medium">{t("login.backup.title")}</h2>
         <p className="text-xs text-muted-foreground">
-          Use one of the backup codes you saved when setting up your passkey.
+          {t("login.backup.hint")}
         </p>
       </div>
       <Field
         id="email"
-        label="Email"
+        label={t("login.email")}
         type="email"
         autoComplete="email"
         value={email}
         onChange={setEmail}
-        placeholder="you@example.com"
+        placeholder={t("login.emailPlaceholder")}
       />
       <Field
         id="code"
-        label="Backup code"
+        label={t("login.backup.code")}
         autoComplete="one-time-code"
         mono
         value={code}
         onChange={(v) => setCode(v.toUpperCase())}
-        placeholder="XXXX-XXXX-XXXX"
+        placeholder={t("login.backup.codePlaceholder")}
       />
       {error && (
         <Alert variant="destructive">
@@ -340,7 +343,7 @@ function BackupCodePanel({
           loading={loading}
           className="h-11 w-full rounded-[10px]"
         >
-          {loading ? "Signing in…" : "Sign in"}
+          {loading ? t("login.signingIn") : t("login.signIn")}
         </Button>
         <Button
           type="button"
@@ -349,7 +352,7 @@ function BackupCodePanel({
           onClick={onBack}
           className="w-full"
         >
-          Back to password login
+          {t("login.backup.backToPassword")}
         </Button>
       </div>
     </form>
@@ -367,6 +370,7 @@ function AuthSwitches({
   secondaryLabel: string
   onSecondary: () => void
 }): React.JSX.Element {
+  const { t } = useTranslation("common")
   return (
     <div className="space-y-3">
       <div className="relative">
@@ -375,7 +379,7 @@ function AuthSwitches({
         </div>
         <div className="relative flex justify-center">
           <span className="bg-panel-inset px-2 text-[10px] tracking-wide text-neutral-400 uppercase">
-            or
+            {t("or")}
           </span>
         </div>
       </div>

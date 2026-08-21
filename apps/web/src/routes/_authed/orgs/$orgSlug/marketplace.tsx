@@ -17,7 +17,7 @@ import {
   DialogFooter,
   DialogHeader,
   DialogTitle,
-} from "@workspace/ui/components/dialog"
+} from "../../../../components/i18n/dialog"
 import { ShellPage, ShellPanel } from "../../../../components/layout/AppShell"
 import { useCurrentOrganization } from "../../../../lib/organizations"
 import { useInstallService } from "../../../../lib/services"

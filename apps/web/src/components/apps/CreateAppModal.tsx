@@ -23,7 +23,7 @@ import {
   DialogFooter,
   DialogHeader,
   DialogTitle,
-} from "@workspace/ui/components/dialog"
+} from "../i18n/dialog"
 import {
   Select,
   SelectContent,
@@ -32,6 +32,7 @@ import {
   SelectTrigger,
   SelectValue,
 } from "@workspace/ui/components/select"
+import { useTranslation } from "react-i18next"
 import { cn } from "@workspace/ui/lib/utils"
 import { PLANS } from "@ploydok/shared"
 import { useCreateApp } from "../../lib/apps"
@@ -290,6 +291,7 @@ export function CreateAppModal({
   onClose,
   onCreated,
 }: CreateAppModalProps): React.JSX.Element | null {
+  const { t } = useTranslation("apps")
   const [stepIdx, setStepIdx] = React.useState(0)
   const [form, setForm] = React.useState<FormState>(() =>
     initialForm(initialSource)
@@ -624,7 +626,7 @@ export function CreateAppModal({
       onClose()
     } catch (err) {
       setSubmitError(
-        err instanceof Error ? err.message : "Échec de la création de l'app"
+        err instanceof Error ? err.message : t("create.failed")
       )
     } finally {
       submitInFlightRef.current = false
@@ -824,7 +826,7 @@ export function CreateAppModal({
                 }
                 disabled={isSubmitting}
               >
-                {stepIdx === 0 ? "Annuler" : "Précédent"}
+                {stepIdx === 0 ? t("create.cancel") : t("common:previous")}
               </Button>
               <div className="flex items-center gap-3">
                 <span className="hidden text-[11px] text-muted-foreground sm:inline">
@@ -839,7 +841,7 @@ export function CreateAppModal({
                     disabled={!canGoNext()}
                     className="gap-1"
                   >
-                    Continuer
+                    {t("create.continue")}
                     <RiArrowRightSLine className="size-4" />
                   </Button>
                 ) : (
@@ -849,7 +851,7 @@ export function CreateAppModal({
                     loading={isSubmitting}
                     disabled={!canGoNext()}
                   >
-                    {isSubmitting ? "Création…" : "Créer l'application"}
+                    {isSubmitting ? t("create.creating") : t("create.submit")}
                   </Button>
                 )}
               </div>
@@ -906,6 +908,7 @@ export function BranchSelectionDialog({
   onConfirm,
   onOpenChange,
 }: BranchSelectionDialogProps): React.JSX.Element {
+  const { t } = useTranslation("apps")
   const [search, setSearch] = React.useState("")
 
   React.useEffect(() => {
@@ -926,19 +929,19 @@ export function BranchSelectionDialog({
         <DialogHeader>
           <DialogTitle className="flex items-center gap-2">
             <RiGitBranchLine className="size-5 text-primary" />
-            Choisir une branche
+            {t("create.chooseBranch")}
           </DialogTitle>
           <DialogDescription>
             {repo ? (
               <>
-                Sélectionne la branche à déployer pour{" "}
+                {t("create.selectBranchFor")}{" "}
                 <strong className="font-medium text-foreground">
                   {repo.fullName}
                 </strong>
                 .
               </>
             ) : (
-              `Sélectionne d'abord un projet ${providerLabel}.`
+              t("create.selectProjectFirst", { provider: providerLabel })
             )}
           </DialogDescription>
         </DialogHeader>
@@ -1042,10 +1045,10 @@ export function BranchSelectionDialog({
             variant="outline"
             onClick={() => onOpenChange(false)}
           >
-            Annuler
+            {t("create.cancel")}
           </Button>
           <Button type="button" onClick={onConfirm} disabled={!canConfirm}>
-            Choisir cette branche
+            {t("create.chooseThisBranch")}
           </Button>
         </DialogFooter>
       </DialogContent>

@@ -6,7 +6,7 @@ import {
   DialogContent,
   DialogHeader,
   DialogTitle,
-} from "@workspace/ui/components/dialog"
+} from "../i18n/dialog"
 import { Label } from "@workspace/ui/components/label"
 import type { Dns01Provider, TlsMode } from "../../lib/domains"
 

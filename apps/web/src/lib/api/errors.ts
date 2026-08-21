@@ -1,5 +1,6 @@
 // SPDX-License-Identifier: AGPL-3.0-only
 
+import i18n from "../i18n"
 import { apiBaseUrl } from "./base"
 
 export class ApiError extends Error {
@@ -21,14 +22,14 @@ export class ApiError extends Error {
 
 export class SessionExpiredError extends ApiError {
   constructor() {
-    super(401, "SESSION_EXPIRED", "Session expired, please sign in again")
+    super(401, "SESSION_EXPIRED", i18n.t("errors:codes.SESSION_EXPIRED"))
     this.name = "SessionExpiredError"
   }
 }
 
 export class SecondFactorRequiredError extends ApiError {
   constructor(
-    message = "Configurez un second facteur pour déverrouiller cette action."
+    message = i18n.t("errors:codes.SECOND_FACTOR_REQUIRED")
   ) {
     super(403, "SECOND_FACTOR_REQUIRED", message)
     this.name = "SecondFactorRequiredError"
@@ -37,7 +38,7 @@ export class SecondFactorRequiredError extends ApiError {
 
 export class BackendUnavailableError extends ApiError {
   constructor(
-    message = `Le frontend ne parvient plus a joindre l'API sur ${apiBaseUrl()}.`
+    message = i18n.t("errors:backendUnavailableBody", { url: apiBaseUrl() })
   ) {
     super(503, "BACKEND_UNAVAILABLE", message)
     this.name = "BackendUnavailableError"

@@ -10,20 +10,8 @@
  *  - Generic error branches: 401, 403, 404, 5xx, unknown
  */
 import { describe, expect, it } from "bun:test"
-
-// ---------------------------------------------------------------------------
-// titleForStatus (mirror of ApiErrorState.tsx helper)
-// ---------------------------------------------------------------------------
-
-function titleForStatus(code?: string, status?: number): string {
-  if (code === "SECOND_FACTOR_REQUIRED") return "Second factor required"
-  if (code === "BACKEND_UNAVAILABLE") return "Backend indisponible"
-  if (status === 401) return "Not signed in"
-  if (status === 403) return "Forbidden"
-  if (status === 404) return "Not found"
-  if (status !== undefined && status >= 500) return "Something broke"
-  return "Something went wrong"
-}
+import { titleForStatus } from "./ApiErrorState"
+import i18n from "../../lib/i18n"
 
 // ---------------------------------------------------------------------------
 // Branch decision: should we render the SECOND_FACTOR_REQUIRED CTA?
@@ -45,12 +33,12 @@ function secondFactorCtaTarget(): string {
 
 /** Returns the CTA label when in SECOND_FACTOR_REQUIRED mode. */
 function secondFactorCtaLabel(): string {
-  return "Configurer"
+  return i18n.t("errors:configure")
 }
 
 /** Returns the descriptive message shown in SECOND_FACTOR_REQUIRED mode. */
 function secondFactorMessage(): string {
-  return "Ajoutez une 2ᵉ passkey ou générez des backup codes pour effectuer cette action."
+  return i18n.t("errors:secondFactorBody")
 }
 
 // ---------------------------------------------------------------------------
@@ -80,8 +68,8 @@ describe("ApiErrorState — SECOND_FACTOR_REQUIRED branch", () => {
     expect(secondFactorCtaTarget()).toBe("/settings/security/passkey")
   })
 
-  it("CTA label is 'Configurer'", () => {
-    expect(secondFactorCtaLabel()).toBe("Configurer")
+  it("CTA label matches the configure key", () => {
+    expect(secondFactorCtaLabel()).toBe(i18n.t("errors:configure"))
   })
 
   it("message contains passkey and backup codes instructions", () => {
@@ -96,8 +84,10 @@ describe("ApiErrorState — SECOND_FACTOR_REQUIRED branch", () => {
 // ---------------------------------------------------------------------------
 
 describe("ApiErrorState — generic error titles", () => {
-  it("BACKEND_UNAVAILABLE → 'Backend indisponible'", () => {
-    expect(titleForStatus("BACKEND_UNAVAILABLE")).toBe("Backend indisponible")
+  it("BACKEND_UNAVAILABLE → localized backend-unavailable title", () => {
+    expect(titleForStatus("BACKEND_UNAVAILABLE")).toBe(
+      i18n.t("errors:backendUnavailable")
+    )
   })
 
   it("status 401 → 'Not signed in'", () => {

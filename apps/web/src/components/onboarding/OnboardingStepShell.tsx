@@ -12,27 +12,30 @@ import {
   StepperTitle,
 } from "@workspace/ui/components/stepper"
 import { cn } from "@workspace/ui/lib/utils"
+import { useTranslation } from "react-i18next"
 import { ThemeToggle } from "../theme/ThemeToggle"
 
 export type OnboardingStep = "provider" | "project" | "deploy"
 
 const stepOrder: Array<OnboardingStep> = ["provider", "project", "deploy"]
 
-const stepCopy: Record<OnboardingStep, { label: string; description: string }> =
-  {
-    provider: {
-      label: "Git provider",
-      description: "Connect where your code lives.",
-    },
-    project: {
-      label: "First project",
-      description: "Group apps, databases, and domains.",
-    },
-    deploy: {
-      label: "First deploy",
-      description: "Ship a service on this instance.",
-    },
-  }
+const STEP_KEYS: Record<
+  OnboardingStep,
+  { label: string; description: string }
+> = {
+  provider: {
+    label: "steps.provider.label",
+    description: "steps.provider.description",
+  },
+  project: {
+    label: "steps.project.label",
+    description: "steps.project.description",
+  },
+  deploy: {
+    label: "steps.deploy.label",
+    description: "steps.deploy.description",
+  },
+}
 
 export function OnboardingStepShell({
   activeStep,
@@ -45,6 +48,7 @@ export function OnboardingStepShell({
   onBack?: () => void
   onLogout: () => void
 }): React.JSX.Element {
+  const { t } = useTranslation("onboarding")
   const activeIndex = stepOrder.indexOf(activeStep)
 
   return (
@@ -71,7 +75,7 @@ export function OnboardingStepShell({
                   variant="ghost"
                   size="icon-sm"
                   onClick={onBack}
-                  aria-label="Back"
+                  aria-label={t("back")}
                 >
                   <span aria-hidden>←</span>
                 </Button>
@@ -82,10 +86,10 @@ export function OnboardingStepShell({
               value={activeIndex + 1}
               orientation="vertical"
               role="group"
-              aria-label="Onboarding progress"
+              aria-label={t("progress")}
               className="my-auto flex flex-col justify-center py-10"
             >
-              <StepperNav aria-label="Onboarding progress" className="w-full">
+              <StepperNav aria-label={t("progress")} className="w-full">
                 {stepOrder.map((step, index) => {
                   const complete = index < activeIndex
                   const current = index === activeIndex
@@ -131,10 +135,10 @@ export function OnboardingStepShell({
                                 : "text-muted-foreground"
                             )}
                           >
-                            {stepCopy[step].label}
+                            {t(STEP_KEYS[step].label)}
                           </StepperTitle>
                           <StepperDescription className="mt-0.5 leading-5">
-                            {stepCopy[step].description}
+                            {t(STEP_KEYS[step].description)}
                           </StepperDescription>
                         </div>
                       </div>
@@ -162,7 +166,7 @@ export function OnboardingStepShell({
                 onClick={onLogout}
               >
                 <RiLogoutBoxRLine aria-hidden className="size-3.5" />
-                Log out
+                {t("logOut")}
               </Button>
             </footer>
           </div>
@@ -179,7 +183,7 @@ export function OnboardingStepShell({
               onClick={onBack}
             >
               <span aria-hidden>←</span>
-              <span className="sr-only">Back</span>
+              <span className="sr-only">{t("back")}</span>
             </Button>
           ) : null}
           <span aria-hidden className="flex flex-1 items-center gap-1.5">
@@ -194,7 +198,7 @@ export function OnboardingStepShell({
             ))}
           </span>
           <span className="text-xs font-medium text-muted-foreground">
-            {stepCopy[activeStep].label}
+            {t(STEP_KEYS[activeStep].label)}
           </span>
           <ThemeToggle />
           <Button
@@ -204,7 +208,7 @@ export function OnboardingStepShell({
             onClick={onLogout}
           >
             <RiLogoutBoxRLine aria-hidden className="size-3.5" />
-            <span className="sr-only">Log out</span>
+            <span className="sr-only">{t("logOut")}</span>
           </Button>
         </div>
         {/* m-auto rather than justify-center: in a scrollable flex column,

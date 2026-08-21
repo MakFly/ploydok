@@ -20,6 +20,7 @@ import {
   RiTeamLine,
   RiTerminalBoxLine,
 } from "@remixicon/react"
+import { useTranslation } from "react-i18next"
 import {
   CommandDialog,
   CommandEmpty,
@@ -251,22 +252,23 @@ function CurrentAppActions({
     onClose()
   }
 
+  const { t } = useTranslation("common")
   return (
-    <CommandGroup heading="Current app">
+    <CommandGroup heading={t("commandPalette.currentApp")}>
       <CommandItem
         value="app-action logs terminal output"
         onSelect={handleLogs}
       >
         <RiTerminalBoxLine className="size-4" />
-        <span className="flex-1 truncate">View logs</span>
+        <span className="flex-1 truncate">{t("commandPalette.viewLogs")}</span>
       </CommandItem>
       <CommandItem value="app-action deploy build ship" onSelect={handleDeploy}>
         <RiRocketLine className="size-4" />
-        <span className="flex-1 truncate">Deploy</span>
+        <span className="flex-1 truncate">{t("commandPalette.deploy")}</span>
       </CommandItem>
       <CommandItem value="app-action stop halt" onSelect={handleStop}>
         <RiStopCircleLine className="size-4" />
-        <span className="flex-1 truncate">Stop</span>
+        <span className="flex-1 truncate">{t("commandPalette.stop")}</span>
       </CommandItem>
     </CommandGroup>
   )
@@ -286,6 +288,7 @@ interface CommandPaletteContentProps {
 function CommandPaletteContent({
   onClose,
 }: CommandPaletteContentProps): React.JSX.Element {
+  const { t } = useTranslation("common")
   const router = useRouter()
   const matches = useMatches()
   const organization = useCurrentOrganization()
@@ -321,7 +324,7 @@ function CommandPaletteContent({
       ) : null}
 
       {apps && apps.length > 0 ? (
-        <CommandGroup heading="Applications">
+        <CommandGroup heading={t("commandPalette.applications")}>
           {apps.map((app) => (
             <CommandItem
               key={app.id}
@@ -360,7 +363,10 @@ function CommandPaletteContent({
         const items = visibleNav.filter((item) => item.section === section)
         if (items.length === 0) return null
         return (
-          <CommandGroup key={section} heading={section}>
+          <CommandGroup
+            key={section}
+            heading={t(`commandPalette.${section.toLowerCase()}`)}
+          >
             {items.map((item) => {
               const Icon = item.icon
               const target =
@@ -402,6 +408,7 @@ export function CommandPalette({
   open,
   onOpenChange,
 }: CommandPaletteProps): React.JSX.Element {
+  const { t } = useTranslation("common")
   const close = React.useCallback(() => onOpenChange(false), [onOpenChange])
 
   return (
@@ -409,12 +416,15 @@ export function CommandPalette({
       open={open}
       onOpenChange={onOpenChange}
       className="sm:max-w-xl md:max-w-2xl"
+      title={t("commandPalette.title")}
+      description={t("commandPalette.description")}
+      closeLabel={t("close")}
     >
-      <CommandInput placeholder="Search apps, navigate, or run an action…" />
+      <CommandInput placeholder={t("commandPalette.placeholderLong")} />
       <CommandList className="max-h-[55dvh] sm:max-h-[26rem]">
         <CommandEmpty>
           <span className="text-muted-foreground">
-            Nothing matches that. Try an app name, a page, or an action.
+            {t("commandPalette.emptyLong")}
           </span>
         </CommandEmpty>
 
@@ -426,16 +436,16 @@ export function CommandPalette({
           <span className="flex items-center gap-1.5">
             <CommandKbd>↑</CommandKbd>
             <CommandKbd>↓</CommandKbd>
-            navigate
+            {t("commandPalette.navigate")}
           </span>
           <span className="flex items-center gap-1.5">
             <CommandKbd>↵</CommandKbd>
-            select
+            {t("commandPalette.select")}
           </span>
         </span>
         <span className="flex items-center gap-1.5">
           <CommandKbd>esc</CommandKbd>
-          close
+          {t("commandPalette.closeAction")}
         </span>
       </CommandFooter>
     </CommandDialog>

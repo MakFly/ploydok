@@ -10,7 +10,7 @@ import {
   DialogHeader,
   DialogTitle,
   DialogTrigger,
-} from "@workspace/ui/components/dialog"
+} from "../../i18n/dialog"
 import { useImportGitHubApp } from "../../../lib/github"
 import { apiBaseUrl } from "../../../lib/api/base"
 import type { ImportGitHubAppPayload } from "../../../lib/github"

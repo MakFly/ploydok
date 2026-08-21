@@ -50,7 +50,7 @@ import {
   DialogFooter,
   DialogHeader,
   DialogTitle,
-} from "@workspace/ui/components/dialog"
+} from "../i18n/dialog"
 import {
   Field,
   FieldContent,
@@ -95,6 +95,7 @@ import {
   useCurrentOrganizationSlug,
   useOrganizations,
 } from "../../lib/organizations"
+import { useTranslation } from "react-i18next"
 import { AppStatusBadge } from "../apps/AppStatusBadge"
 import { useTheme } from "../theme/ThemeToggle"
 import { CommandBar } from "./CommandBar"
@@ -129,18 +130,19 @@ interface ShellPanelProps {
 }
 
 interface NavItem {
-  label: string
+  id: string
   icon: React.ComponentType<{ className?: string }>
   href?: string
   orgPathSuffix?: string
   rootSettingsPathSuffix?: string
   fallbackHref?: string
   comingSoon?: boolean
-  tooltip?: string
+  tooltipKey?: string
   adminOnly?: boolean
 }
 
 interface ResolvedNavItem {
+  id: string
   label: string
   icon: React.ComponentType<{ className?: string }>
   to?: string
@@ -151,98 +153,98 @@ interface ResolvedNavItem {
 
 const workspaceNav: Array<NavItem> = [
   {
-    label: "Dashboard",
+    id: "dashboard",
     icon: RiDashboardLine,
     orgPathSuffix: "dashboard",
     fallbackHref: "/dashboard",
   },
   {
-    label: "Applications",
+    id: "applications",
     icon: RiApps2Line,
     orgPathSuffix: "apps",
     fallbackHref: "/apps",
   },
   {
-    label: "Databases",
+    id: "databases",
     icon: RiDatabase2Line,
     orgPathSuffix: "databases",
     fallbackHref: "/databases",
   },
-  { label: "Services", icon: RiCodeBoxLine, orgPathSuffix: "services" },
-  { label: "Deployments", icon: RiRocketLine, orgPathSuffix: "deployments" },
-  { label: "Marketplace", icon: RiShapesLine, orgPathSuffix: "marketplace" },
+  { id: "services", icon: RiCodeBoxLine, orgPathSuffix: "services" },
+  { id: "deployments", icon: RiRocketLine, orgPathSuffix: "deployments" },
+  { id: "marketplace", icon: RiShapesLine, orgPathSuffix: "marketplace" },
   {
-    label: "Templates",
+    id: "templates",
     icon: RiStackLine,
     comingSoon: true,
-    tooltip: "Planned — Compose templates are not generally available.",
+    tooltipKey: "nav.templatesTooltip",
   },
-  { label: "Monitoring", icon: RiPulseLine, orgPathSuffix: "monitoring" },
+  { id: "monitoring", icon: RiPulseLine, orgPathSuffix: "monitoring" },
 ]
 
 const platformNav: Array<NavItem> = [
   {
-    label: "Disk",
+    id: "disk",
     icon: RiHardDriveLine,
     href: "/admin/disk",
     adminOnly: true,
   },
-  { label: "Members", icon: RiTeamLine, orgPathSuffix: "members" },
-  { label: "Audit", icon: RiFileListLine, orgPathSuffix: "audit" },
+  { id: "members", icon: RiTeamLine, orgPathSuffix: "members" },
+  { id: "audit", icon: RiFileListLine, orgPathSuffix: "audit" },
   {
-    label: "Shared env",
+    id: "sharedEnv",
     icon: RiKeyLine,
     comingSoon: true,
-    tooltip: "Planned — shared environment is not generally available.",
+    tooltipKey: "nav.sharedEnvTooltip",
   },
   {
-    label: "Scheduled jobs",
+    id: "scheduledJobs",
     icon: RiTimerLine,
     comingSoon: true,
-    tooltip: "Planned — scheduled jobs are not generally available.",
+    tooltipKey: "nav.scheduledJobsTooltip",
   },
   {
-    label: "Event webhooks",
+    id: "eventWebhooks",
     icon: RiSendPlane2Line,
     comingSoon: true,
-    tooltip: "Planned — event webhooks are not generally available.",
+    tooltipKey: "nav.eventWebhooksTooltip",
   },
   {
-    label: "Tags",
+    id: "tags",
     icon: RiPriceTagLine,
     comingSoon: true,
-    tooltip: "Planned — cross-resource tagging is not generally available.",
+    tooltipKey: "nav.tagsTooltip",
   },
 ]
 
 const integrationsNav: Array<NavItem> = [
   {
-    label: "Git providers",
+    id: "gitProviders",
     icon: RiPlugLine,
     rootSettingsPathSuffix: "git-providers",
   },
   {
-    label: "Registry",
+    id: "registry",
     icon: RiArchiveLine,
     rootSettingsPathSuffix: "registry",
   },
   {
-    label: "Notifications",
+    id: "notifications",
     icon: RiNotificationLine,
     rootSettingsPathSuffix: "notifications",
   },
   {
-    label: "API tokens",
+    id: "apiTokens",
     icon: RiKey2Line,
     comingSoon: true,
-    tooltip: "Planned — API tokens are not generally available.",
+    tooltipKey: "nav.apiTokensTooltip",
   },
 ]
 
 const accountNav: Array<NavItem> = [
-  { label: "Guide", icon: RiBookOpenLine, href: "/guide" },
-  { label: "Changelog", icon: RiHistoryLine, href: "/changelog" },
-  { label: "Settings", icon: RiSettings3Line, href: "/settings" },
+  { id: "guide", icon: RiBookOpenLine, href: "/guide" },
+  { id: "changelog", icon: RiHistoryLine, href: "/changelog" },
+  { id: "settings", icon: RiSettings3Line, href: "/settings" },
 ]
 
 /**
@@ -253,6 +255,7 @@ const accountNav: Array<NavItem> = [
  * only ever discovered by hitting a wall mid-task.
  */
 function TwoFactorPrompt(): React.JSX.Element {
+  const { t } = useTranslation("common")
   return (
     <Link
       to="/settings/security/totp"
@@ -261,14 +264,13 @@ function TwoFactorPrompt(): React.JSX.Element {
     >
       <span className="flex items-center gap-2 text-xs font-semibold text-amber-700 dark:text-amber-400">
         <RiShieldKeyholeLine className="size-4 shrink-0" aria-hidden="true" />
-        Two-factor required
+        {t("twoFactorPrompt.title")}
       </span>
       <span className="text-[11px] leading-4 text-muted-foreground">
-        Rotating secrets, restoring a backup or opening a database console all
-        ask for a 6-digit code.
+        {t("twoFactorPrompt.body")}
       </span>
       <span className="text-[11px] font-medium text-amber-700 dark:text-amber-400">
-        Set it up
+        {t("twoFactorPrompt.cta")}
       </span>
     </Link>
   )
@@ -296,22 +298,27 @@ function SidebarProfileSkeleton(): React.JSX.Element {
 
 function resolveNavItem(
   item: NavItem,
-  currentOrgSlug: string | null
+  currentOrgSlug: string | null,
+  t: (key: string) => string
 ): ResolvedNavItem {
+  const label = t(`nav.${item.id}`)
+  const tooltip = item.tooltipKey ? t(item.tooltipKey) : undefined
   if (item.comingSoon) {
     return {
-      label: item.label,
+      id: item.id,
+      label,
       icon: item.icon,
       comingSoon: true,
-      tooltip: item.tooltip,
+      tooltip,
     }
   }
   if (item.href) {
-    return { label: item.label, icon: item.icon, to: item.href }
+    return { id: item.id, label, icon: item.icon, to: item.href }
   }
   if (item.rootSettingsPathSuffix) {
     return {
-      label: item.label,
+      id: item.id,
+      label,
       icon: item.icon,
       to: `/settings/${item.rootSettingsPathSuffix}`,
     }
@@ -319,22 +326,24 @@ function resolveNavItem(
   if (item.orgPathSuffix) {
     if (currentOrgSlug) {
       return {
-        label: item.label,
+        id: item.id,
+        label,
         icon: item.icon,
         to: organizationPath(currentOrgSlug, item.orgPathSuffix),
       }
     }
     if (item.fallbackHref) {
-      return { label: item.label, icon: item.icon, to: item.fallbackHref }
+      return { id: item.id, label, icon: item.icon, to: item.fallbackHref }
     }
     return {
-      label: item.label,
+      id: item.id,
+      label,
       icon: item.icon,
       comingSoon: true,
-      tooltip: "Sélectionne un workspace",
+      tooltip: t("nav.selectWorkspace"),
     }
   }
-  return { label: item.label, icon: item.icon }
+  return { id: item.id, label, icon: item.icon }
 }
 
 const STORAGE_KEY = "ploydok.sidebar.state"
@@ -399,6 +408,7 @@ function CreateWorkspaceDialog({
   onOpenChange,
   onCreated,
 }: CreateWorkspaceDialogProps): React.JSX.Element {
+  const { t } = useTranslation("common")
   const createOrganization = useCreateOrganization()
   const [name, setName] = React.useState("")
   const wasOpenRef = React.useRef(open)
@@ -438,10 +448,9 @@ function CreateWorkspaceDialog({
     <Dialog open={open} onOpenChange={onOpenChange}>
       <DialogContent className="sm:max-w-md">
         <DialogHeader>
-          <DialogTitle>Create workspace</DialogTitle>
+          <DialogTitle>{t("workspaceDialog.title")}</DialogTitle>
           <DialogDescription>
-            Add a new isolated workspace for a separate set of apps and
-            databases.
+            {t("workspaceDialog.description")}
           </DialogDescription>
         </DialogHeader>
 
@@ -452,10 +461,11 @@ function CreateWorkspaceDialog({
           <FieldGroup>
             <Field data-invalid={Boolean(createOrganization.error)}>
               <FieldContent>
-                <FieldLabel htmlFor="workspace-name">Workspace name</FieldLabel>
+                <FieldLabel htmlFor="workspace-name">
+                  {t("workspaceDialog.name")}
+                </FieldLabel>
                 <FieldDescription>
-                  This name is used to generate the workspace slug
-                  automatically.
+                  {t("workspaceDialog.nameHint")}
                 </FieldDescription>
               </FieldContent>
               <Input
@@ -463,7 +473,7 @@ function CreateWorkspaceDialog({
                 value={name}
                 autoFocus
                 aria-invalid={Boolean(createOrganization.error)}
-                placeholder="Acme"
+                placeholder={t("workspaceDialog.placeholder")}
                 onChange={(event) => setName(event.target.value)}
               />
               <FieldError>{createOrganization.error?.message}</FieldError>
@@ -477,7 +487,7 @@ function CreateWorkspaceDialog({
               onClick={() => onOpenChange(false)}
               disabled={createOrganization.isPending}
             >
-              Cancel
+              {t("cancel")}
             </Button>
             <Button
               type="submit"
@@ -485,8 +495,8 @@ function CreateWorkspaceDialog({
               disabled={!trimmedName}
             >
               {createOrganization.isPending
-                ? "Creating..."
-                : "Create workspace"}
+                ? t("workspaceDialog.creating")
+                : t("workspaceDialog.submit")}
             </Button>
           </DialogFooter>
         </form>
@@ -496,6 +506,7 @@ function CreateWorkspaceDialog({
 }
 
 export function AppShell({ children }: AppShellProps): React.JSX.Element {
+  const { t } = useTranslation("common")
   const pathname = useRouterState({
     select: (state) => state.location.pathname,
   })
@@ -563,7 +574,7 @@ export function AppShell({ children }: AppShellProps): React.JSX.Element {
     setWorkspaceSelectOpen(false)
   }, [sidebarOpen])
 
-  const displayName = me?.display_name ?? "Workspace Owner"
+  const displayName = me?.display_name ?? t("nav.workspaceOwner")
   const email = me?.email ?? "hello@ploydok.dev"
   const initials = displayName
     .split(" ")
@@ -597,29 +608,31 @@ export function AppShell({ children }: AppShellProps): React.JSX.Element {
     : "/dashboard"
   const navGroups: Array<{ title: string; items: Array<ResolvedNavItem> }> = [
     {
-      title: "Workspace",
-      items: workspaceNav.map((item) => resolveNavItem(item, currentOrgSlug)),
+      title: t("nav.workspace"),
+      items: workspaceNav.map((item) =>
+        resolveNavItem(item, currentOrgSlug, t)
+      ),
     },
     {
-      title: "Platform",
+      title: t("nav.platform"),
       items: platformNav
         .filter((item) => !item.adminOnly || me?.is_instance_admin || meLoading)
         .map((item) => {
-          const resolved = resolveNavItem(item, currentOrgSlug)
+          const resolved = resolveNavItem(item, currentOrgSlug, t)
           return item.adminOnly && meLoading
             ? { ...resolved, loading: true }
             : resolved
         }),
     },
     {
-      title: "Integrations",
+      title: t("nav.integrations"),
       items: integrationsNav.map((item) =>
-        resolveNavItem(item, currentOrgSlug)
+        resolveNavItem(item, currentOrgSlug, t)
       ),
     },
   ]
   const accountNavItems = accountNav.map((item) =>
-    resolveNavItem(item, currentOrgSlug)
+    resolveNavItem(item, currentOrgSlug, t)
   )
 
   const handleOrganizationChange = async (nextSlug: string): Promise<void> => {
@@ -675,7 +688,7 @@ export function AppShell({ children }: AppShellProps): React.JSX.Element {
         {mobileNavOpen ? (
           <button
             type="button"
-            aria-label="Close navigation"
+            aria-label={t("nav.closeNavigation")}
             onClick={() => setMobileNavOpen(false)}
             className="fixed inset-0 z-40 cursor-pointer bg-black/40 backdrop-blur-sm md:hidden"
           />
@@ -734,7 +747,7 @@ export function AppShell({ children }: AppShellProps): React.JSX.Element {
                       type="button"
                       onClick={() => setMobileNavOpen(false)}
                       className="flex size-9 shrink-0 cursor-pointer items-center justify-center rounded-md text-muted-foreground outline-none hover:bg-sidebar-accent md:hidden"
-                      aria-label="Close navigation"
+                      aria-label={t("nav.closeNavigation")}
                     >
                       <RiCloseLine className="size-5" />
                     </button>
@@ -742,7 +755,7 @@ export function AppShell({ children }: AppShellProps): React.JSX.Element {
                       type="button"
                       onClick={toggleSidebar}
                       className="hidden size-9 shrink-0 cursor-pointer items-center justify-center rounded-md text-muted-foreground outline-none hover:bg-sidebar-accent md:flex"
-                      aria-label="Collapse sidebar"
+                      aria-label={t("nav.collapseSidebar")}
                       aria-expanded
                     >
                       <RiSidebarFoldLine className="size-4" />
@@ -753,7 +766,7 @@ export function AppShell({ children }: AppShellProps): React.JSX.Element {
                     type="button"
                     onClick={toggleSidebar}
                     className="group/brand relative flex size-8 shrink-0 cursor-pointer items-center justify-center rounded-md transition-colors outline-none hover:bg-sidebar-accent"
-                    aria-label="Expand sidebar"
+                    aria-label={t("nav.expandSidebar")}
                     aria-expanded={false}
                   >
                     <span className="flex size-4 items-center justify-center rounded-[4px] bg-primary text-[9px] font-bold text-primary-foreground transition-opacity group-hover/brand:opacity-0">
@@ -797,7 +810,9 @@ export function AppShell({ children }: AppShellProps): React.JSX.Element {
                             onValueChange={handleWorkspaceSelect}
                           >
                             <SelectTrigger className="h-10 w-full cursor-pointer rounded-[10px] border-0 !bg-sidebar-accent pl-11 text-left !text-sidebar-accent-foreground focus-visible:ring-2 focus-visible:ring-ring/20">
-                              <SelectValue placeholder="Select workspace" />
+                              <SelectValue
+                                placeholder={t("nav.selectWorkspacePlaceholder")}
+                              />
                             </SelectTrigger>
                             <SelectContent
                               align="start"
@@ -821,7 +836,7 @@ export function AppShell({ children }: AppShellProps): React.JSX.Element {
                                 >
                                   <span className="flex items-center gap-2">
                                     <RiAddLine className="size-4 shrink-0" />
-                                    <span>Create workspace</span>
+                                    <span>{t("workspaceDialog.submit")}</span>
                                   </span>
                                 </SelectItem>
                               </SelectGroup>
@@ -845,8 +860,10 @@ export function AppShell({ children }: AppShellProps): React.JSX.Element {
                       className={cx(
                         "flex h-8 w-full cursor-pointer items-center justify-center overflow-hidden rounded-md p-0 text-sm outline-none hover:bg-sidebar-accent"
                       )}
-                      aria-label="Open workspace switcher"
-                      title={currentOrganization?.name ?? "My Organization"}
+                      aria-label={t("nav.openWorkspaceSwitcher")}
+                      title={
+                        currentOrganization?.name ?? t("nav.myOrganization")
+                      }
                     >
                       <span className="size-6 shrink-0 rounded-md bg-gradient-to-br from-emerald-300 via-teal-400 to-sky-500" />
                     </button>
@@ -864,7 +881,7 @@ export function AppShell({ children }: AppShellProps): React.JSX.Element {
                         if (item.loading) {
                           return (
                             <li
-                              key={item.label}
+                              key={item.id}
                               aria-hidden="true"
                               className="relative"
                             >
@@ -880,9 +897,9 @@ export function AppShell({ children }: AppShellProps): React.JSX.Element {
                         }
                         if (item.comingSoon || !item.to) {
                           return (
-                            <li key={item.label} className="relative">
+                            <li key={item.id} className="relative">
                               <span
-                                title={item.tooltip ?? "Unavailable"}
+                                title={item.tooltip ?? t("unavailable")}
                                 aria-disabled="true"
                                 className={cx(
                                   "flex w-full cursor-not-allowed items-center gap-2 overflow-hidden rounded-[10px] px-2 py-1.5 text-sm text-neutral-400 outline-none",
@@ -897,9 +914,9 @@ export function AppShell({ children }: AppShellProps): React.JSX.Element {
                                   aria-hidden="true"
                                   className="ml-auto rounded-sm bg-neutral-200 px-1 py-px text-xs font-semibold text-neutral-500 group-data-[sidebar-state=collapsed]/shell:hidden"
                                 >
-                                  {item.tooltip?.startsWith("Planned")
-                                    ? "Planned"
-                                    : "Unavailable"}
+                                  {item.comingSoon
+                                    ? t("planned")
+                                    : t("unavailable")}
                                 </span>
                               </span>
                             </li>
@@ -907,7 +924,7 @@ export function AppShell({ children }: AppShellProps): React.JSX.Element {
                         }
                         const active = isNavActive(pathname, item.to)
                         return (
-                          <li key={item.label} className="relative">
+                          <li key={item.id} className="relative">
                             <Link
                               to={item.to}
                               preload={false}
@@ -1001,10 +1018,10 @@ export function AppShell({ children }: AppShellProps): React.JSX.Element {
                             const Icon = item.icon
                             if (!item.to) return null
                             const showReleaseDot =
-                              item.label === "Changelog" && unseenRelease
+                              item.id === "changelog" && unseenRelease
                             return (
                               <DropdownMenuItem
-                                key={item.label}
+                                key={item.id}
                                 asChild
                                 className="cursor-pointer rounded-xl p-2 text-sm text-foreground"
                               >
@@ -1027,7 +1044,7 @@ export function AppShell({ children }: AppShellProps): React.JSX.Element {
                                         aria-hidden="true"
                                         className="inline-block size-1.5 rounded-full bg-primary"
                                       />
-                                      New
+                                      {t("new")}
                                     </span>
                                   ) : null}
                                 </Link>
@@ -1045,7 +1062,7 @@ export function AppShell({ children }: AppShellProps): React.JSX.Element {
                               className="flex items-center gap-2.5"
                             >
                               <RiShieldCheckLine className="size-4 shrink-0 text-muted-foreground" />
-                              Security
+                              {t("nav.security")}
                             </Link>
                           </DropdownMenuItem>
                           <DropdownMenuItem
@@ -1059,8 +1076,8 @@ export function AppShell({ children }: AppShellProps): React.JSX.Element {
                                 <RiMoonLine className="size-4 shrink-0 text-muted-foreground" />
                               )}
                               {resolvedTheme === "dark"
-                                ? "Light theme"
-                                : "Dark theme"}
+                                ? t("theme.lightTheme")
+                                : t("theme.darkTheme")}
                             </span>
                             <span className="font-mono text-[10px] text-muted-foreground">
                               {themeMode}
@@ -1083,7 +1100,9 @@ export function AppShell({ children }: AppShellProps): React.JSX.Element {
                             ) : (
                               <RiLogoutBoxRLine className="size-4 shrink-0" />
                             )}
-                            {signOut.pending ? "Signing out…" : "Sign out"}
+                            {signOut.pending
+                              ? t("signingOut")
+                              : t("signOut")}
                           </DropdownMenuItem>
                         </DropdownMenuContent>
                       </DropdownMenu>
@@ -1107,7 +1126,7 @@ export function AppShell({ children }: AppShellProps): React.JSX.Element {
               type="button"
               onClick={() => setMobileNavOpen(true)}
               className="flex size-9 shrink-0 items-center justify-center rounded-md text-muted-foreground hover:bg-muted hover:text-foreground md:hidden"
-              aria-label="Open navigation"
+              aria-label={t("nav.openNavigation")}
               aria-expanded={mobileNavOpen}
             >
               <RiMenuLine className="size-5" />
@@ -1211,13 +1230,14 @@ export function ShellPanel({
 }
 
 function MobileSearchButton(): React.JSX.Element {
+  const { t } = useTranslation("common")
   const { setOpen } = useCommandPaletteContext()
   return (
     <button
       type="button"
       onClick={() => setOpen(true)}
       className="flex size-9 items-center justify-center rounded-md text-muted-foreground hover:bg-muted hover:text-foreground md:hidden"
-      aria-label="Open command palette"
+      aria-label={t("commandPalette.open")}
     >
       <RiSearchLine className="size-4" />
     </button>
@@ -1231,6 +1251,7 @@ function MobileSearchButton(): React.JSX.Element {
 // ---------------------------------------------------------------------------
 
 function TopbarBreadcrumb(): React.JSX.Element | null {
+  const { t } = useTranslation("common")
   const matches = useMatches()
   const pathname = useRouterState({ select: (s) => s.location.pathname })
   const orgSlug = useCurrentOrganizationSlug()
@@ -1248,7 +1269,7 @@ function TopbarBreadcrumb(): React.JSX.Element | null {
 
   return (
     <nav
-      aria-label="Breadcrumb"
+      aria-label={t("breadcrumb.label")}
       className="flex min-w-0 items-center gap-1 overflow-hidden text-xs sm:gap-1.5"
     >
       {items.map((item, index) => {

@@ -36,7 +36,7 @@ import {
   DialogDescription,
   DialogHeader,
   DialogTitle,
-} from "@workspace/ui/components/dialog"
+} from "../i18n/dialog"
 import { cn } from "@workspace/ui/lib/utils"
 import type { ChartConfig } from "@workspace/ui/components/chart"
 

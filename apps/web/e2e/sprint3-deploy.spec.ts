@@ -130,12 +130,12 @@ test.describe("sprint3 — deploy flow < 2 min", () => {
     const branch = process.env.E2E_TEST_REPO_BRANCH ?? "main";
     // Repository selection opens the branch picker dialog.
     const branchDialog = page.getByRole("dialog", {
-      name: "Choisir une branche",
+      name: "Choose a branch",
     });
     await expect(branchDialog).toBeVisible();
     await branchDialog.getByText(branch, { exact: true }).click();
     await branchDialog
-      .getByRole("button", { name: "Choisir cette branche" })
+      .getByRole("button", { name: "Choose this branch" })
       .click();
 
     await page.getByRole("button", { name: /next/i }).click();

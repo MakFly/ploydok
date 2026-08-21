@@ -6,6 +6,7 @@ import {
 } from "@tanstack/react-query"
 import { toast } from "sonner"
 import { apiFetch, invalidateGetCache } from "./api"
+import i18n from "./i18n"
 import { normalizeAppDetail } from "./apps"
 import { notifyMutationError } from "./second-factor-toast"
 import { useEventsSubscribeFn } from "./events-provider"
@@ -32,7 +33,7 @@ function useTrackAppRestart(appId: string): () => void {
   return React.useCallback(() => {
     if (!subscribe) return
     const toastId = `app-restart-${appId}`
-    toast.loading("Redémarrage en cours…", { id: toastId })
+    toast.loading(i18n.t("apps:toasts.restarting"), { id: toastId })
 
     let unsubscribe: (() => void) | null = null
     const finish = () => {
@@ -56,13 +57,13 @@ function useTrackAppRestart(appId: string): () => void {
       const status = evt.data?.status
       if (status === "running") {
         finish()
-        toast.success("App redémarrée", { id: toastId })
+        toast.success(i18n.t("apps:toasts.restarted"), { id: toastId })
       } else if (status === "failed") {
         finish()
-        toast.error("Redémarrage échoué", { id: toastId })
+        toast.error(i18n.t("apps:toasts.restartFailed"), { id: toastId })
       } else if (status === "stopped") {
         finish()
-        toast.error("Redémarrage interrompu", { id: toastId })
+        toast.error(i18n.t("apps:toasts.restartInterrupted"), { id: toastId })
       }
     })
   }, [appId, subscribe])
@@ -77,7 +78,7 @@ function useTrackAppDelete(appId: string): () => void {
     const toastId = `delete-app:${appId}`
 
     if (!subscribe || typeof window === "undefined") {
-      toast.loading("Suppression en file…", { id: toastId })
+      toast.loading(i18n.t("apps:toasts.deleting"), { id: toastId })
       return
     }
 
@@ -87,7 +88,7 @@ function useTrackAppDelete(appId: string): () => void {
       let unsubFailed: (() => void) | null = null
       const timer = window.setTimeout(() => {
         cleanup()
-        reject(new Error("Suppression toujours en cours"))
+        reject(new Error(i18n.t("apps:toasts.deleteStillRunning")))
       }, DELETE_APP_TOAST_TIMEOUT_MS)
 
       cleanup = () => {
@@ -102,23 +103,23 @@ function useTrackAppDelete(appId: string): () => void {
         const evt = data as { appId?: string; message?: string }
         if (evt.appId !== appId) return
         cleanup()
-        resolve(evt.message ?? "App supprimée")
+        resolve(evt.message ?? i18n.t("apps:toasts.deleted"))
       })
 
       unsubFailed = subscribe("app.delete.failed", (data) => {
         const evt = data as { appId?: string; message?: string }
         if (evt.appId !== appId) return
         cleanup()
-        reject(new Error(evt.message ?? "Suppression échouée"))
+        reject(new Error(evt.message ?? i18n.t("apps:toasts.deleteFailed")))
       })
     })
 
     toast.promise(completion, {
       id: toastId,
-      loading: "Suppression en file…",
+      loading: i18n.t("apps:toasts.deleting"),
       success: (message) => message,
       error: (err) =>
-        err instanceof Error ? err.message : "Suppression échouée",
+        err instanceof Error ? err.message : i18n.t("apps:toasts.deleteFailed"),
     })
   }, [appId, subscribe])
 }
@@ -129,7 +130,7 @@ function useTrackAppStop(appId: string): () => void {
     const toastId = `stop-app:${appId}`
 
     if (!subscribe || typeof window === "undefined") {
-      toast.loading("Arrêt en cours…", { id: toastId })
+      toast.loading(i18n.t("apps:toasts.stopping"), { id: toastId })
       return
     }
 
@@ -139,7 +140,7 @@ function useTrackAppStop(appId: string): () => void {
       let unsubFailed: (() => void) | null = null
       const timer = window.setTimeout(() => {
         cleanup()
-        reject(new Error("Arrêt toujours en cours"))
+        reject(new Error(i18n.t("apps:toasts.stopStillRunning")))
       }, STOP_APP_TOAST_TIMEOUT_MS)
 
       cleanup = () => {
@@ -154,22 +155,23 @@ function useTrackAppStop(appId: string): () => void {
         const evt = data as { appId?: string; message?: string }
         if (evt.appId !== appId) return
         cleanup()
-        resolve(evt.message ?? "App arrêtée")
+        resolve(evt.message ?? i18n.t("apps:toasts.stopped"))
       })
 
       unsubFailed = subscribe("app.stop.failed", (data) => {
         const evt = data as { appId?: string; message?: string }
         if (evt.appId !== appId) return
         cleanup()
-        reject(new Error(evt.message ?? "Arrêt échoué"))
+        reject(new Error(evt.message ?? i18n.t("apps:toasts.stopFailed")))
       })
     })
 
     toast.promise(completion, {
       id: toastId,
-      loading: "Arrêt en cours…",
+      loading: i18n.t("apps:toasts.stopping"),
       success: (message) => message,
-      error: (err) => (err instanceof Error ? err.message : "Arrêt échoué"),
+      error: (err) =>
+        err instanceof Error ? err.message : i18n.t("apps:toasts.stopFailed"),
     })
   }, [appId, subscribe])
 }

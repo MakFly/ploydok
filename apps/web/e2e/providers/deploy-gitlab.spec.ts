@@ -130,7 +130,7 @@ test.describe("Sprint 3bis — deploy from GitLab", () => {
       .click()
 
     const branchDialog = page.getByRole("dialog", {
-      name: "Choisir une branche",
+      name: "Choose a branch",
     })
     await expect(branchDialog).toBeVisible()
     await branchDialog.getByLabel("Rechercher une branche").fill(BRANCH)
@@ -138,15 +138,15 @@ test.describe("Sprint 3bis — deploy from GitLab", () => {
       .getByRole("option", { name: new RegExp(`^${BRANCH}`) })
       .click()
     await branchDialog
-      .getByRole("button", { name: "Choisir cette branche" })
+      .getByRole("button", { name: "Choose this branch" })
       .click()
 
     const appName = `e2e-gitlab-${Date.now()}`
     await page.getByLabel("Nom de l'application").fill(appName)
-    await page.getByRole("button", { name: "Continuer" }).click()
+    await page.getByRole("button", { name: "Continue" }).click()
     await page.getByRole("radio", { name: /Dockerfile/i }).click()
     for (let step = 0; step < 3; step += 1) {
-      await page.getByRole("button", { name: "Continuer" }).click()
+      await page.getByRole("button", { name: "Continue" }).click()
     }
 
     const createResponsePromise = page.waitForResponse(
@@ -154,7 +154,7 @@ test.describe("Sprint 3bis — deploy from GitLab", () => {
         response.url() === `${API_URL}/apps` &&
         response.request().method() === "POST"
     )
-    await page.getByRole("button", { name: "Créer l'application" }).click()
+    await page.getByRole("button", { name: "Create application" }).click()
     const createRes = await createResponsePromise
     expect(createRes.request().headers()["x-csrf-token"]).toBeTruthy()
     expect(

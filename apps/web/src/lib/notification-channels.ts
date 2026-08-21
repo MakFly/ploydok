@@ -1,6 +1,7 @@
 // SPDX-License-Identifier: AGPL-3.0-only
 import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query"
 import { apiFetch } from "./api"
+import i18n from "./i18n"
 import type { ApiError } from "./api"
 
 // ---------------------------------------------------------------------------
@@ -238,17 +239,17 @@ export function useToggleChannel(appId?: string) {
 // Helpers / constants
 // ---------------------------------------------------------------------------
 
-export const EVENT_LABELS: Record<ChannelEvent, string> = {
-  "build.started": "Build démarré",
-  "build.succeeded": "Build réussi",
-  "build.failed": "Build échoué",
-  "deploy.succeeded": "Déploiement réussi",
-  "deploy.failed": "Déploiement échoué",
-  "webhook.rotated": "Secret webhook pivoté",
-  "app.autohealed": "App auto-réparée",
-  "app.autoheal_failed": "Auto-réparation abandonnée",
-  "image.auto_updated": "Image auto-mise à jour",
+export function eventLabel(event: ChannelEvent): string {
+  return i18n.t(`settings:notifications.events.${event}`)
 }
+
+export const EVENT_LABELS: Record<ChannelEvent, string> = new Proxy(
+  {} as Record<ChannelEvent, string>,
+  {
+    get: (_target, event: string) =>
+      eventLabel(event as ChannelEvent),
+  }
+)
 
 export const ALL_EVENTS: ReadonlyArray<ChannelEvent> = [
   "build.started",

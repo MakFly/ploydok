@@ -6,6 +6,7 @@ import { RiEyeLine, RiEyeOffLine } from "@remixicon/react"
 import { Button } from "@workspace/ui/components/button"
 import { Alert, AlertDescription } from "@workspace/ui/components/alert"
 import { toast } from "sonner"
+import { useTranslation } from "react-i18next"
 import { SetupAdminFormSchema, fieldErrors } from "@ploydok/shared"
 import { apiFetch } from "../../lib/api"
 import { ApiError } from "../../lib/api/errors"
@@ -41,7 +42,7 @@ interface TotpEnrollResponse {
 
 type SetupStep = "form" | "totp" | "codes"
 
-const SETUP_EYEBROW = "First boot"
+const SETUP_EYEBROW_KEY = "setup.eyebrow" as const
 
 // Compte seedé par `make db-seed` (packages/db/src/seed.ts). Dupliqué ici
 // plutôt qu'importé : `@ploydok/db` est server-only. `import.meta.env.DEV`
@@ -56,6 +57,7 @@ const DEV_SEED_PASSWORD = "DEVD-EVDE-VDEV"
  * combien d'étapes il reste.
  */
 function FirstBootShowcase({ step }: { step: SetupStep }): React.JSX.Element {
+  const { t } = useTranslation("auth")
   const index: Record<SetupStep, number> = { form: 1, totp: 2, codes: 3 }
   const current = index[step]
   const state = (position: number): { done?: boolean; active?: boolean } =>
@@ -67,36 +69,39 @@ function FirstBootShowcase({ step }: { step: SetupStep }): React.JSX.Element {
 
   return (
     <AuthShowcaseFrame
-      label="Control plane 01"
-      badge="Instance reachable"
-      eyebrow="Self-hosted from day one"
+      label={t("setup.showcase.label")}
+      badge={t("setup.showcase.badge")}
+      eyebrow={t("setup.showcase.eyebrow")}
       title={
         <>
-          Your data stays
+          {t("setup.showcase.titleLine1")}
           <br />
-          on your machines.
+          {t("setup.showcase.titleLine2")}
         </>
       }
-      description="Ploydok runs entirely on your own infrastructure. No hosted account, no telemetry, nothing between your code and your servers."
-      footer="AGPL-3.0 — every component is auditable."
+      description={t("setup.showcase.description")}
+      footer={t("setup.showcase.footer")}
     >
-      <ShowcasePanel title="First boot" meta="3 steps">
+      <ShowcasePanel
+        title={t("setup.showcase.panelTitle")}
+        meta={t("setup.showcase.panelMeta")}
+      >
         <ShowcaseStep
           index="01"
-          label="Admin account"
-          meta="email + password"
+          label={t("setup.showcase.stepAdmin")}
+          meta={t("setup.showcase.stepAdminMeta")}
           {...state(1)}
         />
         <ShowcaseStep
           index="02"
-          label="Two-factor"
-          meta="optional"
+          label={t("setup.showcase.stepTotp")}
+          meta={t("common:optional")}
           {...state(2)}
         />
         <ShowcaseStep
           index="03"
-          label="Recovery codes"
-          meta="one-shot"
+          label={t("setup.showcase.stepCodes")}
+          meta={t("setup.showcase.stepCodesMeta")}
           {...state(3)}
         />
       </ShowcasePanel>
@@ -119,6 +124,7 @@ export const Route = createFileRoute("/_public/setup")({
 })
 
 function SetupPage(): React.JSX.Element {
+  const { t } = useTranslation("auth")
   const router = useRouter()
   const { token } = Route.useSearch()
   const { setupTokenRequired, setupSessionGrantAllowed } = Route.useLoaderData()
@@ -299,9 +305,9 @@ function SetupPage(): React.JSX.Element {
   if (step === "form" && sessionDenied) {
     return (
       <AuthShell
-        title="Setup token required"
-        subtitle="This instance does not hand out first-boot sessions."
-        eyebrow={SETUP_EYEBROW}
+        title={t("setup.tokenRequired")}
+        subtitle={t("setup.sessionDenied")}
+        eyebrow={t(SETUP_EYEBROW_KEY)}
         showcase={<FirstBootShowcase step="form" />}
       >
         <Alert variant="destructive">
@@ -326,9 +332,9 @@ function SetupPage(): React.JSX.Element {
   if (step === "totp") {
     return (
       <AuthShell
-        title="Enable two-factor authentication"
-        subtitle="Scan the QR code with your authenticator app, then enter the 6-digit code. Optional — you can enable it later in Settings → Security."
-        eyebrow={SETUP_EYEBROW}
+        title={t("setup.totp.title")}
+        subtitle={t("setup.totp.hint")}
+        eyebrow={t(SETUP_EYEBROW_KEY)}
         showcase={<FirstBootShowcase step="totp" />}
       >
         {totpEnrolling || !totpData ? (
@@ -409,9 +415,9 @@ function SetupPage(): React.JSX.Element {
   if (step === "codes") {
     return (
       <AuthShell
-        title="Save your backup codes"
-        subtitle="One-shot recovery codes — they will not be shown again."
-        eyebrow={SETUP_EYEBROW}
+        title={t("setup.codes.title")}
+        subtitle={t("setup.codes.hint")}
+        eyebrow={t(SETUP_EYEBROW_KEY)}
         showcase={<FirstBootShowcase step="codes" />}
       >
         <div className="rounded-md border border-border bg-muted/40 p-4 font-mono text-sm">
@@ -462,9 +468,9 @@ function SetupPage(): React.JSX.Element {
 
   return (
     <AuthShell
-      title="Configure your Ploydok instance"
-      subtitle="Create the first admin account. This screen disappears for good once done."
-      eyebrow={SETUP_EYEBROW}
+      title={t("setup.title")}
+      subtitle={t("setup.subtitle")}
+      eyebrow={t(SETUP_EYEBROW_KEY)}
       showcase={<FirstBootShowcase step="form" />}
     >
       <form

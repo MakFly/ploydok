@@ -1,5 +1,6 @@
 // SPDX-License-Identifier: AGPL-3.0-only
 import * as React from "react"
+import { useTranslation } from "react-i18next"
 import { Button } from "@workspace/ui/components/button"
 import { useGitLabCacheStatus, useGitLabRepos } from "../../lib/gitlab"
 import type { GitRepo } from "@ploydok/shared"
@@ -28,6 +29,7 @@ export function GitLabRepoSelector({
   enabled = true,
   unavailableReason,
 }: GitLabRepoSelectorProps): React.JSX.Element {
+  const { t } = useTranslation(["settings", "apps"])
   const [search, setSearch] = React.useState("")
   const debouncedSearch = useDebounce(search, 200)
   const postOAuthSyncQueued =
@@ -61,7 +63,7 @@ export function GitLabRepoSelector({
     return (
       <div className="flex flex-col items-center gap-3 rounded-lg border border-border bg-muted/30 p-6 text-center">
         <p className="text-sm text-muted-foreground">
-          {unavailableReason ?? "GitLab n'est pas disponible pour ce compte."}
+          {unavailableReason ?? t("gitlab.notAvailable")}
         </p>
         <Button
           size="sm"
@@ -70,7 +72,7 @@ export function GitLabRepoSelector({
             window.location.href = "/settings/git-providers/gitlab"
           }}
         >
-          Configurer GitLab
+          {t("gitlab.configure")}
         </Button>
       </div>
     )
@@ -82,7 +84,7 @@ export function GitLabRepoSelector({
     <div className="space-y-3">
       <input
         type="search"
-        placeholder="Rechercher un projet GitLab..."
+        placeholder={t("apps:create.searchGitLab")}
         value={search}
         onChange={(e) => setSearch(e.target.value)}
         className="w-full rounded-md border border-input bg-background px-3 py-2 text-sm focus:ring-2 focus:ring-ring focus:outline-none"

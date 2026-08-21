@@ -1,6 +1,7 @@
 // SPDX-License-Identifier: AGPL-3.0-only
 import * as React from "react";
 import { Link } from "@tanstack/react-router";
+import { useTranslation } from "react-i18next";
 import { Button } from "@workspace/ui/components/button";
 
 // ---------------------------------------------------------------------------
@@ -51,6 +52,7 @@ function HomeIcon({ className }: { className?: string }): React.JSX.Element {
 // ---------------------------------------------------------------------------
 
 export function NotFoundState(): React.JSX.Element {
+  const { t } = useTranslation("errors");
   return (
     <div
       role="alert"
@@ -68,9 +70,9 @@ export function NotFoundState(): React.JSX.Element {
 
       {/* Title + message */}
       <div className="space-y-1">
-        <h2 className="text-base font-semibold text-foreground">Page not found</h2>
+        <h2 className="text-base font-semibold text-foreground">{t("pageNotFound")}</h2>
         <p className="text-sm text-muted-foreground">
-          The page you&apos;re looking for doesn&apos;t exist or has been moved.
+          {t("pageNotFoundBody")}
         </p>
       </div>
 
@@ -78,7 +80,7 @@ export function NotFoundState(): React.JSX.Element {
       <Button variant="default" size="sm" asChild>
         <Link to="/dashboard">
           <HomeIcon className="size-3.5 mr-1.5" />
-          Go to dashboard
+          {t("common:goToDashboard")}
         </Link>
       </Button>
     </div>

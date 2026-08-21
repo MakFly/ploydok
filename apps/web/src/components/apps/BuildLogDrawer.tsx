@@ -18,7 +18,7 @@ import {
   SheetContent,
   SheetHeader,
   SheetTitle,
-} from "@workspace/ui/components/sheet"
+} from "../i18n/sheet"
 import { Button } from "@workspace/ui/components/button"
 import { cn } from "@workspace/ui/lib/utils"
 import { BuildLogViewer } from "./BuildLogViewer"

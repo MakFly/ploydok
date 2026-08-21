@@ -1,6 +1,7 @@
 // SPDX-License-Identifier: AGPL-3.0-only
 import { useQuery } from "@tanstack/react-query"
 import { apiFetch, criticalRetryDelay, shouldRetryCriticalQuery } from "./api"
+import i18n from "./i18n"
 import type { ApiError } from "./api"
 
 export interface GitProviderStatus {
@@ -33,37 +34,36 @@ export function getGitLabSourceAvailability(
   options: { loading?: boolean; failed?: boolean } = {}
 ): GitLabSourceAvailability {
   if (options.loading && !status) {
-    return { enabled: false, reason: "Vérification de GitLab…" }
+    return { enabled: false, reason: i18n.t("settings:gitlab.checking") }
   }
   if (options.failed && !status) {
     return {
       enabled: false,
-      reason: "Impossible de vérifier la disponibilité de GitLab.",
+      reason: i18n.t("settings:gitlab.checkFailed"),
     }
   }
   if (!status?.gitlab.configured) {
     return {
       enabled: false,
-      reason: "GitLab doit d'abord être configuré par un administrateur.",
+      reason: i18n.t("settings:gitlab.needsAdmin"),
     }
   }
   if (status.gitlab.state === "unavailable") {
     return {
       enabled: false,
-      reason:
-        "GitLab est temporairement indisponible. Réessaie sans déconnecter ton compte.",
+      reason: i18n.t("settings:gitlab.unavailable"),
     }
   }
   if (status.gitlab.state === "expired") {
     return {
       enabled: false,
-      reason: "La connexion GitLab a expiré. Reconnecte ton compte.",
+      reason: i18n.t("settings:gitlab.expired"),
     }
   }
   if (!status.gitlab.connected) {
     return {
       enabled: false,
-      reason: "Connecte ton compte GitLab dans les réglages des providers.",
+      reason: i18n.t("settings:gitlab.connectInSettings"),
     }
   }
   return { enabled: true, reason: null }

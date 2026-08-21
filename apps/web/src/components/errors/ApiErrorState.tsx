@@ -1,7 +1,9 @@
 // SPDX-License-Identifier: AGPL-3.0-only
 import * as React from "react"
 import { Link } from "@tanstack/react-router"
+import { useTranslation } from "react-i18next"
 import { Button } from "@workspace/ui/components/button"
+import i18n from "../../lib/i18n"
 
 // ---------------------------------------------------------------------------
 // Props
@@ -18,14 +20,17 @@ export interface ApiErrorStateProps {
 // Helpers
 // ---------------------------------------------------------------------------
 
-function titleForStatus(code?: string, status?: number): string {
-  if (code === "SECOND_FACTOR_REQUIRED") return "Second factor required"
-  if (code === "BACKEND_UNAVAILABLE") return "Backend indisponible"
-  if (status === 401) return "Not signed in"
-  if (status === 403) return "Forbidden"
-  if (status === 404) return "Not found"
-  if (status !== undefined && status >= 500) return "Something broke"
-  return "Something went wrong"
+export function titleForStatus(code?: string, status?: number): string {
+  if (code === "SECOND_FACTOR_REQUIRED")
+    return i18n.t("errors:secondFactorRequired")
+  if (code === "BACKEND_UNAVAILABLE")
+    return i18n.t("errors:backendUnavailable")
+  if (status === 401) return i18n.t("errors:notSignedIn")
+  if (status === 403) return i18n.t("errors:forbidden")
+  if (status === 404) return i18n.t("errors:notFound")
+  if (status !== undefined && status >= 500)
+    return i18n.t("errors:somethingBroke")
+  return i18n.t("errors:somethingWentWrong")
 }
 
 // ---------------------------------------------------------------------------
@@ -106,6 +111,7 @@ export function ApiErrorState({
   message,
   onRetry,
 }: ApiErrorStateProps): React.JSX.Element {
+  const { t } = useTranslation("errors")
   const title = titleForStatus(code, status)
 
   // Dedicated branch for SECOND_FACTOR_REQUIRED: show a CTA to configure a
@@ -122,18 +128,17 @@ export function ApiErrorState({
         <div className="space-y-1">
           <h2 className="text-base font-semibold text-foreground">{title}</h2>
           <p className="text-sm text-muted-foreground">
-            Ajoutez une 2ᵉ passkey ou générez des backup codes pour effectuer
-            cette action.
+            {t("secondFactorBody")}
           </p>
         </div>
         <div className="flex flex-wrap items-center justify-center gap-2">
           <Button variant="default" size="sm" asChild>
-            <Link to="/settings/security/passkey">Configurer</Link>
+            <Link to="/settings/security/passkey">{t("configure")}</Link>
           </Button>
           <Button variant="ghost" size="sm" asChild>
             <Link to="/dashboard">
               <HomeIcon className="mr-1.5 size-3.5" />
-              Go home
+              {t("common:goHome")}
             </Link>
           </Button>
         </div>
@@ -169,13 +174,13 @@ export function ApiErrorState({
         {onRetry && (
           <Button variant="default" size="sm" onClick={onRetry}>
             <RefreshIcon className="mr-1.5 size-3.5" />
-            Retry
+            {t("common:retry")}
           </Button>
         )}
         <Button variant="ghost" size="sm" asChild>
           <Link to="/dashboard">
             <HomeIcon className="mr-1.5 size-3.5" />
-            Go home
+            {t("common:goHome")}
           </Link>
         </Button>
       </div>

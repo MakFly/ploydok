@@ -3,20 +3,8 @@
  * Tests for ApiErrorState logic (title resolution + SECOND_FACTOR_REQUIRED branch).
  */
 import { describe, expect, it } from "bun:test"
-
-// ---------------------------------------------------------------------------
-// Replicate the title helper to test it in isolation without a DOM / JSDOM.
-// ---------------------------------------------------------------------------
-
-function titleForStatus(code?: string, status?: number): string {
-  if (code === "SECOND_FACTOR_REQUIRED") return "Second factor required"
-  if (code === "BACKEND_UNAVAILABLE") return "Backend indisponible"
-  if (status === 401) return "Not signed in"
-  if (status === 403) return "Forbidden"
-  if (status === 404) return "Not found"
-  if (status !== undefined && status >= 500) return "Something broke"
-  return "Something went wrong"
-}
+import { titleForStatus } from "../../components/errors/ApiErrorState"
+import i18n from "../../lib/i18n"
 
 function isSecondFactorRequired(code?: string): boolean {
   return code === "SECOND_FACTOR_REQUIRED"
@@ -33,8 +21,10 @@ describe("ApiErrorState — title resolution", () => {
     )
   })
 
-  it("returns 'Backend indisponible' for BACKEND_UNAVAILABLE", () => {
-    expect(titleForStatus("BACKEND_UNAVAILABLE")).toBe("Backend indisponible")
+  it("returns the backend-unavailable title for BACKEND_UNAVAILABLE", () => {
+    expect(titleForStatus("BACKEND_UNAVAILABLE")).toBe(
+      i18n.t("errors:backendUnavailable")
+    )
   })
 
   it("returns 'Not signed in' for status 401", () => {
