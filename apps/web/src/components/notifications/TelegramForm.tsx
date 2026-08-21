@@ -1,5 +1,6 @@
 // SPDX-License-Identifier: AGPL-3.0-only
 import * as React from "react"
+import { useTranslation } from "react-i18next"
 import { Input } from "@workspace/ui/components/input"
 import {
   Field,
@@ -21,10 +22,13 @@ export function TelegramForm({
   onBotTokenChange,
   onChatIdChange,
 }: TelegramFormProps): React.JSX.Element {
+  const { t } = useTranslation("settings")
   return (
     <div className="flex flex-col gap-4">
       <Field>
-        <FieldLabel htmlFor="telegram-bot-token">Token du bot</FieldLabel>
+        <FieldLabel htmlFor="telegram-bot-token">
+          {t("notifications.telegramBotToken")}
+        </FieldLabel>
         <FieldContent>
           <Input
             id="telegram-bot-token"
@@ -35,12 +39,14 @@ export function TelegramForm({
           />
         </FieldContent>
         <FieldDescription>
-          Obtenu via @BotFather avec la commande /newbot.
+          {t("notifications.telegramBotHint")}
         </FieldDescription>
       </Field>
 
       <Field>
-        <FieldLabel htmlFor="telegram-chat-id">Chat ID</FieldLabel>
+        <FieldLabel htmlFor="telegram-chat-id">
+          {t("notifications.telegramChatId")}
+        </FieldLabel>
         <FieldContent>
           <Input
             id="telegram-chat-id"
@@ -51,47 +57,19 @@ export function TelegramForm({
           />
         </FieldContent>
         <FieldDescription>
-          ID numérique du chat privé (positif) ou du groupe/channel (négatif).
+          {t("notifications.chatIdHint")}
         </FieldDescription>
       </Field>
 
       <div className="rounded-md bg-muted/50 p-3 text-xs text-muted-foreground leading-5">
-        <p className="font-medium text-foreground mb-1">Configuration pas-à-pas</p>
+        <p className="font-medium text-foreground mb-1">
+          {t("notifications.telegramSteps")}
+        </p>
         <ol className="list-decimal list-inside space-y-1">
-          <li>
-            Ouvre{" "}
-            <a
-              href="https://t.me/BotFather"
-              target="_blank"
-              rel="noopener noreferrer"
-              className="underline hover:text-foreground"
-            >
-              @BotFather
-            </a>{" "}
-            sur Telegram, envoie <code className="font-mono">/newbot</code>, suis les instructions
-            et récupère le token.
-          </li>
-          <li>
-            Démarre une conversation avec ton bot (ou ajoute-le à un groupe/channel et envoie{" "}
-            <code className="font-mono">/start</code>).
-          </li>
-          <li>
-            Récupère le <code className="font-mono">chat_id</code> via{" "}
-            <code className="font-mono">
-              https://api.telegram.org/bot&lt;TOKEN&gt;/getUpdates
-            </code>
-            , ou plus simple : écris à{" "}
-            <a
-              href="https://t.me/userinfobot"
-              target="_blank"
-              rel="noopener noreferrer"
-              className="underline hover:text-foreground"
-            >
-              @userinfobot
-            </a>{" "}
-            pour ton chat perso.
-          </li>
-          <li>Clique sur « Test » après création pour vérifier l'envoi.</li>
+          <li>{t("notifications.telegramStep1")}</li>
+          <li>{t("notifications.telegramStep2")}</li>
+          <li>{t("notifications.telegramStep3")}</li>
+          <li>{t("notifications.telegramStep4")}</li>
         </ol>
       </div>
     </div>

@@ -2,6 +2,7 @@
 import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query"
 import { toast } from "sonner"
 import { apiFetch } from "./api"
+import i18n from "./i18n"
 import type { ApiError } from "./api"
 
 // ---------------------------------------------------------------------------
@@ -60,7 +61,7 @@ export function useCreateRegistryCredential() {
           body: payload,
         }),
       onSuccess: () => {
-        toast.success("Registry credential saved")
+        toast.success(i18n.t("settings:registry.saved"))
         void qc.invalidateQueries({ queryKey: ["registry", "credentials"] })
       },
       onError: (err) => {
@@ -78,7 +79,7 @@ export function useDeleteRegistryCredential() {
         method: "DELETE",
       }),
     onSuccess: () => {
-      toast.success("Credential deleted")
+      toast.success(i18n.t("settings:registry.deleted"))
       void qc.invalidateQueries({ queryKey: ["registry", "credentials"] })
     },
     onError: (err) => {

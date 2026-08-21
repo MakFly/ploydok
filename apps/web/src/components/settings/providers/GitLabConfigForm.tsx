@@ -1,5 +1,6 @@
 // SPDX-License-Identifier: AGPL-3.0-only
 import * as React from "react"
+import { useTranslation } from "react-i18next"
 import { RiExternalLinkLine, RiGitlabFill } from "@remixicon/react"
 import { Button } from "@workspace/ui/components/button"
 import type { SaveGitLabConfigPayload } from "../../../lib/gitlab"
@@ -15,6 +16,7 @@ export function GitLabConfigForm({
   onSave: (values: Required<SaveGitLabConfigPayload>) => Promise<void>
   pending: boolean
 }): React.JSX.Element {
+  const { t } = useTranslation("settings")
   const [instanceUrl, setInstanceUrl] = React.useState("https://gitlab.com")
   const [clientId, setClientId] = React.useState("")
   const [clientSecret, setClientSecret] = React.useState("")
@@ -39,17 +41,17 @@ export function GitLabConfigForm({
         </div>
         <div>
           <h2 className="font-heading text-base font-medium">
-            Créer l'OAuth app
+            {t("gitlab.createOauth")}
           </h2>
           <p className="text-xs text-muted-foreground">
-            Enregistre l'application côté GitLab puis colle les credentials ici.
+            {t("gitlab.createOauthHint")}
           </p>
         </div>
       </header>
 
       <FieldInput
-        label="Instance URL"
-        hint="gitlab.com ou URL de ton instance self-hosted."
+        label={t("gitlab.instanceUrl")}
+        hint={t("gitlab.instanceHint")}
         value={instanceUrl}
         onChange={setInstanceUrl}
         type="url"
@@ -57,14 +59,14 @@ export function GitLabConfigForm({
         required
       />
       <FieldInput
-        label="Application ID (client_id)"
+        label={t("gitlab.applicationId")}
         value={clientId}
         onChange={setClientId}
-        placeholder="ex : 4a2b…"
+        placeholder={t("gitlab.clientIdPlaceholder")}
         required
       />
       <FieldInput
-        label="Secret (client_secret)"
+        label={t("gitlab.secret")}
         value={clientSecret}
         onChange={setClientSecret}
         type="password"
@@ -72,8 +74,8 @@ export function GitLabConfigForm({
         required
       />
       <FieldInput
-        label="Webhook secret (X-Gitlab-Token)"
-        hint="Secret partagé que tu colleras dans chaque webhook GitLab projet."
+        label={t("gitlab.webhookSecret")}
+        hint={t("gitlab.webhookHint")}
         value={webhookSecret}
         onChange={setWebhookSecret}
         type="password"
@@ -82,7 +84,7 @@ export function GitLabConfigForm({
 
       <div className="flex justify-end gap-2 pt-1">
         <Button type="submit" loading={pending}>
-          {pending ? "Enregistrement…" : "Enregistrer"}
+          {pending ? t("common:saving") : t("common:save")}
         </Button>
       </div>
     </form>
@@ -99,52 +101,46 @@ export function GitLabSetupHelp({
 }: {
   callbackUrl: string | undefined
 }): React.JSX.Element {
+  const { t } = useTranslation("settings")
   return (
     <details className="rounded-2xl rounded-xl bg-panel p-5 text-xs">
       <summary className="cursor-pointer font-medium">
-        Comment créer l'OAuth app côté GitLab ?
+        {t("gitlab.howTo")}
       </summary>
       <div className="mt-3 space-y-3 leading-relaxed text-muted-foreground">
         <ol className="list-decimal space-y-1 pl-5">
           <li>
-            Ouvre{" "}
+            {t("gitlab.openPrefs")}{" "}
             <a
               href="https://gitlab.com/-/user_settings/applications"
               target="_blank"
               rel="noreferrer"
               className="inline-flex items-center gap-0.5 text-foreground underline-offset-2 hover:underline"
             >
-              GitLab → Préférences → Applications
+              {t("gitlab.openPrefs")}
               <RiExternalLinkLine className="size-3" />
             </a>{" "}
-            (ou{" "}
+            {t("gitlab.orInstance")}{" "}
             <code className="font-mono">
               {"{"}instance{"}"}/-/user_settings/applications
             </code>
             ).
           </li>
-          <li>Crée une Application.</li>
+          <li>{t("gitlab.createApplication")}</li>
           <li>
-            Redirect URI :{" "}
+            {t("gitlab.redirectUri")}{" "}
             {callbackUrl ? (
               <code className="font-mono text-foreground">{callbackUrl}</code>
             ) : (
-              <span className="text-muted-foreground">chargement…</span>
+              <span className="text-muted-foreground">{t("gitlab.loading")}</span>
             )}
           </li>
           <li>
-            Scopes : cocher <code className="font-mono">api</code> +{" "}
+            {t("gitlab.scopes")} <code className="font-mono">api</code> +{" "}
             <code className="font-mono">read_repository</code>.
           </li>
-          <li>
-            Copie l'<em>Application ID</em> et le <em>Secret</em>, colle-les
-            dans le formulaire ci-dessus.
-          </li>
-          <li>
-            Génère un <em>webhook secret</em> aléatoire (par ex.{" "}
-            <code className="font-mono">openssl rand -hex 32</code>), tu le
-            colleras dans chaque webhook GitLab projet.
-          </li>
+          <li>{t("gitlab.copyPaste")}</li>
+          <li>{t("gitlab.generateWebhook")}</li>
         </ol>
       </div>
     </details>

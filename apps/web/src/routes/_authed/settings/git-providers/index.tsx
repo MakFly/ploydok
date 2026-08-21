@@ -10,6 +10,7 @@ import {
 } from "@remixicon/react"
 import { cn } from "@workspace/ui/lib/utils"
 import { ShellPage } from "../../../../components/layout/AppShell"
+import { useTranslation } from "react-i18next"
 import { useGitProviderStatus } from "../../../../lib/git-providers"
 
 export const Route = createFileRoute("/_authed/settings/git-providers/")({
@@ -27,14 +28,14 @@ interface ProviderCardProps {
 }
 
 function GitProvidersHub(): React.JSX.Element {
+  const { t } = useTranslation("settings")
   const providerStatus = useGitProviderStatus()
 
   const providers: ReadonlyArray<ProviderCardProps> = [
     {
       slug: "github",
-      name: "GitHub",
-      description:
-        "GitHub App — auto-deploy sur push, webhooks HMAC, accès par installation.",
+      name: t("github.title"),
+      description: t("gitProviders.githubHint"),
       icon: RiGithubFill,
       accent: "text-foreground",
       status: providerStatus.isLoading
@@ -44,14 +45,13 @@ function GitProvidersHub(): React.JSX.Element {
           : "not_configured",
       ...(providerStatus.data?.github.configured &&
       !providerStatus.data.github.connected
-        ? { note: "Instance App ready to connect" }
+        ? { note: t("gitProviders.readyToConnect") }
         : {}),
     },
     {
       slug: "gitlab",
-      name: "GitLab",
-      description:
-        "OAuth2 per-user — gitlab.com ou instance self-hosted ; webhook X-Gitlab-Token.",
+      name: t("gitlab.title"),
+      description: t("gitProviders.gitlabHint"),
       icon: RiGitlabFill,
       accent: "text-[#fc6d26]",
       status: providerStatus.isLoading
@@ -60,17 +60,17 @@ function GitProvidersHub(): React.JSX.Element {
           ? "configured"
           : "not_configured",
       ...(providerStatus.data?.gitlab.state === "unavailable"
-        ? { note: "GitLab temporarily unavailable; connection preserved" }
+        ? { note: t("gitProviders.temporarilyUnavailable") }
         : providerStatus.data?.gitlab.state === "expired"
-          ? { note: "OAuth connection expired; reconnect required" }
+          ? { note: t("gitProviders.oauthExpired") }
           : {}),
     },
   ]
 
   return (
     <ShellPage
-      title="Git providers"
-      description="Connecte les services d'hébergement Git pour déployer depuis un repo à chaque push."
+      title={t("gitProviders.title")}
+      description={t("gitProviders.description")}
     >
       <div className="space-y-6">
         <section aria-label="Providers" className="grid gap-3 md:grid-cols-2">

@@ -23,9 +23,11 @@ import { useGitProviderStatus } from "../../../lib/git-providers"
 import { CachedReposPanel } from "./CachedReposPanel"
 import { GitLabConfigForm, GitLabSetupHelp } from "./GitLabConfigForm"
 import { SyncProgressDialog } from "./SyncProgressDialog"
+import { useTranslation } from "react-i18next"
 import { useSyncWithProgress } from "./useSyncWithProgress"
 
 export function GitLabPanel(): React.JSX.Element {
+  const { t } = useTranslation("settings")
   const { data: me } = useMe()
   const providerStatus = useGitProviderStatus()
   const { data: config, isLoading } = useGitLabConfig()
@@ -54,7 +56,7 @@ export function GitLabPanel(): React.JSX.Element {
         <div className="flex items-center gap-2 rounded-lg border border-emerald-500/30 bg-emerald-500/10 p-3 text-xs text-emerald-700 dark:text-emerald-300">
           <RiCheckboxCircleFill className="size-4" />
           <span>
-            Connexion GitLab réussie. Tu peux maintenant lister tes projets.
+            {t("gitlab.connectedBanner")}
           </span>
         </div>
       ) : null}
@@ -70,7 +72,7 @@ export function GitLabPanel(): React.JSX.Element {
 
       {isLoading ? (
         <div className="rounded-2xl rounded-xl bg-panel p-5 text-xs text-muted-foreground">
-          Chargement…
+          {t("common:loading")}
         </div>
       ) : configured ? (
         <ConfiguredState
@@ -92,8 +94,7 @@ export function GitLabPanel(): React.JSX.Element {
         />
       ) : (
         <section className="rounded-2xl bg-panel p-5 text-sm text-muted-foreground">
-          An instance administrator must configure the GitLab OAuth app before
-          you can connect your account.
+          {t("gitlab.needsAdminLong")}
         </section>
       )}
 
@@ -109,6 +110,7 @@ function GitLabCacheSection({
 }: {
   autoRefresh: boolean
 }): React.JSX.Element {
+  const { t } = useTranslation("settings")
   const sync = useSyncGitLabInstallations()
   const cache = useGitLabCacheStatus({ autoRefresh })
   const entries = cache.data?.installation ? [cache.data.installation] : []
@@ -131,8 +133,8 @@ function GitLabCacheSection({
   return (
     <>
       <CachedReposPanel
-        title="Cached repositories"
-        description="Repos are served from a Postgres cache so the create-app picker opens instantly. Use Sync if you just added a project on GitLab and don't see it yet."
+        title={t("gitlab.cachedTitle")}
+        description={t("gitlab.cachedHint")}
         entries={entries}
         isLoading={cache.isLoading}
         isError={cache.isError}
@@ -143,8 +145,7 @@ function GitLabCacheSection({
         onSyncAll={() => startSync()}
         emptyState={
           <p className="text-sm text-muted-foreground">
-            No GitLab projects cached yet. Click <strong>Sync now</strong> to
-            import your projects.
+            {t("gitlab.cachedEmpty")}
           </p>
         }
       />
@@ -187,6 +188,7 @@ function ConfiguredState({
     | undefined
   isAdmin: boolean
 }): React.JSX.Element {
+  const { t } = useTranslation("settings")
   return (
     <section className="space-y-4 rounded-2xl rounded-xl bg-panel p-5">
       <header className="flex items-center gap-3">
@@ -196,7 +198,7 @@ function ConfiguredState({
         <div className="min-w-0 flex-1">
           <div className="flex items-center gap-2">
             <h2 className="font-heading text-base font-medium">
-              GitLab configuré
+              {t("gitlab.configured")}
             </h2>
             <span
               className={cn(
@@ -208,12 +210,12 @@ function ConfiguredState({
             >
               <RiCheckboxCircleFill className="size-3" />
               {connected
-                ? "Connected"
+                ? t("gitlab.connected")
                 : connectionState === "unavailable"
-                  ? "Unavailable"
+                  ? t("gitlab.unavailableShort")
                   : connectionState === "expired"
-                    ? "Expired"
-                    : "Configured"}
+                    ? t("gitlab.expiredShort")
+                    : t("gitlab.configuredShort")}
             </span>
           </div>
           <p className="truncate font-mono text-[10px] tracking-wide text-muted-foreground">
@@ -227,15 +229,14 @@ function ConfiguredState({
           className="rounded-md border border-amber-500/30 bg-amber-500/10 px-3 py-2 text-xs text-foreground"
           role="alert"
         >
-          GitLab est temporairement indisponible. La connexion enregistrée n’a
-          pas été supprimée ; réessaie plus tard.
+          {t("gitlab.unavailableBanner")}
         </p>
       ) : null}
 
       <dl className="grid gap-3 text-xs sm:grid-cols-2">
         <div>
           <dt className="font-mono text-[10px] tracking-wide text-muted-foreground uppercase">
-            Client ID
+            {t("gitlab.applicationId")}
           </dt>
           <dd className="mt-0.5 font-mono text-xs">
             {config.client_id ?? "—"}
@@ -243,7 +244,7 @@ function ConfiguredState({
         </div>
         <div>
           <dt className="font-mono text-[10px] tracking-wide text-muted-foreground uppercase">
-            Instance
+            {t("gitlab.instance")}
           </dt>
           <dd className="mt-0.5 truncate font-mono text-xs">
             {config.instance_url ?? "—"}
@@ -255,7 +256,7 @@ function ConfiguredState({
         <Button asChild>
           <a href={gitlabConnectUrl()}>
             <RiLink className="size-3.5" />
-            Connecter mon compte
+            {t("gitlab.connectAccount")}
           </a>
         </Button>
         {connected ? (
@@ -265,7 +266,9 @@ function ConfiguredState({
             loading={disconnectPending}
           >
             {!disconnectPending && <RiLoopRightLine className="size-3.5" />}
-            {disconnectPending ? "Déconnexion…" : "Révoquer mes tokens"}
+            {disconnectPending
+              ? t("gitlab.disconnecting")
+              : t("gitlab.revokeTokens")}
           </Button>
         ) : null}
         {isAdmin ? (
@@ -275,7 +278,7 @@ function ConfiguredState({
             onClick={onReset}
             loading={resetPending}
           >
-            {resetPending ? "Suppression…" : "Supprimer la configuration"}
+            {resetPending ? t("gitlab.deleting") : t("gitlab.deleteConfig")}
           </Button>
         ) : null}
       </div>

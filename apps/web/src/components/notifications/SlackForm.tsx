@@ -1,5 +1,6 @@
 // SPDX-License-Identifier: AGPL-3.0-only
 import * as React from "react"
+import { useTranslation } from "react-i18next"
 import { Input } from "@workspace/ui/components/input"
 import {
   Alert,
@@ -26,19 +27,20 @@ export function SlackForm({
   onChange,
   error,
 }: SlackFormProps): React.JSX.Element {
+  const { t } = useTranslation("settings")
   return (
     <div className="flex flex-col gap-4">
       <div className="flex items-center gap-2">
-        <Badge variant="secondary">Coming soon</Badge>
+        <Badge variant="secondary">{t("notifications.comingSoon")}</Badge>
       </div>
       <Alert>
-        <AlertTitle>Envoi désactivé pour le moment</AlertTitle>
-        <AlertDescription>
-          Les notifications Slack ne sont pas encore actives.
-        </AlertDescription>
+        <AlertTitle>{t("notifications.disabledTitle")}</AlertTitle>
+        <AlertDescription>{t("notifications.slackNotActive")}</AlertDescription>
       </Alert>
       <Field>
-        <FieldLabel htmlFor="slack-webhook-url">URL du webhook</FieldLabel>
+        <FieldLabel htmlFor="slack-webhook-url">
+          {t("notifications.webhookUrl")}
+        </FieldLabel>
         <FieldContent>
           <Input
             id="slack-webhook-url"

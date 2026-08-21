@@ -17,25 +17,27 @@ import {
   useDeleteRegistryCredential,
   useRegistryCredentials
 } from "../../../lib/registry-credentials"
-import type {RegistryCredential} from "../../../lib/registry-credentials";
+import { useTranslation } from "react-i18next"
+import type { RegistryCredential } from "../../../lib/registry-credentials"
 
 export const Route = createFileRoute("/_authed/settings/registry")({
   component: RegistryPage,
 })
 
 function RegistryPage(): React.JSX.Element {
+  const { t } = useTranslation("settings")
   const { data: credentials, isLoading } = useRegistryCredentials()
   const [showForm, setShowForm] = React.useState(false)
 
   return (
     <ShellPage
-      title="Registry credentials"
-      description="Authentification pour tirer des images depuis un registre Docker privé (Docker Hub, GHCR, GitLab, registry.example.com…)."
+      title={t("registry.title")}
+      description={t("registry.description")}
       actions={
         !showForm ? (
           <Button size="sm" onClick={() => setShowForm(true)}>
             <RiAddLine className="size-4" />
-            New credential
+            {t("registry.new")}
           </Button>
         ) : null
       }
@@ -68,6 +70,7 @@ function CreateCredentialForm({
 }: {
   onClose: () => void
 }): React.JSX.Element {
+  const { t } = useTranslation("settings")
   const [label, setLabel] = React.useState("")
   const [registryHost, setRegistryHost] = React.useState("")
   const [username, setUsername] = React.useState("")
@@ -110,9 +113,9 @@ function CreateCredentialForm({
     >
       <div className="flex items-start justify-between gap-3">
         <div>
-          <p className="text-sm font-medium">New registry credential</p>
+          <p className="text-sm font-medium">{t("registry.new")}</p>
           <p className="mt-0.5 text-xs text-muted-foreground">
-            Le mot de passe est chiffré AES-256-GCM côté serveur.
+            {t("registry.passwordHint")}
           </p>
         </div>
         <RiLockLine className="size-4 shrink-0 text-muted-foreground" />
@@ -278,16 +281,16 @@ function CredentialRow({
 }
 
 function EmptyState({ onCreate }: { onCreate: () => void }): React.JSX.Element {
+  const { t } = useTranslation("settings")
   return (
     <div className="flex flex-col items-center justify-center gap-3 rounded-xl border border-dashed border-panel-border bg-panel-inset px-6 py-12 text-center">
       <div className="flex size-12 items-center justify-center rounded-full bg-muted">
         <RiShip2Line className="size-6 text-muted-foreground" />
       </div>
       <div className="space-y-1">
-        <p className="text-sm font-medium">No credentials yet</p>
+        <p className="text-sm font-medium">{t("registry.empty")}</p>
         <p className="max-w-sm text-xs text-muted-foreground">
-          Ajoute tes identifiants de registre privé pour déployer une app à
-          partir d'une image Docker (source « Image »).
+          {t("registry.emptyHint")}
         </p>
       </div>
       <Button size="sm" onClick={onCreate}>

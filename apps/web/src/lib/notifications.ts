@@ -2,6 +2,7 @@
 import { useEffect, useReducer } from "react"
 import { toast } from "sonner"
 import { apiFetch } from "./api"
+import i18n from "./i18n"
 import { useEventsConnected, useEventsSubscription } from "./events-provider"
 
 // ---------------------------------------------------------------------------
@@ -213,7 +214,7 @@ export function useNotifications(): {
       // user loses the "I cleared it" signal.
       console.warn("notifications: failed to persist read cursor", err)
       dispatch({ type: "markAllReadRollback", lastReadAt: previousLastReadAt })
-      toast.error("Impossible de marquer comme lu. Réessaie.")
+      toast.error(i18n.t("settings:notifications.markReadFailed"))
     })
   }
   const clear = () => dispatch({ type: "clear" })

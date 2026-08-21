@@ -1,5 +1,6 @@
 // SPDX-License-Identifier: AGPL-3.0-only
 import * as React from "react"
+import { useTranslation } from "react-i18next"
 import { Input } from "@workspace/ui/components/input"
 import {
   Field,
@@ -20,10 +21,11 @@ export function EmailForm({
   onChange,
   error,
 }: EmailFormProps): React.JSX.Element {
+  const { t } = useTranslation("settings")
   return (
     <div className="flex flex-col gap-4">
       <Field>
-        <FieldLabel htmlFor="email-to">Adresse email destinataire</FieldLabel>
+        <FieldLabel htmlFor="email-to">{t("notifications.emailTo")}</FieldLabel>
         <FieldContent>
           <Input
             id="email-to"
@@ -38,8 +40,7 @@ export function EmailForm({
           <FieldError>{error}</FieldError>
         ) : (
           <FieldDescription>
-            L&apos;email sera envoyé via le SMTP configuré sur l&apos;instance
-            Ploydok (variable SMTP_URL).
+            {t("notifications.emailHint")}
           </FieldDescription>
         )}
       </Field>

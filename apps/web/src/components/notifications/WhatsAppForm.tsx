@@ -1,5 +1,6 @@
 // SPDX-License-Identifier: AGPL-3.0-only
 import * as React from "react"
+import { useTranslation } from "react-i18next"
 import { Input } from "@workspace/ui/components/input"
 import {
   Field,
@@ -38,19 +39,17 @@ export function WhatsAppForm({
   onProviderChange,
   onTwilioChange,
 }: WhatsAppFormProps): React.JSX.Element {
+  const { t } = useTranslation("settings")
   return (
     <div className="flex flex-col gap-4">
       <div className="flex items-center gap-2">
-        <Badge variant="secondary">Coming soon</Badge>
+        <Badge variant="secondary">{t("notifications.comingSoon")}</Badge>
       </div>
 
       <Alert>
         <RiInformationLine className="size-4" />
-        <AlertTitle>Envoi désactivé pour le moment</AlertTitle>
-        <AlertDescription>
-          Les notifications WhatsApp ne sont pas encore actives — la
-          configuration peut être sauvegardée en préparation.
-        </AlertDescription>
+        <AlertTitle>{t("notifications.disabledTitle")}</AlertTitle>
+        <AlertDescription>{t("notifications.whatsappNotActive")}</AlertDescription>
       </Alert>
 
       {/* Provider selector */}
@@ -102,7 +101,9 @@ export function WhatsAppForm({
           </Field>
 
           <Field>
-            <FieldLabel htmlFor="wa-phone-from">Numéro expéditeur</FieldLabel>
+            <FieldLabel htmlFor="wa-phone-from">
+              {t("notifications.senderNumber")}
+            </FieldLabel>
             <FieldContent>
               <Input
                 id="wa-phone-from"
@@ -113,12 +114,14 @@ export function WhatsAppForm({
               />
             </FieldContent>
             <FieldDescription>
-              Format E.164 (ex. +14155238886 — numéro sandbox Twilio)
+              {t("notifications.e164Hint")}
             </FieldDescription>
           </Field>
 
           <Field>
-            <FieldLabel htmlFor="wa-phone-to">Numéro destinataire</FieldLabel>
+            <FieldLabel htmlFor="wa-phone-to">
+              {t("notifications.recipientNumber")}
+            </FieldLabel>
             <FieldContent>
               <Input
                 id="wa-phone-to"
@@ -128,7 +131,7 @@ export function WhatsAppForm({
                 onChange={(e) => onTwilioChange({ phone_to: e.target.value })}
               />
             </FieldContent>
-            <FieldDescription>Format E.164</FieldDescription>
+            <FieldDescription>{t("notifications.e164")}</FieldDescription>
           </Field>
 
           <p className="text-xs text-muted-foreground">
@@ -147,8 +150,7 @@ export function WhatsAppForm({
       ) : (
         <div className="rounded-md bg-muted/50 p-3 text-sm text-muted-foreground">
           <p className="mb-1">
-            Meta Cloud API n&apos;est pas encore supporté — utilisez Twilio pour
-            l&apos;instant.
+            {t("notifications.metaUnsupported")}
           </p>
           <a
             href="https://developers.facebook.com/docs/whatsapp/cloud-api/get-started"

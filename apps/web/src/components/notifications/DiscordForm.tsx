@@ -1,5 +1,6 @@
 // SPDX-License-Identifier: AGPL-3.0-only
 import * as React from "react"
+import { useTranslation } from "react-i18next"
 import { Input } from "@workspace/ui/components/input"
 import {
   Field,
@@ -20,10 +21,13 @@ export function DiscordForm({
   onChange,
   error,
 }: DiscordFormProps): React.JSX.Element {
+  const { t } = useTranslation("settings")
   return (
     <div className="flex flex-col gap-4">
       <Field>
-        <FieldLabel htmlFor="discord-webhook-url">URL du webhook</FieldLabel>
+        <FieldLabel htmlFor="discord-webhook-url">
+          {t("notifications.webhookUrl")}
+        </FieldLabel>
         <FieldContent>
           <Input
             id="discord-webhook-url"
@@ -38,8 +42,7 @@ export function DiscordForm({
           <FieldError>{error}</FieldError>
         ) : (
           <FieldDescription>
-            Dans ton serveur Discord : Paramètres du serveur → Intégrations →
-            Webhooks → Nouveau webhook → Copier l&apos;URL
+            {t("notifications.discordHowTo")}
           </FieldDescription>
         )}
       </Field>

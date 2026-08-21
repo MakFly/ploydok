@@ -3,6 +3,7 @@ import * as React from "react";
 import { Link, createFileRoute } from "@tanstack/react-router";
 import { ShellPage } from "../../components/layout/AppShell";
 import { apiBaseUrl } from "../../lib/api/base";
+import { useTranslation } from "react-i18next";
 import { useGitHubAppConfig, useInstallations } from "../../lib/github";
 
 export const Route = createFileRoute("/_authed/guide")({
@@ -10,6 +11,7 @@ export const Route = createFileRoute("/_authed/guide")({
 });
 
 function GuidePage(): React.JSX.Element {
+  const { t } = useTranslation("settings");
   const { data: appConfig } = useGitHubAppConfig();
   const { data: installations } = useInstallations();
   const { apiOrigin, webOrigin } = usePublicOrigins();
@@ -20,8 +22,8 @@ function GuidePage(): React.JSX.Element {
 
   return (
     <ShellPage
-      title="Guide"
-      description="Playbook opérationnel — setup GitHub App, flow d'installation et troubleshooting."
+      title={t("guide.title")}
+      description={t("guide.description")}
       eyebrow="Docs"
     >
       <div className="space-y-8">

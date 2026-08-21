@@ -1,6 +1,7 @@
 // SPDX-License-Identifier: AGPL-3.0-only
 import * as React from "react"
 import { toast } from "sonner"
+import { useTranslation } from "react-i18next"
 import {
   Dialog,
   DialogContent,
@@ -154,6 +155,7 @@ export function ChannelDialog({
   channel,
   appId,
 }: ChannelDialogProps): React.JSX.Element {
+  const { t } = useTranslation("settings")
   const isEditing = Boolean(channel)
   const [form, setForm] = React.useState<FormState>(() =>
     buildInitialState(channel)
@@ -195,7 +197,7 @@ export function ChannelDialog({
           enabled: form.enabled,
           config,
         })
-        toast.success("Channel mis à jour")
+        toast.success(t("notifications.channelUpdated"))
       } else {
         await createChannel.mutateAsync({
           name: form.name,
@@ -205,12 +207,12 @@ export function ChannelDialog({
           app_id: appId,
           config,
         })
-        toast.success("Channel créé")
+        toast.success(t("notifications.channelCreated"))
       }
       onOpenChange(false)
     } catch (err) {
       const message =
-        err instanceof Error ? err.message : "Une erreur est survenue"
+        err instanceof Error ? err.message : t("notifications.unexpectedError")
       toast.error(message)
     }
   }
@@ -220,22 +222,26 @@ export function ChannelDialog({
       <DialogContent className="max-h-[90vh] overflow-y-auto sm:max-w-lg">
         <DialogHeader>
           <DialogTitle>
-            {isEditing ? "Modifier le channel" : "Ajouter un channel"}
+            {isEditing
+              ? t("notifications.editChannel")
+              : t("notifications.addChannel")}
           </DialogTitle>
           <DialogDescription>
-            Configurez le channel de notification et les événements à surveiller.
+            {t("notifications.configureChannel")}
           </DialogDescription>
         </DialogHeader>
 
         <form onSubmit={(e) => void handleSubmit(e)} className="flex flex-col gap-5 py-2">
           {/* Nom */}
           <Field>
-            <FieldLabel htmlFor="channel-name">Nom</FieldLabel>
+            <FieldLabel htmlFor="channel-name">
+              {t("notifications.name")}
+            </FieldLabel>
             <FieldContent>
               <Input
                 id="channel-name"
                 type="text"
-                placeholder="Mon channel Discord"
+                placeholder={t("notifications.namePlaceholder")}
                 value={form.name}
                 onChange={(e) => setForm((p) => ({ ...p, name: e.target.value }))}
                 required
@@ -246,7 +252,9 @@ export function ChannelDialog({
           {/* Kind — masqué en édition */}
           {!isEditing && (
             <Field>
-              <FieldLabel htmlFor="channel-kind">Type</FieldLabel>
+              <FieldLabel htmlFor="channel-kind">
+                {t("notifications.type")}
+              </FieldLabel>
               <FieldContent>
                 <Select
                   value={form.kind}
@@ -267,11 +275,11 @@ export function ChannelDialog({
                               variant="outline"
                               className="text-[10px] text-green-600 border-green-600/40 py-0 px-1"
                             >
-                              Fonctionnel
+                              {t("notifications.functional")}
                             </Badge>
                           ) : (
                             <Badge variant="secondary" className="text-[10px] py-0 px-1">
-                              Coming soon
+                              {t("notifications.comingSoon")}
                             </Badge>
                           )}
                         </span>
@@ -281,7 +289,7 @@ export function ChannelDialog({
                 </Select>
               </FieldContent>
               <FieldDescription>
-                Discord, Telegram et Email sont opérationnels.
+                {t("notifications.kindsReady")}
               </FieldDescription>
             </Field>
           )}
@@ -339,7 +347,9 @@ export function ChannelDialog({
 
           {/* Événements */}
           <div className="flex flex-col gap-2">
-            <p className="text-sm font-medium">Événements</p>
+            <p className="text-sm font-medium">
+              {t("notifications.eventsTitle")}
+            </p>
             <div className="grid grid-cols-1 gap-2 sm:grid-cols-2">
               {ALL_EVENTS.map((event) => {
                 const checked = form.events.includes(event)
@@ -364,7 +374,7 @@ export function ChannelDialog({
           {/* Enabled switch */}
           <div className="flex items-center justify-between rounded-md border border-border/60 px-3 py-2.5">
             <label htmlFor="channel-enabled" className="text-sm font-medium cursor-pointer">
-              Activer ce channel
+              {t("notifications.enableChannel")}
             </label>
             <Switch
               id="channel-enabled"
@@ -379,10 +389,14 @@ export function ChannelDialog({
               variant="outline"
               onClick={() => onOpenChange(false)}
             >
-              Annuler
+              {t("common:cancel")}
             </Button>
             <Button type="submit" loading={isPending} disabled={comingSoon}>
-              {isPending ? "Enregistrement…" : isEditing ? "Mettre à jour" : "Créer"}
+              {isPending
+                ? t("common:saving")
+                : isEditing
+                  ? t("notifications.update")
+                  : t("notifications.create")}
             </Button>
           </DialogFooter>
         </form>
