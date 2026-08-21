@@ -64,10 +64,10 @@ export function AppearancePanel(): React.JSX.Element {
                 aria-checked={active}
                 onClick={() => setMode(opt.value)}
                 className={cn(
-                  "flex w-full flex-col items-start gap-1.5 rounded-lg border p-3 text-left transition-colors",
+                  "flex w-full flex-col items-start gap-1.5 rounded-xl border border-panel-border bg-panel-inset p-3 text-left shadow-sm transition-colors outline-none focus-visible:ring-2 focus-visible:ring-ring",
                   active
-                    ? "border-primary bg-primary/5 ring-1 ring-primary"
-                    : "border-border hover:border-foreground/20 hover:bg-muted/40"
+                    ? "border-primary ring-1 ring-primary"
+                    : "hover:border-muted-foreground/30 hover:bg-accent/40"
                 )}
               >
                 <span className="flex items-center gap-2 text-sm font-medium">
