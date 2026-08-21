@@ -19,16 +19,35 @@
     "templates": "Templates",
     "search": "Search a service…",
     "searchTemplate": "Search a template",
-    "empty": "No template found"
+    "empty": "No template found",
+    "description": "Deploy any Docker service (databases, tools, open-source apps) from the community catalog.",
+    "catalogHint": "Dokploy catalog — ready-to-use services with docker-compose and pre-generated variables.",
+    "unreachable": "The template registry is unreachable. Showing the last cached catalog.",
+    "loadFailed": "Could not load the catalog ({{message}}).",
+    "noMatch": "Nothing matches “{{query}}”.",
+    "copy": "Copy",
+    "copied": "Copied",
+    "filesFailed": "Could not load template files ({{message}}).",
+    "emptyCatalog": "The catalog is empty for now."
   },
   "install": {
-    "title": "Install service",
-    "submit": "Install"
+    "title": "Install {{name}}",
+    "submit": "Install",
+    "hint": "The required environment variables will be generated automatically.",
+    "hostHint": "Containers will be started on your host. Make sure you have enough resources.",
+    "body": "This will spawn Docker containers on your host for {{name}} v{{version}}. The required environment variables will be generated automatically.",
+    "installing": "Installing…"
   },
   "toasts": {
     "installStarted": "Service installation started",
     "deleted": "Service deleted",
     "started": "Service started",
     "stopped": "Service stopped"
-  }
+  },
+  "logsHint": "Last 200 lines — automatically refreshed every 5 s.",
+  "composeHint": "docker-compose.yml used for this service.",
+  "generatedHint": "Environment variables auto-generated at install time (read-only).",
+  "noGenerated": "No generated variables.",
+  "loadFailed": "Could not load the service.",
+  "listFailed": "Could not load services."
 }

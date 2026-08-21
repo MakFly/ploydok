@@ -2,6 +2,7 @@
 import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query"
 import { toast } from "sonner"
 import { apiFetch } from "./api"
+import i18n from "./i18n"
 import type {
   CreateServiceFromTemplateBody,
   ServiceDetail,
@@ -59,7 +60,7 @@ export function useInstallService() {
     },
     onSuccess: (_, vars) => {
       qc.invalidateQueries({ queryKey: servicesKeys.list(vars.projectId) })
-      toast.success("Service installation started")
+      toast.success(i18n.t("services:toasts.installStarted"))
     },
     onError: (err: Error) => {
       toast.error(err.message)
@@ -87,11 +88,11 @@ function useServiceAction(action: "start" | "stop", successMessage: string) {
 }
 
 export function useStartService() {
-  return useServiceAction("start", "Service started")
+  return useServiceAction("start", i18n.t("services:toasts.started"))
 }
 
 export function useStopService() {
-  return useServiceAction("stop", "Service stopped")
+  return useServiceAction("stop", i18n.t("services:toasts.stopped"))
 }
 
 export function useDeleteService() {
@@ -106,7 +107,7 @@ export function useDeleteService() {
     },
     onSuccess: () => {
       qc.invalidateQueries({ queryKey: servicesKeys.all })
-      toast.success("Service deleted")
+      toast.success(i18n.t("services:toasts.deleted"))
     },
     onError: (err: Error) => {
       toast.error(err.message)

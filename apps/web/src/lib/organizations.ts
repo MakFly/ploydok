@@ -3,6 +3,7 @@ import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query"
 import { useMatches } from "@tanstack/react-router"
 import { toast } from "sonner"
 import { apiFetch } from "./api"
+import i18n from "./i18n"
 import { useMe } from "./auth"
 import type { ApiError } from "./api"
 import type {
@@ -57,7 +58,7 @@ export function useCreateOrganization() {
       return data.organization
     },
     onSuccess: async () => {
-      toast.success("Workspace created")
+      toast.success(i18n.t("workspace:created"))
       await Promise.all([
         qc.invalidateQueries({ queryKey: ["organizations"] }),
         // `me.default_organization` is cached for 60s and feeds the sidebar.
@@ -110,7 +111,7 @@ export function useDeleteOrganization() {
       await apiFetch<void>(`/organizations/${slug}`, { method: "DELETE" })
     },
     onSuccess: async () => {
-      toast.success("Workspace deleted")
+      toast.success(i18n.t("workspace:deleted"))
       await qc.invalidateQueries({ queryKey: ["organizations"] })
     },
     onError: (error) => {

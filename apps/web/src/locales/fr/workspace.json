@@ -19,7 +19,11 @@
     "inviteFailed": "Impossible d'envoyer l'invitation",
     "roleFailed": "Impossible de mettre à jour le rôle",
     "acceptFailed": "Impossible d'accepter l'invitation",
-    "createFailed": "Impossible de créer le compte"
+    "createFailed": "Impossible de créer le compte",
+    "inviteDelivered": "Invitation déjà envoyée à {{email}}",
+    "inviteQueued": "Invitation mise en file pour {{email}}",
+    "removeFailed": "Impossible de retirer le membre",
+    "revokeFailed": "Impossible de révoquer l'invitation"
   },
   "audit": {
     "title": "Journal d'audit"

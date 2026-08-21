@@ -84,7 +84,14 @@
     "passwordRevealed": "Mot de passe de la base révélé",
     "passwordExtractFailed": "Impossible d'extraire le mot de passe de la chaîne de connexion",
     "passwordCopied": "Mot de passe de la base copié",
-    "clipboardUnavailable": "Presse-papiers indisponible"
+    "clipboardUnavailable": "Presse-papiers indisponible",
+    "redeployHint": "Redéployez l'application pour que les nouvelles variables atteignent le conteneur.",
+    "adminerFailed": "Création de la session Adminer échouée",
+    "rotationFailed": "Rotation du mot de passe échouée",
+    "saveFailed": "Enregistrement échoué : {{message}}",
+    "backupFailed": "Sauvegarde échouée : {{message}}",
+    "restoreFailed": "Restauration échouée : {{message}}",
+    "deleteBackupFailed": "Suppression échouée : {{message}}"
   },
   "restart": {
     "title": "Redémarrer la base",

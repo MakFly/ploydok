@@ -19,7 +19,11 @@
     "inviteFailed": "Failed to send invitation",
     "roleFailed": "Failed to update member role",
     "acceptFailed": "Failed to accept invitation",
-    "createFailed": "Failed to create account"
+    "createFailed": "Failed to create account",
+    "inviteDelivered": "Invitation already sent to {{email}}",
+    "inviteQueued": "Invitation queued for {{email}}",
+    "removeFailed": "Failed to remove member",
+    "revokeFailed": "Failed to revoke invitation"
   },
   "audit": {
     "title": "Audit log"

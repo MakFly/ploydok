@@ -2,6 +2,7 @@
 import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query"
 import { toast } from "sonner"
 import { apiFetch } from "./api"
+import i18n from "./i18n"
 import { DEFAULT_DATABASE_ENV_PREFIX } from "./database-env"
 import { getDatabaseListRefreshInterval } from "./database-list"
 import { notifyMutationError } from "./second-factor-toast"
@@ -176,7 +177,7 @@ export function useCreateDatabase() {
     },
     onSuccess: (_, vars) => {
       qc.invalidateQueries({ queryKey: databaseKeys.list(vars.projectId) })
-      toast.success("Database created")
+      toast.success(i18n.t("databases:toasts.created"))
     },
     onError: (err: Error) => {
       toast.error(err.message)
@@ -196,7 +197,7 @@ export function useRegisterExternalDatabase() {
     },
     onSuccess: (_, vars) => {
       qc.invalidateQueries({ queryKey: databaseKeys.list(vars.projectId) })
-      toast.success("External database registered")
+      toast.success(i18n.t("databases:toasts.registered"))
     },
     onError: (err: Error) => {
       toast.error(err.message)
@@ -216,10 +217,10 @@ export function useDeleteDatabase() {
     },
     onSuccess: () => {
       qc.invalidateQueries({ queryKey: databaseKeys.all })
-      toast.success("Database deleted")
+      toast.success(i18n.t("databases:toasts.deleted"))
     },
     onError: (err: Error) => {
-      notifyMutationError(err, "Database deletion failed")
+      notifyMutationError(err, i18n.t("databases:toasts.deleteFailed"))
     },
   })
 }
@@ -260,7 +261,7 @@ export function useCreateAdminerSession() {
       )
     },
     onError: (err: Error) => {
-      notifyMutationError(err, "Adminer session creation failed")
+      notifyMutationError(err, i18n.t("databases:toasts.adminerFailed"))
     },
   })
 }
@@ -290,9 +291,9 @@ export function useLinkDatabase() {
     onSuccess: (data, vars) => {
       qc.invalidateQueries({ queryKey: ["apps", vars.appId, "secrets"] })
       qc.invalidateQueries({ queryKey: databaseKeys.all })
-      toast.success("Database linked to app", {
+      toast.success(i18n.t("databases:toasts.linked"), {
         description: data.requiresRedeploy
-          ? "Redeploy the app for the new variables to reach the container."
+          ? i18n.t("databases:toasts.redeployHint")
           : undefined,
       })
     },
@@ -318,10 +319,10 @@ export function useRotateDatabase() {
     onSuccess: (_, vars) => {
       const id = vars.id
       qc.invalidateQueries({ queryKey: databaseKeys.detail(id) })
-      toast.success("Password rotation started — apps will be redeployed")
+      toast.success(i18n.t("databases:toasts.rotationStarted"))
     },
     onError: (err: Error) => {
-      notifyMutationError(err, "Password rotation failed")
+      notifyMutationError(err, i18n.t("databases:toasts.rotationFailed"))
     },
   })
 }
@@ -346,7 +347,7 @@ export function useUnlinkDatabase() {
     onSuccess: (_data, vars) => {
       qc.invalidateQueries({ queryKey: ["apps", vars.appId, "secrets"] })
       qc.invalidateQueries({ queryKey: databaseKeys.all })
-      toast.success("Database unlinked")
+      toast.success(i18n.t("databases:toasts.unlinked"))
     },
     onError: (err: Error) => {
       toast.error(err.message)
@@ -377,15 +378,15 @@ function useDatabaseAction(
 }
 
 export function useStartDatabase() {
-  return useDatabaseAction("start", "Database started")
+  return useDatabaseAction("start", i18n.t("databases:toasts.started"))
 }
 
 export function useStopDatabase() {
-  return useDatabaseAction("stop", "Database stopped")
+  return useDatabaseAction("stop", i18n.t("databases:toasts.stopped"))
 }
 
 export function useRestartDatabase() {
-  return useDatabaseAction("restart", "Database restarted")
+  return useDatabaseAction("restart", i18n.t("databases:toasts.restarted"))
 }
 
 export function useUpdateDatabaseNetwork() {
@@ -412,7 +413,7 @@ export function useUpdateDatabaseNetwork() {
     onSuccess: (_data, vars) => {
       qc.invalidateQueries({ queryKey: databaseKeys.detail(vars.id) })
       qc.invalidateQueries({ queryKey: databaseKeys.all })
-      toast.success("Network settings updated")
+      toast.success(i18n.t("databases:toasts.networkUpdated"))
     },
     onError: (err: Error) => {
       toast.error(err.message)

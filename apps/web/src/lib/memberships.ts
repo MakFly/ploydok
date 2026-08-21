@@ -2,6 +2,7 @@
 import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query"
 import { toast } from "sonner"
 import { ApiError, apiFetch } from "./api"
+import i18n from "./i18n"
 import { notifyMutationError } from "./second-factor-toast"
 import type {
   CreateInvitationResponse,
@@ -120,12 +121,12 @@ export function useInviteMember() {
       qc.invalidateQueries({ queryKey: membershipKeys.list(vars.orgSlug) })
       toast.success(
         result.delivery_status === "delivered"
-          ? `Invitation already sent to ${vars.email}`
-          : `Invitation queued for ${vars.email}`
+          ? i18n.t("workspace:members.inviteDelivered", { email: vars.email })
+          : i18n.t("workspace:members.inviteQueued", { email: vars.email })
       )
     },
     onError: (err: Error) => {
-      notifyMutationError(err, "Failed to send invitation")
+      notifyMutationError(err, i18n.t("workspace:members.inviteFailed"))
     },
   })
 }
@@ -146,10 +147,10 @@ export function useRemoveMember() {
     },
     onSuccess: (_, vars) => {
       qc.invalidateQueries({ queryKey: membershipKeys.list(vars.orgSlug) })
-      toast.success("Member removed")
+      toast.success(i18n.t("workspace:members.removed"))
     },
     onError: (err: Error) => {
-      notifyMutationError(err, "Failed to remove member")
+      notifyMutationError(err, i18n.t("workspace:members.removeFailed"))
     },
   })
 }
@@ -177,10 +178,10 @@ export function useUpdateMemberRole() {
     },
     onSuccess: (_, vars) => {
       qc.invalidateQueries({ queryKey: membershipKeys.list(vars.orgSlug) })
-      toast.success("Member role updated")
+      toast.success(i18n.t("workspace:members.roleUpdated"))
     },
     onError: (err: Error) => {
-      notifyMutationError(err, "Failed to update member role")
+      notifyMutationError(err, i18n.t("workspace:members.roleFailed"))
     },
   })
 }
@@ -204,10 +205,10 @@ export function useRevokeInvitation() {
     },
     onSuccess: (_, vars) => {
       qc.invalidateQueries({ queryKey: membershipKeys.list(vars.orgSlug) })
-      toast.success("Invitation revoked")
+      toast.success(i18n.t("workspace:members.invitationRevoked"))
     },
     onError: (err: Error) => {
-      notifyMutationError(err, "Failed to revoke invitation")
+      notifyMutationError(err, i18n.t("workspace:members.revokeFailed"))
     },
   })
 }
@@ -231,10 +232,10 @@ export function useAcceptInvitation() {
       })
     },
     onSuccess: () => {
-      toast.success("Invitation accepted!")
+      toast.success(i18n.t("workspace:members.invitationAccepted"))
     },
     onError: (err: Error) => {
-      notifyMutationError(err, "Failed to accept invitation")
+      notifyMutationError(err, i18n.t("workspace:members.acceptFailed"))
     },
   })
 }
@@ -248,7 +249,7 @@ export function useRegisterFromInvitation() {
         headers: { "content-type": "application/json" },
       }),
     onError: (err: Error) => {
-      notifyMutationError(err, "Failed to create account")
+      notifyMutationError(err, i18n.t("workspace:members.createFailed"))
     },
   })
 }

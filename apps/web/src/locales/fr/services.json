@@ -19,16 +19,35 @@
     "templates": "Modèles",
     "search": "Rechercher un service…",
     "searchTemplate": "Rechercher un modèle",
-    "empty": "Aucun modèle trouvé"
+    "empty": "Aucun modèle trouvé",
+    "description": "Déployez n'importe quel service Docker (bases, outils, apps open-source) à partir du catalogue communautaire.",
+    "catalogHint": "Catalogue Dokploy — services prêts à l'emploi avec docker-compose et variables prégénérées.",
+    "unreachable": "Le registre de modèles est injoignable. Affichage de la dernière version en cache.",
+    "loadFailed": "Impossible de charger le catalogue ({{message}}).",
+    "noMatch": "Rien ne correspond à « {{query}} ».",
+    "copy": "Copier",
+    "copied": "Copié",
+    "filesFailed": "Impossible de charger les fichiers du modèle ({{message}}).",
+    "emptyCatalog": "Le catalogue est vide pour le moment."
   },
   "install": {
-    "title": "Installer le service",
-    "submit": "Installer"
+    "title": "Installer {{name}}",
+    "submit": "Installer",
+    "hint": "Les variables d'environnement nécessaires seront générées automatiquement.",
+    "hostHint": "Des conteneurs seront démarrés sur votre hôte. Assurez-vous d'avoir assez de ressources.",
+    "body": "Cette action va lancer des conteneurs Docker sur votre hôte pour {{name}} v{{version}}. Les variables d'environnement nécessaires seront générées automatiquement.",
+    "installing": "Installation…"
   },
   "toasts": {
     "installStarted": "Installation du service lancée",
     "deleted": "Service supprimé",
     "started": "Service démarré",
     "stopped": "Service arrêté"
-  }
+  },
+  "logsHint": "Dernières 200 lignes — rafraîchissement automatique toutes les 5 s.",
+  "composeHint": "Fichier docker-compose.yml utilisé pour ce service.",
+  "generatedHint": "Variables d'environnement auto-générées à l'installation (lecture seule).",
+  "noGenerated": "Aucune variable générée.",
+  "loadFailed": "Impossible de charger le service.",
+  "listFailed": "Impossible de charger les services."
 }

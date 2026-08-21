@@ -2,6 +2,7 @@
 import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query"
 import { toast } from "sonner"
 import { apiFetch } from "./api"
+import i18n from "./i18n"
 
 // ---------------------------------------------------------------------------
 // Types
@@ -144,10 +145,10 @@ export function useUpdateTargetBackupConfig(target: BackupTarget) {
     },
     onSuccess: () => {
       queryClient.invalidateQueries({ queryKey: backupConfigKey(target) })
-      toast.success("Backup configuration saved")
+      toast.success(i18n.t("databases:toasts.configSaved"))
     },
     onError: (err: Error) => {
-      toast.error(`Save failed: ${err.message}`)
+      toast.error(i18n.t("databases:toasts.saveFailed", { message: err.message }))
     },
   })
 }
@@ -168,13 +169,13 @@ export function useTargetBackupNow(target: BackupTarget) {
       )
     },
     onSuccess: () => {
-      toast.success("Backup started")
+      toast.success(i18n.t("databases:toasts.backupStarted"))
       setTimeout(() => {
         queryClient.invalidateQueries({ queryKey: backupsKey(target) })
       }, 2000)
     },
     onError: (err: Error) => {
-      toast.error(`Backup failed: ${err.message}`)
+      toast.error(i18n.t("databases:toasts.backupFailed", { message: err.message }))
     },
   })
 }
@@ -193,10 +194,10 @@ export function useRestoreBackup(databaseId: string) {
       })
     },
     onSuccess: () => {
-      toast.success("Restore completed")
+      toast.success(i18n.t("databases:toasts.restoreCompleted"))
     },
     onError: (err: Error) => {
-      toast.error(`Restore failed: ${err.message}`)
+      toast.error(i18n.t("databases:toasts.restoreFailed", { message: err.message }))
     },
   })
 }
@@ -211,10 +212,10 @@ export function useDeleteBackup(target: BackupTarget) {
     },
     onSuccess: () => {
       queryClient.invalidateQueries({ queryKey: backupsKey(target) })
-      toast.success("Backup deleted")
+      toast.success(i18n.t("databases:toasts.backupDeleted"))
     },
     onError: (err: Error) => {
-      toast.error(`Delete failed: ${err.message}`)
+      toast.error(i18n.t("databases:toasts.deleteBackupFailed", { message: err.message }))
     },
   })
 }

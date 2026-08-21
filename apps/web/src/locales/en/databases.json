@@ -84,7 +84,14 @@
     "passwordRevealed": "Database password revealed",
     "passwordExtractFailed": "Unable to extract password from connection string",
     "passwordCopied": "Database password copied",
-    "clipboardUnavailable": "Clipboard unavailable"
+    "clipboardUnavailable": "Clipboard unavailable",
+    "redeployHint": "Redeploy the app for the new variables to reach the container.",
+    "adminerFailed": "Adminer session creation failed",
+    "rotationFailed": "Password rotation failed",
+    "saveFailed": "Save failed: {{message}}",
+    "backupFailed": "Backup failed: {{message}}",
+    "restoreFailed": "Restore failed: {{message}}",
+    "deleteBackupFailed": "Delete failed: {{message}}"
   },
   "restart": {
     "title": "Restart database",

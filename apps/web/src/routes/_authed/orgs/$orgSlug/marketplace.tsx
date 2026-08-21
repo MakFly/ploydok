@@ -27,6 +27,7 @@ import {
   useMarketplaceTemplateFiles,
 } from "../../../../lib/marketplace"
 import { InstallDialog } from "../../../../components/services/InstallDialog"
+import { useTranslation } from "react-i18next"
 import type { MarketplaceTemplate } from "../../../../lib/marketplace"
 
 export const Route = createFileRoute("/_authed/orgs/$orgSlug/marketplace")({
@@ -34,6 +35,7 @@ export const Route = createFileRoute("/_authed/orgs/$orgSlug/marketplace")({
 })
 
 function MarketplacePage(): React.JSX.Element {
+  const { t } = useTranslation("services")
   const organization = useCurrentOrganization()
   const [query, setQuery] = React.useState("")
   const debouncedQuery = useDebounce(query.trim(), 250)
@@ -82,22 +84,22 @@ function MarketplacePage(): React.JSX.Element {
 
   return (
     <ShellPage
-      title="Marketplace"
-      description="Déploie n'importe quel service Docker (bases, outils, apps open-source) à partir du catalogue communautaire."
+      title={t("marketplace.title")}
+      description={t("marketplace.description")}
       eyebrow={organization?.name ?? "Workspace"}
     >
       <ShellPanel
-        title="Templates"
-        description="Catalogue Dokploy — services prêts à l'emploi avec docker-compose + variables prégénérées."
+        title={t("marketplace.templates")}
+        description={t("marketplace.catalogHint")}
         action={
           <div className="relative w-64">
             <RiSearchLine className="pointer-events-none absolute top-1/2 left-3 size-4 -translate-y-1/2 text-muted-foreground" />
             <Input
               value={query}
               onChange={(event) => setQuery(event.target.value)}
-              placeholder="Rechercher un service…"
+              placeholder={t("marketplace.search")}
               className="pl-9"
-              aria-label="Rechercher un template"
+              aria-label={t("marketplace.searchTemplate")}
             />
           </div>
         }
@@ -105,8 +107,7 @@ function MarketplacePage(): React.JSX.Element {
         {stale ? (
           <p className="mb-3 flex items-center gap-2 rounded-md border border-amber-500/30 bg-amber-500/10 px-3 py-2 text-xs text-amber-700 dark:text-amber-400">
             <RiAlertLine className="size-4 shrink-0" />
-            Le registre de templates est injoignable. Affichage de la dernière
-            version connue.
+            {t("marketplace.unreachable")}
           </p>
         ) : null}
 
@@ -117,7 +118,7 @@ function MarketplacePage(): React.JSX.Element {
             role="alert"
             className="rounded-md border border-destructive/30 bg-destructive/10 px-4 py-3 text-sm text-destructive"
           >
-            Impossible de charger le catalogue ({error.message}).
+            {t("marketplace.loadFailed", { message: error.message })}
           </p>
         ) : templates.length === 0 ? (
           <EmptyState query={debouncedQuery} />
@@ -250,14 +251,15 @@ function CatalogSkeleton(): React.JSX.Element {
 }
 
 function EmptyState({ query }: { query: string }): React.JSX.Element {
+  const { t } = useTranslation("services")
   return (
     <div className="flex flex-col items-center justify-center gap-2 rounded-lg border border-dashed border-panel-border bg-panel-inset px-6 py-12 text-center">
       <RiShapesLine className="size-6 text-muted-foreground" />
-      <p className="text-sm font-medium">Aucun template trouvé</p>
+      <p className="text-sm font-medium">{t("marketplace.empty")}</p>
       <p className="text-xs text-muted-foreground">
         {query
-          ? `Rien ne correspond à « ${query} ».`
-          : "Le catalogue est vide pour le moment."}
+          ? t("marketplace.noMatch", { query })
+          : t("marketplace.emptyCatalog")}
       </p>
     </div>
   )
@@ -272,6 +274,7 @@ function TemplateDialog({
   template,
   onClose,
 }: TemplateDialogProps): React.JSX.Element {
+  const { t } = useTranslation("services")
   const router = useRouter()
   const organization = useCurrentOrganization()
   const { data, isLoading, error } = useMarketplaceTemplateFiles(
@@ -357,7 +360,7 @@ function TemplateDialog({
                     disabled={!data?.dockerCompose}
                   >
                     <RiFileCopyLine className="size-4" />
-                    {copied ? "Copié" : "Copier"}
+                    {copied ? t("marketplace.copied") : t("marketplace.copy")}
                   </Button>
                 </div>
                 {isLoading ? (
@@ -367,8 +370,7 @@ function TemplateDialog({
                     role="alert"
                     className="rounded-md border border-destructive/30 bg-destructive/10 px-3 py-2 text-xs text-destructive"
                   >
-                    Impossible de charger les fichiers du template (
-                    {error.message}).
+                    {t("marketplace.filesFailed", { message: error.message })}
                   </p>
                 ) : (
                   <pre className="max-h-80 overflow-auto rounded-md bg-muted p-3 text-[11px] leading-relaxed text-muted-foreground">
