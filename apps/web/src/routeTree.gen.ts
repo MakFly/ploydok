@@ -12,6 +12,7 @@ import { Route as rootRouteImport } from './routes/__root'
 import { Route as AuthedRouteImport } from './routes/_authed'
 import { Route as PublicRouteImport } from './routes/_public'
 import { Route as OnboardingRouteImport } from './routes/onboarding'
+import { Route as OpenshipMockRouteImport } from './routes/openship-mock'
 import { Route as AuthedChangelogRouteImport } from './routes/_authed/changelog'
 import { Route as AuthedDashboardRouteImport } from './routes/_authed/dashboard'
 import { Route as AuthedGuideRouteImport } from './routes/_authed/guide'
@@ -83,6 +84,11 @@ const PublicRoute = PublicRouteImport.update({
 const OnboardingRoute = OnboardingRouteImport.update({
   id: '/onboarding',
   path: '/onboarding',
+  getParentRoute: () => rootRouteImport,
+} as any)
+const OpenshipMockRoute = OpenshipMockRouteImport.update({
+  id: '/openship-mock',
+  path: '/openship-mock',
   getParentRoute: () => rootRouteImport,
 } as any)
 const AuthedChangelogRoute = AuthedChangelogRouteImport.update({
@@ -424,6 +430,7 @@ const AuthedOrgsOrgSlugAppsIdStorageRoute =
 export interface FileRoutesByFullPath {
   '/': typeof PublicIndexRoute
   '/onboarding': typeof OnboardingRoute
+  '/openship-mock': typeof OpenshipMockRoute
   '/changelog': typeof AuthedChangelogRoute
   '/dashboard': typeof AuthedDashboardRoute
   '/guide': typeof AuthedGuideRoute
@@ -486,6 +493,7 @@ export interface FileRoutesByFullPath {
 export interface FileRoutesByTo {
   '/': typeof PublicIndexRoute
   '/onboarding': typeof OnboardingRoute
+  '/openship-mock': typeof OpenshipMockRoute
   '/changelog': typeof AuthedChangelogRoute
   '/dashboard': typeof AuthedDashboardRoute
   '/guide': typeof AuthedGuideRoute
@@ -546,6 +554,7 @@ export interface FileRoutesById {
   '/_authed': typeof AuthedRouteWithChildren
   '/_public': typeof PublicRouteWithChildren
   '/onboarding': typeof OnboardingRoute
+  '/openship-mock': typeof OpenshipMockRoute
   '/_authed/changelog': typeof AuthedChangelogRoute
   '/_authed/dashboard': typeof AuthedDashboardRoute
   '/_authed/guide': typeof AuthedGuideRoute
@@ -611,6 +620,7 @@ export interface FileRouteTypes {
   fullPaths:
     | '/'
     | '/onboarding'
+    | '/openship-mock'
     | '/changelog'
     | '/dashboard'
     | '/guide'
@@ -673,6 +683,7 @@ export interface FileRouteTypes {
   to:
     | '/'
     | '/onboarding'
+    | '/openship-mock'
     | '/changelog'
     | '/dashboard'
     | '/guide'
@@ -732,6 +743,7 @@ export interface FileRouteTypes {
     | '/_authed'
     | '/_public'
     | '/onboarding'
+    | '/openship-mock'
     | '/_authed/changelog'
     | '/_authed/dashboard'
     | '/_authed/guide'
@@ -797,6 +809,7 @@ export interface RootRouteChildren {
   AuthedRoute: typeof AuthedRouteWithChildren
   PublicRoute: typeof PublicRouteWithChildren
   OnboardingRoute: typeof OnboardingRoute
+  OpenshipMockRoute: typeof OpenshipMockRoute
 }
 
 declare module '@tanstack/react-router' {
@@ -820,6 +833,13 @@ declare module '@tanstack/react-router' {
       path: '/onboarding'
       fullPath: '/onboarding'
       preLoaderRoute: typeof OnboardingRouteImport
+      parentRoute: typeof rootRouteImport
+    }
+    '/openship-mock': {
+      id: '/openship-mock'
+      path: '/openship-mock'
+      fullPath: '/openship-mock'
+      preLoaderRoute: typeof OpenshipMockRouteImport
       parentRoute: typeof rootRouteImport
     }
     '/_authed/changelog': {
@@ -1426,6 +1446,7 @@ const rootRouteChildren: RootRouteChildren = {
   AuthedRoute: AuthedRouteWithChildren,
   PublicRoute: PublicRouteWithChildren,
   OnboardingRoute: OnboardingRoute,
+  OpenshipMockRoute: OpenshipMockRoute,
 }
 export const routeTree = rootRouteImport
   ._addFileChildren(rootRouteChildren)

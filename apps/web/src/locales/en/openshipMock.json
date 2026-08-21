@@ -1,0 +1,13 @@
+{
+  "nav": { "main": "Main", "home": "Home", "projects": "Projects", "deployments": "Deployments", "settingsSection": "Settings", "settings": "Settings", "infrastructure": "Infrastructure", "servers": "Servers", "monitoring": "Monitoring", "domains": "Domains" },
+  "pageTitle": "OpenShip UI mock — Ploydok",
+  "newProject": "New Project",
+  "account": "Account",
+  "accountKind": "Desktop",
+  "framework": { "title": "Framework", "detected": "Use detected", "frontend": "Frontend", "backend": "Backend", "fullstack": "Fullstack", "static": "Static", "help": "Select your framework to auto-configure build settings" },
+  "config": { "title": "Deploy Configuration", "subtitle": "nextjs defaults applied", "build": "Build", "buildHelp": "Install & build commands", "start": "Start", "startHelp": "Server on port 3000", "installCommand": "Install Command", "buildCommand": "Build Command", "outputDirectory": "Output Directory", "startCommand": "Start Command", "productionPort": "Production Port (Optional)" },
+  "location": { "title": "Build Location", "server": "Server", "local": "Local", "help": "Build runs on your machine, then artifacts are uploaded" },
+  "domain": { "title": "Domain", "subtitle": "Where your site will be accessible", "free": "Free Subdomain", "custom": "Custom Domain", "ssl": "SSL included — live at" },
+  "deploy": "Deploy",
+  "summary": { "title": "Deploy Summary", "domain": "Domain", "framework": "Framework", "location": "Build Location", "localMachine": "Local Machine" }
+}

@@ -1,0 +1,13 @@
+{
+  "nav": { "main": "Principal", "home": "Accueil", "projects": "Projets", "deployments": "Déploiements", "settingsSection": "Paramètres", "settings": "Paramètres", "infrastructure": "Infrastructure", "servers": "Serveurs", "monitoring": "Supervision", "domains": "Domaines" },
+  "pageTitle": "Maquette UI OpenShip — Ploydok",
+  "newProject": "Nouveau projet",
+  "account": "Compte",
+  "accountKind": "Bureau",
+  "framework": { "title": "Framework", "detected": "Utiliser la détection", "frontend": "Frontend", "backend": "Backend", "fullstack": "Fullstack", "static": "Statique", "help": "Sélectionnez votre framework pour configurer automatiquement le build" },
+  "config": { "title": "Configuration du déploiement", "subtitle": "paramètres Next.js appliqués", "build": "Build", "buildHelp": "Commandes d’installation et de build", "start": "Démarrage", "startHelp": "Serveur sur le port 3000", "installCommand": "Commande d’installation", "buildCommand": "Commande de build", "outputDirectory": "Dossier de sortie", "startCommand": "Commande de démarrage", "productionPort": "Port de production (facultatif)" },
+  "location": { "title": "Lieu du build", "server": "Serveur", "local": "Local", "help": "Le build s’exécute sur votre machine, puis les artefacts sont envoyés" },
+  "domain": { "title": "Domaine", "subtitle": "Adresse à laquelle votre site sera accessible", "free": "Sous-domaine gratuit", "custom": "Domaine personnalisé", "ssl": "SSL inclus — disponible sur" },
+  "deploy": "Déployer",
+  "summary": { "title": "Résumé du déploiement", "domain": "Domaine", "framework": "Framework", "location": "Lieu du build", "localMachine": "Machine locale" }
+}

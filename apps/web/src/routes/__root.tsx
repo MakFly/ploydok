@@ -98,6 +98,8 @@ export const Route = createRootRoute({
 
 function BrandingInjector(): React.JSX.Element {
   React.useEffect(() => {
+    if (window.location.pathname === "/openship-mock") return
+
     const loadBranding = async () => {
       try {
         const apiBase = apiBaseUrl()
