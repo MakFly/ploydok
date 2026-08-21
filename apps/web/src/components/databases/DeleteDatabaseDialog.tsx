@@ -1,5 +1,6 @@
 // SPDX-License-Identifier: AGPL-3.0-only
 import * as React from "react"
+import { useTranslation } from "react-i18next"
 import {
   Dialog,
   DialogContent,
@@ -27,6 +28,7 @@ export function DeleteDatabaseDialog({
   onOpenChange,
   onDeleted,
 }: DeleteDatabaseDialogProps): React.JSX.Element {
+  const { t } = useTranslation("databases")
   const [confirmText, setConfirmText] = React.useState("")
   const { mutate: deleteDatabase, isPending } = useDeleteDatabase()
 
@@ -59,16 +61,17 @@ export function DeleteDatabaseDialog({
     <Dialog open={open} onOpenChange={onOpenChange}>
       <DialogContent className="sm:max-w-md">
         <DialogHeader>
-          <DialogTitle>Delete database</DialogTitle>
+          <DialogTitle>{t("delete.title")}</DialogTitle>
           <DialogDescription>
-            Type <span className="font-mono">{expectedConfirm}</span> to
-            confirm.
+            {t("delete.confirm", { name: expectedConfirm })}
           </DialogDescription>
         </DialogHeader>
 
         <div className="flex flex-col gap-4">
           <div className="flex flex-col gap-2">
-            <Label htmlFor="delete-database-confirm">Confirmation</Label>
+            <Label htmlFor="delete-database-confirm">
+              {t("delete.confirmation")}
+            </Label>
             <Input
               id="delete-database-confirm"
               value={confirmText}
@@ -85,7 +88,7 @@ export function DeleteDatabaseDialog({
             onClick={() => onOpenChange(false)}
             disabled={isPending}
           >
-            Cancel
+            {t("common:cancel")}
           </Button>
           <Button
             variant="destructive"
@@ -93,7 +96,7 @@ export function DeleteDatabaseDialog({
             loading={isPending}
             disabled={!canDelete}
           >
-            {isPending ? "Deleting..." : "Delete database"}
+            {isPending ? t("delete.deleting") : t("delete.title")}
           </Button>
         </DialogFooter>
       </DialogContent>

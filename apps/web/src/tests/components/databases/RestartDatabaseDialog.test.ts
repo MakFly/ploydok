@@ -15,9 +15,9 @@ describe("RestartDatabaseDialog progress model", () => {
   })
 
   it("moves through the expected restart stages", () => {
-    expect(getRestartStageLabel(0)).toBe("Stop current runtime")
-    expect(getRestartStageLabel(2_000)).toBe("Provision fresh container")
-    expect(getRestartStageLabel(6_000)).toBe("Run health probes")
-    expect(getRestartStageLabel(20_000)).toBe("Reattach network path")
+    expect(getRestartStageLabel(0)).toBe("stop")
+    expect(getRestartStageLabel(2_000)).toBe("provision")
+    expect(getRestartStageLabel(6_000)).toBe("probes")
+    expect(getRestartStageLabel(20_000)).toBe("reattach")
   })
 })

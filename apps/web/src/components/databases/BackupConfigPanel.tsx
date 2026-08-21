@@ -1,5 +1,6 @@
 // SPDX-License-Identifier: AGPL-3.0-only
 import * as React from "react"
+import { useTranslation } from "react-i18next"
 import { Button } from "@workspace/ui/components/button"
 import { Skeleton } from "@workspace/ui/components/skeleton"
 import { Input } from "@workspace/ui/components/input"
@@ -26,6 +27,7 @@ interface BackupConfigPanelProps {
 export function BackupConfigPanel({
   target,
 }: BackupConfigPanelProps): React.JSX.Element {
+  const { t } = useTranslation("databases")
   const { data: config, isLoading } = useTargetBackupConfig(target)
   const update = useUpdateTargetBackupConfig(target)
 
@@ -40,7 +42,6 @@ export function BackupConfigPanel({
   const [agePublicKey, setAgePublicKey] = React.useState("")
   const [enabled, setEnabled] = React.useState(true)
 
-  // Sync form state when config loads
   React.useEffect(() => {
     if (!config) return
     setDestination(config.destinationKind)
@@ -78,7 +79,7 @@ export function BackupConfigPanel({
 
   if (isLoading) {
     return (
-      <div aria-busy="true" aria-label="Loading backup configuration">
+      <div aria-busy="true" aria-label={t("backup.loading")}>
         <Skeleton className="h-40 w-full rounded-xl" />
       </div>
     )
@@ -86,15 +87,17 @@ export function BackupConfigPanel({
 
   return (
     <form onSubmit={handleSave} className="max-w-xl space-y-5">
-      {/* Enabled toggle */}
       <div className="flex items-center gap-3">
-        <Switch checked={enabled} onCheckedChange={setEnabled} id="backup-enabled" />
-        <Label htmlFor="backup-enabled">Enable scheduled backups</Label>
+        <Switch
+          checked={enabled}
+          onCheckedChange={setEnabled}
+          id="backup-enabled"
+        />
+        <Label htmlFor="backup-enabled">{t("backup.enable")}</Label>
       </div>
 
-      {/* Destination */}
       <div className="space-y-1.5">
-        <Label>Destination</Label>
+        <Label>{t("backup.destination")}</Label>
         <Select
           value={destination}
           onValueChange={(value) => setDestination(value as "s3" | "local")}
@@ -103,31 +106,27 @@ export function BackupConfigPanel({
             <SelectValue />
           </SelectTrigger>
           <SelectContent>
-            <SelectItem value="local">Local filesystem</SelectItem>
-            <SelectItem value="s3">
-              S3-compatible · R2 / AWS / Scaleway / OVH
-            </SelectItem>
+            <SelectItem value="local">{t("backup.local")}</SelectItem>
+            <SelectItem value="s3">{t("backup.s3Option")}</SelectItem>
           </SelectContent>
         </Select>
       </div>
 
-      {/* S3 fields */}
       {destination === "s3" && (
         <div className="space-y-3 rounded-md border p-4">
           <div className="space-y-1.5">
-            <Label>S3 endpoint</Label>
+            <Label>{t("backup.endpoint")}</Label>
             <Input
               placeholder="https://<account>.r2.cloudflarestorage.com"
               value={s3Endpoint}
               onChange={(e) => setS3Endpoint(e.target.value)}
             />
             <p className="text-xs text-muted-foreground">
-              Leave empty for AWS default, or use a provider endpoint for R2,
-              Scaleway, OVH, Backblaze, Wasabi, or any S3-compatible storage.
+              {t("backup.endpointHint")}
             </p>
           </div>
           <div className="space-y-1.5">
-            <Label>Bucket</Label>
+            <Label>{t("backup.bucket")}</Label>
             <Input
               placeholder="my-ploydok-backups"
               value={s3Bucket}
@@ -137,7 +136,7 @@ export function BackupConfigPanel({
           </div>
           <div className="grid grid-cols-2 gap-3">
             <div className="space-y-1.5">
-              <Label>Prefix</Label>
+              <Label>{t("backup.prefix")}</Label>
               <Input
                 placeholder="backups/"
                 value={s3Prefix}
@@ -145,7 +144,7 @@ export function BackupConfigPanel({
               />
             </div>
             <div className="space-y-1.5">
-              <Label>Region</Label>
+              <Label>{t("backup.region")}</Label>
               <Input
                 placeholder="auto"
                 value={s3Region}
@@ -154,38 +153,33 @@ export function BackupConfigPanel({
             </div>
           </div>
           <div className="space-y-1.5">
-            <Label>S3 credentials secret ID</Label>
+            <Label>{t("backup.secretId")}</Label>
             <Input
               placeholder="secret-id containing {accessKeyId, secretAccessKey}"
               value={s3CredentialsSecretId}
               onChange={(e) => setS3CredentialsSecretId(e.target.value)}
             />
             <p className="text-xs text-muted-foreground">
-              Create a secret in your app with JSON value{" "}
-              <code className="rounded bg-muted px-1 font-mono">
-                {'{ "accessKeyId": "...", "secretAccessKey": "..." }'}
-              </code>
+              {t("backup.secretHint")}
             </p>
           </div>
         </div>
       )}
 
-      {/* Schedule */}
       <div className="space-y-1.5">
-        <Label>Schedule (cron UTC)</Label>
+        <Label>{t("backup.schedule")}</Label>
         <Input
           placeholder="0 3 * * *"
           value={scheduleCron}
           onChange={(e) => setScheduleCron(e.target.value)}
         />
         <p className="text-xs text-muted-foreground">
-          Default: daily at 03:00 UTC
+          {t("backup.scheduleHint")}
         </p>
       </div>
 
-      {/* Retention */}
       <div className="space-y-1.5">
-        <Label>Retention (days)</Label>
+        <Label>{t("backup.retention")}</Label>
         <Input
           type="number"
           min={1}
@@ -195,9 +189,8 @@ export function BackupConfigPanel({
         />
       </div>
 
-      {/* age public key */}
       <div className="space-y-1.5">
-        <Label>age recipient public key (optional)</Label>
+        <Label>{t("backup.ageKey")}</Label>
         <Textarea
           placeholder="age1ql3z7hjy54pw3hyww5ayyfg7zqgvc7w3j2elw8zmrj2kg5sfn9aqmcac8p"
           value={agePublicKey}
@@ -206,14 +199,12 @@ export function BackupConfigPanel({
           className="font-mono text-xs"
         />
         <p className="text-xs text-muted-foreground">
-          When set, each backup is encrypted with{" "}
-          <code className="font-mono">age</code> before upload. The private key
-          is only needed at restore time and is never stored by Ploydok.
+          {t("backup.encryptHint")}
         </p>
       </div>
 
       <Button type="submit" loading={update.isPending}>
-        {update.isPending ? "Saving…" : "Save configuration"}
+        {update.isPending ? t("common:saving") : t("backup.save")}
       </Button>
     </form>
   )

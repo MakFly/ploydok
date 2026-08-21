@@ -1,6 +1,7 @@
 // SPDX-License-Identifier: AGPL-3.0-only
 import * as React from "react"
 import { createFileRoute, useNavigate, useParams } from "@tanstack/react-router"
+import { useTranslation } from "react-i18next"
 import {
   Alert,
   AlertDescription,
@@ -49,6 +50,7 @@ import {
   useCurrentOrganizationSlug,
 } from "../../../../../lib/organizations"
 import type { ContainerSnapshot } from "@ploydok/shared"
+import type { DbExposureMode } from "../../../../../lib/databases"
 
 export const Route = createFileRoute("/_authed/orgs/$orgSlug/databases/$id")({
   component: DatabaseDetailPage,
@@ -79,11 +81,21 @@ function findDatabaseSnapshot(
   )
 }
 
+function exposureLabel(
+  mode: DbExposureMode,
+  t: (key: string) => string
+): string {
+  if (mode === "direct_port") return t("exposure.directPort")
+  if (mode === "public_proxy") return t("exposure.publicProxy")
+  return t("exposure.internal")
+}
+
 function DatabaseMonitoringPanel({
   dbId,
 }: {
   dbId: string
 }): React.JSX.Element {
+  const { t, i18n } = useTranslation("databases")
   const { data, isLoading, error, isFetching, refetch } = useMonitoring()
   const [snapshot, setSnapshot] = React.useState<ContainerSnapshot | null>(null)
   const [cpuHistory, setCpuHistory] = React.useState<Array<number>>([])
@@ -144,9 +156,9 @@ function DatabaseMonitoringPanel({
   if (error) {
     return (
       <Alert variant="destructive">
-        <AlertTitle>Monitoring unavailable</AlertTitle>
+        <AlertTitle>{t("detail.monitoringUnavailableTitle")}</AlertTitle>
         <AlertDescription>
-          Failed to load monitoring data: {error.message}
+          {t("detail.monitoringLoadFailed", { message: error.message })}
         </AlertDescription>
       </Alert>
     )
@@ -156,8 +168,8 @@ function DatabaseMonitoringPanel({
     return (
       <div className="rounded-lg border border-border bg-muted/20 p-4 text-sm text-muted-foreground">
         {isLoading
-          ? "Loading database monitoring..."
-          : "No live container snapshot found for this database yet."}
+          ? t("detail.monitoringLoading")
+          : t("detail.monitoringEmpty")}
       </div>
     )
   }
@@ -166,8 +178,11 @@ function DatabaseMonitoringPanel({
     <div className="space-y-3">
       <div className="flex items-center justify-between gap-3 text-xs text-muted-foreground">
         <span>
-          Live container snapshot ·{" "}
-          {new Date(snapshot.last_seen_ms).toLocaleTimeString()}
+          {t("detail.liveSnapshot", {
+            time: new Date(snapshot.last_seen_ms).toLocaleTimeString(
+              i18n.language
+            ),
+          })}
         </span>
         <Button
           type="button"
@@ -176,7 +191,7 @@ function DatabaseMonitoringPanel({
           loading={isFetching}
           onClick={() => void refetch()}
         >
-          {isFetching ? "Refreshing..." : "Refresh"}
+          {isFetching ? t("detail.refreshing") : t("common:refresh")}
         </Button>
       </div>
       <ResourceCard
@@ -189,6 +204,7 @@ function DatabaseMonitoringPanel({
 }
 
 function DatabaseDetailPage(): React.JSX.Element {
+  const { t, i18n } = useTranslation("databases")
   const { id: routeDbId } = useParams({ strict: false })
   const dbId = routeDbId!
   const navigate = useNavigate()
@@ -218,16 +234,16 @@ function DatabaseDetailPage(): React.JSX.Element {
 
   if (isLoading) {
     return (
-      <ShellPage title="Database">
-        <div className="text-muted-foreground">Loading...</div>
+      <ShellPage title={t("detail.title")}>
+        <div className="text-muted-foreground">{t("common:loading")}</div>
       </ShellPage>
     )
   }
 
   if (error || !db) {
     return (
-      <ShellPage title="Database">
-        <div className="text-destructive">Database not found.</div>
+      <ShellPage title={t("detail.title")}>
+        <div className="text-destructive">{t("detail.notFound")}</div>
       </ShellPage>
     )
   }
@@ -237,20 +253,25 @@ function DatabaseDetailPage(): React.JSX.Element {
     !isExternal &&
     (db.kind === "postgres" || db.kind === "mysql" || db.kind === "mariadb")
   const canOpenAdminer = adminerSupported && db.status === "running"
+  const planLabel = t(`plans.${db.plan}`, { defaultValue: db.plan })
 
   return (
     <ShellPage
       title={db.name}
       description={
         isExternal
-          ? `${db.kind} · external endpoint`
-          : `${db.kind} ${db.version} · ${db.plan} plan`
+          ? t("detail.externalKind", { kind: db.kind })
+          : t("detail.managedKind", {
+              kind: db.kind,
+              version: db.version,
+              plan: planLabel,
+            })
       }
       actions={
         <div className="flex items-center gap-2">
           <DatabaseStatusBadge status={db.status} health={db.health_status} />
           <Button variant="destructive" onClick={() => setDeleteOpen(true)}>
-            Delete
+            {t("common:delete")}
           </Button>
         </div>
       }
@@ -260,30 +281,46 @@ function DatabaseDetailPage(): React.JSX.Element {
           <div className="rounded-lg border p-4">
             <div className="grid gap-3 text-sm sm:grid-cols-2">
               <div>
-                <span className="text-muted-foreground">Internal host</span>
+                <span className="text-muted-foreground">
+                  {t("detail.internalHost")}
+                </span>
                 <div className="font-mono">{db.internal_host ?? "—"}</div>
               </div>
               <div>
-                <span className="text-muted-foreground">Internal port</span>
+                <span className="text-muted-foreground">
+                  {t("detail.internalPort")}
+                </span>
                 <div className="font-mono">{db.internal_port ?? "—"}</div>
               </div>
               <div>
-                <span className="text-muted-foreground">Exposure mode</span>
-                <div>{db.exposure_mode}</div>
+                <span className="text-muted-foreground">
+                  {t("detail.exposureMode")}
+                </span>
+                <div>{exposureLabel(db.exposure_mode, t)}</div>
               </div>
               <div>
-                <span className="text-muted-foreground">Created</span>
-                <div>{new Date(db.created_at).toLocaleDateString()}</div>
+                <span className="text-muted-foreground">
+                  {t("detail.created")}
+                </span>
+                <div>
+                  {new Date(db.created_at).toLocaleDateString(i18n.language)}
+                </div>
               </div>
               <div>
-                <span className="text-muted-foreground">Public endpoint</span>
-                <div className="font-mono">{db.public_url ?? "Disabled"}</div>
+                <span className="text-muted-foreground">
+                  {t("detail.publicEndpoint")}
+                </span>
+                <div className="font-mono">
+                  {db.public_url ?? t("detail.disabled")}
+                </div>
               </div>
               <div>
-                <span className="text-muted-foreground">Last start</span>
+                <span className="text-muted-foreground">
+                  {t("detail.lastStart")}
+                </span>
                 <div>
                   {db.last_started_at
-                    ? new Date(db.last_started_at).toLocaleString()
+                    ? new Date(db.last_started_at).toLocaleString(i18n.language)
                     : "—"}
                 </div>
               </div>
@@ -295,19 +332,17 @@ function DatabaseDetailPage(): React.JSX.Element {
               <>
                 <div className="flex flex-col gap-1">
                   <span className="text-sm font-medium">
-                    External PostgreSQL endpoint
+                    {t("detail.externalTitle")}
                   </span>
                   <span className="text-xs text-muted-foreground">
-                    Ploydok stores and injects the connection string, but the
-                    database process, firewall, backups, and password rotation
-                    are managed outside Ploydok.
+                    {t("detail.externalHint")}
                   </span>
                 </div>
                 <div className="rounded-md border bg-muted/30 px-3 py-2 font-mono text-xs">
                   {db.internal_host ?? "—"}:{db.internal_port ?? "—"}
                 </div>
                 <Button variant="outline" onClick={() => setRevealOpen(true)}>
-                  Reveal connection string
+                  {t("detail.revealConnection")}
                 </Button>
                 {adminerSupported && (
                   <Button
@@ -315,7 +350,7 @@ function DatabaseDetailPage(): React.JSX.Element {
                     onClick={() => setAdminerOpen(true)}
                     disabled={!canOpenAdminer}
                   >
-                    Open Adminer
+                    {t("adminer.title")}
                   </Button>
                 )}
               </>
@@ -324,10 +359,10 @@ function DatabaseDetailPage(): React.JSX.Element {
                 <div className="flex items-center justify-between gap-3">
                   <div className="flex flex-col">
                     <span className="text-sm font-medium">
-                      Direct public port
+                      {t("detail.directPublicPort")}
                     </span>
                     <span className="text-xs text-muted-foreground">
-                      Internal linking always keeps the private endpoint.
+                      {t("detail.directPublicHint")}
                     </span>
                   </div>
                   <Switch
@@ -358,23 +393,20 @@ function DatabaseDetailPage(): React.JSX.Element {
                       <SelectValue />
                     </SelectTrigger>
                     <SelectContent>
-                      <SelectItem value="direct_port">Direct port</SelectItem>
-                      <SelectItem value="public_proxy">Public proxy</SelectItem>
+                      <SelectItem value="direct_port">
+                        {t("exposure.directPort")}
+                      </SelectItem>
+                      <SelectItem value="public_proxy">
+                        {t("exposure.publicProxy")}
+                      </SelectItem>
                     </SelectContent>
                   </Select>
                 )}
                 {publicEnabled && (
                   <Alert variant="destructive">
-                    <AlertTitle>
-                      This database will be reachable publicly
-                    </AlertTitle>
+                    <AlertTitle>{t("detail.publicWarningTitle")}</AlertTitle>
                     <AlertDescription>
-                      The container port will be bound to{" "}
-                      <span className="font-mono">0.0.0.0</span> on the host.
-                      Any client able to reach this server on the allocated port
-                      can attempt to connect with the generated credentials.
-                      Make sure your firewall only allows the IPs you trust
-                      before applying.
+                      {t("detail.publicWarningBody")}
                     </AlertDescription>
                   </Alert>
                 )}
@@ -387,34 +419,36 @@ function DatabaseDetailPage(): React.JSX.Element {
                       publicEnabled,
                     })
                   }
-                  disabled={isUpdatingNetwork}
+                  loading={isUpdatingNetwork}
                 >
                   {isUpdatingNetwork
-                    ? "Updating network..."
+                    ? t("detail.updatingNetwork")
                     : publicEnabled
-                      ? "Expose database publicly"
-                      : "Apply network settings"}
+                      ? t("detail.exposePublic")
+                      : t("detail.applyNetwork")}
                 </Button>
                 <div className="grid grid-cols-3 gap-2">
                   <Button
                     variant="outline"
                     onClick={() => startDb(dbId)}
-                    disabled={isStarting || db.status === "running"}
+                    disabled={db.status === "running"}
+                    loading={isStarting}
                   >
-                    {isStarting ? "Starting..." : "Start"}
+                    {isStarting ? t("detail.starting") : t("detail.start")}
                   </Button>
                   <Button
                     variant="outline"
                     onClick={() => stopDb(dbId)}
-                    disabled={isStopping || db.status === "stopped"}
+                    disabled={db.status === "stopped"}
+                    loading={isStopping}
                   >
-                    {isStopping ? "Stopping..." : "Stop"}
+                    {isStopping ? t("detail.stopping") : t("detail.stop")}
                   </Button>
                   <Button
                     variant="outline"
                     onClick={() => setRestartOpen(true)}
                   >
-                    Restart
+                    {t("detail.restart")}
                   </Button>
                 </div>
               </>
@@ -424,18 +458,24 @@ function DatabaseDetailPage(): React.JSX.Element {
 
         <Tabs defaultValue="general" className="flex flex-col gap-4">
           <TabsList>
-            <TabsTrigger value="general">General</TabsTrigger>
-            <TabsTrigger value="connection">Connection</TabsTrigger>
-            <TabsTrigger value="monitoring">Monitoring</TabsTrigger>
-            <TabsTrigger value="backups">Backups</TabsTrigger>
-            <TabsTrigger value="logs">Logs</TabsTrigger>
-            <TabsTrigger value="advanced">Advanced</TabsTrigger>
+            <TabsTrigger value="general">{t("detail.general")}</TabsTrigger>
+            <TabsTrigger value="connection">
+              {t("detail.connection")}
+            </TabsTrigger>
+            <TabsTrigger value="monitoring">
+              {t("detail.monitoring")}
+            </TabsTrigger>
+            <TabsTrigger value="backups">{t("detail.backups")}</TabsTrigger>
+            <TabsTrigger value="logs">{t("detail.logs")}</TabsTrigger>
+            <TabsTrigger value="advanced">{t("detail.advanced")}</TabsTrigger>
           </TabsList>
 
           <TabsContent value="general" className="flex flex-col gap-4">
             {db.linked_apps && db.linked_apps.length > 0 && (
               <div className="flex flex-col gap-2 rounded-lg border p-4">
-                <h2 className="text-sm font-semibold">Linked apps</h2>
+                <h2 className="text-sm font-semibold">
+                  {t("detail.linkedApps")}
+                </h2>
                 {db.linked_apps.map((link) => {
                   const appHref = currentOrgSlug
                     ? organizationPath(currentOrgSlug, `apps/${link.app_id}`)
@@ -455,7 +495,7 @@ function DatabaseDetailPage(): React.JSX.Element {
                         </a>
                       ) : (
                         <span className="font-medium text-foreground">
-                          (unknown app)
+                          {t("detail.unknownApp")}
                         </span>
                       )}
                       <span className="font-mono text-xs text-muted-foreground">
@@ -469,11 +509,9 @@ function DatabaseDetailPage(): React.JSX.Element {
 
             {isExternal ? (
               <Alert>
-                <AlertTitle>External database</AlertTitle>
+                <AlertTitle>{t("detail.externalAlertTitle")}</AlertTitle>
                 <AlertDescription>
-                  Lifecycle and password rotation stay with the PostgreSQL
-                  server owner. Use the connection tab to reveal the stored URL
-                  or link this database to apps.
+                  {t("detail.externalAlertBody")}
                 </AlertDescription>
               </Alert>
             ) : (
@@ -485,7 +523,7 @@ function DatabaseDetailPage(): React.JSX.Element {
             <div className="flex flex-col gap-3 rounded-lg border p-4">
               <div>
                 <span className="text-sm text-muted-foreground">
-                  Internal endpoint
+                  {t("detail.internalEndpoint")}
                 </span>
                 <div className="font-mono text-sm">
                   {db.connections?.internal.host ?? db.internal_host}:
@@ -494,14 +532,16 @@ function DatabaseDetailPage(): React.JSX.Element {
               </div>
               <div>
                 <span className="text-sm text-muted-foreground">
-                  Public endpoint
+                  {t("detail.publicEndpoint")}
                 </span>
                 <div className="font-mono text-sm">
-                  {db.connections?.public?.url ?? db.public_url ?? "Disabled"}
+                  {db.connections?.public?.url ??
+                    db.public_url ??
+                    t("detail.disabled")}
                 </div>
               </div>
               <Button variant="outline" onClick={() => setRevealOpen(true)}>
-                Reveal connection string
+                {t("detail.revealConnection")}
               </Button>
               {adminerSupported ? (
                 <Button
@@ -509,12 +549,11 @@ function DatabaseDetailPage(): React.JSX.Element {
                   onClick={() => setAdminerOpen(true)}
                   disabled={!canOpenAdminer}
                 >
-                  Open Adminer
+                  {t("adminer.title")}
                 </Button>
               ) : (
                 <div className="text-xs text-muted-foreground">
-                  Adminer is available for managed PostgreSQL, MySQL, and
-                  MariaDB databases.
+                  {t("detail.adminerUnavailable")}
                 </div>
               )}
             </div>
@@ -523,11 +562,11 @@ function DatabaseDetailPage(): React.JSX.Element {
           <TabsContent value="monitoring" className="flex flex-col gap-4">
             {isExternal ? (
               <Alert>
-                <AlertTitle>Monitoring unavailable</AlertTitle>
+                <AlertTitle>
+                  {t("detail.monitoringUnavailableTitle")}
+                </AlertTitle>
                 <AlertDescription>
-                  Ploydok only collects container metrics for managed database
-                  containers. Monitor this PostgreSQL server from its host or
-                  provider.
+                  {t("detail.monitoringUnavailableBody")}
                 </AlertDescription>
               </Alert>
             ) : (
@@ -538,11 +577,9 @@ function DatabaseDetailPage(): React.JSX.Element {
           <TabsContent value="backups" className="flex flex-col gap-4">
             {isExternal ? (
               <Alert>
-                <AlertTitle>Backups are external</AlertTitle>
+                <AlertTitle>{t("detail.backupsExternalTitle")}</AlertTitle>
                 <AlertDescription>
-                  Ploydok does not run backup or restore jobs against external
-                  PostgreSQL endpoints yet. Keep the server or provider backup
-                  policy enabled before linking production apps.
+                  {t("detail.backupsExternalBody")}
                 </AlertDescription>
               </Alert>
             ) : (
@@ -551,18 +588,20 @@ function DatabaseDetailPage(): React.JSX.Element {
                   <div className="mb-4 flex flex-wrap items-center justify-between gap-3">
                     <div>
                       <h2 className="text-sm font-semibold">
-                        Database backups
+                        {t("detail.backupsTitle")}
                       </h2>
                       <p className="text-xs text-muted-foreground">
-                        Manual and scheduled backups for this database.
+                        {t("detail.backupsHint")}
                       </p>
                     </div>
                     <Button
                       variant="outline"
                       onClick={() => backupNow()}
-                      disabled={isBackingUp}
+                      loading={isBackingUp}
                     >
-                      {isBackingUp ? "Starting..." : "Backup now"}
+                      {isBackingUp
+                        ? t("detail.backupStarting")
+                        : t("detail.backupNow")}
                     </Button>
                   </div>
                   <BackupsList
@@ -575,10 +614,11 @@ function DatabaseDetailPage(): React.JSX.Element {
 
                 <div className="rounded-lg border p-4">
                   <div className="mb-4">
-                    <h2 className="text-sm font-semibold">Backup policy</h2>
+                    <h2 className="text-sm font-semibold">
+                      {t("detail.policyTitle")}
+                    </h2>
                     <p className="text-xs text-muted-foreground">
-                      Store locally or on S3-compatible storage such as R2, AWS,
-                      Scaleway, or OVH.
+                      {t("detail.policyHint")}
                     </p>
                   </div>
                   <BackupConfigPanel
@@ -592,29 +632,35 @@ function DatabaseDetailPage(): React.JSX.Element {
           <TabsContent value="logs">
             <div className="max-h-[420px] overflow-auto rounded-lg border bg-muted/20 p-4 font-mono text-xs whitespace-pre-wrap">
               {isExternal
-                ? "External databases do not have Ploydok container logs."
+                ? t("detail.externalLogs")
                 : logs?.lines?.length
                   ? logs.lines
                       .map((line) => `[${line.stream ?? "log"}] ${line.line}`)
                       .join("\n")
-                  : "No logs available."}
+                  : t("detail.noLogs")}
             </div>
           </TabsContent>
 
           <TabsContent value="advanced">
             <div className="flex flex-col gap-3 rounded-lg border p-4 text-sm">
               <div>
-                <span className="text-muted-foreground">Version</span>
+                <span className="text-muted-foreground">
+                  {t("detail.version")}
+                </span>
                 <div>{db.version}</div>
               </div>
               <div>
-                <span className="text-muted-foreground">Rotation</span>
+                <span className="text-muted-foreground">
+                  {t("detail.rotation")}
+                </span>
                 <div>{db.rotation_schedule}</div>
               </div>
               <div>
-                <span className="text-muted-foreground">Container</span>
+                <span className="text-muted-foreground">
+                  {t("detail.container")}
+                </span>
                 <div className="font-mono">
-                  {isExternal ? "External (no Ploydok container)" : db.id}
+                  {isExternal ? t("detail.externalContainer") : db.id}
                 </div>
               </div>
             </div>

@@ -1,5 +1,6 @@
 // SPDX-License-Identifier: AGPL-3.0-only
 import * as React from "react"
+import { useTranslation } from "react-i18next"
 import {
   Dialog,
   DialogContent,
@@ -31,13 +32,13 @@ export function RestoreDialog({
   open,
   onOpenChange,
 }: RestoreDialogProps): React.JSX.Element {
+  const { t } = useTranslation("databases")
   const restore = useRestoreBackup(databaseId)
   const [ageIdentity, setAgeIdentity] = React.useState("")
   const [confirm, setConfirm] = React.useState("")
   const expectedConfirm = `restore ${databaseName}`
 
   function handleClose() {
-    // Clear sensitive data on close
     setAgeIdentity("")
     setConfirm("")
     onOpenChange(false)
@@ -57,27 +58,22 @@ export function RestoreDialog({
     <Dialog open={open} onOpenChange={handleClose}>
       <DialogContent className="max-w-lg">
         <DialogHeader>
-          <DialogTitle>Restore database</DialogTitle>
+          <DialogTitle>{t("restore.title")}</DialogTitle>
           <DialogDescription>
-            Restoring from backup{" "}
-            <span className="font-mono text-xs">{backup.id}</span> will
-            overwrite the current database contents. This action cannot be
-            undone.
+            {t("restore.fromBackup", { id: backup.id })}
           </DialogDescription>
         </DialogHeader>
 
         <form onSubmit={handleSubmit} className="space-y-4">
           <Alert variant="destructive">
             <AlertDescription>
-              This will destroy all current data in{" "}
-              <strong>{databaseName}</strong> and replace it with the backup
-              contents.
+              {t("restore.destroy", { name: databaseName })}
             </AlertDescription>
           </Alert>
 
           {backup.ageEncrypted && (
             <div className="space-y-1.5">
-              <Label htmlFor="age-identity">age private key</Label>
+              <Label htmlFor="age-identity">{t("restore.ageKey")}</Label>
               <Textarea
                 id="age-identity"
                 placeholder="AGE-SECRET-KEY-..."
@@ -89,19 +85,14 @@ export function RestoreDialog({
                 autoComplete="off"
               />
               <p className="text-xs text-muted-foreground">
-                The backup is age-encrypted. Paste your private key here — it
-                will not be stored.
+                {t("restore.ageHint")}
               </p>
             </div>
           )}
 
           <div className="space-y-1.5">
             <Label htmlFor="restore-confirm">
-              Type{" "}
-              <code className="rounded bg-muted px-1 font-mono text-xs">
-                {expectedConfirm}
-              </code>{" "}
-              to confirm
+              {t("restore.typeConfirm", { phrase: expectedConfirm })}
             </Label>
             <Input
               id="restore-confirm"
@@ -114,7 +105,7 @@ export function RestoreDialog({
 
           <DialogFooter>
             <Button type="button" variant="outline" onClick={handleClose}>
-              Cancel
+              {t("common:cancel")}
             </Button>
             <Button
               type="submit"
@@ -125,7 +116,7 @@ export function RestoreDialog({
                 (backup.ageEncrypted && !ageIdentity)
               }
             >
-              {restore.isPending ? "Restoring…" : "Restore now"}
+              {restore.isPending ? t("restore.restoring") : t("restore.submit")}
             </Button>
           </DialogFooter>
         </form>

@@ -1,38 +1,30 @@
 // SPDX-License-Identifier: AGPL-3.0-only
 import * as React from "react"
+import { useTranslation } from "react-i18next"
 import type { DbHealthStatus, DbStatus } from "../../lib/databases"
 
-const STATUS_CONFIG: Record<
-  DbStatus,
-  { label: string; className: string; pulse: boolean }
-> = {
+const STATUS_CONFIG: Record<DbStatus, { className: string; pulse: boolean }> = {
   creating: {
-    label: "Creating",
     className: "bg-blue-500/10 text-blue-600 dark:text-blue-400",
     pulse: true,
   },
   starting: {
-    label: "Starting",
     className: "bg-blue-500/10 text-blue-600 dark:text-blue-400",
     pulse: true,
   },
   running: {
-    label: "Running",
     className: "bg-green-500/10 text-green-600 dark:text-green-400",
     pulse: false,
   },
   stopped: {
-    label: "Stopped",
     className: "bg-muted text-muted-foreground",
     pulse: false,
   },
   degraded: {
-    label: "Degraded",
     className: "bg-orange-500/10 text-orange-600 dark:text-orange-400",
     pulse: true,
   },
   failed: {
-    label: "Failed",
     className: "bg-destructive/10 text-destructive",
     pulse: false,
   },
@@ -40,30 +32,25 @@ const STATUS_CONFIG: Record<
 
 const HEALTH_CONFIG: Record<
   DbHealthStatus,
-  { label: string; className: string; pulse: boolean }
+  { className: string; pulse: boolean }
 > = {
   unknown: {
-    label: "Unknown",
     className: "bg-muted text-muted-foreground",
     pulse: false,
   },
   starting: {
-    label: "Starting",
     className: "bg-blue-500/10 text-blue-600 dark:text-blue-400",
     pulse: true,
   },
   healthy: {
-    label: "Healthy",
     className: "bg-green-500/10 text-green-600 dark:text-green-400",
     pulse: false,
   },
   degraded: {
-    label: "Degraded",
     className: "bg-orange-500/10 text-orange-600 dark:text-orange-400",
     pulse: true,
   },
   unhealthy: {
-    label: "Unhealthy",
     className: "bg-orange-500/10 text-orange-600 dark:text-orange-400",
     pulse: true,
   },
@@ -116,8 +103,11 @@ export function DatabaseStatusBadge({
   health,
   className,
 }: DatabaseStatusBadgeProps): React.JSX.Element {
+  const { t } = useTranslation("databases")
   const config = STATUS_CONFIG[status] ?? STATUS_CONFIG.stopped
   const healthCfg = health ? HEALTH_CONFIG[health] : null
+  const statusKey = STATUS_CONFIG[status] ? status : "stopped"
+  const statusLabel = t(`status.${statusKey}`)
 
   return (
     <span
@@ -126,17 +116,17 @@ export function DatabaseStatusBadge({
         .join(" ")}
     >
       <Pill
-        label={config.label}
+        label={statusLabel}
         className={config.className}
         pulse={config.pulse}
-        ariaLabel={`Database status: ${config.label}`}
+        ariaLabel={t("status.aria", { label: statusLabel })}
       />
-      {healthCfg ? (
+      {healthCfg && health ? (
         <Pill
-          label={healthCfg.label}
+          label={t(`health.${health}`)}
           className={healthCfg.className}
           pulse={healthCfg.pulse}
-          ariaLabel={`Database health: ${healthCfg.label}`}
+          ariaLabel={t("health.aria", { label: t(`health.${health}`) })}
         />
       ) : null}
     </span>

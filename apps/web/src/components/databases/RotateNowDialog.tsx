@@ -1,5 +1,6 @@
 // SPDX-License-Identifier: AGPL-3.0-only
 import * as React from "react"
+import { useTranslation } from "react-i18next"
 import {
   Dialog,
   DialogContent,
@@ -18,7 +19,11 @@ interface RotateNowDialogProps {
   onClose: () => void
 }
 
-export function RotateNowDialog({ databaseId, onClose }: RotateNowDialogProps): React.JSX.Element {
+export function RotateNowDialog({
+  databaseId,
+  onClose,
+}: RotateNowDialogProps): React.JSX.Element {
+  const { t } = useTranslation("databases")
   const [confirmed, setConfirmed] = React.useState(false)
   const [totpCode, setTotpCode] = React.useState("")
   const { mutate: rotate, isPending } = useRotateDatabase()
@@ -31,41 +36,39 @@ export function RotateNowDialog({ databaseId, onClose }: RotateNowDialogProps): 
 
   function handleRotate() {
     if (!databaseId) return
-    rotate({ id: databaseId, totpCode }, {
-      onSuccess: () => {
-        handleClose()
-      },
-    })
+    rotate(
+      { id: databaseId, totpCode },
+      {
+        onSuccess: () => {
+          handleClose()
+        },
+      }
+    )
   }
 
   return (
-    <Dialog open={Boolean(databaseId)} onOpenChange={(v) => !v && handleClose()}>
+    <Dialog
+      open={Boolean(databaseId)}
+      onOpenChange={(v) => !v && handleClose()}
+    >
       <DialogContent className="sm:max-w-md">
         <DialogHeader>
-          <DialogTitle>Rotate database password</DialogTitle>
-          <DialogDescription>
-            This will generate a new password, update all linked apps, and
-            trigger a rolling redeploy. The old password remains active until
-            all apps are healthy (max 5 min double-write window).
-          </DialogDescription>
+          <DialogTitle>{t("rotate.title")}</DialogTitle>
+          <DialogDescription>{t("rotate.description")}</DialogDescription>
         </DialogHeader>
 
         <div className="flex flex-col gap-4">
-          <div className="rounded-md bg-amber-500/10 border border-amber-500/20 px-3 py-2 text-sm text-amber-700 dark:text-amber-400">
-            All apps linked to this database will be redeployed automatically.
-            If rotation fails, the old password will be restored.
+          <div className="rounded-md border border-amber-500/20 bg-amber-500/10 px-3 py-2 text-sm text-amber-700 dark:text-amber-400">
+            {t("rotate.warning")}
           </div>
 
           {!confirmed ? (
-            <Button
-              variant="outline"
-              onClick={() => setConfirmed(true)}
-            >
-              I understand, continue
+            <Button variant="outline" onClick={() => setConfirmed(true)}>
+              {t("rotate.understand")}
             </Button>
           ) : (
             <div className="flex flex-col gap-2">
-              <Label htmlFor="rotate-database-totp">TOTP code</Label>
+              <Label htmlFor="rotate-database-totp">{t("adminer.totp")}</Label>
               <Input
                 id="rotate-database-totp"
                 type="text"
@@ -73,7 +76,11 @@ export function RotateNowDialog({ databaseId, onClose }: RotateNowDialogProps): 
                 maxLength={6}
                 placeholder="000000"
                 value={totpCode}
-                onChange={(event) => setTotpCode(event.target.value.replace(/\D+/g, "").slice(0, 6))}
+                onChange={(event) =>
+                  setTotpCode(
+                    event.target.value.replace(/\D+/g, "").slice(0, 6)
+                  )
+                }
                 autoComplete="one-time-code"
               />
             </div>
@@ -82,15 +89,16 @@ export function RotateNowDialog({ databaseId, onClose }: RotateNowDialogProps): 
 
         <DialogFooter>
           <Button variant="outline" onClick={handleClose} disabled={isPending}>
-            Cancel
+            {t("common:cancel")}
           </Button>
           {confirmed && (
             <Button
               variant="destructive"
               onClick={handleRotate}
-              loading={isPending} disabled={totpCode.length !== 6}
+              loading={isPending}
+              disabled={totpCode.length !== 6}
             >
-              {isPending ? "Rotating…" : "Rotate password"}
+              {isPending ? t("rotate.rotating") : t("rotate.submit")}
             </Button>
           )}
         </DialogFooter>

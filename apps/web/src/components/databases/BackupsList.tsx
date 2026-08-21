@@ -1,5 +1,6 @@
 // SPDX-License-Identifier: AGPL-3.0-only
 import * as React from "react"
+import { useTranslation } from "react-i18next"
 import { Badge } from "@workspace/ui/components/badge"
 import { Button } from "@workspace/ui/components/button"
 import { Skeleton } from "@workspace/ui/components/skeleton"
@@ -21,12 +22,13 @@ function formatSize(bytes: number | null): string {
   return `${(bytes / 1024 / 1024).toFixed(1)} MB`
 }
 
-function formatDate(iso: string | null): string {
+function formatDate(iso: string | null, lng: string): string {
   if (!iso) return "—"
-  return new Date(iso).toLocaleString()
+  return new Date(iso).toLocaleString(lng)
 }
 
 function StatusBadge({ status }: { status: Backup["status"] }) {
+  const { t } = useTranslation("databases")
   const variant: Record<
     Backup["status"],
     "default" | "secondary" | "destructive"
@@ -35,7 +37,9 @@ function StatusBadge({ status }: { status: Backup["status"] }) {
     running: "secondary",
     failed: "destructive",
   }
-  return <Badge variant={variant[status]}>{status}</Badge>
+  return (
+    <Badge variant={variant[status]}>{t(`backupsList.status.${status}`)}</Badge>
+  )
 }
 
 export function BackupsList({
@@ -44,6 +48,7 @@ export function BackupsList({
   onBackupNow,
   backupNowLoading,
 }: BackupsListProps): React.JSX.Element {
+  const { t, i18n } = useTranslation("databases")
   const { data: backups, isLoading } = useTargetBackups(target)
   const deleteBackup = useDeleteBackup(target)
   const [restoreBackup, setRestoreBackup] = React.useState<Backup | null>(null)
@@ -51,7 +56,11 @@ export function BackupsList({
 
   if (isLoading) {
     return (
-      <div className="space-y-2" aria-busy="true" aria-label="Loading backups">
+      <div
+        className="space-y-2"
+        aria-busy="true"
+        aria-label={t("backup.loadingList")}
+      >
         <Skeleton className="h-10 w-full rounded-md" />
         <Skeleton className="h-10 w-full rounded-md" />
       </div>
@@ -61,7 +70,7 @@ export function BackupsList({
   if (!backups || backups.length === 0) {
     return (
       <div className="py-4 text-sm text-muted-foreground">
-        No backups yet.{" "}
+        {t("backupsList.empty")}{" "}
         {onBackupNow && (
           <Button
             variant="link"
@@ -69,7 +78,7 @@ export function BackupsList({
             onClick={onBackupNow}
             disabled={backupNowLoading}
           >
-            Create one now
+            {t("backupsList.createNow")}
           </Button>
         )}
       </div>
@@ -83,22 +92,22 @@ export function BackupsList({
           <thead className="bg-muted/50">
             <tr>
               <th className="px-3 py-2 text-left font-medium text-muted-foreground">
-                Date
+                {t("backupsList.date")}
               </th>
               <th className="px-3 py-2 text-left font-medium text-muted-foreground">
-                Destination
+                {t("backupsList.destination")}
               </th>
               <th className="px-3 py-2 text-left font-medium text-muted-foreground">
-                Size
+                {t("backupsList.size")}
               </th>
               <th className="px-3 py-2 text-left font-medium text-muted-foreground">
-                Status
+                {t("common:status")}
               </th>
               <th className="px-3 py-2 text-left font-medium text-muted-foreground">
-                Encrypted
+                {t("backupsList.encrypted")}
               </th>
               <th className="px-3 py-2 text-left font-medium text-muted-foreground">
-                Actions
+                {t("common:actions")}
               </th>
             </tr>
           </thead>
@@ -106,12 +115,12 @@ export function BackupsList({
             {backups.map((backup) => (
               <tr key={backup.id} className="hover:bg-muted/30">
                 <td className="px-3 py-2 tabular-nums">
-                  {formatDate(backup.startedAt)}
+                  {formatDate(backup.startedAt, i18n.language)}
                 </td>
                 <td className="px-3 py-2">
                   {backup.destinationKind === "s3"
-                    ? "S3-compatible"
-                    : "Local"}
+                    ? t("backupsList.s3")
+                    : t("backupsList.local")}
                 </td>
                 <td className="px-3 py-2 tabular-nums">
                   {formatSize(backup.sizeBytes)}
@@ -137,7 +146,7 @@ export function BackupsList({
                       size="sm"
                       onClick={() => setRestoreBackup(backup)}
                     >
-                      Restore
+                      {t("backupsList.restore")}
                     </Button>
                   )}
                   <Button
@@ -147,7 +156,7 @@ export function BackupsList({
                     onClick={() => deleteBackup.mutate(backup.id)}
                     loading={deleteBackup.isPending}
                   >
-                    Delete
+                    {t("common:delete")}
                   </Button>
                 </td>
               </tr>

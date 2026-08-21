@@ -1,6 +1,7 @@
 // SPDX-License-Identifier: AGPL-3.0-only
 import * as React from "react"
 import { toast } from "sonner"
+import { useTranslation } from "react-i18next"
 import {
   AlertDialog,
   AlertDialogAction,
@@ -31,7 +32,11 @@ interface RevealConnectionDialogProps {
   onClose: () => void
 }
 
-export function RevealConnectionDialog({ databaseId, onClose }: RevealConnectionDialogProps): React.JSX.Element {
+export function RevealConnectionDialog({
+  databaseId,
+  onClose,
+}: RevealConnectionDialogProps): React.JSX.Element {
+  const { t } = useTranslation("databases")
   const [connString, setConnString] = React.useState<string | null>(null)
   const [countdown, setCountdown] = React.useState(0)
   const timerRef = React.useRef<ReturnType<typeof setInterval> | null>(null)
@@ -72,32 +77,35 @@ export function RevealConnectionDialog({ databaseId, onClose }: RevealConnection
           setConnString(value)
         },
         onError: (err: Error) => {
-          toast.error(err.message || "Reveal failed")
+          toast.error(err.message || t("toasts.revealFailed"))
         },
-      },
+      }
     )
   }
 
   function handleCopy() {
     if (!connString) return
-    navigator.clipboard.writeText(connString).then(() => toast.success("Copied!"))
+    navigator.clipboard
+      .writeText(connString)
+      .then(() => toast.success(t("reveal.copied")))
   }
 
   const isOpen = Boolean(databaseId)
 
-  // Step 1 — confirmation (no secret yet)
   if (!connString) {
     return (
       <AlertDialog open={isOpen} onOpenChange={(v) => !v && handleClose()}>
         <AlertDialogContent>
           <AlertDialogHeader>
-            <AlertDialogTitle>Reveal connection string?</AlertDialogTitle>
+            <AlertDialogTitle>{t("reveal.title")}</AlertDialogTitle>
             <AlertDialogDescription>
-              The connection string contains sensitive credentials. It will stay visible for 30 seconds, then auto-hide. Make sure no one is looking over your shoulder.
+              {t("reveal.description")}
             </AlertDialogDescription>
           </AlertDialogHeader>
           <AlertDialogFooter>
-            <AlertDialogCancel onClick={handleClose}>Cancel</AlertDialogCancel>
+            <AlertDialogCancel onClick={handleClose}>
+              {t("common:cancel")}
+            </AlertDialogCancel>
             <AlertDialogAction
               onClick={(e) => {
                 e.preventDefault()
@@ -105,7 +113,7 @@ export function RevealConnectionDialog({ databaseId, onClose }: RevealConnection
               }}
               loading={isPending}
             >
-              {isPending ? "Revealing…" : "Reveal"}
+              {isPending ? t("reveal.revealing") : t("common:reveal")}
             </AlertDialogAction>
           </AlertDialogFooter>
         </AlertDialogContent>
@@ -113,18 +121,17 @@ export function RevealConnectionDialog({ databaseId, onClose }: RevealConnection
     )
   }
 
-  // Step 2 — secret shown
   return (
     <Dialog open={isOpen} onOpenChange={(v) => !v && handleClose()}>
       <DialogContent className="sm:max-w-lg">
         <DialogHeader>
-          <DialogTitle>Connection string</DialogTitle>
+          <DialogTitle>{t("reveal.connection")}</DialogTitle>
           <DialogDescription>
-            Auto-hide in {countdown}s.
+            {t("reveal.autoHide", { seconds: countdown })}
           </DialogDescription>
         </DialogHeader>
         <div className="flex flex-col gap-2">
-          <Label>Connection string</Label>
+          <Label>{t("reveal.connection")}</Label>
           <div className="flex gap-2">
             <Input
               readOnly
@@ -133,13 +140,13 @@ export function RevealConnectionDialog({ databaseId, onClose }: RevealConnection
               type="text"
             />
             <Button size="sm" variant="outline" onClick={handleCopy}>
-              Copy
+              {t("common:copy")}
             </Button>
           </div>
         </div>
         <DialogFooter>
           <Button variant="outline" onClick={handleClose}>
-            Close
+            {t("common:close")}
           </Button>
         </DialogFooter>
       </DialogContent>

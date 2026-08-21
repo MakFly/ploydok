@@ -1,6 +1,7 @@
 // SPDX-License-Identifier: AGPL-3.0-only
 import * as React from "react"
 import { Link } from "@tanstack/react-router"
+import { useTranslation } from "react-i18next"
 import { Badge } from "@workspace/ui/components/badge"
 import {
   RiAlarmWarningLine,
@@ -34,16 +35,22 @@ interface DatabaseCardProps {
   database: Database
 }
 
-function formatRelativeBackupDate(value: string | null | undefined): string {
-  if (!value) return "No backup completed"
+function formatRelativeBackupDate(
+  value: string | null | undefined,
+  t: (key: string, options?: { date: string }) => string,
+  lng: string
+): string {
+  if (!value) return t("card.noBackupCompleted")
 
   const date = new Date(value)
-  if (Number.isNaN(date.getTime())) return "Backup date unavailable"
+  if (Number.isNaN(date.getTime())) return t("card.backupDateUnavailable")
 
-  return `Last backup ${new Intl.DateTimeFormat(undefined, {
-    dateStyle: "medium",
-    timeStyle: "short",
-  }).format(date)}`
+  return t("card.lastBackup", {
+    date: new Intl.DateTimeFormat(lng, {
+      dateStyle: "medium",
+      timeStyle: "short",
+    }).format(date),
+  })
 }
 
 function ProtectionBadge({
@@ -51,15 +58,16 @@ function ProtectionBadge({
 }: {
   database: Database
 }): React.JSX.Element {
+  const { t } = useTranslation("databases")
   if (database.management_mode === "external") {
-    return <Badge variant="outline">External policy</Badge>
+    return <Badge variant="outline">{t("status.externalPolicy")}</Badge>
   }
 
   if (database.latest_backup_status === "failed") {
     return (
       <Badge variant="destructive">
         <RiAlarmWarningLine />
-        Backup failed
+        {t("card.backupFailed")}
       </Badge>
     )
   }
@@ -71,7 +79,7 @@ function ProtectionBadge({
         className="border-emerald-500/25 bg-emerald-500/10 text-emerald-700 dark:text-emerald-400"
       >
         <RiShieldCheckLine />
-        Last backup succeeded
+        {t("card.lastBackupSucceeded")}
       </Badge>
     )
   }
@@ -83,7 +91,7 @@ function ProtectionBadge({
         className="border-amber-500/25 bg-amber-500/10 text-amber-700 dark:text-amber-400"
       >
         <RiShieldCheckLine />
-        Backup scheduled
+        {t("card.backupScheduled")}
       </Badge>
     )
   }
@@ -91,7 +99,7 @@ function ProtectionBadge({
   return (
     <Badge variant="destructive">
       <RiAlarmWarningLine />
-      No backup
+      {t("card.noBackup")}
     </Badge>
   )
 }
@@ -99,6 +107,7 @@ function ProtectionBadge({
 export function DatabaseCard({
   database,
 }: DatabaseCardProps): React.JSX.Element {
+  const { t, i18n } = useTranslation("databases")
   const currentOrgSlug = useCurrentOrganizationSlug()
   const detailPath = currentOrgSlug
     ? organizationPath(currentOrgSlug, `databases/${database.id}`)
@@ -110,10 +119,12 @@ export function DatabaseCard({
       ? kindLabel
       : `${kindLabel} ${database.version}`
   const sourceLabel =
-    database.management_mode === "external" ? "External" : database.plan
+    database.management_mode === "external"
+      ? t("card.external")
+      : t(`plans.${database.plan}`, { defaultValue: database.plan })
   const endpoint = database.host
     ? `${database.host}:${database.port ?? "—"}`
-    : "Endpoint pending"
+    : t("card.endpointPending")
   const linked = database.linked_apps?.length ?? 0
   const backupFailed = database.latest_backup_status === "failed"
 
@@ -152,7 +163,7 @@ export function DatabaseCard({
           <div className="flex items-center gap-2">
             <RiGlobalLine className="size-4 shrink-0" />
             <span className={database.public_enabled ? "text-destructive" : ""}>
-              {database.public_enabled ? "Publicly exposed" : "Internal only"}
+              {database.public_enabled ? t("card.public") : t("card.internal")}
             </span>
           </div>
         </div>
@@ -161,8 +172,8 @@ export function DatabaseCard({
           <ProtectionBadge database={database} />
           <Badge variant="outline">
             {linked > 0
-              ? `${linked} linked app${linked > 1 ? "s" : ""}`
-              : "No linked app"}
+              ? t("card.linkedApps", { count: linked })
+              : t("card.noLinkedApp")}
           </Badge>
         </div>
 
@@ -174,10 +185,14 @@ export function DatabaseCard({
             ].join(" ")}
           >
             {backupFailed
-              ? "Latest backup failed"
+              ? t("card.latestBackupFailed")
               : database.management_mode === "external"
-                ? "Backups managed externally"
-                : formatRelativeBackupDate(database.latest_backup_at)}
+                ? t("card.backupsExternal")
+                : formatRelativeBackupDate(
+                    database.latest_backup_at,
+                    t,
+                    i18n.language
+                  )}
           </span>
           <RiArrowRightUpLine className="size-4 shrink-0 text-muted-foreground transition-transform group-hover:translate-x-0.5 group-hover:-translate-y-0.5" />
         </div>

@@ -1,5 +1,6 @@
 // SPDX-License-Identifier: AGPL-3.0-only
 import * as React from "react"
+import { useTranslation } from "react-i18next"
 import {
   Dialog,
   DialogContent,
@@ -38,6 +39,7 @@ export function LinkDatabaseDialog({
   projectId,
   onClose,
 }: LinkDatabaseDialogProps): React.JSX.Element {
+  const { t } = useTranslation("databases")
   const [selectedDbId, setSelectedDbId] = React.useState("")
   const [envPrefix, setEnvPrefix] = React.useState(DEFAULT_DATABASE_ENV_PREFIX)
   const [prefixError, setPrefixError] = React.useState("")
@@ -53,9 +55,7 @@ export function LinkDatabaseDialog({
 
   function validatePrefix(v: string): boolean {
     if (!PREFIX_REGEX.test(v)) {
-      setPrefixError(
-        "Must be UPPER_SNAKE_CASE (letters, numbers, underscores only)"
-      )
+      setPrefixError(t("link.prefixError"))
       return false
     }
     setPrefixError("")
@@ -83,25 +83,23 @@ export function LinkDatabaseDialog({
     <Dialog open={open} onOpenChange={(v) => !v && onClose()}>
       <DialogContent className="sm:max-w-md">
         <DialogHeader>
-          <DialogTitle>Link database</DialogTitle>
-          <DialogDescription>
-            Inject database connection variables into this app at deploy time.
-          </DialogDescription>
+          <DialogTitle>{t("link.title")}</DialogTitle>
+          <DialogDescription>{t("link.description")}</DialogDescription>
         </DialogHeader>
 
         <form onSubmit={handleSubmit} className="flex flex-col gap-4">
           <div className="flex flex-col gap-2">
-            <Label htmlFor="db-select">Database</Label>
+            <Label htmlFor="db-select">{t("link.database")}</Label>
             {isLoading ? (
               <Skeleton className="h-9 w-full rounded-md" />
             ) : runningDbs.length === 0 ? (
               <div className="text-sm text-muted-foreground">
-                No running databases in this project.
+                {t("link.empty")}
               </div>
             ) : (
               <Select value={selectedDbId} onValueChange={setSelectedDbId}>
                 <SelectTrigger id="db-select">
-                  <SelectValue placeholder="Select a database" />
+                  <SelectValue placeholder={t("link.select")} />
                 </SelectTrigger>
                 <SelectContent>
                   {runningDbs.map((db: Database) => (
@@ -115,7 +113,7 @@ export function LinkDatabaseDialog({
           </div>
 
           <div className="flex flex-col gap-2">
-            <Label htmlFor="env-prefix">Variable prefix</Label>
+            <Label htmlFor="env-prefix">{t("link.prefix")}</Label>
             <Input
               id="env-prefix"
               value={envPrefix}
@@ -130,9 +128,7 @@ export function LinkDatabaseDialog({
               <span className="text-xs text-destructive">{prefixError}</span>
             )}
             <span className="text-xs text-muted-foreground">
-              Generates <code>{"${prefix}_URL"}</code>,{" "}
-              <code>{"${prefix}_HOST"}</code>, etc. Default{" "}
-              <code>DATABASE</code> gives the app <code>DATABASE_URL</code>.
+              {t("link.prefixHint")}
             </span>
           </div>
 
@@ -143,14 +139,14 @@ export function LinkDatabaseDialog({
               onClick={onClose}
               disabled={isPending}
             >
-              Cancel
+              {t("common:cancel")}
             </Button>
             <Button
               type="submit"
               loading={isPending}
               disabled={!selectedDbId || runningDbs.length === 0}
             >
-              {isPending ? "Linking..." : "Link"}
+              {isPending ? t("link.linking") : t("link.submit")}
             </Button>
           </DialogFooter>
         </form>
