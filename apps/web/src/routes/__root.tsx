@@ -27,6 +27,9 @@ import { apiBaseUrl } from "../lib/api/base"
 import { broadcastAuthEvent, subscribeAuthEvents } from "../lib/api/broadcast"
 import { startProactiveRefresh } from "../lib/api/scheduler"
 import type { ErrorComponentProps } from "@tanstack/react-router"
+import { I18nextProvider } from "react-i18next"
+import i18n from "../lib/i18n"
+import { resolveRequestLocale } from "../lib/i18n/resolve-locale"
 
 const queryClient = new QueryClient({
   queryCache: new QueryCache({
@@ -69,6 +72,10 @@ function RootErrorComponent({
 }
 
 export const Route = createRootRoute({
+  beforeLoad: async () => {
+    const locale = await resolveRequestLocale()
+    if (i18n.language !== locale) await i18n.changeLanguage(locale)
+  },
   head: () => ({
     meta: [
       { charSet: "utf-8" },
@@ -242,7 +249,7 @@ function RootDocument({
   children: React.ReactNode
 }): React.JSX.Element {
   return (
-    <html lang="en" className="h-full antialiased" suppressHydrationWarning>
+    <html lang={i18n.language} className="h-full antialiased" suppressHydrationWarning>
       <head>
         <HeadContent />
         {/* Default light; cookie overrides (light|dark|system) */}
@@ -253,14 +260,16 @@ function RootDocument({
         />
       </head>
       <body className="min-h-dvh bg-background font-sans text-foreground antialiased">
-        <QueryClientProvider client={queryClient}>
-          <BrandingInjector />
-          <AuthSyncProvider>
-            <BackendUnavailableGate>{children}</BackendUnavailableGate>
-            <NavigationProgress />
-            <Toaster position="bottom-center" theme="system" />
-          </AuthSyncProvider>
-        </QueryClientProvider>
+        <I18nextProvider i18n={i18n}>
+          <QueryClientProvider client={queryClient}>
+            <BrandingInjector />
+            <AuthSyncProvider>
+              <BackendUnavailableGate>{children}</BackendUnavailableGate>
+              <NavigationProgress />
+              <Toaster position="bottom-center" theme="system" />
+            </AuthSyncProvider>
+          </QueryClientProvider>
+        </I18nextProvider>
         <Scripts />
       </body>
     </html>

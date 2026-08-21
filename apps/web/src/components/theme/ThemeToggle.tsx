@@ -1,5 +1,6 @@
 // SPDX-License-Identifier: AGPL-3.0-only
 import * as React from "react"
+import { useTranslation } from "react-i18next"
 import { Button } from "@workspace/ui/components/button"
 
 export type ThemeMode = "light" | "dark" | "system"
@@ -103,6 +104,7 @@ export function useTheme(): {
 
 export function ThemeToggle(): React.JSX.Element {
   const { resolved, toggle } = useTheme()
+  const { t } = useTranslation("common")
 
   return (
     <Button
@@ -110,7 +112,7 @@ export function ThemeToggle(): React.JSX.Element {
       size="icon"
       onClick={toggle}
       aria-label={
-        resolved === "dark" ? "Switch to light theme" : "Switch to dark theme"
+        resolved === "dark" ? t("theme.switchToLight") : t("theme.switchToDark")
       }
     >
       {resolved === "dark" ? (

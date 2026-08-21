@@ -24,6 +24,21 @@ export default defineConfig({
     extraHTTPHeaders: {
       Accept: "text/html,application/xhtml+xml,application/xml;q=0.9,*/*;q=0.8",
     },
+    storageState: {
+      cookies: [
+        {
+          name: "ploydok-locale",
+          value: "en",
+          domain: "localhost",
+          path: "/",
+          expires: -1,
+          httpOnly: false,
+          secure: false,
+          sameSite: "Lax" as const,
+        },
+      ],
+      origins: [],
+    },
   },
 
   projects: [

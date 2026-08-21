@@ -1,7 +1,9 @@
 // SPDX-License-Identifier: AGPL-3.0-only
 import * as React from "react"
 
+import { useTranslation } from "react-i18next"
 import { cn } from "@workspace/ui/lib/utils"
+import { LanguageSwitcher } from "../i18n/LanguageSwitcher"
 
 /** BoardUI iso public auth shell (login, setup, invitations). */
 export function AuthShell({
@@ -20,6 +22,7 @@ export function AuthShell({
   /** `true` rend le panneau deploy par défaut ; un nœud le remplace. */
   showcase?: boolean | React.ReactNode
 }): React.JSX.Element {
+  const { t } = useTranslation("common")
   const withShowcase = Boolean(showcase)
   const form = (
     <section
@@ -67,9 +70,12 @@ export function AuthShell({
         <div className="flex flex-col gap-5">{children}</div>
       </div>
 
-      <p className="text-center text-[11px] text-muted-foreground/80">
-        AGPL-3.0 · Self-hosted by design
-      </p>
+      <div className="flex flex-col items-center gap-2">
+        <LanguageSwitcher compact />
+        <p className="text-center text-[11px] text-muted-foreground/80">
+          {t("footer.license")}
+        </p>
+      </div>
     </section>
   )
 
@@ -111,10 +117,11 @@ export function AuthShowcaseFrame({
   footer: string
   children?: React.ReactNode
 }): React.JSX.Element {
+  const { t } = useTranslation("auth")
   return (
     <aside
       className="absolute inset-y-1 right-1 left-6 flex min-w-0 flex-col overflow-hidden rounded-[28px] bg-[oklch(0.235_0.055_258)] text-[oklch(0.97_0.006_250)] shadow-[0_24px_70px_rgba(18,32,58,0.16)] xl:left-8"
-      aria-label="Ploydok platform overview"
+      aria-label={t("platformOverview")}
     >
       <div
         className="absolute inset-0 opacity-90"
@@ -163,32 +170,41 @@ export function AuthShowcaseFrame({
 
 /** Panneau de droite par défaut : le pitch produit affiché sur /login. */
 function DeployShowcase(): React.JSX.Element {
+  const { t } = useTranslation("auth")
   return (
     <AuthShowcaseFrame
-      label="Control plane 01"
-      badge="Runtime connected"
-      eyebrow="From commit to production"
+      label={t("login.showcase.label")}
+      badge={t("login.showcase.badge")}
+      eyebrow={t("login.showcase.eyebrow")}
       title={
         <>
-          Deploy from Git.
+          {t("login.showcase.titleLine1")}
           <br />
-          Own the runtime.
+          {t("login.showcase.titleLine2")}
         </>
       }
-      description="Connect a repository, ship through Docker Swarm, and keep every log, domain, rollout, and database under your control."
-      footer="Security-first infrastructure for teams that ship."
+      description={t("login.showcase.description")}
+      footer={t("login.showcase.footer")}
     >
-      <ShowcasePanel title="api.production" meta="deploy #184">
+      <ShowcasePanel
+        title={t("login.showcase.panelTitle")}
+        meta={t("login.showcase.panelMeta")}
+      >
         <ShowcaseStep
           index="01"
-          label="Repository synced"
+          label={t("login.showcase.stepRepo")}
           meta="github/main"
           done
         />
-        <ShowcaseStep index="02" label="Image built" meta="sha-7f29a1" done />
+        <ShowcaseStep
+          index="02"
+          label={t("login.showcase.stepImage")}
+          meta="sha-7f29a1"
+          done
+        />
         <ShowcaseStep
           index="03"
-          label="Blue/green rollout"
+          label={t("login.showcase.stepRollout")}
           meta="2/2 healthy"
           active
         />
